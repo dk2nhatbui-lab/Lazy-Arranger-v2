@@ -464,6 +464,25 @@ impl Editor {
         Ok(added)
     }
 
+    /// The clip grid for the current song.
+    #[must_use]
+    pub fn grid(&self, bars_per_scene: usize) -> arranging::grid::Grid {
+        arranging::grid::from_timeline(self.song(), bars_per_scene)
+    }
+
+    /// Writes a played scene log to the timeline.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when an edit is rejected.
+    pub fn record_grid(&mut self, log: &[(usize, Tick)]) -> Result<usize, String> {
+        let grid = self.grid(2);
+        let copied = arranging::grid::record_to_timeline(&mut self.session, &grid, log)
+            .map_err(|error| error.to_string())?;
+        self.dirty |= copied > 0;
+        Ok(copied)
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {

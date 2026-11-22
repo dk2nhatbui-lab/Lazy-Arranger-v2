@@ -20,6 +20,7 @@ enum View {
     Perform,
     Arrange,
     Mix,
+    Loops,
 }
 
 impl View {
@@ -28,6 +29,7 @@ impl View {
             Self::Perform => 0,
             Self::Arrange => 1,
             Self::Mix => 2,
+            Self::Loops => 3,
         }
     }
 
@@ -35,6 +37,7 @@ impl View {
         match index {
             0 => Self::Perform,
             2 => Self::Mix,
+            3 => Self::Loops,
             _ => Self::Arrange,
         }
     }
@@ -44,6 +47,7 @@ impl View {
             Self::Perform => "Perform",
             Self::Arrange => "Arrange",
             Self::Mix => "Mix",
+            Self::Loops => "Loops",
         }
     }
 }
@@ -77,6 +81,8 @@ pub struct ShellApp {
     beat_start: Tick,
     beat_bar: Tick,
     beat_pattern: arranging::beat::BeatPattern,
+    launcher: arranging::grid::Launcher,
+    last_bar: i64,
     synth: arranging::SynthSpec,
     project_path: Option<PathBuf>,
     view: View,
@@ -132,6 +138,8 @@ impl ShellApp {
             beat_start: 0,
             beat_bar: 3840,
             beat_pattern: arranging::beat::BeatPattern::default(),
+            launcher: arranging::grid::Launcher::default(),
+            last_bar: 0,
             synth: arranging::SynthSpec::default(),
             project_path,
             view: View::Arrange,
@@ -380,6 +388,7 @@ impl ShellApp {
             let seconds = player.frame() as f64 / f64::from(audio::SAMPLE_RATE);
             self.position = self.song().tempo_map.tick_at_seconds(seconds);
             self.playing = player.is_playing();
+            self.advance_launcher();
             if self.playing {
                 context.request_repaint_after(Duration::from_millis(16));
             }
@@ -499,6 +508,90 @@ impl ShellApp {
                 });
             });
         self.chord_dialog = open && self.chord_dialog;
+    }
+
+    /// Commits a queued scene when the playhead crosses a bar line.
+    fn advance_launcher(&mut self) {
+        let bar = self.song().time_signature.bar_ticks().max(1);
+        let bar_index = self.position.div_euclid(bar);
+        if self.launcher.playing && bar_index != self.last_bar {
+            self.last_bar = bar_index;
+            if let Some(scene) = self.launcher.advance(bar_index * bar) {
+                self.status = Some(format!("scene {}", scene + 1));
+            }
+        }
+    }
+
+    /// The clip grid: scenes as rows, tracks as columns, launch and record.
+    fn grid_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading(format!(
+            "Clip grid · {} scene(s) of two bars",
+            self.editor.grid(2).rows.len()
+        ));
+        let grid = self.editor.grid(2);
+        for (scene_index, row) in grid.rows.iter().enumerate() {
+            ui.horizontal(|ui| {
+                let playing = self.launcher.current == Some(scene_index);
+                let waiting = self.launcher.waiting == Some(scene_index);
+                let label = if playing {
+                    format!("▶ {}", row.scene.name)
+                } else if waiting {
+                    format!("… {}", row.scene.name)
+                } else {
+                    row.scene.name.clone()
+                };
+                if ui.selectable_label(playing || waiting, label).clicked() {
+                    if self.launcher.playing && self.launcher.current == Some(scene_index) {
+                        self.launcher.stop();
+                        self.status = Some(String::from("stopped"));
+                    } else {
+                        self.launcher.launch(scene_index);
+                        self.status = Some(format!("scene {} queued", scene_index + 1));
+                    }
+                }
+                for (column, slot) in row.slots.iter().enumerate() {
+                    let name = slot.clip.map_or_else(
+                        || String::from("—"),
+                        |clip| {
+                            grid.tracks
+                                .get(column)
+                                .and_then(|track| {
+                                    self.song().tracks.iter().find(|entry| entry.id == *track)
+                                })
+                                .and_then(|track| track.clips.iter().find(|entry| entry.id == clip))
+                                .map_or_else(|| format!("clip {clip}"), |entry| entry.name.clone())
+                        },
+                    );
+                    let _ = ui.button(name);
+                }
+            });
+        }
+        ui.horizontal(|ui| {
+            if ui
+                .button(format!(
+                    "Record take ({} scene(s))",
+                    self.launcher.log.len()
+                ))
+                .clicked()
+            {
+                let log = self.launcher.log.clone();
+                match self.editor.record_grid(&log) {
+                    Ok(copied) => {
+                        self.status = Some(format!("take: {copied} note(s)"));
+                        self.launcher.log.clear();
+                    }
+                    Err(error) => self.status = Some(error),
+                }
+            }
+            if ui.button("Stop").clicked() {
+                self.launcher.stop();
+            }
+        });
+        ui.label(
+            egui::RichText::new("Click a scene to queue it; the next bar starts it while playing.")
+                .size(10.0)
+                .color(theme::TEXT_DIM),
+        );
     }
 
     /// The Beat view: four drum rows of sixteen steps for one bar.
@@ -1115,6 +1208,9 @@ impl eframe::App for ShellApp {
                                 .color(theme::TEXT_MUTED),
                         );
                     });
+                }
+                View::Loops => {
+                    self.grid_panel(ui);
                 }
                 }
                 clicked

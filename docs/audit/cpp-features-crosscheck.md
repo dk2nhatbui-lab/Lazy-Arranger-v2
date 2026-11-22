@@ -18,7 +18,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 9 | Audio analysis: stems, notes, chords, instruments, lyrics, transcription A/B | partial | Monophonic pitch detection and audio→MIDI; no stems, chords, tags, lyrics, A/B |
 | 10 | Drum sampler and slicer | missing | — |
 | 11 | Beat view | partial | Four drum rows by sixteen steps with off/soft/normal/loud cycling, read from and written to a bar as one undo step, B opens the grid. No pattern length, copy/paste rows, Put-in-bars or scrolling long clips |
-| 12 | Clip grid | partial | Scenes of N bars, slots, a bar-quantised launcher with waiting/cancel/log, scene recording to the timeline as undoable edits, `get_clip_grid`. No grid UI, audio loops or Launchkey control |
+| 12 | Clip grid | partial | Scenes of N bars, slots, a bar-quantised launcher with waiting/cancel/log, scene recording to the timeline as undoable edits, `get_clip_grid`. Loops view shows scene rows and track slots, queues on click and records a take. No audio loops, scene renaming or Launchkey control |
 | 13 | Smart chords | partial | Chord parsing, transposition, progression text, roman numerals in the chosen key, chord lane with K entry, 16 key-aware pads, and a suggestion function with dialog buttons. Reharmonize rules and dialog. Find Chords from the Music (pitch-class recognition, slash bass). No A/B audition, Launchkey pads, inversions/voicings, chord recording |
 | 14 | Styles | partial | Yamaha open, import, compile on chords, **save container (SFF1/SFF2, real 15-section style rewritten)**. No Korg, live sections, rules editor UI, style from clips, voices/setup events |
 | 15 | Style from Audio and Link | partial | Link→monophonic MIDI; no style output, no match scores |

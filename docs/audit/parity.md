@@ -71,6 +71,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Clip grid model (scenes × tracks, slots) | `arranging::grid`, MCP `get_clip_grid` | verified core | 3 tests + tool |
 | Scene launcher (bar-quantised, waiting/cancel, log) | `arranging::grid::Launcher` | verified core | 2 tests |
 | Record played scenes to the timeline | `arranging::grid::record_to_timeline` | verified core | notes and clips appended, undoable |
+| Loops view: scene rows, slots, launch/queue, record take | `apps/desktop` | implemented | UI manual; launcher/recorder tested |
 | Device profiles: YAML loader, banks, drum kits, other devices, editors, mixer maps | — | missing | earlier claim of five typed profiles was wrong; corrected |
 | AI/MCP | `apps/mcp` | missing | Stage 8; `mcp` crate planned |
 | Korg Pa import | — | missing | Stage 8 extension |
