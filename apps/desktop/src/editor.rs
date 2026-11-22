@@ -176,6 +176,38 @@ impl Editor {
         Ok(())
     }
 
+    /// Resizes a clip region.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] when the clip is unknown or the length is not positive.
+    pub fn resize_clip(
+        &mut self,
+        track: TrackId,
+        clip: project::ClipId,
+        length: Tick,
+    ) -> Result<(), CommandError> {
+        self.session.resize_clip(track, clip, length)?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Joins two clip regions.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] when either clip is unknown.
+    pub fn join_clips(
+        &mut self,
+        track: TrackId,
+        first: project::ClipId,
+        second: project::ClipId,
+    ) -> Result<(), CommandError> {
+        self.session.join_clips(track, first, second)?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {

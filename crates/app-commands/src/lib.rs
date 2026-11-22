@@ -431,6 +431,40 @@ impl EditSession {
         self.apply(Command::SetClips { track, clips })
     }
 
+    /// Joins two clips of a track into one spanning both.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] when either clip is unknown or both are the same.
+    pub fn join_clips(
+        &mut self,
+        track: TrackId,
+        first: project::ClipId,
+        second: project::ClipId,
+    ) -> Result<CommandOutcome, CommandError> {
+        if first == second {
+            return Err(CommandError::Validation(String::from(
+                "a clip cannot be joined with itself",
+            )));
+        }
+        let mut clips = self.track(track)?.clips.clone();
+        let Some(a) = clips.iter().position(|clip| clip.id == first) else {
+            return Err(CommandError::Validation(format!("unknown clip {first}")));
+        };
+        let Some(b) = clips.iter().position(|clip| clip.id == second) else {
+            return Err(CommandError::Validation(format!("unknown clip {second}")));
+        };
+        let (left, right) = if clips[a].start <= clips[b].start {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        let end = clips[right].end().max(clips[left].end());
+        clips[left].length = end - clips[left].start;
+        clips.remove(right);
+        self.apply(Command::SetClips { track, clips })
+    }
+
     /// Allocates the next free track identifier.
     ///
     /// # Errors
@@ -1072,6 +1106,34 @@ mod tests {
             edit.undo().expect("undo");
         }
         assert!(edit.song().tracks[0].clips.is_empty());
+    }
+
+    #[test]
+    fn joining_clips_spans_both_and_undoes() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.insert_clip(track, clip(1, 0, 960)).expect("first");
+        edit.insert_clip(track, clip(2, 960, 1920)).expect("second");
+        edit.join_clips(
+            track,
+            project::ClipId::new(2).expect("valid"),
+            project::ClipId::new(1).expect("valid"),
+        )
+        .expect("join");
+        let clips = &edit.song().tracks[0].clips;
+        assert_eq!(clips.len(), 1);
+        assert_eq!(clips[0].start, 0);
+        assert_eq!(clips[0].length, 2880);
+        edit.undo().expect("undo");
+        assert_eq!(edit.song().tracks[0].clips.len(), 2);
+        assert!(
+            edit.join_clips(
+                track,
+                project::ClipId::new(1).expect("valid"),
+                project::ClipId::new(1).expect("valid")
+            )
+            .is_err()
+        );
     }
 
     #[test]

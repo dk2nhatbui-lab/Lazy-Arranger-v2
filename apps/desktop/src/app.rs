@@ -196,6 +196,7 @@ impl ShellApp {
             let bar = self.song().time_signature.bar_ticks().max(1);
             let right = context.input(|input| input.key_pressed(egui::Key::ArrowRight));
             let left = context.input(|input| input.key_pressed(egui::Key::ArrowLeft));
+            let shift = context.input(|input| input.modifiers.shift);
             if (right || left)
                 && let Some(found) = self
                     .song()
@@ -205,12 +206,45 @@ impl ShellApp {
                     .and_then(|candidate| candidate.clips.iter().find(|cl| cl.id == clip))
                     .cloned()
             {
-                let target = if right {
-                    found.start + bar
+                if shift {
+                    let length = if right {
+                        found.length + bar
+                    } else {
+                        (found.length - bar).max(1)
+                    };
+                    let _ = self.editor.resize_clip(track, clip, length);
                 } else {
-                    (found.start - bar).max(0)
-                };
-                let _ = self.editor.move_clip(track, clip, target);
+                    let target = if right {
+                        found.start + bar
+                    } else {
+                        (found.start - bar).max(0)
+                    };
+                    let _ = self.editor.move_clip(track, clip, target);
+                }
+            }
+            if context.input(|input| input.key_pressed(egui::Key::J))
+                && let Some(next) = self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|candidate| candidate.id == track)
+                    .and_then(|candidate| {
+                        candidate
+                            .clips
+                            .iter()
+                            .find(|cl| {
+                                cl.start
+                                    > candidate
+                                        .clips
+                                        .iter()
+                                        .find(|sel| sel.id == clip)
+                                        .map_or(i64::MAX, |sel| sel.start)
+                            })
+                            .map(|cl| cl.id)
+                    })
+            {
+                let _ = self.editor.join_clips(track, clip, next);
+                self.selected_clip = Some((track, clip));
             }
         }
         if save {
