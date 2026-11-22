@@ -162,6 +162,14 @@ enum Commands {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Lay out a track as score pages and report the geometry.
+    ScoreLayout {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Track index, from zero; defaults to the first track.
+        #[arg(long, default_value_t = 0)]
+        track: usize,
+    },
     /// Export a project as MusicXML.
     ExportMusicXml {
         /// Project `.json` path.
@@ -519,6 +527,33 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 fs::write(&path, json)
                     .map_err(|error| format!("could not write {}: {error}", path.display()))?;
                 println!("{} chord(s) -> {}", chords.len(), path.display());
+            }
+            Ok(())
+        }
+        Commands::ScoreLayout { project, track } => {
+            let project = read_project(&project)?;
+            let Some(entry) = project.song.tracks.get(track) else {
+                return Err(format!("no track at index {track}").into());
+            };
+            let engraved = score::engrave(&project.song, entry.id, score::Settings::default());
+            println!(
+                "{}: {} page(s), {} system(s), {} measure(s), {} note(s)",
+                entry.name,
+                engraved.pages.len(),
+                engraved.systems(),
+                engraved.measures,
+                engraved.notes.len()
+            );
+            for (index, page) in engraved.pages.iter().enumerate() {
+                println!(
+                    "  page {}: {} system(s), {} measure(s)",
+                    index + 1,
+                    page.systems.len(),
+                    page.systems
+                        .iter()
+                        .map(|system| system.measures.len())
+                        .sum::<usize>()
+                );
             }
             Ok(())
         }

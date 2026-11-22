@@ -24,6 +24,7 @@ musicxml = { path = "../../crates/musicxml" }
 serde_json = { workspace = true }
 performance = { path = "../../crates/performance" }
 project = { path = "../../crates/project" }
+score = { path = "../../crates/score" }
 sequencer = { path = "../../crates/sequencer" }
 smf = { path = "../../crates/smf" }
 

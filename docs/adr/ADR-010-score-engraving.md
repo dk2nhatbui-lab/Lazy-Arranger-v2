@@ -1,6 +1,6 @@
 # ADR-010: Score and engraving architecture
 
-**Status:** Proposed architecture. Implementation is Stage 8; no score code exists yet.
+**Status:** Accepted; first implementation step landed (layout only).
 
 ## Context
 
@@ -96,3 +96,15 @@ for the drag. Only then widen notation coverage.
 * Cadenza, Vibez, SoundCraft and Cecilia clones under `.reference/`, pinned in
   `docs/audit/notes/`.
 * `docs/audit/notes/refs-soundcraft-cecilia.md` for the engraving evidence.
+
+## Progress
+
+`crates/score` now implements the first half of the seam: `engrave` returns an
+immutable layout of pages, systems, measures and positioned notes for one
+track, with settings for page size, margins, staff space, system gap and
+measure width. It has no toolkit dependency and makes no rendering decisions.
+`score-layout` reports the geometry for a project.
+
+Still missing: the egui canvas adapter, PDF export, spelling and accidentals,
+clefs and staves beyond one, beams, ties, collisions, lyrics, marks, editing
+and the two-page validation score from the acceptance list.

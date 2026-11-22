@@ -1,0 +1,14 @@
+[package]
+name = "score"
+description = "Engraving layout: pages, systems, measures and note positions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+music-core = { path = "../music-core" }
+project = { path = "../project" }
+
+[lints]
+workspace = true
