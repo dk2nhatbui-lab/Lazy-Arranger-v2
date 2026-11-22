@@ -80,6 +80,13 @@ pub enum Command {
         /// New arm state.
         armed: bool,
     },
+    /// Replace a track's automation lanes.
+    SetAutomation {
+        /// The track.
+        track: TrackId,
+        /// New lanes.
+        lanes: Vec<project::song::Automation>,
+    },
     /// Set a track's fader and pan, each 0..=127.
     SetTrackGain {
         /// The track.
@@ -159,6 +166,7 @@ impl Command {
             Self::SetTrackProgram { .. } => "set track program",
             Self::SetTrackFlags { .. } => "set track flags",
             Self::SetTrackGain { .. } => "set track gain",
+            Self::SetAutomation { .. } => "set automation",
             Self::SetMarkers { .. } => "set markers",
             Self::SetSceneNames { .. } => "set scene names",
             Self::SetClips { .. } => "set clips",
@@ -646,6 +654,10 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::SetAutomation { track, .. } => Command::SetAutomation {
+                track: *track,
+                lanes: self.track(*track)?.automation.clone(),
+            },
             Command::SetTrackGain { track, .. } => {
                 let found = self.track(*track)?;
                 Command::SetTrackGain {
@@ -779,6 +791,9 @@ impl EditSession {
                 };
                 self.project.song.tempo_map = next;
             }
+            Command::SetAutomation { track, lanes } => {
+                self.track_mut(*track)?.automation = lanes.clone();
+            }
             Command::SetTrackGain { track, volume, pan } => {
                 let target = self.track_mut(*track)?;
                 target.volume = (*volume).min(127);
@@ -851,6 +866,9 @@ fn describe(command: &Command) -> String {
         Command::InsertTrack { track } => format!("insert track {} ({})", track.id, track.name),
         Command::RemoveTrack { track } => format!("remove track {track}"),
         Command::SetChords { chords } => format!("set {} chord(s)", chords.len()),
+        Command::SetAutomation { track, lanes } => {
+            format!("track {track}: {} automation lane(s)", lanes.len())
+        }
         Command::SetTrackGain { track, volume, pan } => {
             format!("track {track}: volume {volume}, pan {pan}")
         }
@@ -1258,6 +1276,34 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn automation_can_be_set_and_undone() {
+        use project::song::{Automation, AutomationPoint, AutomationTarget};
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.apply(Command::SetAutomation {
+            track,
+            lanes: vec![Automation {
+                target: AutomationTarget::Volume,
+                points: vec![
+                    AutomationPoint {
+                        tick: 0,
+                        value: 0.0,
+                    },
+                    AutomationPoint {
+                        tick: 960,
+                        value: 100.0,
+                    },
+                ],
+            }],
+        })
+        .expect("automation");
+        assert!((edit.song().tracks[0].volume_at(480) - 50.0).abs() < 0.01);
+        assert!((edit.song().tracks[0].volume_at(0) - 0.0).abs() < 0.01);
+        edit.undo().expect("undo");
+        assert!((edit.song().tracks[0].volume_at(480) - 100.0).abs() < 0.01);
     }
 
     #[test]

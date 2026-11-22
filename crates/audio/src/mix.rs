@@ -37,7 +37,7 @@ pub fn mix_audio_references(
         let Some(reference) = &track.audio else {
             continue;
         };
-        let (left_gain, right_gain) = crate::track_gains(track);
+        let (left_gain, right_gain) = crate::gains_at(track, reference.start);
         match mix_one(rendered, song, reference, gain, (left_gain, right_gain)) {
             Ok(()) => {}
             Err(reason) => problems.push(AudioProblem {

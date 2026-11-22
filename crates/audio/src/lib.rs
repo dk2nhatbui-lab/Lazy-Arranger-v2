@@ -109,8 +109,8 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
     let mut samples = vec![0.0_f32; frames * usize::from(CHANNELS)];
 
     for track in song.tracks.iter().filter(|track| song.is_audible(track)) {
-        let (left_gain, right_gain) = track_gains(track);
         for note in &track.notes {
+            let (left_gain, right_gain) = gains_at(track, note.start);
             let start_seconds = song.tempo_map.seconds_at(note.start);
             let end_seconds = song
                 .tempo_map
@@ -149,11 +149,11 @@ pub fn frequency(pitch: Pitch) -> f64 {
     440.0 * 2.0_f64.powf((f64::from(pitch.as_u8()) - 69.0) / 12.0)
 }
 
-/// Left and right gains for a track's fader and pan.
+/// Left and right gains for a track's fader and pan at a tick.
 #[must_use]
-pub fn track_gains(track: &project::song::Track) -> (f32, f32) {
-    let volume = f32::from(track.volume.min(127)) / 100.0;
-    let pan = track.pan.min(127);
+pub fn gains_at(track: &project::song::Track, tick: music_core::Tick) -> (f32, f32) {
+    let volume = track.volume_at(tick).min(127.0) / 100.0;
+    let pan = track.pan_at(tick).clamp(0.0, 127.0) as u8;
     let left = if pan <= 64 {
         1.0
     } else {
@@ -165,6 +165,12 @@ pub fn track_gains(track: &project::song::Track) -> (f32, f32) {
         f32::from(pan) / 64.0
     };
     (volume * left, volume * right)
+}
+
+/// Left and right gains with the static fader and pan.
+#[must_use]
+pub fn track_gains(track: &project::song::Track) -> (f32, f32) {
+    gains_at(track, 0)
 }
 
 /// One voice: a sine fundamental with two quiet harmonics.
@@ -259,6 +265,34 @@ mod tests {
         song.tracks[1].muted = true;
         let silent = render(&song, SAMPLE_RATE);
         assert!(silent.samples.iter().all(|sample| sample.abs() < 1.0e-6));
+    }
+
+    #[test]
+    fn a_volume_lane_is_followed_per_note() {
+        use project::song::{Automation, AutomationPoint, AutomationTarget};
+        let mut song = song_with_note();
+        let mut second = song.tracks[0].notes[0].clone();
+        second.id = project::NoteId::new(2).expect("valid");
+        second.start = music_core::PPQ;
+        song.tracks[0].notes.push(second);
+        song.tracks[0].automation.push(Automation {
+            target: AutomationTarget::Volume,
+            points: vec![
+                AutomationPoint {
+                    tick: 0,
+                    value: 100.0,
+                },
+                AutomationPoint {
+                    tick: music_core::PPQ,
+                    value: 0.0,
+                },
+            ],
+        });
+        let rendered = render(&song, SAMPLE_RATE);
+        let first = rendered.samples[1000 * 2].abs();
+        let second_frame = rendered.samples[(24_000 + 1000) * 2].abs();
+        assert!(first > 0.001, "first note sounds");
+        assert!(second_frame < first * 0.5, "fade reached the second note");
     }
 
     #[test]

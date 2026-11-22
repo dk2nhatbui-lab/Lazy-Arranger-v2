@@ -624,3 +624,13 @@ Ties are detected per pitch when a note ends exactly where the next of the same
 pitch starts; the continued note draws no head and both renderers draw the tie.
 `engrave_with` places one lyric syllable per note under its staff. Beams,
 collision avoidance, tuplets and dragged marks are not implemented.
+
+### Automation
+
+Schema v9 adds `Track.automation`: lanes for volume and pan, each a list of
+`(tick, value 0..=127)` points. Values interpolate linearly between points and
+hold outside them; a track without a lane uses its static fader and pan.
+`Track::volume_at` and `Track::pan_at` answer for a tick, and the synth render
+evaluates them at each note start (so automation is per note, not per sample).
+`SetAutomation` replaces the lanes as one undoable edit. No lane UI, plugin
+parameter automation or MIDI-port automation exists yet.

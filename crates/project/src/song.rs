@@ -54,6 +54,79 @@ fn is_default_pan(value: &u8) -> bool {
     *value == 64
 }
 
+/// One automation lane.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Automation {
+    /// What the lane controls.
+    pub target: AutomationTarget,
+    /// Points in tick order; values are 0..=127.
+    pub points: Vec<AutomationPoint>,
+}
+
+/// What an automation lane controls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutomationTarget {
+    /// Fader.
+    Volume,
+    /// Pan.
+    Pan,
+}
+
+/// One automation point.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationPoint {
+    /// Position.
+    pub tick: Tick,
+    /// Value, 0..=127.
+    pub value: f32,
+}
+
+impl Automation {
+    /// The lane's value at a tick: linear between points, held at the ends.
+    #[must_use]
+    pub fn value_at(&self, tick: Tick) -> Option<f32> {
+        if self.points.is_empty() {
+            return None;
+        }
+        let first = self.points.first()?;
+        if tick <= first.tick {
+            return Some(first.value.clamp(0.0, 127.0));
+        }
+        for pair in self.points.windows(2) {
+            let (left, right) = (pair[0], pair[1]);
+            if tick >= left.tick && tick <= right.tick {
+                let span = (right.tick - left.tick).max(1) as f32;
+                let ratio = (tick - left.tick) as f32 / span;
+                return Some((left.value + (right.value - left.value) * ratio).clamp(0.0, 127.0));
+            }
+        }
+        Some(self.points.last()?.value.clamp(0.0, 127.0))
+    }
+}
+
+impl Track {
+    /// Volume in force at a tick, from automation or the static fader.
+    #[must_use]
+    pub fn volume_at(&self, tick: Tick) -> f32 {
+        self.automation
+            .iter()
+            .find(|lane| lane.target == AutomationTarget::Volume)
+            .and_then(|lane| lane.value_at(tick))
+            .unwrap_or(f32::from(self.volume))
+    }
+
+    /// Pan in force at a tick, from automation or the static pan.
+    #[must_use]
+    pub fn pan_at(&self, tick: Tick) -> f32 {
+        self.automation
+            .iter()
+            .find(|lane| lane.target == AutomationTarget::Pan)
+            .and_then(|lane| lane.value_at(tick))
+            .unwrap_or(f32::from(self.pan))
+    }
+}
+
 /// A reference to an audio file placed on a track.
 ///
 /// The project stores the path and the span; the audio itself never lives in
@@ -97,7 +170,7 @@ impl Clip {
 }
 
 /// A track: an ordered list of notes with a name.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     /// Stable identifier inside the song.
     pub id: TrackId,
@@ -119,6 +192,9 @@ pub struct Track {
     /// Record arm. No recording path uses it yet.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub armed: bool,
+    /// Automation lanes for volume and pan.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub automation: Vec<Automation>,
     /// Fader level, 0..=127 with 100 as unity.
     #[serde(default = "default_volume", skip_serializing_if = "is_default_volume")]
     pub volume: u8,
@@ -190,6 +266,7 @@ impl Track {
             muted: false,
             soloed: false,
             armed: false,
+            automation: Vec::new(),
             volume: 100,
             pan: 64,
             audio: None,
@@ -491,6 +568,11 @@ impl ProjectFile {
                     // version 7 behaviour.
                     self.version = 8;
                 }
+                8 => {
+                    // Version 9 adds automation lanes; none means the static
+                    // fader and pan of version 8.
+                    self.version = 9;
+                }
                 from => {
                     return Err(ProjectError::Migration {
                         from,
@@ -746,6 +828,39 @@ mod tests {
         assert!(track.muted && track.soloed && track.armed);
         let text = project.to_json_pretty().expect("serialize");
         assert!(text.contains("\"muted\": true"));
+    }
+
+    #[test]
+    fn automation_interpolates_and_holds() {
+        use crate::song::{Automation, AutomationPoint, AutomationTarget};
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Auto");
+        track.automation.push(Automation {
+            target: AutomationTarget::Volume,
+            points: vec![
+                AutomationPoint {
+                    tick: 0,
+                    value: 0.0,
+                },
+                AutomationPoint {
+                    tick: 1000,
+                    value: 100.0,
+                },
+            ],
+        });
+        assert!((track.volume_at(-10) - 0.0).abs() < 0.01);
+        assert!((track.volume_at(500) - 50.0).abs() < 0.01);
+        assert!((track.volume_at(2000) - 100.0).abs() < 0.01);
+        assert!(
+            (track.pan_at(500) - 64.0).abs() < 0.01,
+            "no pan lane uses the static pan"
+        );
+        let song = Song {
+            tracks: vec![track.clone()],
+            ..Song::new("Auto", 120.0)
+        };
+        let text = ProjectFile::new(song).to_json_pretty().expect("serialize");
+        let back = ProjectFile::from_json(&text).expect("parse");
+        assert_eq!(back.song.tracks[0].automation.len(), 1);
     }
 
     #[test]
