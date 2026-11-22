@@ -1,9 +1,18 @@
 # Crosscheck: C++ feature sheet vs the Rust build
 
-Source: `arranger-midi-daw/docs/Arranger-MIDI-DAW-Feature-Sheet.docx` (the
-`docs/features.md` you mentioned is not in the local C++ clone; that checkout is
-on `fix/audit-critical-high` and carries only the DOCX/PDF sheet). Every row
-below is taken from the sheet's own wording.
+Sources, after fetching origin on 2026-11-22:
+
+* `docs/Arranger-MIDI-DAW-Feature-Sheet.docx` — the product sheet.
+* `docs/intelligent-feature-ideas-2026-11-17.md` — established features and the
+  Arrangement Doctor / Fit to My Synths / Check the Transcription / Groove /
+  Song Forms work.
+* `docs/music-finder.md` and `docs/playlists.md` — formats and AI tools.
+
+`docs/features.md` is **not on origin**. The fresh clone of `main` is at
+`94c093b` ("Release v1.0.0-beta.1"), and `find -iname '*feature*'` returns only
+the sheet, the market research and the ideas document; no branch history has
+`docs/features.md`. If it lives on another remote, branch or a local commit, it
+has not been pushed yet.
 
 Status: **verified** (tested here), **partial**, **missing**.
 
@@ -55,6 +64,24 @@ Status: **verified** (tested here), **partial**, **missing**.
 | Launchkey / X-Touch mixer pages | missing | — |
 | Zoom LiveTrak L6max import | missing | not even in the profile list |
 | Timeline · Score · Beat · Clips · Mixer · Sound Editor | partial | Arrange (timeline/piano roll) only; others are placeholders |
+
+## Established C++ features named in the ideas document
+
+These are described as already present in the C++ app, beyond the sheet.
+
+| C++ feature | Rust | Gap |
+| --- | --- | --- |
+| AI conversation about the song | missing | MCP/assistant not built |
+| Melody continuation, part generation | missing | no generative helpers |
+| Humanization (timing/velocity) | missing | exact timing only |
+| Audio analysis and chord recognition | partial | monophonic pitch only; no chords |
+| Voice-leading checks | missing | — |
+| Chord-following styles | verified | `arranger::Style::compile` |
+| Clip scenes | missing | no clip model |
+| Check the Transcription (A/B questions) | missing | no candidate model |
+| Music Finder AI tools | missing | books/CSV only |
+| MFD layout reader | missing | documented in `docs/music-finder.md`; not implemented |
+| Yamaha playlist AI tools | missing | TSV only |
 
 ## AI, files, plugins, platforms
 
