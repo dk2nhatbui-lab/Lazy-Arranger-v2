@@ -347,6 +347,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
     markers.sort_by_key(|marker| marker.tick);
 
     let song = Song {
+        scene_names: Vec::new(),
         name: String::new(),
         tempo_map,
         time_signature: time_signature.unwrap_or_default(),

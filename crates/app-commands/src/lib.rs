@@ -92,6 +92,11 @@ pub enum Command {
         /// The new chord list, sorted by tick.
         chords: Vec<ChordEvent>,
     },
+    /// Replace the clip-grid scene names as one edit.
+    SetSceneNames {
+        /// Names by scene index.
+        names: Vec<String>,
+    },
     /// Replace the song's markers as one edit.
     SetMarkers {
         /// The new markers, sorted by tick.
@@ -145,6 +150,7 @@ impl Command {
             Self::SetTrackProgram { .. } => "set track program",
             Self::SetTrackFlags { .. } => "set track flags",
             Self::SetMarkers { .. } => "set markers",
+            Self::SetSceneNames { .. } => "set scene names",
             Self::SetClips { .. } => "set clips",
             Self::ReplaceTrackNotes { .. } => "replace track notes",
             Self::SetProvenance { .. } => "set provenance",
@@ -646,6 +652,9 @@ impl EditSession {
             Command::SetChords { .. } => Command::SetChords {
                 chords: self.song().chords.clone(),
             },
+            Command::SetSceneNames { .. } => Command::SetSceneNames {
+                names: self.song().scene_names.clone(),
+            },
             Command::SetMarkers { .. } => Command::SetMarkers {
                 markers: self.song().markers.clone(),
             },
@@ -770,6 +779,9 @@ impl EditSession {
                 self.project.song.chords = chords.clone();
                 self.project.song.chords.sort_by_key(|event| event.tick);
             }
+            Command::SetSceneNames { names } => {
+                self.project.song.scene_names = names.clone();
+            }
             Command::SetMarkers { markers } => {
                 self.project.song.markers = markers.clone();
                 self.project.song.markers.sort_by_key(|marker| marker.tick);
@@ -827,6 +839,7 @@ fn describe(command: &Command) -> String {
             None => format!("clear track {track} program"),
         },
         Command::SetMarkers { markers } => format!("set {} marker(s)", markers.len()),
+        Command::SetSceneNames { names } => format!("set {} scene name(s)", names.len()),
         Command::SetClips { track, clips } => {
             format!("set {} clip(s) on track {track}", clips.len())
         }
@@ -1244,6 +1257,18 @@ mod tests {
         edit.undo().expect("undo");
         assert!(!edit.song().tracks[0].soloed);
         assert!(edit.song().tracks[0].muted);
+    }
+
+    #[test]
+    fn scene_names_are_one_edit() {
+        let mut edit = session();
+        edit.apply(Command::SetSceneNames {
+            names: vec![String::from("Verse"), String::from("Chorus")],
+        })
+        .expect("names");
+        assert_eq!(edit.song().scene_names[1], "Chorus");
+        edit.undo().expect("undo");
+        assert!(edit.song().scene_names.is_empty());
     }
 
     #[test]

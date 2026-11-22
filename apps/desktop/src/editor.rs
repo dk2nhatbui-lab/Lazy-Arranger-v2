@@ -483,6 +483,28 @@ impl Editor {
         Ok(copied)
     }
 
+    /// Renames one clip-grid scene, keeping other stored names.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn rename_scene(&mut self, index: usize, name: &str) -> Result<(), String> {
+        let scenes = self.grid(2).rows.len();
+        let mut names = self.song().scene_names.clone();
+        names.resize(scenes.max(index + 1), String::new());
+        for (slot, entry) in names.iter_mut().enumerate() {
+            if entry.trim().is_empty() {
+                *entry = format!("Scene {}", slot + 1);
+            }
+        }
+        names[index] = name.trim().to_string();
+        self.session
+            .apply(Command::SetSceneNames { names })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {
@@ -899,6 +921,17 @@ mod tests {
         assert_eq!(editor.song().tracks[0].notes.len(), 5);
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].notes.len(), 1);
+    }
+
+    #[test]
+    fn a_scene_can_be_renamed_and_undone() {
+        let mut editor = editor();
+        editor.rename_scene(0, "Verse").expect("rename");
+        assert_eq!(editor.song().scene_names[0], "Verse");
+        let grid = editor.grid(2);
+        assert_eq!(grid.rows[0].scene.name, "Verse");
+        assert!(editor.undo());
+        assert!(editor.song().scene_names.is_empty());
     }
 
     #[test]

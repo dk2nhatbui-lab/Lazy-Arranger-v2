@@ -69,8 +69,14 @@ pub fn from_timeline(song: &Song, bars_per_scene: usize) -> Grid {
     let mut rows = Vec::with_capacity(scenes);
     for index in 0..scenes {
         let start = (index as Tick) * scene_length;
+        let name = song
+            .scene_names
+            .get(index)
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| format!("Scene {}", index + 1));
         let scene = Scene {
-            name: format!("Scene {}", index + 1),
+            name,
             start,
             length: scene_length,
         };

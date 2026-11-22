@@ -151,6 +151,7 @@ pub fn import_cpp_project(text: &str) -> Result<ImportedProject, ProjectError> {
         tracks,
         chords,
         arranger: Vec::new(),
+        scene_names: Vec::new(),
         markers: Vec::new(),
         extra: BTreeMap::new(),
     };

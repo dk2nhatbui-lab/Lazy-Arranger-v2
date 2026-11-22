@@ -82,6 +82,8 @@ pub struct ShellApp {
     beat_bar: Tick,
     beat_pattern: arranging::beat::BeatPattern,
     launcher: arranging::grid::Launcher,
+    rename_scene: Option<usize>,
+    rename_scene_input: String,
     last_bar: i64,
     synth: arranging::SynthSpec,
     project_path: Option<PathBuf>,
@@ -139,6 +141,8 @@ impl ShellApp {
             beat_bar: 3840,
             beat_pattern: arranging::beat::BeatPattern::default(),
             launcher: arranging::grid::Launcher::default(),
+            rename_scene: None,
+            rename_scene_input: String::new(),
             last_bar: 0,
             synth: arranging::SynthSpec::default(),
             project_path,
@@ -540,6 +544,10 @@ impl ShellApp {
                 } else {
                     row.scene.name.clone()
                 };
+                if ui.small_button("✎").on_hover_text("Rename scene").clicked() {
+                    self.rename_scene = Some(scene_index);
+                    self.rename_scene_input = row.scene.name.clone();
+                }
                 if ui.selectable_label(playing || waiting, label).clicked() {
                     if self.launcher.playing && self.launcher.current == Some(scene_index) {
                         self.launcher.stop();
@@ -592,6 +600,28 @@ impl ShellApp {
                 .size(10.0)
                 .color(theme::TEXT_DIM),
         );
+        if let Some(index) = self.rename_scene {
+            let mut open = true;
+            egui::Window::new("Rename scene")
+                .collapsible(false)
+                .open(&mut open)
+                .show(ui.ctx(), |ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.rename_scene_input)
+                            .desired_width(180.0),
+                    );
+                    if ui.button("Apply").clicked() {
+                        let name = self.rename_scene_input.clone();
+                        match self.editor.rename_scene(index, &name) {
+                            Ok(()) => self.rename_scene = None,
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                });
+            if !open {
+                self.rename_scene = None;
+            }
+        }
     }
 
     /// The Beat view: four drum rows of sixteen steps for one bar.

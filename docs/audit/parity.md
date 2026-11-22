@@ -72,6 +72,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Scene launcher (bar-quantised, waiting/cancel, log) | `arranging::grid::Launcher` | verified core | 2 tests |
 | Record played scenes to the timeline | `arranging::grid::record_to_timeline` | verified core | notes and clips appended, undoable |
 | Loops view: scene rows, slots, launch/queue, record take | `apps/desktop` | implemented | UI manual; launcher/recorder tested |
+| Scene names (schema v6) and rename | `project`, `app-commands`, `apps/desktop` | verified | migration round trip, command undo, rename test |
 | Device profiles: YAML loader, banks, drum kits, other devices, editors, mixer maps | — | missing | earlier claim of five typed profiles was wrong; corrected |
 | AI/MCP | `apps/mcp` | missing | Stage 8; `mcp` crate planned |
 | Korg Pa import | — | missing | Stage 8 extension |

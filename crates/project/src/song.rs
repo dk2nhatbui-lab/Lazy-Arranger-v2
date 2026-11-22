@@ -239,6 +239,10 @@ pub struct Song {
     /// Arranger intent, sorted by tick.
     #[serde(default)]
     pub arranger: Vec<ArrangerEvent>,
+    /// Names for clip-grid scenes, by scene index. Missing entries use
+    /// "Scene N".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scene_names: Vec<String>,
     /// Named timeline positions.
     #[serde(default)]
     pub markers: Vec<crate::ids::Marker>,
@@ -429,6 +433,11 @@ impl ProjectFile {
                     // Version 5 adds mute, solo and arm flags, all false by
                     // default, which is the version 4 behaviour.
                     self.version = 5;
+                }
+                5 => {
+                    // Version 6 adds clip-grid scene names; an empty list means
+                    // the default "Scene N" names, which is the version 5 state.
+                    self.version = 6;
                 }
                 from => {
                     return Err(ProjectError::Migration {
@@ -685,6 +694,24 @@ mod tests {
         assert!(track.muted && track.soloed && track.armed);
         let text = project.to_json_pretty().expect("serialize");
         assert!(text.contains("\"muted\": true"));
+    }
+
+    #[test]
+    fn scene_names_round_trip_and_default_empty() {
+        let mut song = Song::new("Scenes", 120.0);
+        song.scene_names = vec![String::from("Verse"), String::from("Chorus")];
+        let project = ProjectFile::new(song);
+        let text = project.to_json_pretty().expect("serialize");
+        let back = ProjectFile::from_json(&text).expect("parse");
+        assert_eq!(back.song.scene_names, vec!["Verse", "Chorus"]);
+        assert_eq!(back.version, SCHEMA_VERSION);
+        let empty = ProjectFile::new(Song::new("Empty", 120.0));
+        assert!(
+            !empty
+                .to_json_pretty()
+                .expect("serialize")
+                .contains("scene_names")
+        );
     }
 
     #[test]
