@@ -54,6 +54,75 @@ fn is_default_pan(value: &u8) -> bool {
     *value == 64
 }
 
+/// A dynamic level.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Dynamic {
+    /// pianissimo.
+    Pp,
+    /// piano.
+    P,
+    /// mezzo-piano.
+    Mp,
+    /// mezzo-forte.
+    Mf,
+    /// forte.
+    F,
+    /// fortissimo.
+    Ff,
+}
+
+impl Dynamic {
+    /// The written symbol.
+    #[must_use]
+    pub fn text(self) -> &'static str {
+        match self {
+            Self::Pp => "pp",
+            Self::P => "p",
+            Self::Mp => "mp",
+            Self::Mf => "mf",
+            Self::F => "f",
+            Self::Ff => "ff",
+        }
+    }
+}
+
+/// An articulation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Articulation {
+    /// Short and detached.
+    Staccato,
+    /// Stressed.
+    Accent,
+    /// Held full length.
+    Tenuto,
+    /// Strongly accented.
+    Marcato,
+    /// Held longer.
+    Fermata,
+}
+
+/// One score mark at a tick.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Mark {
+    /// Position.
+    pub tick: Tick,
+    /// What kind of mark.
+    #[serde(flatten)]
+    pub kind: MarkKind,
+}
+
+/// The kind of a score mark.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case", tag = "mark")]
+pub enum MarkKind {
+    /// A dynamic.
+    Dynamic(Dynamic),
+    /// An articulation.
+    Articulation(Articulation),
+}
+
 /// One lyric syllable tied to a note tick.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LyricEvent {
@@ -367,6 +436,9 @@ pub struct Song {
     /// Arranger intent, sorted by tick.
     #[serde(default)]
     pub arranger: Vec<ArrangerEvent>,
+    /// Score marks: dynamics and articulations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub marks: Vec<Mark>,
     /// Lyric syllables, matched to notes by tick.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lyrics: Vec<LyricEvent>,
@@ -589,6 +661,11 @@ impl ProjectFile {
                     // Version 10 adds lyric syllables; none is the version 9
                     // behaviour.
                     self.version = 10;
+                }
+                10 => {
+                    // Version 11 adds score marks; none is the version 10
+                    // behaviour.
+                    self.version = 11;
                 }
                 from => {
                     return Err(ProjectError::Migration {
@@ -845,6 +922,26 @@ mod tests {
         assert!(track.muted && track.soloed && track.armed);
         let text = project.to_json_pretty().expect("serialize");
         assert!(text.contains("\"muted\": true"));
+    }
+
+    #[test]
+    fn marks_round_trip_and_default_empty() {
+        use crate::song::{Articulation, Dynamic, Mark, MarkKind};
+        let mut song = Song::new("Marks", 120.0);
+        song.marks.push(Mark {
+            tick: 960,
+            kind: MarkKind::Dynamic(Dynamic::Mf),
+        });
+        let text = ProjectFile::new(song).to_json_pretty().expect("serialize");
+        let back = ProjectFile::from_json(&text).expect("parse");
+        assert_eq!(back.song.marks.len(), 1);
+        assert!(matches!(
+            back.song.marks[0].kind,
+            MarkKind::Dynamic(Dynamic::Mf)
+        ));
+        let empty = ProjectFile::new(Song::new("Empty", 120.0));
+        assert!(!empty.to_json_pretty().expect("serialize").contains("marks"));
+        let _ = Articulation::Fermata;
     }
 
     #[test]

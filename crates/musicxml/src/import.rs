@@ -21,6 +21,49 @@ pub enum ImportError {
     NoParts,
 }
 
+fn read_mark(direction: roxmltree::Node<'_, '_>, tick: Tick) -> Option<project::song::Mark> {
+    use project::song::{Articulation, Dynamic, Mark, MarkKind};
+    let body = direction
+        .children()
+        .find(|node| node.has_tag_name("direction-type"))?;
+    if let Some(dynamics) = body.children().find(|node| node.has_tag_name("dynamics")) {
+        for child in dynamics.children().filter(|node| node.is_element()) {
+            let level = match child.tag_name().name() {
+                "pp" => Some(Dynamic::Pp),
+                "p" => Some(Dynamic::P),
+                "mp" => Some(Dynamic::Mp),
+                "mf" => Some(Dynamic::Mf),
+                "f" => Some(Dynamic::F),
+                "ff" => Some(Dynamic::Ff),
+                _ => None,
+            };
+            if let Some(level) = level {
+                return Some(Mark {
+                    tick,
+                    kind: MarkKind::Dynamic(level),
+                });
+            }
+        }
+    }
+    let words = body
+        .children()
+        .find(|node| node.has_tag_name("words"))
+        .and_then(|node| node.text())
+        .unwrap_or_default();
+    let articulation = match words.trim() {
+        "stacc." => Some(Articulation::Staccato),
+        "acc." => Some(Articulation::Accent),
+        "ten." => Some(Articulation::Tenuto),
+        "marc." => Some(Articulation::Marcato),
+        "ferm." => Some(Articulation::Fermata),
+        _ => None,
+    }?;
+    Some(Mark {
+        tick,
+        kind: MarkKind::Articulation(articulation),
+    })
+}
+
 fn text_of(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<String> {
     node.children()
         .find(|child| child.has_tag_name(tag))
@@ -112,6 +155,14 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                 }
                 if let Some(divisions) = number_of(attributes, "divisions") {
                     let _ = divisions;
+                }
+            }
+            for direction in measure
+                .children()
+                .filter(|node| node.has_tag_name("direction"))
+            {
+                if let Some(mark) = read_mark(direction, measure_start) {
+                    song.marks.push(mark);
                 }
             }
             let mut cursor = measure_start;

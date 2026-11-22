@@ -62,6 +62,44 @@ mod tests {
     }
 
     #[test]
+    fn dynamics_and_articulations_round_trip() {
+        use project::song::{Articulation, Dynamic, Mark, MarkKind};
+        let mut song = Song::new("Marks", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 960,
+            pitch: music_core::Pitch::from_name("C4").expect("valid"),
+            velocity: music_core::Velocity::new(100).expect("valid"),
+            channel: music_core::Channel::first(),
+        });
+        song.tracks.push(track);
+        song.marks.push(Mark {
+            tick: 0,
+            kind: MarkKind::Dynamic(Dynamic::Ff),
+        });
+        song.marks.push(Mark {
+            tick: 0,
+            kind: MarkKind::Articulation(Articulation::Staccato),
+        });
+        let xml = export(&song, "Marks");
+        assert!(xml.contains("<ff />"));
+        assert!(xml.contains("<words>stacc.</words>"));
+        let imported = import(&xml).expect("import");
+        assert_eq!(imported.marks.len(), 2);
+        let has_dynamic = imported
+            .marks
+            .iter()
+            .any(|mark| matches!(mark.kind, MarkKind::Dynamic(Dynamic::Ff)));
+        let has_articulation = imported
+            .marks
+            .iter()
+            .any(|mark| matches!(mark.kind, MarkKind::Articulation(Articulation::Staccato)));
+        assert!(has_dynamic && has_articulation);
+    }
+
+    #[test]
     fn lyrics_survive_an_export_import_round_trip() {
         let mut song = Song::new("Lyrics", 120.0);
         let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Voice");

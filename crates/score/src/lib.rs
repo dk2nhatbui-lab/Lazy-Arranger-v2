@@ -71,6 +71,21 @@ pub struct PlacedNote {
     pub tied: bool,
 }
 
+/// One score mark placed on the page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlacedMark {
+    /// Tick of the mark.
+    pub tick: Tick,
+    /// What kind of mark.
+    pub kind: project::song::MarkKind,
+    /// Horizontal position.
+    pub x: f32,
+    /// Vertical position.
+    pub y: f32,
+    /// Page holding it.
+    pub page: usize,
+}
+
 /// One lyric syllable placed under a note.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Lyric {
@@ -134,6 +149,8 @@ pub struct Engraved {
     pub key: spelling::Key,
     /// Lyrics, one syllable per placed note.
     pub lyrics: Vec<Lyric>,
+    /// Dynamics and articulations.
+    pub marks: Vec<PlacedMark>,
 }
 
 impl Engraved {
@@ -280,6 +297,40 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
             system.page = page_index;
         }
     }
+    let mut placed_marks = Vec::new();
+    for mark in &song.marks {
+        let Some((page_index, system)) = pages.iter().enumerate().find_map(|(page_index, page)| {
+            page.systems
+                .iter()
+                .find(|system| {
+                    system.measures.iter().any(|measure| {
+                        mark.tick >= measure.start && mark.tick < measure.start + measure.length
+                    })
+                })
+                .map(|system| (page_index, system))
+        }) else {
+            continue;
+        };
+        let Some(measure) = system.measures.iter().find(|measure| {
+            mark.tick >= measure.start && mark.tick < measure.start + measure.length
+        }) else {
+            continue;
+        };
+        let offset = (mark.tick - measure.start) as f32 / measure.length.max(1) as f32
+            * (measure.x_end - measure.x);
+        let below = matches!(mark.kind, project::song::MarkKind::Dynamic(_));
+        placed_marks.push(PlacedMark {
+            tick: mark.tick,
+            kind: mark.kind,
+            x: measure.x + offset,
+            y: if below {
+                system.y + 4.0 * settings.staff_space + 30.0
+            } else {
+                system.y - 16.0
+            },
+            page: page_index,
+        });
+    }
     for lyric in &mut placed_lyrics {
         if let Some(system) = pages.get(lyric.page).and_then(|page| {
             page.systems.iter().find(|system| {
@@ -312,6 +363,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         measures: measure_count,
         key,
         lyrics: placed_lyrics,
+        marks: placed_marks,
     }
 }
 
@@ -432,6 +484,28 @@ mod tests {
         assert!(engraved.notes[0].tie_start);
         assert!(engraved.notes[1].tied);
         assert!(!engraved.notes[0].tied);
+    }
+
+    #[test]
+    fn marks_get_positions_above_and_below_the_staff() {
+        use project::song::{Articulation, Dynamic, Mark, MarkKind};
+        let mut score = song(2);
+        score.marks.push(Mark {
+            tick: 120,
+            kind: MarkKind::Dynamic(Dynamic::F),
+        });
+        score.marks.push(Mark {
+            tick: 3840 + 120,
+            kind: MarkKind::Articulation(Articulation::Staccato),
+        });
+        let engraved = engrave(&score, TrackId::new(1).expect("valid"), Settings::default());
+        assert_eq!(engraved.marks.len(), 2);
+        let staff_bottom = engraved.pages[0].systems[0].y + 4.0 * 8.0;
+        assert!(engraved.marks[0].y > staff_bottom, "dynamics sit below");
+        assert!(
+            engraved.marks[1].y < engraved.pages[0].systems[0].y,
+            "articulations above"
+        );
     }
 
     #[test]

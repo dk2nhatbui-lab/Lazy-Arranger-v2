@@ -100,6 +100,13 @@ pub fn export(song: &Song, title: &str) -> String {
                 });
                 out.push_str("      </attributes>\n");
             }
+            for mark in song
+                .marks
+                .iter()
+                .filter(|mark| mark.tick >= start && mark.tick < stop)
+            {
+                write_direction(&mut out, mark.kind);
+            }
             let mut notes: Vec<&Note> = track
                 .notes
                 .iter()
@@ -129,6 +136,31 @@ pub fn export(song: &Song, title: &str) -> String {
     }
     out.push_str("</score-partwise>\n");
     out
+}
+
+fn write_direction(out: &mut String, kind: project::song::MarkKind) {
+    use project::song::{Articulation, MarkKind};
+    let text = match kind {
+        MarkKind::Dynamic(dynamic) => format!(
+            "<direction><direction-type><dynamics><{} /></dynamics></direction-type></direction>",
+            dynamic.text()
+        ),
+        MarkKind::Articulation(articulation) => {
+            let words = match articulation {
+                Articulation::Staccato => "stacc.",
+                Articulation::Accent => "acc.",
+                Articulation::Tenuto => "ten.",
+                Articulation::Marcato => "marc.",
+                Articulation::Fermata => "ferm.",
+            };
+            format!(
+                "<direction><direction-type><words>{words}</words></direction-type></direction>"
+            )
+        }
+    };
+    out.push_str("      ");
+    out.push_str(&text);
+    out.push('\n');
 }
 
 fn write_rest(out: &mut String, duration: Tick) {

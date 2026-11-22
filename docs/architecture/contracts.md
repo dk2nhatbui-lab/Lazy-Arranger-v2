@@ -642,3 +642,13 @@ notes by tick. MusicXML export writes a `<lyric>` inside the matching note and
 import reads it back; the score layout places song lyrics without needing an
 explicit list (`engrave_with` can still override them positionally). Dynamics,
 articulations and guitar frames are not imported or exported yet.
+
+### Score marks
+
+Schema v11 adds `Song.marks`: a tick plus a dynamic (pp..ff) or an articulation
+(staccato, accent, tenuto, marcato, fermata). The layout places dynamics below
+the staff and articulations above it; the canvas and PDF draw them as text.
+MusicXML export writes a `direction` per mark (a `dynamics` element or a
+`words` element) and import reads those back at the measure start. Note-level
+`<notations>` articulations, transcriptions of articulations into playback and
+guitar frames are not implemented.

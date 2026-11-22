@@ -79,6 +79,25 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     }
                 }
             }
+            for mark in engraved.marks.iter().filter(|mark| mark.page == index) {
+                let text = match mark.kind {
+                    project::song::MarkKind::Dynamic(dynamic) => dynamic.text().to_string(),
+                    project::song::MarkKind::Articulation(articulation) => match articulation {
+                        project::song::Articulation::Staccato => String::from("stacc."),
+                        project::song::Articulation::Accent => String::from("acc."),
+                        project::song::Articulation::Tenuto => String::from("ten."),
+                        project::song::Articulation::Marcato => String::from("marc."),
+                        project::song::Articulation::Fermata => String::from("ferm."),
+                    },
+                };
+                let _ = writeln!(
+                    content,
+                    "BT /F1 9 Tf {x:.1} {y:.1} Td ({text}) Tj ET",
+                    x = mark.x - 6.0,
+                    y = settings.page_height - mark.y,
+                    text = escape(&text)
+                );
+            }
             for lyric in engraved.lyrics.iter().filter(|lyric| lyric.page == index) {
                 let _ = writeln!(
                     content,
