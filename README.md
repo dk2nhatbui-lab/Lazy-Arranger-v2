@@ -29,7 +29,8 @@ decisions in [`docs/adr/`](docs/adr/).
 | Style sections, chord following, transitions | prototype | `crates/arranger/src/style.rs` |
 | Yamaha CASM rule import (SFF1/SFF2) | verified on 16,189 real styles | `crates/style-formats/src/casm.rs` |
 | Style import: section markers, notes, default rules | verified on 16,158 real styles | `crates/style-formats/src/import.rs` |
-| Style writer, setup events and voices | not started | Stage 4 remainder |
+| Style writer (container, SFF1/SFF2 CASM) | verified round-trip; real style rewritten | `style-formats::write_style` |
+| Style writer: voices and setup events | missing | next |
 | Dual capture: intent + rendered tracks | verified | `crates/performance` |
 | Provenance-aware regeneration (keep/replace/duplicate) | verified | `crates/performance` |
 | Freeze / detach generated tracks | verified | `performance::freeze` |

@@ -20,9 +20,11 @@ use thiserror::Error;
 
 pub mod casm;
 pub mod import;
+pub mod write;
 
 pub use casm::{CasmRules, CasmStats, SectionRules, SffVersion, read_rules};
 pub use import::{ImportStats, ImportedSection, ImportedStyle, import_style};
+pub use write::write_style;
 
 /// Errors raised while reading a style container.
 #[derive(Debug, Error, PartialEq, Eq)]

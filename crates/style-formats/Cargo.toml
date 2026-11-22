@@ -10,6 +10,7 @@ license.workspace = true
 arranger = { path = "../arranger" }
 music-core = { path = "../music-core" }
 smf = { path = "../smf" }
+project = { path = "../project" }
 thiserror.workspace = true
 
 [lints]

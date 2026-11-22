@@ -126,6 +126,17 @@ enum Commands {
         #[arg(long)]
         rules: bool,
     },
+    /// Write a style container back to disk (MIDI song plus CASM).
+    StyleSave {
+        /// Style file to read.
+        style: PathBuf,
+        /// Output style path.
+        #[arg(long)]
+        out: PathBuf,
+        /// sff1 or sff2 (default).
+        #[arg(long, default_value = "sff2")]
+        version: String,
+    },
     /// Turn a YouTube (or other yt-dlp) link into a MIDI file.
     LinkToMidi {
         /// Link to a video or audio page.
@@ -265,6 +276,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             chords,
             add_tracks,
         } => edit(&project, &out, tempo, &chords, &add_tracks),
+        Commands::StyleSave {
+            style,
+            out,
+            version,
+        } => style_save(&style, &out, &version),
         Commands::LinkToMidi {
             link,
             out,
@@ -656,6 +672,32 @@ fn edit(
         "wrote {} ({} undo step(s) available)",
         out.display(),
         session.undo_depth()
+    );
+    Ok(())
+}
+
+fn style_save(style: &PathBuf, out: &PathBuf, version: &str) -> Result<(), Box<dyn Error>> {
+    let bytes =
+        fs::read(style).map_err(|error| format!("could not read {}: {error}", style.display()))?;
+    let imported = style_formats::import_style(&bytes)?;
+    let rules = style_formats::casm::read_rules(&bytes);
+    let version = match version {
+        "sff1" => style_formats::casm::SffVersion::Sff1,
+        "sff2" => style_formats::casm::SffVersion::Sff2,
+        other => return Err(format!("--version must be sff1 or sff2, found {other:?}").into()),
+    };
+    let written = style_formats::write_style(&imported, &rules, version)?;
+    fs::write(out, &written)
+        .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+    let check = style_formats::import_style(&written)?;
+    println!(
+        "wrote {}: {} section(s), {} track(s), {} byte(s), re-read {} section(s) as {:?}",
+        out.display(),
+        imported.sections.len(),
+        imported.song.tracks.len(),
+        written.len(),
+        check.sections.len(),
+        version
     );
     Ok(())
 }

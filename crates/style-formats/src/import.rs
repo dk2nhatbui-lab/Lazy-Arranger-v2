@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 
 use arranger::{ArrangerChord, ChordRule, ChordType, Style, StylePart, StyleSection};
 use music_core::{Tick, TimeSignature};
+use project::song::Song;
 
 use crate::StyleError;
 use crate::casm::{CasmStats, read_rules};
@@ -69,6 +70,8 @@ pub struct ImportedStyle {
     pub tempo_bpm: f64,
     /// Meter found in the source file.
     pub time_signature: TimeSignature,
+    /// The decoded MIDI song the style came from (960 PPQ, markers included).
+    pub song: Song,
     /// Sections in source order.
     pub sections: Vec<ImportedSection>,
     /// Import decisions and counts.
@@ -242,6 +245,7 @@ pub fn import_style(bytes: &[u8]) -> Result<ImportedStyle, StyleError> {
         source_ppq: u16::try_from(report.source_ppq).unwrap_or(0),
         tempo_bpm: song.tempo_map.bpm_at(0),
         time_signature: song.time_signature,
+        song: song.clone(),
         sections: imported_sections,
         stats,
     })

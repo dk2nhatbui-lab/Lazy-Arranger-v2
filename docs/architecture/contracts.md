@@ -512,8 +512,13 @@ reported, never silently skipped. Downloaded WAVs are deleted unless `--keep`.
 
 ## 19. Style writing
 
-`style_formats::write_casm_sff1` emits a `CASM` chunk containing one `CSEG` per
-group: an `Sdec` with the section names and a `Ctab` with 26-byte SFF1 records.
-Names are truncated to eight bytes; NTT values SFF1 cannot express become
-melody; the vendor tail is kept verbatim. Only SFF1 is written so far, and only
-the rule data: the MIDI track, voices and setup events are not written yet.
+`write_casm_sff1` and `write_casm_sff2` emit a `CASM` chunk with one `CSEG` per
+group: an `Sdec` with the section names and `Ctab` (26-byte SFF1) or `Ctb2`
+(40-byte SFF2) records. SFF2 carries all three ranges and the packed bass bit;
+SFF1 keeps its single range with NTT 3 for bass. Names truncate at eight bytes
+and the vendor tail is preserved.
+
+`write_style` places the encoded MIDI song first and the CASM chunk after it,
+which is the whole Yamaha container. `style-save` rewrote a real 15-section
+style and re-read it as SFF2. Voices and setup events are not written yet, and
+no Yamaha keyboard has accepted an output here.

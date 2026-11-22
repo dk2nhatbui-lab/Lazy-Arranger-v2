@@ -833,3 +833,161 @@ mod writer_tests {
         assert_eq!(read.special, rule.special);
     }
 }
+
+/// Encodes rules as an SFF2 `CASM` chunk (`Ctb2`, 40-byte records).
+///
+/// Every NTT flavour and the packed bass bit are representable, so SFF2 rules
+/// round-trip exactly apart from an eight-byte name limit.
+#[must_use]
+pub fn write_casm_sff2(groups: &[SectionRules]) -> Vec<u8> {
+    let mut cseg_children = Vec::new();
+    let mut rules = Vec::new();
+    for group in groups {
+        cseg_children.extend(chunk(b"Sdec", group.sections.join(",").as_bytes()));
+        for rule in &group.rules {
+            rules.extend(encode_rule_sff2(rule));
+        }
+    }
+    if !rules.is_empty() {
+        cseg_children.extend(chunk(b"Ctb2", &rules));
+    }
+    chunk(b"CASM", &chunk(b"CSEG", &cseg_children))
+}
+
+fn encode_rule_sff2(rule: &ChordRule) -> Vec<u8> {
+    let mut out = encode_rule_common(rule, 40);
+    out[20] = rule.middle_low;
+    out[21] = rule.middle_high;
+    out[22..28].copy_from_slice(&encode_range_sff2(&rule.low_range));
+    out[28..34].copy_from_slice(&encode_range_sff2(&rule.transpose));
+    out[34..40].copy_from_slice(&encode_range_sff2(&rule.high_range));
+    out
+}
+
+fn encode_range_sff2(range: &TransposeRange) -> [u8; 6] {
+    [
+        encode_ntr(range.ntr),
+        encode_ntt(range.ntt) | if range.bass { 0x80 } else { 0 },
+        range.high_key,
+        range.low_limit,
+        range.high_limit,
+        encode_rtr(range.rtr),
+    ]
+}
+
+fn encode_ntt(ntt: Ntt) -> u8 {
+    match ntt {
+        Ntt::Bypass => 0,
+        Ntt::Melody => 1,
+        Ntt::Chord => 2,
+        Ntt::MelodicMinor => 3,
+        Ntt::MelodicMinor5th => 4,
+        Ntt::HarmonicMinor => 5,
+        Ntt::HarmonicMinor5th => 6,
+        Ntt::NaturalMinor => 7,
+        Ntt::NaturalMinor5th => 8,
+        Ntt::Dorian => 9,
+        Ntt::Dorian5th => 10,
+    }
+}
+
+fn encode_ntr(ntr: Ntr) -> u8 {
+    match ntr {
+        Ntr::RootTransposition => 0,
+        Ntr::RootFixed => 1,
+        Ntr::Guitar => 2,
+    }
+}
+
+fn encode_rtr(rtr: Rtr) -> u8 {
+    match rtr {
+        Rtr::Stop => 0,
+        Rtr::PitchShift => 1,
+        Rtr::PitchShiftToRoot => 2,
+        Rtr::Retrigger => 3,
+        Rtr::RetriggerToRoot => 4,
+        Rtr::NoteGenerator => 5,
+    }
+}
+
+/// Writes the fields both SFF1 and SFF2 share.
+fn encode_rule_common(rule: &ChordRule, record: usize) -> Vec<u8> {
+    let mut out = vec![0_u8; record];
+    out[0] = (rule.source_channel.saturating_sub(1)) & 0x0f;
+    for (index, byte) in rule.name.as_bytes().iter().take(8).enumerate() {
+        out[1 + index] = *byte;
+    }
+    out[9] = (rule.dest_channel.saturating_sub(1)) & 0x0f;
+    out[10] = u8::from(!rule.editable);
+    out[11..13].copy_from_slice(&(rule.note_mute & 0x0fff).to_be_bytes());
+    let mute = (rule.chord_mute & 0x00ff_ffff_ffff).to_be_bytes();
+    out[13..18].copy_from_slice(&mute[3..8]);
+    out[18] = rule.source_root % 12;
+    out[19] = u8::try_from(
+        ALL_TYPES
+            .iter()
+            .position(|kind| *kind == rule.source_chord_type)
+            .unwrap_or(0),
+    )
+    .unwrap_or(0);
+    out
+}
+
+#[cfg(test)]
+mod writer_sff2_tests {
+    use super::*;
+
+    #[test]
+    fn an_sff2_group_round_trips_every_range() {
+        let mut rule = ChordRule::new(11, 10);
+        rule.name = String::from("Bass");
+        rule.editable = false;
+        rule.source_chord_type = ChordType::Minor7;
+        rule.middle_low = 40;
+        rule.middle_high = 80;
+        rule.low_range = TransposeRange {
+            ntr: Ntr::Guitar,
+            ntt: Ntt::Dorian5th,
+            bass: true,
+            high_key: 9,
+            low_limit: 10,
+            high_limit: 120,
+            rtr: Rtr::RetriggerToRoot,
+        };
+        rule.transpose = TransposeRange {
+            ntr: Ntr::RootFixed,
+            ntt: Ntt::NaturalMinor,
+            bass: false,
+            high_key: 6,
+            low_limit: 0,
+            high_limit: 127,
+            rtr: Rtr::NoteGenerator,
+        };
+        rule.high_range = TransposeRange {
+            ntr: Ntr::RootTransposition,
+            ntt: Ntt::Chord,
+            bass: true,
+            high_key: 3,
+            low_limit: 5,
+            high_limit: 100,
+            rtr: Rtr::Stop,
+        };
+        let group = SectionRules {
+            sections: vec![String::from("Main B")],
+            rules: vec![rule.clone()],
+        };
+        let bytes = write_casm_sff2(&[group]);
+        let parsed = read_rules(&bytes);
+        assert_eq!(parsed.version, SffVersion::Sff2);
+        let read = &parsed.groups[0].rules[0];
+        assert_eq!(read.name, rule.name);
+        assert_eq!(read.middle_low, rule.middle_low);
+        assert_eq!(read.middle_high, rule.middle_high);
+        assert_eq!(read.low_range, rule.low_range);
+        assert_eq!(read.transpose, rule.transpose);
+        assert_eq!(read.high_range, rule.high_range);
+        assert_eq!(read.source_chord_type, rule.source_chord_type);
+        assert_eq!(read.dest_channel, rule.dest_channel);
+        assert!(!read.editable);
+    }
+}
