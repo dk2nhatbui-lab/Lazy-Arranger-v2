@@ -50,7 +50,8 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Song Forms dialog (Y) | `apps/desktop` | implemented | four presets |
 | MusicXML export (partwise, rests, drum clef) | `crates/musicxml` | verified | 4 tests + valid XML from a real project |
 | MusicXML import (parts, measures, notes, rests, chords, drums, tempo/meter) | `musicxml::import` | verified | 4 tests + real round trip 94 notes; drum pitch/velocity lost, no lyrics/marks |
-| Score layout engine (pages, systems, measures, positioned notes) | `crates/score` | verified core | 4 tests + real project layout; no renderer or PDF |
+| Score layout engine (pages, systems, measures, positioned notes) | `crates/score` | verified core | 4 tests + real project layout |
+| Score canvas renderer (staff, barlines, noteheads, page nav, zoom) | `apps/desktop/src/score_view.rs` | implemented | geometry tests; UI manual |
 | PSR-S970 keyboard song export (setup bar, voices, chords, drums ch10) | `smf::export_keyboard` | implemented | 3 tests; real project 94 notes, 5 tracks; programs from profile name matching |
 | Style Remote, style-by-number, keyboard acceptance | — | missing | no hardware test |
 | Transitions: drum fill, lead-in, automatic | `arranging::forms::transition` | verified | 4 tests incl. apply/undo; T key |

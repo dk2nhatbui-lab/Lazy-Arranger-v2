@@ -105,6 +105,8 @@ track, with settings for page size, margins, staff space, system gap and
 measure width. It has no toolkit dependency and makes no rendering decisions.
 `score-layout` reports the geometry for a project.
 
-Still missing: the egui canvas adapter, PDF export, spelling and accidentals,
+The egui canvas adapter now exists: it draws staff lines, barlines and noteheads from the layout, with page navigation and zoom.
+
+Still missing: PDF export, spelling and accidentals,
 clefs and staves beyond one, beams, ties, collisions, lyrics, marks, editing
 and the two-page validation score from the acceptance list.

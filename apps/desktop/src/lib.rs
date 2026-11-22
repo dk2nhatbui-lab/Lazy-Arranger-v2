@@ -8,6 +8,7 @@ pub mod app;
 pub mod editor;
 pub mod persistence;
 pub mod piano_roll;
+pub mod score_view;
 pub mod theme;
 pub mod widgets;
 

@@ -1494,6 +1494,7 @@ dependencies = [
  "egui",
  "music-core",
  "project",
+ "score",
 ]
 
 [[package]]

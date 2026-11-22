@@ -97,12 +97,12 @@ mod tests {
     use project::TrackId;
     use project::song::{AudioRef, Track};
 
-    fn write_wav(samples: Vec<f32>) -> String {
+    fn write_wav(name: &str, samples: Vec<f32>) -> String {
         let audio = RenderedAudio {
             samples,
             sample_rate: 48_000,
         };
-        let path = std::env::temp_dir().join("lazy-arranger-mix-test.wav");
+        let path = std::env::temp_dir().join(name);
         std::fs::write(&path, audio.to_wav()).expect("write");
         path.display().to_string()
     }
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn a_reference_is_mixed_at_its_start() {
-        let path = write_wav(vec![0.25; 48_000 * 2]);
+        let path = write_wav("lazy-arranger-mix-a.wav", vec![0.25; 48_000 * 2]);
         let song = song_with(path.clone(), false);
         let mut rendered = RenderedAudio {
             samples: vec![0.0; 96_000 * 2],
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn muted_tracks_and_missing_files_are_handled() {
-        let path = write_wav(vec![0.2; 48_000 * 2]);
+        let path = write_wav("lazy-arranger-mix-b.wav", vec![0.2; 48_000 * 2]);
         let muted = song_with(path.clone(), true);
         let mut rendered = RenderedAudio {
             samples: vec![0.0; 96_000 * 2],
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn a_different_rate_is_resampled() {
-        let path = write_wav(vec![0.3; 24_000 * 2]);
+        let path = write_wav("lazy-arranger-mix-c.wav", vec![0.3; 24_000 * 2]);
         let song = song_with(path.clone(), false);
         let mut rendered = RenderedAudio {
             samples: vec![0.0; 96_000 * 2],

@@ -21,6 +21,7 @@ enum View {
     Arrange,
     Mix,
     Loops,
+    Score,
 }
 
 impl View {
@@ -30,6 +31,7 @@ impl View {
             Self::Arrange => 1,
             Self::Mix => 2,
             Self::Loops => 3,
+            Self::Score => 4,
         }
     }
 
@@ -38,6 +40,7 @@ impl View {
             0 => Self::Perform,
             2 => Self::Mix,
             3 => Self::Loops,
+            4 => Self::Score,
             _ => Self::Arrange,
         }
     }
@@ -48,6 +51,7 @@ impl View {
             Self::Arrange => "Arrange",
             Self::Mix => "Mix",
             Self::Loops => "Loops",
+            Self::Score => "Score",
         }
     }
 }
@@ -84,6 +88,8 @@ pub struct ShellApp {
     launcher: arranging::grid::Launcher,
     recent: Vec<std::path::PathBuf>,
     recent_file: std::path::PathBuf,
+    score_page: usize,
+    score_zoom: f32,
     rename_scene: Option<usize>,
     rename_scene_input: String,
     last_bar: i64,
@@ -145,6 +151,8 @@ impl ShellApp {
             launcher: arranging::grid::Launcher::default(),
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
+            score_page: 0,
+            score_zoom: 1.0,
             rename_scene: None,
             rename_scene_input: String::new(),
             last_bar: 0,
@@ -1275,6 +1283,40 @@ impl eframe::App for ShellApp {
                 }
                 View::Loops => {
                     self.grid_panel(ui);
+                }
+                View::Score => {
+                    ui.horizontal(|ui| {
+                        if ui.button("◀ Page").clicked() {
+                            self.score_page = self.score_page.saturating_sub(1);
+                        }
+                        if ui.button("Page ▶").clicked() {
+                            self.score_page += 1;
+                        }
+                        ui.add(
+                            egui::Slider::new(&mut self.score_zoom, 0.5..=2.5)
+                                .text("zoom")
+                                .fixed_decimals(1),
+                        );
+                    });
+                    if let Some(track) = self
+                        .roll
+                        .selected
+                        .or_else(|| self.song().tracks.first().map(|track| track.id))
+                    {
+                        let engraved =
+                            score::engrave(self.song(), track, score::Settings::default());
+                        self.score_page = crate::score_view::clamp_page(&engraved, self.score_page);
+                        let zoom = self.score_zoom;
+                        let page = self.score_page;
+                        crate::score_view::show(ui, &engraved, page, zoom);
+                    } else {
+                        ui.centered_and_justified(|ui| {
+                            ui.label(
+                                egui::RichText::new("Add a track to see a score.")
+                                    .color(theme::TEXT_MUTED),
+                            );
+                        });
+                    }
                 }
                 }
                 clicked
