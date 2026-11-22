@@ -98,6 +98,8 @@ pub struct ShellApp {
     launcher: arranging::grid::Launcher,
     recent: Vec<std::path::PathBuf>,
     recent_file: std::path::PathBuf,
+    midi_input: Option<midi_devices::devices::LiveInput>,
+    midi_map: midi_devices::map::MidiMap,
     settings: crate::settings::Settings,
     settings_open: bool,
     shortcuts_open: bool,
@@ -164,6 +166,11 @@ impl ShellApp {
             launcher: arranging::grid::Launcher::default(),
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
+            midi_input: None,
+            midi_map: std::fs::read_to_string("lazy-arranger-midi-map.txt")
+                .ok()
+                .and_then(|text| midi_devices::map::MidiMap::from_text(&text).ok())
+                .unwrap_or_default(),
             settings: crate::settings::Settings::load(&crate::settings::Settings::path()),
             settings_open: false,
             shortcuts_open: false,
@@ -552,6 +559,74 @@ impl ShellApp {
             self.last_bar = bar_index;
             if let Some(scene) = self.launcher.advance(bar_index * bar) {
                 self.status = Some(format!("scene {}", scene + 1));
+            }
+        }
+    }
+
+    /// Opens the configured keyboard once and applies mapped controls.
+    fn poll_midi(&mut self) {
+        if self.midi_input.is_none()
+            && let Some(name) = self.settings.keyboard.clone()
+        {
+            match midi_devices::devices::LiveInput::open(&name) {
+                Ok(input) => self.midi_input = Some(input),
+                Err(error) => {
+                    self.status = Some(format!("MIDI input {name}: {error}"));
+                    self.settings.keyboard = None;
+                }
+            }
+        }
+        let mut actions = Vec::new();
+        if let Some(input) = &self.midi_input {
+            while let Some(message) = input.next() {
+                if let Some(action) = self.midi_map.action_for(&message) {
+                    let value = midi_devices::map::value_of(&message);
+                    actions.push((action, value));
+                }
+            }
+        }
+        for (action, value) in actions {
+            self.apply_midi_action(action, value);
+        }
+    }
+
+    /// Runs one mapped action.
+    fn apply_midi_action(&mut self, action: midi_devices::map::Action, value: Option<u8>) {
+        use midi_devices::map::Action;
+        match action {
+            Action::Play => {
+                if !self.playing {
+                    self.toggle_playback();
+                }
+            }
+            Action::Stop => {
+                if self.playing {
+                    self.stop_playback();
+                }
+            }
+            Action::Undo => {
+                if !self.editor.undo() {
+                    self.status = Some(String::from("nothing to undo"));
+                }
+            }
+            Action::Scene(index) => {
+                self.launcher.launch(index);
+                self.status = Some(format!("scene {}", index + 1));
+            }
+            Action::TrackFader(track) => {
+                let Some(value) = value else {
+                    return;
+                };
+                let pan = self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == track)
+                    .map(|entry| entry.pan)
+                    .unwrap_or(64);
+                if let Err(error) = self.editor.set_track_gain(track, value.min(127), pan) {
+                    self.status = Some(error);
+                }
             }
         }
     }
@@ -1410,6 +1485,7 @@ impl eframe::App for ShellApp {
             context.set_style(style);
         }
         self.handle_keys(context);
+        self.poll_midi();
         if self.settings.kids_mode && self.view.index() > 1 {
             self.view = View::Arrange;
         }

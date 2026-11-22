@@ -661,3 +661,12 @@ note and `<tie type="stop"/>` on the second. Import merges a stop-tied note
 into the matching earlier note, summing durations, so a tied pair survives as
 one longer note. `notations`/`tied` elements, ties between different voices and
 slurs are not handled.
+
+### Live MIDI input
+
+`midi_devices::devices::LiveInput` opens the port named in Settings and forwards
+parsed messages over a channel; the MIDI callback touches no app state. The
+shell polls it once per frame, resolves each message through `MidiMap`, and
+runs the action: play/stop toggle, undo, scene launch, or a track fader set to
+the control-change value. Hardware behaviour is not verified here; a machine
+with the named keyboard is needed.

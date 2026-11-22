@@ -152,6 +152,15 @@ impl MidiMap {
     }
 }
 
+/// The 7-bit value of a control change, when the message is one.
+#[must_use]
+pub fn value_of(message: &MidiMessage) -> Option<u8> {
+    match message {
+        MidiMessage::ControlChange { value, .. } => Some(*value),
+        _ => None,
+    }
+}
+
 /// A learn session for one action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Learn {
@@ -283,6 +292,12 @@ mod tests {
         assert!(MidiMap::from_text("pad 1 = play").is_err());
         assert!(MidiMap::from_text("note 1 = explode").is_err());
         assert!(MidiMap::from_text("note 1 play").is_err());
+    }
+
+    #[test]
+    fn control_changes_expose_their_value() {
+        assert_eq!(value_of(&control(7, 90)), Some(90));
+        assert_eq!(value_of(&note_on(60)), None);
     }
 
     #[test]

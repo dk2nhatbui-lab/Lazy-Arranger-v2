@@ -5,10 +5,10 @@
 //! that enumeration does not fail. Recording and echo against a real keyboard
 //! are manual checks; see `docs/audit/compatibility-baseline.md`.
 
-use std::sync::mpsc::{RecvTimeoutError, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::{Duration, Instant};
 
-use midir::{MidiInput, MidiOutput, MidiOutputConnection};
+use midir::{MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnection};
 use music_core::{MidiMessage, TempoMap};
 use project::ids::TrackId;
 use project::song::Song;
@@ -101,6 +101,74 @@ pub fn list_ports() -> Result<PortNames, DeviceError> {
         );
     }
     Ok(names)
+}
+
+/// A live input connection that the UI polls each frame.
+///
+/// The callback only parses and forwards messages, so no app state is touched
+/// on the MIDI thread.
+pub struct LiveInput {
+    /// Open connection; dropping it closes the port.
+    pub connection: MidiInputConnection<()>,
+    receiver: Receiver<MidiMessage>,
+}
+
+impl std::fmt::Debug for LiveInput {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("LiveInput")
+    }
+}
+
+impl LiveInput {
+    /// Opens a named input port.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DeviceError`] when the backend or the port is unavailable.
+    pub fn open(name: &str) -> Result<Self, DeviceError> {
+        let (sender, receiver) = channel::<MidiMessage>();
+        let input =
+            MidiInput::new("lazy-arranger").map_err(|err| DeviceError::Init(err.to_string()))?;
+        let ports = input.ports();
+        let mut available = Vec::with_capacity(ports.len());
+        let mut chosen = None;
+        for port in ports {
+            let port_name = input
+                .port_name(&port)
+                .map_err(|err| DeviceError::PortName(err.to_string()))?;
+            if port_name == name {
+                chosen = Some(port);
+                break;
+            }
+            available.push(port_name);
+        }
+        let port = chosen.ok_or_else(|| DeviceError::NoSuchPort {
+            requested: String::from(name),
+            available,
+        })?;
+        let connection = input
+            .connect(
+                &port,
+                "lazy-arranger-live",
+                move |_timestamp, bytes, _| {
+                    if let Some(message) = MidiMessage::from_bytes(bytes) {
+                        let _ = sender.send(message);
+                    }
+                },
+                (),
+            )
+            .map_err(|err| DeviceError::Connect(err.to_string()))?;
+        Ok(Self {
+            connection,
+            receiver,
+        })
+    }
+
+    /// The next pending message, if any.
+    #[must_use]
+    pub fn next(&self) -> Option<MidiMessage> {
+        self.receiver.try_recv().ok()
+    }
 }
 
 /// Opens a named output port.
