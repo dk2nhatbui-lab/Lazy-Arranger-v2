@@ -31,6 +31,8 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Clip edit commands (insert, move, resize, split, remove) | `app-commands::EditSession` | verified | one undo step each; overlap rejected |
 | Clip lane: draw, select, arrow-move, shift+arrow resize, J join, N add, Delete remove | `apps/desktop` | implemented | geometry test; UI manual |
 | Clip join command | `app-commands::join_clips` | verified | spans both, one undo step |
+| Chord progression text parser (`\|` bar, `%` repeat, `/` hold) | `music-core::progression` | verified | 6 parser tests |
+| Chord lane: draw and K dialog writing through commands | `apps/desktop` | implemented | editor progression test; UI manual |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | — | missing | ADR-010 (Stage 8) |

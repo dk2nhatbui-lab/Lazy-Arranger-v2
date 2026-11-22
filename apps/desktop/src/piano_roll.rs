@@ -14,6 +14,8 @@ use crate::theme;
 
 /// Height of the clip lane above the notes.
 pub const CLIP_LANE_HEIGHT: f32 = 18.0;
+/// Height of the chord lane under the clip lane.
+pub const CHORD_LANE_HEIGHT: f32 = 16.0;
 
 /// Horizontal zoom: ticks per screen point.
 const MIN_TICKS_PER_POINT: f32 = 2.0;
@@ -157,7 +159,10 @@ pub fn show(
     }
 
     let geometry = RollGeometry {
-        origin: Pos2::new(rect.left() + 48.0, rect.top() + 20.0),
+        origin: Pos2::new(
+            rect.left() + 48.0,
+            rect.top() + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT + 6.0,
+        ),
         ticks_per_point: state.ticks_per_point,
         row_height: 10.0,
         top_pitch: state.top_pitch,
@@ -173,6 +178,7 @@ pub fn show(
         state.selected,
         selected_clip,
     );
+    draw_chord_lane(&painter, rect, &geometry, song);
     draw_grid(&painter, rect, &geometry, song);
     for (index, track) in song.tracks.iter().enumerate() {
         let colour = theme::track_colour(index);
@@ -326,6 +332,31 @@ fn draw_clip_lane(
                 theme::TEXT_MUTED,
             );
         }
+    }
+}
+
+fn draw_chord_lane(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song: &Song) {
+    let top = rect.top() + CLIP_LANE_HEIGHT;
+    painter.rect_filled(
+        Rect::from_min_size(
+            Pos2::new(rect.left(), top),
+            Vec2::new(rect.width(), CHORD_LANE_HEIGHT),
+        ),
+        0.0,
+        theme::PANEL,
+    );
+    for event in &song.chords {
+        let x = geometry.x_at(event.tick);
+        if x < rect.left() || x > rect.right() - 6.0 {
+            continue;
+        }
+        painter.text(
+            Pos2::new(x + 4.0, top + CHORD_LANE_HEIGHT * 0.5),
+            egui::Align2::LEFT_CENTER,
+            event.chord.format(music_core::Spelling::Sharp),
+            egui::FontId::proportional(10.0),
+            theme::ACCENT,
+        );
     }
 }
 

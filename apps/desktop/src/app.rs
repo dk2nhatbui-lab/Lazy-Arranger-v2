@@ -52,6 +52,8 @@ pub struct ShellApp {
     editor: Editor,
     selected_note: Option<(TrackId, NoteId)>,
     selected_clip: Option<(TrackId, project::ClipId)>,
+    chord_dialog: bool,
+    chord_input: String,
     project_path: Option<PathBuf>,
     view: View,
     roll: RollState,
@@ -92,6 +94,8 @@ impl ShellApp {
                 .map(|path| persistence::autosave_path(path)),
             selected_note: None,
             selected_clip: None,
+            chord_dialog: false,
+            chord_input: String::from("Am F C G"),
             project_path,
             view: View::Arrange,
             roll: RollState::default(),
@@ -247,6 +251,9 @@ impl ShellApp {
                 self.selected_clip = Some((track, clip));
             }
         }
+        if context.input(|input| input.key_pressed(egui::Key::K)) {
+            self.chord_dialog = true;
+        }
         if save {
             let path = self
                 .project_path
@@ -285,6 +292,43 @@ impl ShellApp {
             self.playing = false;
         }
         context.request_repaint_after(Duration::from_millis(16));
+    }
+
+    /// The chord lane entry dialog: type a progression, apply or cancel.
+    fn chord_dialog(&mut self, context: &Context) {
+        if !self.chord_dialog {
+            return;
+        }
+        let mut open = self.chord_dialog;
+        egui::Window::new("Chords")
+            .collapsible(false)
+            .open(&mut open)
+            .show(context, |ui| {
+                ui.label("Am F C G    or    C Am | F G    (| bar, % repeat, / hold)");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.chord_input)
+                        .desired_width(320.0)
+                        .hint_text("Am F C G"),
+                );
+                ui.horizontal(|ui| {
+                    if ui.button("Apply").clicked() {
+                        let bar = self.song().time_signature.bar_ticks().max(1);
+                        let start = snap(self.position, bar);
+                        match self.editor.apply_progression(&self.chord_input, start) {
+                            Ok(count) => {
+                                self.load_error = None;
+                                let _ = count;
+                                self.chord_dialog = false;
+                            }
+                            Err(error) => self.load_error = Some(error),
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.chord_dialog = false;
+                    }
+                });
+            });
+        self.chord_dialog = open && self.chord_dialog;
     }
 
     /// Writes an autosave when the project is dirty and the interval elapsed.
@@ -656,6 +700,7 @@ impl eframe::App for ShellApp {
         self.handle_keys(context);
         self.run_autosave();
         self.recovery_dialog(context);
+        self.chord_dialog(context);
         self.advance(context);
         self.top_bar(context);
         self.status_bar(context);

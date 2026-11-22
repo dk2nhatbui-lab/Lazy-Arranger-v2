@@ -13,6 +13,7 @@
 pub mod chord;
 pub mod midi;
 pub mod pitch;
+pub mod progression;
 pub mod tempo;
 pub mod time;
 

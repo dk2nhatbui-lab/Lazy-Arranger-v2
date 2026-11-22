@@ -208,6 +208,45 @@ impl Editor {
         Ok(())
     }
 
+    /// Replaces the chords from `start` with a typed progression.
+    ///
+    /// Returns the number of chords placed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unreadable chord symbol or a rejected command.
+    pub fn apply_progression(&mut self, text: &str, start: Tick) -> Result<usize, String> {
+        let meter = self.song().time_signature;
+        let placed = music_core::progression::parse(text, start, meter)
+            .map_err(|error| error.to_string())?;
+        if placed.is_empty() {
+            return Err(String::from("no chords in that text"));
+        }
+        let end = placed.last().map(|entry| entry.tick).unwrap_or(start) + meter.bar_ticks().max(1);
+        let existing: Vec<Tick> = self
+            .song()
+            .chords
+            .iter()
+            .filter(|event| event.tick >= start && event.tick < end)
+            .map(|event| event.tick)
+            .collect();
+        for tick in existing {
+            self.session
+                .apply(Command::RemoveChord { tick })
+                .map_err(|error| error.to_string())?;
+        }
+        for entry in &placed {
+            self.session
+                .apply(Command::SetChord {
+                    tick: entry.tick,
+                    chord: entry.chord,
+                })
+                .map_err(|error| error.to_string())?;
+        }
+        self.dirty = true;
+        Ok(placed.len())
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {
@@ -367,6 +406,32 @@ mod tests {
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].clips.len(), 1);
         assert!(editor.dirty());
+    }
+
+    #[test]
+    fn a_typed_progression_replaces_chords_and_undoes() {
+        let mut editor = editor();
+        let placed = editor
+            .apply_progression("Am F | C G", 0)
+            .expect("progression");
+        assert_eq!(placed, 4);
+        let ticks: Vec<Tick> = editor
+            .song()
+            .chords
+            .iter()
+            .map(|event| event.tick)
+            .collect();
+        assert_eq!(ticks, vec![0, 1920, 3840, 5760]);
+        assert!(editor.dirty());
+        for _ in 0..5 {
+            let _ = editor.undo();
+        }
+        assert_eq!(
+            editor.song().chords.len(),
+            1,
+            "the original C chord returns"
+        );
+        assert_eq!(editor.song().chords[0].tick, 0);
     }
 
     #[test]

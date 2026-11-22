@@ -19,7 +19,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 10 | Drum sampler and slicer | missing | — |
 | 11 | Beat view step sequencer | missing | — |
 | 12 | Clip grid, launch, record performance | missing | — |
-| 13 | Smart chords: chord lane, suggestions, 16 pads, reharmonize, Launchkey pads, find chords | partial | Chord parsing and types, transposition rules. No lane, pads, suggestions, reharmonize |
+| 13 | Smart chords | partial | Chord parsing, transposition rules, progression text (`\|`, `%`, `/`), chord lane and K entry. No pads, suggestions, reharmonize, Launchkey |
 | 14 | Styles | partial | Yamaha open, import, compile on chords, **save container (SFF1/SFF2, real 15-section style rewritten)**. No Korg, live sections, rules editor UI, style from clips, voices/setup events |
 | 15 | Style from Audio and Link | partial | Link→monophonic MIDI; no style output, no match scores |
 | 16 | Score view: engraving, spelling, clefs, edit, inputs, marks, chords, PDF | missing | ADR-010 design only |
