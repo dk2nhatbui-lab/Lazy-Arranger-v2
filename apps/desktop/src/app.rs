@@ -1317,6 +1317,7 @@ impl eframe::App for ShellApp {
                 let view = self.view;
                 let position = self.position;
                 let mut clicked = None;
+                let mut automation_edit: Option<(TrackId, project::song::Automation)> = None;
                 let Self { editor, roll, .. } = self;
                 let selected_clip = self.selected_clip;
                 let project = editor.project();
@@ -1330,6 +1331,28 @@ impl eframe::App for ShellApp {
                         selected_clip.map(|(_, clip)| clip),
                     ) {
                         clicked = Some(click);
+                    }
+                    if let Some(track_id) = roll.selected
+                        && let Some(track) = project
+                            .song
+                            .tracks
+                            .iter()
+                            .find(|track| track.id == track_id)
+                    {
+                        let lane = track
+                            .automation
+                            .iter()
+                            .find(|lane| lane.target == project::song::AutomationTarget::Volume)
+                            .cloned()
+                            .unwrap_or(project::song::Automation {
+                                target: project::song::AutomationTarget::Volume,
+                                points: Vec::new(),
+                            });
+                        if let Some(edited) =
+                            crate::automation_view::show(ui, &lane, project.song.end_tick().max(1))
+                        {
+                            automation_edit = Some((track_id, edited));
+                        }
                     }
                 }
                 View::Perform => {
@@ -1381,10 +1404,17 @@ impl eframe::App for ShellApp {
                     }
                 }
                 }
-                clicked
+                (clicked, automation_edit)
             });
-        if let Some(click) = panel.inner {
+        let (clicked, automation_edit) = panel.inner;
+        if let Some(click) = clicked {
             self.edit_click(click);
+        }
+        if let Some((track, lane)) = automation_edit {
+            let lanes = vec![lane];
+            if let Err(error) = self.editor.set_automation(track, lanes) {
+                self.status = Some(error);
+            }
         }
         if !self.shown {
             self.shown = true;

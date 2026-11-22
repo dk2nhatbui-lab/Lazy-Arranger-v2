@@ -5,6 +5,7 @@
 //! [`theme`]; the piano roll is a read-only canvas with tested geometry.
 
 pub mod app;
+pub mod automation_view;
 pub mod editor;
 pub mod persistence;
 pub mod piano_roll;

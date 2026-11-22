@@ -77,6 +77,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Track volume and pan (schema v8) | `project`, `audio`, `smf` export | verified | fader/pan render tests; CC 7/10 written; defaults omitted |
 | Mixer panel (per-track fader, pan, mute, solo) | `apps/desktop` | implemented | one undoable command per change; UI manual |
 | Volume and pan automation lanes (schema v9) | `project`, `audio`, `app-commands` | verified | interpolation/hold, per-note render, command undo |
+| Automation lane UI (click to add/remove volume points) | `apps/desktop/src/automation_view.rs` | implemented | mapping tests; UI manual |
 | Beat view (4 rows × 16 steps, velocity cycle, apply/undo) | `arranging::beat`, `apps/desktop` | verified core | 4 tests; B opens the grid |
 | Clip grid model (scenes × tracks, slots) | `arranging::grid`, MCP `get_clip_grid` | verified core | 3 tests + tool |
 | Scene launcher (bar-quantised, waiting/cancel, log) | `arranging::grid::Launcher` | verified core | 2 tests |

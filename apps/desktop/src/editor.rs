@@ -518,6 +518,23 @@ impl Editor {
         Ok(())
     }
 
+    /// Replaces a track's automation lanes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the command is rejected.
+    pub fn set_automation(
+        &mut self,
+        track: TrackId,
+        lanes: Vec<project::song::Automation>,
+    ) -> Result<(), String> {
+        self.session
+            .apply(Command::SetAutomation { track, lanes })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {
