@@ -8,6 +8,7 @@
 
 pub mod beat;
 pub mod chords;
+pub mod demo;
 pub mod forms;
 pub mod grid;
 pub mod groove;

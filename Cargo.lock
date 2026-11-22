@@ -186,6 +186,7 @@ version = "0.1.0"
 dependencies = [
  "app-commands",
  "arranger",
+ "audio",
  "music-core",
  "project",
  "thiserror 2.0.21",
@@ -1466,6 +1467,7 @@ version = "0.1.0"
 dependencies = [
  "app-commands",
  "arranger",
+ "arranging",
  "audio",
  "clap",
  "library",

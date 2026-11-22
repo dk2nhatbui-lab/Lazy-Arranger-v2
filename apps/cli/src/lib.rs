@@ -184,6 +184,12 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         track: usize,
     },
+    /// Write the built-in demo project as JSON.
+    DemoProject {
+        /// Output `.json` path.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Export a project as MusicXML.
     ExportMusicXml {
         /// Project `.json` path.
@@ -571,6 +577,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             );
             Ok(())
         }
+        Commands::DemoProject { out } => demo_project(&out),
         Commands::ScoreLayout { project, track } => {
             let project = read_project(&project)?;
             let Some(entry) = project.song.tracks.get(track) else {
@@ -957,6 +964,14 @@ pub fn demo_song() -> Result<Song, Box<dyn Error>> {
         name: String::from("Four bars"),
     });
     Ok(song)
+}
+
+/// Writes the demo project as JSON.
+fn demo_project(out: &PathBuf) -> Result<(), Box<dyn Error>> {
+    let project = ProjectFile::new(arranging::demo::demo_song());
+    fs::write(out, project.to_json_pretty()?)?;
+    println!("wrote {} with the built-in sixteen-bar demo", out.display());
+    Ok(())
 }
 
 fn inspect(path: &PathBuf) -> Result<(), Box<dyn Error>> {

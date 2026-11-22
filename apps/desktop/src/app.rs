@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use egui::{Context, Rect, ViewportCommand};
-use music_core::{PPQ, Tick, Velocity};
-use project::song::{Note, ProjectFile, Song, Track};
+use music_core::{PPQ, Tick};
+use project::song::{ProjectFile, Song};
 use project::{NoteId, ProjectError, TrackId};
 
 use crate::editor::{Editor, snap};
@@ -1547,53 +1547,8 @@ pub fn load_project(path: &PathBuf) -> Result<ProjectFile, ProjectError> {
     ProjectFile::from_json(&text)
 }
 
-/// A four-bar demo used when no project path is given.
+/// The built-in demo used when no project path is given.
 #[must_use]
 pub fn demo_project() -> ProjectFile {
-    let mut song = Song::new("Four bars", 120.0);
-    let bar = song.time_signature.bar_ticks();
-    let chords = ["C", "Am", "F", "G"];
-    let mut next_note = 0u32;
-    for (index, name) in chords.iter().enumerate() {
-        let Ok(chord) = music_core::Chord::parse(name) else {
-            continue;
-        };
-        song.chords.push(project::ChordEvent {
-            tick: index as Tick * bar,
-            chord,
-        });
-        let mut track = Track::new(
-            TrackId::new(u32::try_from(index + 1).unwrap_or(1))
-                .unwrap_or_else(|_| TrackId::new(1).expect("valid")),
-            (*name).to_string(),
-        );
-        let start = index as Tick * bar;
-        for pitch in chord.tones(4) {
-            next_note += 1;
-            track.notes.push(Note {
-                id: NoteId::new(next_note).unwrap_or_else(|_| NoteId::new(1).expect("valid")),
-                start,
-                duration: bar,
-                pitch,
-                velocity: Velocity::new(80).unwrap_or_else(|_| Velocity::new(80).expect("valid")),
-                channel: music_core::Channel::first(),
-            });
-        }
-        for beat in [0, 2] {
-            if let Some(root) = chord.bass_tone(2) {
-                next_note += 1;
-                track.notes.push(Note {
-                    id: NoteId::new(next_note).unwrap_or_else(|_| NoteId::new(1).expect("valid")),
-                    start: start + Tick::from(beat) * PPQ,
-                    duration: PPQ,
-                    pitch: root,
-                    velocity: Velocity::new(100)
-                        .unwrap_or_else(|_| Velocity::new(100).expect("valid")),
-                    channel: music_core::Channel::first(),
-                });
-            }
-        }
-        song.tracks.push(track);
-    }
-    ProjectFile::new(song)
+    ProjectFile::new(arranging::demo::demo_song())
 }
