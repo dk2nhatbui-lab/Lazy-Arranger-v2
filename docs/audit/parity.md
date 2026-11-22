@@ -45,7 +45,9 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Groove extraction, application, feel match | `arranging::groove` | verified core | 5 tests: averaging, amounts, match, bad grids |
 | Groove applied from the selected track (G) | `apps/desktop` | implemented | editor test moves a second track and undoes |
 | Song Forms (sections, presets, plan, apply) | `arranging::forms` | verified | section/plan tests and apply/undo test |
-| Song Forms dialog (Y) | `apps/desktop` | implemented | four presets; transitions not applied |
+| Song Forms dialog (Y) | `apps/desktop` | implemented | four presets |
+| Transitions: drum fill, lead-in, automatic | `arranging::forms::transition` | verified | 4 tests incl. apply/undo; T key |
+| Transitions: hold chord, break, straight cut presets | — | partial | straight cut is a no-op; hold/break missing |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | — | missing | ADR-010 (Stage 8) |

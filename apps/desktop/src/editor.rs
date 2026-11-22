@@ -417,6 +417,23 @@ impl Editor {
         Ok(copied)
     }
 
+    /// Adds a transition ending at `join_tick`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when a command is rejected.
+    pub fn apply_transition(
+        &mut self,
+        join_tick: Tick,
+        kind: arranging::forms::Transition,
+    ) -> Result<usize, String> {
+        let plan = arranging::forms::transition(self.song(), join_tick, kind);
+        let added = arranging::forms::apply_transition(&mut self.session, &plan)
+            .map_err(|error| error.to_string())?;
+        self.dirty |= added > 0;
+        Ok(added)
+    }
+
     /// Applies one Arrangement Doctor proposal.
     ///
     /// # Errors
@@ -822,6 +839,29 @@ mod tests {
         assert!(editor.dirty());
         while editor.undo() {}
         assert_eq!(editor.song().tracks[0].notes.len(), 2);
+    }
+
+    #[test]
+    fn a_transition_is_added_and_undone() {
+        let mut song = Song::new("Fill", 120.0);
+        let mut drums = Track::new(TrackId::new(1).expect("valid"), "Drums");
+        drums.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::new(36).expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: music_core::Channel::new(9).expect("valid"),
+        });
+        song.tracks.push(drums);
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("valid");
+        let added = editor
+            .apply_transition(3840, arranging::forms::Transition::DrumFill)
+            .expect("transition");
+        assert_eq!(added, 4);
+        assert_eq!(editor.song().tracks[0].notes.len(), 5);
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].notes.len(), 1);
     }
 
     #[test]

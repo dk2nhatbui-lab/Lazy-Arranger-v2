@@ -357,3 +357,251 @@ mod tests {
         assert_eq!(session.song().markers.len(), 3);
     }
 }
+
+/// What happens at a join between two form parts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transition {
+    /// No added notes.
+    Straight,
+    /// Four snare hits over the last beat before the join.
+    DrumFill,
+    /// A chord stab one beat before the join.
+    LeadIn,
+    /// Drum fill when the song has drums, otherwise a lead-in.
+    Automatic,
+}
+
+/// Notes a transition adds, before identifiers are assigned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransitionPlan {
+    /// Track and note pairs to add.
+    pub notes: Vec<(TrackId, Note)>,
+    /// What was chosen, for a status line.
+    pub description: String,
+}
+
+/// Plans a transition ending exactly at `join_tick`.
+#[must_use]
+pub fn transition(song: &Song, join_tick: Tick, kind: Transition) -> TransitionPlan {
+    let drums = song.tracks.iter().find(|track| {
+        track
+            .notes
+            .iter()
+            .any(|note| note.channel.zero_based() == 9)
+    });
+    let chosen = match kind {
+        Transition::Automatic => {
+            if drums.is_some() {
+                Transition::DrumFill
+            } else {
+                Transition::LeadIn
+            }
+        }
+        other => other,
+    };
+    let mut notes = Vec::new();
+    match chosen {
+        Transition::DrumFill => {
+            if let Some(track) = drums {
+                for (index, velocity) in [70_u8, 85, 100, 115].into_iter().enumerate() {
+                    let start = join_tick - (4 - index as Tick) * (music_core::PPQ / 4);
+                    notes.push((
+                        track.id,
+                        Note {
+                            id: project::NoteId::new(1).expect("valid"),
+                            start,
+                            duration: music_core::PPQ / 4,
+                            pitch: music_core::Pitch::new(38).expect("valid"),
+                            velocity: music_core::Velocity::new(velocity).expect("valid"),
+                            channel: track
+                                .notes
+                                .first()
+                                .map_or(music_core::Channel::first(), |note| note.channel),
+                        },
+                    ));
+                }
+            }
+        }
+        Transition::LeadIn => {
+            let chord = song
+                .chords
+                .iter()
+                .filter(|event| event.tick <= join_tick)
+                .max_by_key(|event| event.tick)
+                .map(|event| event.chord);
+            if let (Some(chord), Some(track)) = (
+                chord,
+                song.tracks.iter().find(|track| {
+                    track
+                        .notes
+                        .iter()
+                        .any(|note| note.channel.zero_based() != 9)
+                }),
+            ) {
+                for pitch in chord.tones(3) {
+                    notes.push((
+                        track.id,
+                        Note {
+                            id: project::NoteId::new(1).expect("valid"),
+                            start: (join_tick - music_core::PPQ).max(0),
+                            duration: music_core::PPQ / 2,
+                            pitch,
+                            velocity: music_core::Velocity::new(90).expect("valid"),
+                            channel: track
+                                .notes
+                                .first()
+                                .map_or(music_core::Channel::first(), |note| note.channel),
+                        },
+                    ));
+                }
+            }
+        }
+        Transition::Straight => {}
+        Transition::Automatic => {}
+    }
+    TransitionPlan {
+        description: match chosen {
+            Transition::DrumFill => String::from("drum fill"),
+            Transition::LeadIn => String::from("lead-in chord"),
+            Transition::Straight => String::from("straight cut"),
+            Transition::Automatic => String::from("automatic"),
+        },
+        notes,
+    }
+}
+
+/// Adds a transition's notes to the timeline.
+///
+/// # Errors
+///
+/// Returns [`ArrangingError::Command`] when an edit is rejected.
+pub fn apply_transition(
+    session: &mut EditSession,
+    plan: &TransitionPlan,
+) -> Result<usize, ArrangingError> {
+    use std::collections::BTreeMap;
+    let mut by_track: BTreeMap<TrackId, Vec<Note>> = BTreeMap::new();
+    for (track, note) in &plan.notes {
+        by_track.entry(*track).or_default().push(note.clone());
+    }
+    for (track_id, new_notes) in by_track {
+        let Some(track) = session
+            .song()
+            .tracks
+            .iter()
+            .find(|track| track.id == track_id)
+        else {
+            continue;
+        };
+        let mut notes = track.notes.clone();
+        notes.extend(new_notes);
+        notes.sort_by_key(|note| note.start);
+        for (index, note) in notes.iter_mut().enumerate() {
+            if let Ok(id) = project::NoteId::new(index as u32 + 1) {
+                note.id = id;
+            }
+        }
+        session.apply(Command::ReplaceTrackNotes {
+            track: track_id,
+            notes,
+        })?;
+    }
+    Ok(plan.notes.len())
+}
+
+#[cfg(test)]
+mod transition_tests {
+    use super::*;
+    use music_core::{Channel, PPQ, Pitch, Velocity};
+    use project::NoteId;
+    use project::song::Track;
+
+    fn drum_track() -> Track {
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Drums");
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::new(36).expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::new(9).expect("valid"),
+        });
+        track
+    }
+
+    fn pitched_track() -> Track {
+        let mut track = Track::new(TrackId::new(2).expect("valid"), "Piano");
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        track
+    }
+
+    fn song_with(tracks: Vec<Track>, chord: bool) -> Song {
+        let mut song = Song::new("Transitions", 120.0);
+        song.tracks = tracks;
+        if chord {
+            song.chords.push(ChordEvent {
+                tick: 0,
+                chord: music_core::Chord::parse("C").expect("valid"),
+            });
+        }
+        song
+    }
+
+    #[test]
+    fn a_drum_fill_lands_on_the_last_beat() {
+        let song = song_with(vec![drum_track()], false);
+        let plan = transition(&song, 7680, Transition::DrumFill);
+        assert_eq!(plan.notes.len(), 4);
+        assert_eq!(plan.notes[0].1.start, 7680 - 4 * (PPQ / 4));
+        assert_eq!(plan.notes[3].1.start + plan.notes[3].1.duration, 7680);
+        assert!(plan.notes[3].1.velocity.as_u8() > plan.notes[0].1.velocity.as_u8());
+    }
+
+    #[test]
+    fn a_lead_in_uses_the_chord_in_force() {
+        let song = song_with(vec![pitched_track()], true);
+        let plan = transition(&song, 3840, Transition::LeadIn);
+        assert_eq!(plan.notes.len(), 3, "a C major triad");
+        assert_eq!(plan.notes[0].1.start, 3840 - PPQ);
+    }
+
+    #[test]
+    fn automatic_prefers_drums_and_falls_back_to_lead_in() {
+        let with_drums = song_with(vec![drum_track(), pitched_track()], true);
+        assert_eq!(
+            transition(&with_drums, 3840, Transition::Automatic).description,
+            "drum fill"
+        );
+        let without = song_with(vec![pitched_track()], true);
+        assert_eq!(
+            transition(&without, 3840, Transition::Automatic).description,
+            "lead-in chord"
+        );
+        assert_eq!(
+            transition(&with_drums, 3840, Transition::Straight)
+                .notes
+                .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn applying_a_transition_adds_notes_and_undoes() {
+        let song = song_with(vec![drum_track()], false);
+        let plan = transition(&song, 7680, Transition::DrumFill);
+        let mut session = EditSession::new(project::song::ProjectFile::new(song)).expect("valid");
+        let before = session.song().tracks[0].notes.len();
+        let added = apply_transition(&mut session, &plan).expect("apply");
+        assert_eq!(added, 4);
+        assert_eq!(session.song().tracks[0].notes.len(), before + 4);
+        session.undo().expect("undo");
+        assert_eq!(session.song().tracks[0].notes.len(), before);
+    }
+}

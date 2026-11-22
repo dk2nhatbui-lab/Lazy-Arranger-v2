@@ -279,6 +279,18 @@ impl ShellApp {
                 Err(error) => self.status = Some(error),
             }
         }
+        if context.input(|input| input.key_pressed(egui::Key::T)) {
+            let bar = self.song().time_signature.bar_ticks().max(1);
+            let join = snap(self.position, bar).max(bar);
+            match self
+                .editor
+                .apply_transition(join, arranging::forms::Transition::Automatic)
+            {
+                Ok(0) => self.status = Some(String::from("nothing to add at that join")),
+                Ok(added) => self.status = Some(format!("transition: {added} note(s)")),
+                Err(error) => self.status = Some(error),
+            }
+        }
         if context.input(|input| input.key_pressed(egui::Key::Y)) {
             self.form_dialog = true;
         }
