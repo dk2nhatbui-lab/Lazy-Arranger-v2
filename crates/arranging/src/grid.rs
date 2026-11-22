@@ -5,9 +5,13 @@
 //! clip covering that scene's start. It is a view over the existing clip
 //! regions, not a second copy of the notes.
 
+use app_commands::{Command, EditSession};
 use music_core::Tick;
+use project::song::Note;
 use project::song::Song;
 use project::{ClipId, TrackId};
+
+use crate::ArrangingError;
 
 /// One scene, a fixed span of bars.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,5 +171,240 @@ mod tests {
         let grid = from_timeline(&song, 4);
         assert_eq!(grid.rows.len(), 1);
         assert!(grid.rows[0].slots.is_empty());
+    }
+}
+
+/// Launch state: what plays, what waits for the next bar, and what has played.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Launcher {
+    /// Scene currently playing.
+    pub current: Option<usize>,
+    /// Scene that starts at the next bar boundary.
+    pub waiting: Option<usize>,
+    /// True between start and stop.
+    pub playing: bool,
+    /// Scenes that started, with the tick where each began.
+    pub log: Vec<(usize, Tick)>,
+}
+
+impl Launcher {
+    /// Starts or queues a scene. While playing, the change waits for a bar.
+    pub fn launch(&mut self, scene: usize) {
+        if self.playing {
+            self.waiting = Some(scene);
+        } else {
+            self.playing = true;
+            self.current = Some(scene);
+            self.waiting = None;
+            self.log.push((scene, 0));
+        }
+    }
+
+    /// Commits a waiting scene at a bar boundary; returns it when it changed.
+    pub fn advance(&mut self, bar_tick: Tick) -> Option<usize> {
+        if !self.playing {
+            return None;
+        }
+        let scene = self.waiting.take()?;
+        self.current = Some(scene);
+        self.log.push((scene, bar_tick));
+        Some(scene)
+    }
+
+    /// Cancels the waiting scene.
+    pub fn cancel_waiting(&mut self) {
+        self.waiting = None;
+    }
+
+    /// Stops playback and clears the queue, keeping the log.
+    pub fn stop(&mut self) {
+        self.playing = false;
+        self.waiting = None;
+        self.current = None;
+    }
+}
+
+/// Writes the scenes a launcher played to the timeline.
+///
+/// Each logged scene copies its slotted clips (notes and clip regions) to the
+/// tick where it started. Notes append; clip identifiers are fresh per track.
+///
+/// # Errors
+///
+/// Returns [`ArrangingError::Command`] when an edit is rejected.
+pub fn record_to_timeline(
+    session: &mut EditSession,
+    grid: &Grid,
+    log: &[(usize, Tick)],
+) -> Result<usize, ArrangingError> {
+    use std::collections::BTreeMap;
+
+    let mut additions: BTreeMap<TrackId, Vec<Note>> = BTreeMap::new();
+    let mut clips: BTreeMap<TrackId, Vec<project::song::Clip>> = BTreeMap::new();
+    let mut copied = 0;
+    for (scene_index, target) in log {
+        let Some(row) = grid.rows.get(*scene_index) else {
+            continue;
+        };
+        for slot in &row.slots {
+            let Some(clip_id) = slot.clip else {
+                continue;
+            };
+            let Some(track) = session
+                .song()
+                .tracks
+                .iter()
+                .find(|track| track.id == slot.track)
+            else {
+                continue;
+            };
+            let Some(clip) = track.clips.iter().find(|clip| clip.id == clip_id) else {
+                continue;
+            };
+            let offset = *target - row.scene.start;
+            for note in &track.notes {
+                if note.start < clip.start || note.start >= clip.end() {
+                    continue;
+                }
+                let mut copy = note.clone();
+                copy.start = note.start + offset;
+                additions.entry(track.id).or_default().push(copy);
+                copied += 1;
+            }
+            let next = track
+                .clips
+                .iter()
+                .map(|entry| entry.id.get())
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1)
+                + u32::try_from(clips.get(&track.id).map_or(0, Vec::len)).unwrap_or(0);
+            if let Ok(id) = ClipId::new(next) {
+                clips
+                    .entry(track.id)
+                    .or_default()
+                    .push(project::song::Clip {
+                        id,
+                        name: format!("{} take", clip.name),
+                        start: clip.start + offset,
+                        length: clip.length,
+                    });
+            }
+        }
+    }
+
+    for (track, notes) in &additions {
+        let Some(entry) = session
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == *track)
+        else {
+            continue;
+        };
+        let mut merged = entry.notes.clone();
+        merged.extend(notes.iter().cloned());
+        merged.sort_by_key(|note| note.start);
+        for (index, note) in merged.iter_mut().enumerate() {
+            if let Ok(id) = project::NoteId::new(index as u32 + 1) {
+                note.id = id;
+            }
+        }
+        session.apply(Command::ReplaceTrackNotes {
+            track: *track,
+            notes: merged,
+        })?;
+    }
+    for (track, regions) in &clips {
+        let Some(entry) = session
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == *track)
+        else {
+            continue;
+        };
+        let mut merged = entry.clips.clone();
+        merged.extend(regions.iter().cloned());
+        merged.sort_by_key(|clip| clip.start);
+        session.apply(Command::SetClips {
+            track: *track,
+            clips: merged,
+        })?;
+    }
+    Ok(copied)
+}
+
+#[cfg(test)]
+mod launcher_tests {
+    use super::*;
+    use music_core::{Channel, PPQ, Pitch, Velocity};
+    use project::NoteId;
+    use project::song::{Clip, ProjectFile, Song, Track};
+
+    fn launcher() -> Launcher {
+        Launcher::default()
+    }
+
+    #[test]
+    fn launching_while_stopped_starts_and_logs_at_zero() {
+        let mut state = launcher();
+        state.launch(2);
+        assert!(state.playing);
+        assert_eq!(state.current, Some(2));
+        assert_eq!(state.log, vec![(2, 0)]);
+    }
+
+    #[test]
+    fn launching_while_playing_waits_for_the_next_bar() {
+        let mut state = launcher();
+        state.launch(0);
+        state.launch(1);
+        assert_eq!(state.current, Some(0));
+        assert_eq!(state.waiting, Some(1));
+        assert_eq!(state.advance(3840), Some(1));
+        assert_eq!(state.current, Some(1));
+        assert_eq!(state.log, vec![(0, 0), (1, 3840)]);
+        assert_eq!(state.advance(7680), None, "nothing waiting");
+        state.launch(3);
+        state.cancel_waiting();
+        assert_eq!(state.waiting, None);
+        state.stop();
+        assert!(!state.playing);
+        assert_eq!(state.log.len(), 2);
+    }
+
+    #[test]
+    fn recording_writes_the_played_scene_to_the_timeline() {
+        let mut song = Song::new("Record", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        track.clips.push(Clip {
+            id: ClipId::new(1).expect("valid"),
+            name: String::from("A"),
+            start: 0,
+            length: 3840,
+        });
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        song.tracks.push(track);
+        let grid = from_timeline(&song, 1);
+        let mut session = EditSession::new(ProjectFile::new(song)).expect("valid");
+        let copied = record_to_timeline(&mut session, &grid, &[(0, 7680)]).expect("record");
+        assert_eq!(copied, 1);
+        let track = &session.song().tracks[0];
+        assert_eq!(track.notes.len(), 2);
+        assert_eq!(track.notes[1].start, 7680);
+        assert_eq!(track.clips.len(), 2);
+        assert_eq!(track.clips[1].start, 7680);
+        session.undo().expect("undo clips");
+        session.undo().expect("undo notes");
+        assert_eq!(session.song().tracks[0].notes.len(), 1);
+        assert_eq!(session.song().tracks[0].clips.len(), 1);
     }
 }
