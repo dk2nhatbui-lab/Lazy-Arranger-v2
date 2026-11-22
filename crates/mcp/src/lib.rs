@@ -116,6 +116,21 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "edit_slot",
+            description: "Edit one clip-grid slot: clear it, copy it to a tick, or set its length.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "scene": {"type": "integer"},
+                    "track": {"type": "integer"},
+                    "action": {"type": "string"},
+                    "tick": {"type": "integer"},
+                    "length": {"type": "integer"}
+                },
+                "required": ["scene", "track", "action"]
+            }),
+        },
+        Tool {
             name: "find_chords",
             description: "Recognize a chord per bar from the notes and write the chord timeline.",
             input_schema: json!({"type": "object", "properties": {}}),
@@ -277,6 +292,42 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "tracks": grid.tracks.iter().map(|track| track.get()).collect::<Vec<_>>(),
                 "scenes": scenes,
             }))
+        }
+        "edit_slot" => {
+            let scene = arguments
+                .get("scene")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("scene is required")))?;
+            let track = track_argument(arguments)?;
+            let action = arguments
+                .get("action")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("action is required")))?;
+            let grid = arranging::grid::from_timeline(session.song(), 2);
+            let index = usize::try_from(scene).unwrap_or(0);
+            match action {
+                "clear" => {
+                    arranging::grid::clear_slot(session, &grid, index, track)?;
+                    Ok(json!({"action": "clear"}))
+                }
+                "copy" => {
+                    let tick = arguments
+                        .get("tick")
+                        .and_then(Value::as_i64)
+                        .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+                    let copied = arranging::grid::copy_slot(session, &grid, index, track, tick)?;
+                    Ok(json!({"copied": copied}))
+                }
+                "length" => {
+                    let length = arguments
+                        .get("length")
+                        .and_then(Value::as_i64)
+                        .ok_or_else(|| ToolError::Arguments(String::from("length is required")))?;
+                    arranging::grid::set_slot_length(session, &grid, index, track, length)?;
+                    Ok(json!({"length": length}))
+                }
+                other => Err(ToolError::Arguments(format!("unknown action {other}"))),
+            }
         }
         "find_chords" => Ok(json!({"chords": arranging::chords::find_chords(session)?})),
         "arrangement_doctor" => {
@@ -919,6 +970,44 @@ mod arranging_tool_tests {
         assert_eq!(result["scenes"].as_array().expect("scenes").len(), 1);
         assert_eq!(result["scenes"][0]["slots"][0], 1);
         assert_eq!(result["tracks"].as_array().expect("tracks").len(), 2);
+    }
+
+    #[test]
+    fn slots_can_be_cleared_and_lengths_changed() {
+        let mut session = session();
+        session
+            .apply(Command::SetClips {
+                track: TrackId::new(1).expect("valid"),
+                clips: vec![project::song::Clip {
+                    id: project::ClipId::new(1).expect("valid"),
+                    name: String::from("A"),
+                    start: 0,
+                    length: 3840,
+                }],
+            })
+            .expect("clips");
+        call(
+            &mut session,
+            "edit_slot",
+            &json!({"scene": 0, "track": 1, "action": "length", "length": 1920}),
+        )
+        .expect("length");
+        assert_eq!(session.song().tracks[0].clips[0].length, 1920);
+        call(
+            &mut session,
+            "edit_slot",
+            &json!({"scene": 0, "track": 1, "action": "clear"}),
+        )
+        .expect("clear");
+        assert!(session.song().tracks[0].clips.is_empty());
+        assert!(
+            call(
+                &mut session,
+                "edit_slot",
+                &json!({"scene": 0, "track": 1, "action": "nope"})
+            )
+            .is_err()
+        );
     }
 
     #[test]

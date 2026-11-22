@@ -414,3 +414,197 @@ mod launcher_tests {
         assert_eq!(session.song().tracks[0].clips.len(), 1);
     }
 }
+
+/// Changes the length of the clip in one slot.
+///
+/// # Errors
+///
+/// Returns [`ArrangingError::Command`] when the edit is rejected.
+pub fn set_slot_length(
+    session: &mut EditSession,
+    grid: &Grid,
+    scene_index: usize,
+    track: TrackId,
+    length: Tick,
+) -> Result<(), ArrangingError> {
+    let Some(clip) = slot_clip(grid, scene_index, track) else {
+        return Ok(());
+    };
+    session.resize_clip(track, clip, length)?;
+    Ok(())
+}
+
+/// Removes the clip from one slot, keeping its notes.
+///
+/// # Errors
+///
+/// Returns [`ArrangingError::Command`] when the edit is rejected.
+pub fn clear_slot(
+    session: &mut EditSession,
+    grid: &Grid,
+    scene_index: usize,
+    track: TrackId,
+) -> Result<(), ArrangingError> {
+    let Some(clip) = slot_clip(grid, scene_index, track) else {
+        return Ok(());
+    };
+    session.remove_clip(track, clip)?;
+    Ok(())
+}
+
+/// Copies one slot's clip and notes to `target`, as a new clip.
+///
+/// Returns how many notes were copied.
+///
+/// # Errors
+///
+/// Returns [`ArrangingError::Command`] when the edit is rejected.
+pub fn copy_slot(
+    session: &mut EditSession,
+    grid: &Grid,
+    scene_index: usize,
+    track: TrackId,
+    target: Tick,
+) -> Result<usize, ArrangingError> {
+    let Some(clip_id) = slot_clip(grid, scene_index, track) else {
+        return Ok(0);
+    };
+    let Some(entry) = session.song().tracks.iter().find(|entry| entry.id == track) else {
+        return Ok(0);
+    };
+    let Some(clip) = entry.clips.iter().find(|clip| clip.id == clip_id) else {
+        return Ok(0);
+    };
+    let offset = target - clip.start;
+    let copies: Vec<Note> = entry
+        .notes
+        .iter()
+        .filter(|note| note.start >= clip.start && note.start < clip.end())
+        .map(|note| {
+            let mut copy = note.clone();
+            copy.start = note.start + offset;
+            copy
+        })
+        .collect();
+    let mut notes = entry.notes.clone();
+    notes.extend(copies.iter().cloned());
+    let existing_clips = entry.clips.clone();
+    let next = existing_clips
+        .iter()
+        .map(|clip| clip.id.get())
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    let clip_name = clip.name.clone();
+    let clip_length = clip.length;
+    notes.sort_by_key(|note| note.start);
+    for (index, note) in notes.iter_mut().enumerate() {
+        if let Ok(id) = project::NoteId::new(index as u32 + 1) {
+            note.id = id;
+        }
+    }
+    session.apply(Command::ReplaceTrackNotes { track, notes })?;
+    if let Ok(id) = ClipId::new(next) {
+        let mut clips = existing_clips;
+        clips.push(project::song::Clip {
+            id,
+            name: format!("{clip_name} copy"),
+            start: target,
+            length: clip_length,
+        });
+        clips.sort_by_key(|clip| clip.start);
+        session.apply(Command::SetClips { track, clips })?;
+    }
+    Ok(copies.len())
+}
+
+/// The clip identifier in one slot, when the slot is filled.
+#[must_use]
+pub fn slot_clip(grid: &Grid, scene_index: usize, track: TrackId) -> Option<ClipId> {
+    grid.rows
+        .get(scene_index)?
+        .slots
+        .iter()
+        .find(|slot| slot.track == track)?
+        .clip
+}
+
+#[cfg(test)]
+mod slot_tests {
+    use super::*;
+    use music_core::{Channel, PPQ, Pitch, Velocity};
+    use project::NoteId;
+    use project::song::{Clip, ProjectFile, Song, Track};
+
+    fn session_with_clip() -> (EditSession, Grid) {
+        let mut song = Song::new("Slots", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        track.clips.push(Clip {
+            id: ClipId::new(1).expect("valid"),
+            name: String::from("A"),
+            start: 0,
+            length: 3840,
+        });
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        song.tracks.push(track);
+        let grid = from_timeline(&song, 1);
+        let session = EditSession::new(ProjectFile::new(song)).expect("valid");
+        (session, grid)
+    }
+
+    #[test]
+    fn a_slot_length_can_change_and_undo() {
+        let (mut session, grid) = session_with_clip();
+        let track = TrackId::new(1).expect("valid");
+        set_slot_length(&mut session, &grid, 0, track, 1920).expect("resize");
+        assert_eq!(session.song().tracks[0].clips[0].length, 1920);
+        session.undo().expect("undo");
+        assert_eq!(session.song().tracks[0].clips[0].length, 3840);
+    }
+
+    #[test]
+    fn clearing_a_slot_keeps_its_notes() {
+        let (mut session, grid) = session_with_clip();
+        let track = TrackId::new(1).expect("valid");
+        clear_slot(&mut session, &grid, 0, track).expect("clear");
+        assert!(session.song().tracks[0].clips.is_empty());
+        assert_eq!(session.song().tracks[0].notes.len(), 1);
+    }
+
+    #[test]
+    fn copying_a_slot_duplicates_notes_and_clip() {
+        let (mut session, grid) = session_with_clip();
+        let track = TrackId::new(1).expect("valid");
+        let copied = copy_slot(&mut session, &grid, 0, track, 3840).expect("copy");
+        assert_eq!(copied, 1);
+        let entry = &session.song().tracks[0];
+        assert_eq!(entry.notes.len(), 2);
+        assert_eq!(entry.notes[1].start, 3840);
+        assert_eq!(entry.clips.len(), 2);
+        assert_eq!(entry.clips[1].start, 3840);
+        assert_eq!(entry.clips[1].name, "A copy");
+        session.undo().expect("undo clips");
+        session.undo().expect("undo notes");
+        assert_eq!(session.song().tracks[0].notes.len(), 1);
+    }
+
+    #[test]
+    fn empty_slots_are_no_ops() {
+        let (mut session, grid) = session_with_clip();
+        let empty = TrackId::new(9).expect("valid");
+        assert!(slot_clip(&grid, 0, empty).is_none());
+        assert!(set_slot_length(&mut session, &grid, 0, empty, 960).is_ok());
+        assert!(clear_slot(&mut session, &grid, 0, empty).is_ok());
+        assert_eq!(
+            copy_slot(&mut session, &grid, 0, empty, 0).expect("copy"),
+            0
+        );
+    }
+}
