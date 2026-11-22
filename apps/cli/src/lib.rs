@@ -138,6 +138,19 @@ enum Commands {
         #[arg(long = "voice", value_name = "CHANNEL:PROGRAM")]
         voices: Vec<String>,
     },
+    /// Add an audio file to a project as an audio track reference.
+    AddAudio {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Audio `.wav` file.
+        wav: PathBuf,
+        /// Output project `.json` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Start tick; defaults to zero.
+        #[arg(long, default_value_t = 0)]
+        start: Tick,
+    },
     /// Find chords in a WAV file and optionally write a chord project.
     ChordsFromAudio {
         /// Source `.wav` file.
@@ -429,6 +442,46 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 report.notes,
                 report.chords,
                 report.shift
+            );
+            Ok(())
+        }
+        Commands::AddAudio {
+            project,
+            wav,
+            out,
+            start,
+        } => {
+            let project = read_project(&project)?;
+            let bytes = fs::read(&wav)
+                .map_err(|error| format!("could not read {}: {error}", wav.display()))?;
+            let info = audio::wav::info(&bytes)?;
+            let bpm = project.song.tempo_map.bpm_at(start);
+            let length = audio::chords::to_ticks(info.seconds, bpm);
+            let mut session = EditSession::new(project)?;
+            let track_id = session.next_track_id()?;
+            let mut track = Track::new(
+                track_id,
+                wav.file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .unwrap_or("Audio")
+                    .to_string(),
+            );
+            track.audio = Some(project::song::AudioRef {
+                path: wav.display().to_string(),
+                start,
+                length,
+            });
+            session.apply(Command::InsertTrack { track })?;
+            let json = session.project().to_json_pretty()?;
+            fs::write(&out, json)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!(
+                "added {}: {} channel(s), {} Hz, {:.2} s, {length} ticks at {bpm:.1} bpm -> {}",
+                wav.display(),
+                info.channels,
+                info.sample_rate,
+                info.seconds,
+                out.display()
             );
             Ok(())
         }

@@ -38,6 +38,20 @@ impl Note {
     }
 }
 
+/// A reference to an audio file placed on a track.
+///
+/// The project stores the path and the span; the audio itself never lives in
+/// the project file, matching the C++ app.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AudioRef {
+    /// Path to the audio file as written when it was imported.
+    pub path: String,
+    /// First tick of the audio on the timeline.
+    pub start: Tick,
+    /// Length in ticks at the tempo when it was imported.
+    pub length: Tick,
+}
+
 /// A named region of a track's timeline.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Clip {
@@ -89,6 +103,9 @@ pub struct Track {
     /// Record arm. No recording path uses it yet.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub armed: bool,
+    /// Reference to an audio file, for audio tracks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<AudioRef>,
     /// Keyboard voice (General MIDI program) chosen for this track.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<u8>,
@@ -151,6 +168,7 @@ impl Track {
             muted: false,
             soloed: false,
             armed: false,
+            audio: None,
             program: None,
             provenance: None,
             extra: BTreeMap::new(),
@@ -439,6 +457,11 @@ impl ProjectFile {
                     // the default "Scene N" names, which is the version 5 state.
                     self.version = 6;
                 }
+                6 => {
+                    // Version 7 adds optional audio references on tracks; None
+                    // is the version 6 behaviour.
+                    self.version = 7;
+                }
                 from => {
                     return Err(ProjectError::Migration {
                         from,
@@ -694,6 +717,26 @@ mod tests {
         assert!(track.muted && track.soloed && track.armed);
         let text = project.to_json_pretty().expect("serialize");
         assert!(text.contains("\"muted\": true"));
+    }
+
+    #[test]
+    fn audio_references_round_trip_and_default_none() {
+        let mut song = Song::new("Audio", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Take");
+        track.audio = Some(AudioRef {
+            path: String::from("/tmp/take.wav"),
+            start: 0,
+            length: 3840,
+        });
+        song.tracks.push(track);
+        let text = ProjectFile::new(song).to_json_pretty().expect("serialize");
+        let back = ProjectFile::from_json(&text).expect("parse");
+        let audio = back.song.tracks[0].audio.clone().expect("audio");
+        assert_eq!(audio.path, "/tmp/take.wav");
+        assert_eq!(audio.length, 3840);
+        assert_eq!(back.version, SCHEMA_VERSION);
+        let empty = ProjectFile::new(Song::new("Empty", 120.0));
+        assert!(!empty.to_json_pretty().expect("serialize").contains("audio"));
     }
 
     #[test]

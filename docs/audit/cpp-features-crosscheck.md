@@ -7,14 +7,14 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 | § | C++ feature | Rust | Key gap / evidence |
 | --- | --- | --- | --- |
-| 1 | Projects and files | partial | `.arranger` open/save, autosave/recovery, SMF in/out, WAV export in 16 and 24 bit, MusicXML export/import, style save, PSR-S970 song export. Recent list exists (last 10, missing dropped, clear). No audio import, PDF, Korg, L6max, SysEx |
+| 1 | Projects and files | partial | `.arranger` open/save, autosave/recovery, SMF in/out, WAV export in 16 and 24 bit, MusicXML export/import, style save, PSR-S970 song export. Recent list and audio-reference import (WAV). No editing of audio, PDF, Korg, L6max, SysEx |
 | 2 | Window: header, views, inspector, mixer panel, AI panel, light theme, zoom | partial | Header, LCD, tabs, track list, dark theme, square corners. No inspector, mixer/AI panels, light theme; zoom is wheel-only |
 | 3 | Tracks | partial | MIDI tracks with an optional keyboard program (schema v4, shown in the track list, MCP tool, honored by keyboard export). No audio tracks, per-track input, outputs or SoundFont; mute/solo/arm flags exist and sequencer/audio honor mute and solo |
 | 4 | Transport: play/stop, start, record, loop, metronome, ruler, tempo/meter edit, MIDI record, all-notes-off, auto inputs | partial | Audio play/pause/stop with silence on stop; no record, loop, metronome, ruler, tempo edit, quantise, auto inputs |
 | 5 | Timeline clips | partial | Clip regions in schema v3, migration, and undoable insert/move/resize/split/remove commands with overlap rejection. No UI, join, snap, chord lane or lyrics |
 | 6 | Note editor: add/select/move/resize/delete, arrows, velocity lane, grid, quantise, piano keys, select all | partial | Click insert, select, delete, undo/redo, save. No drag-move, resize, velocity lane, quantise, piano keys, copy/paste |
 | 7 | Cut/copy/paste in every view | missing | — |
-| 8 | Audio tracks: waveforms, record, monitor, trim, fades, takes, stretch, convert to MIDI | missing | — (only offline WAV render) |
+| 8 | Audio tracks | partial | Audio references on tracks (schema v7) with WAV header import and tempo-derived length. No waveforms, recording, monitoring, trimming, fades, takes or stretching |
 | 9 | Audio analysis | partial | Monophonic audio→MIDI, chroma-based chord recognition with a CLI, transcription answers still missing. No stems, instrument tags, lyrics or model-based polyphony |
 | 10 | Drum sampler and slicer | missing | — |
 | 11 | Beat view | partial | Four drum rows by sixteen steps with off/soft/normal/loud cycling, read from and written to a bar as one undo step, B opens the grid. No pattern length, copy/paste rows, Put-in-bars or scrolling long clips |

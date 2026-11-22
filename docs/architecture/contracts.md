@@ -600,3 +600,11 @@ feeds them to `arranger::recognize`. `chords-from-audio` reports segments and
 can write a chord-only project at a given tempo. It works on clean triads and
 sevenths; dense mixes, inversions other than the lowest class, and rhythmic
 material need the model-based pipeline the C++ app runs outside its process.
+
+### Audio references
+
+Schema v7 adds `Track.audio: Option<AudioRef { path, start, length }>`. The file
+stays outside the project, as in the C++ app; `add-audio` reads the WAV header
+(`audio::wav::info`), converts seconds to ticks at the tempo at the start tick,
+and inserts a track holding the reference. There is no waveform, recording,
+trimming or stretching yet, and nothing plays the referenced file.
