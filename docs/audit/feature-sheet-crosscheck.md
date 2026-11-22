@@ -59,7 +59,7 @@ Status: **verified** (tested here), **partial**, **missing**.
 
 | Sheet claim | Rust | Evidence / gap |
 | --- | --- | --- |
-| Inputs turn on by themselves, device profiles | partial | profiles typed and tested; no auto-enable |
+| Inputs turn on by themselves, device profiles | partial | one PSR-S970 voice subset with keyword matching; no YAML profiles, banks or auto-enable |
 | D-05 and XioSynth sound editors | missing | — |
 | Launchkey / X-Touch mixer pages | missing | — |
 | Zoom LiveTrak L6max import | missing | not even in the profile list |

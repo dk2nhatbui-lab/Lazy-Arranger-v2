@@ -341,22 +341,55 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             voices,
         } => {
             let project = read_project(&project)?;
-            let mut parsed: Vec<smf::KeyboardVoice> = Vec::new();
-            for entry in &voices {
+            let profile = &midi_devices::PSR_S970;
+            let mut chosen: Vec<smf::KeyboardVoice> = project
+                .song
+                .tracks
+                .iter()
+                .enumerate()
+                .map(|(index, track)| {
+                    let drums = track.name.to_lowercase().contains("drum")
+                        || track
+                            .notes
+                            .iter()
+                            .any(|note| note.channel.zero_based() == 9);
+                    smf::KeyboardVoice {
+                        channel: if drums {
+                            9
+                        } else {
+                            u8::try_from(index).unwrap_or(0) & 0x0f
+                        },
+                        program: midi_devices::nearest_voice(profile, &track.name),
+                        ..smf::KeyboardVoice::default()
+                    }
+                })
+                .collect();
+            for (index, entry) in voices.iter().enumerate() {
                 let (channel, program) = entry
                     .split_once(':')
                     .ok_or_else(|| format!("--voice expects CHANNEL:PROGRAM, found {entry:?}"))?;
-                parsed.push(smf::KeyboardVoice {
+                let voice = smf::KeyboardVoice {
                     channel: channel.trim().parse()?,
                     program: program.trim().parse()?,
                     ..smf::KeyboardVoice::default()
-                });
+                };
+                if index < chosen.len() {
+                    chosen[index] = voice;
+                } else {
+                    chosen.push(voice);
+                }
             }
-            while parsed.len() < project.song.tracks.len() {
-                parsed.push(smf::KeyboardVoice {
-                    channel: u8::try_from(parsed.len()).unwrap_or(0),
-                    ..smf::KeyboardVoice::default()
-                });
+            let parsed = chosen;
+            for (index, voice) in parsed.iter().enumerate() {
+                let name = project
+                    .song
+                    .tracks
+                    .get(index)
+                    .map_or("extra part", |track| track.name.as_str());
+                eprintln!(
+                    "  {name}: channel {} program {}",
+                    voice.channel, voice.program
+                );
             }
             let (bytes, report) = smf::export_keyboard(&project.song, &parsed, &[]);
             fs::write(&out, &bytes)

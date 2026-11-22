@@ -27,7 +27,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 18 | Automation | missing | — |
 | 19 | VST3/AU plugins | missing | ADR-007 deferred |
 | 20 | SF2/SF3 SoundFont player, metronome | partial | Additive sine voice; no SoundFont |
-| 21 | Device profiles (YAML), built-ins, overrides, validation, AI authoring, recent MIDI | partial | Typed profile structs and five devices; no YAML loader, overrides, recent buffer |
+| 21 | MIDI devices and profiles | partial | One built-in PSR-S970 voice subset with keyword matching and a GM fallback (used by keyboard export). No YAML loader, banks, drum kits, other devices, overrides, validation or recent-MIDI buffer |
 | 22 | Synth sound editors (D-05, XioSynth, S970 XG, L6max), sysex dumps | missing | — |
 | 23 | Controller pages, MIDI Map, MIDI Learn, channel check | partial | Launchkey/X-Touch profiles referenced; no pages, map, learn |
 | 24 | PSR-S970 tools | partial | Song export with setup bar, program/volume/pan per part, chord markers, lyrics events and drums on channel 10. No Style Remote, style-by-number or hardware verification |

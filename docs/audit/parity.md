@@ -48,7 +48,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Song Forms dialog (Y) | `apps/desktop` | implemented | four presets |
 | MusicXML export (partwise, rests, drum clef) | `crates/musicxml` | verified | 4 tests + valid XML from a real project |
 | MusicXML import (parts, measures, notes, rests, chords, drums, tempo/meter) | `musicxml::import` | verified | 4 tests + real round trip 94 notes; drum pitch/velocity lost, no lyrics/marks |
-| PSR-S970 keyboard song export (setup bar, voices, chords, drums ch10) | `smf::export_keyboard` | implemented | 3 tests; real project 94 notes, 2 chord markers, 5 tracks |
+| PSR-S970 keyboard song export (setup bar, voices, chords, drums ch10) | `smf::export_keyboard` | implemented | 3 tests; real project 94 notes, 5 tracks; programs from profile name matching |
 | Style Remote, style-by-number, keyboard acceptance | — | missing | no hardware test |
 | Transitions: drum fill, lead-in, automatic | `arranging::forms::transition` | verified | 4 tests incl. apply/undo; T key |
 | Transitions: hold chord, break, straight cut presets | — | partial | straight cut is a no-op; hold/break missing |
@@ -63,7 +63,8 @@ regressions. Status values: **verified** (tested here), **implemented**
 | UI shell (Perform/Arrange/Mix) | `apps/desktop` | implemented | themed shell, editing, audio |
 | Audio playback | `audio` | implemented | cpal; audible check pending |
 | WAV/offline render | `audio` | verified | 5.36 s real-style render |
-| Device profiles (Launchkey, XioSynth, D-05, S970, X-TOUCH) | `midi-devices` | partial | profiles typed, not exercised |
+| Device profile voice matching | `midi-devices::profiles` | partial | PSR-S970 subset (13 voices) + keyword fallback, 3 tests |
+| Device profiles: YAML loader, banks, drum kits, other devices, editors, mixer maps | — | missing | earlier claim of five typed profiles was wrong; corrected |
 | AI/MCP | `apps/mcp` | missing | Stage 8; `mcp` crate planned |
 | Korg Pa import | — | missing | Stage 8 extension |
 | Plugin hosting (VST3/CLAP) | — | missing | ADR-007, deferred |
