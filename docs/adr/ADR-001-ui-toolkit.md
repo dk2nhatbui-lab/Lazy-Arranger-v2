@@ -31,9 +31,12 @@ whose conditions (attribution, scope, revenue limits) need a full read before
 use. The earlier wording here, that a GPL-family toolkit necessarily forces
 copyleft on the binary, was too strong for Slint and is corrected.
 
-A third source, Codex's review of Cecilia and SoundCraft, also recommends
-`egui` for the application with a toolkit-agnostic engraving module behind it
-(see ADR-010). All named options therefore have a permissive path:
+SoundCraft (MIT OR Apache-2.0) uses `egui` 0.37 through `eframe` with
+`egui_kittest`, and a review recommending `egui` for the application cites it
+(see ADR-010). Cecilia is a counter-example to any claim that these DAWs all use
+egui: its GUI is a custom `winit`/`wgpu`/`vello` renderer, with the engraver
+kept independent of any toolkit. Both are pinned in
+`docs/audit/notes/refs-soundcraft-cecilia.md`. All named options therefore have a permissive path:
 `egui` MIT OR Apache-2.0, `iced` MIT, and Slint's royalty-free licence after
 its conditions are read. The choice is now about editor ergonomics and
 rendering control, not licensing.

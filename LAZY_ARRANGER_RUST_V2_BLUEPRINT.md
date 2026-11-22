@@ -4,7 +4,7 @@
 **Targets:** Windows and macOS  
 **Product:** MIDI-first arranger DAW for live performance and studio production  
 **Source application:** https://github.com/nhth-mibu/arranger-midi-daw  
-**References:** https://github.com/Pep3M/cadenza and https://github.com/alexanderwanyoike/vibez
+**References:** https://github.com/Pep3M/cadenza, https://github.com/alexanderwanyoike/vibez, https://github.com/storytold/soundcraft and https://github.com/kjmcnamara1/cecilia
 
 > This document consolidates the design discussion. Repository capabilities and implementation details described below are **candidates to verify against source**, not a completed source-level audit. Do not assume a crate, API, license, or device command works without checking the current upstream source and documentation.
 
@@ -446,6 +446,8 @@ Use this document as the shared product specification, but **do not allow multip
 - Existing application: https://github.com/nhth-mibu/arranger-midi-daw
 - Cadenza: https://github.com/Pep3M/cadenza
 - Vibez: https://github.com/alexanderwanyoike/vibez
+- SoundCraft: https://github.com/storytold/soundcraft
+- Cecilia: https://github.com/kjmcnamara1/cecilia
 - Slint: https://slint.dev
 - Iced: https://github.com/iced-rs/iced
 - egui: https://github.com/emilk/egui

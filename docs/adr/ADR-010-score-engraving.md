@@ -16,9 +16,13 @@ score logic to keep. What does exist is the part that matters for the seam:
 * one typed edit path with exact inverses (`app-commands`);
 * a pure musical model with no UI types in it.
 
-The recommendation was checked against that state, the two reference DAWs
-(Cadenza: egui 0.36; Vibez: iced 0.13), Cecilia and SoundCraft, and the licence
-of every crate it names. All named crates are permissive: `egui` MIT OR
+The recommendation was checked against that state, the four reference DAWs
+(Cadenza: egui 0.36; Vibez: iced 0.13; SoundCraft: egui 0.37; Cecilia: a custom
+winit/wgpu/vello renderer), and the licence of every crate it names. SoundCraft
+and Cecilia are pinned in
+[`docs/audit/notes/refs-soundcraft-cecilia.md`](../audit/notes/refs-soundcraft-cecilia.md)
+at commits `915481b` and `d54e949`; both are MIT OR Apache-2.0, so their code is
+reusable with attribution, unlike Cadenza and Vibez. All named crates are permissive: `egui` MIT OR
 Apache-2.0, `tiny-skia` BSD-3-Clause, `krilla` MIT OR Apache-2.0, `pdf-writer`
 MIT OR Apache-2.0.
 
@@ -89,5 +93,6 @@ for the drag. Only then widen notation coverage.
 
 * `docs/adr/ADR-001-ui-toolkit.md` (toolkit comparison and licences).
 * `crates/app-commands`, `crates/project/src/ids.rs` (the seam's existing pieces).
-* Cadenza and Vibez clones under `.reference/`; Cecilia and SoundCraft inspected
-  by Codex, links in the recommendation on file with the project owner.
+* Cadenza, Vibez, SoundCraft and Cecilia clones under `.reference/`, pinned in
+  `docs/audit/notes/`.
+* `docs/audit/notes/refs-soundcraft-cecilia.md` for the engraving evidence.
