@@ -126,6 +126,23 @@ enum Commands {
         #[arg(long)]
         rules: bool,
     },
+    /// Turn a YouTube (or other yt-dlp) link into a MIDI file.
+    LinkToMidi {
+        /// Link to a video or audio page.
+        link: String,
+        /// Output `.mid` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Folder for the downloaded WAV.
+        #[arg(long)]
+        folder: Option<PathBuf>,
+        /// Folder holding ffmpeg when it is not on PATH.
+        #[arg(long)]
+        ffmpeg: Option<PathBuf>,
+        /// Keep the downloaded WAV.
+        #[arg(long)]
+        keep: bool,
+    },
     /// Render a project to a 16-bit stereo WAV file.
     ExportAudio {
         /// Project `.json` path.
@@ -248,6 +265,13 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             chords,
             add_tracks,
         } => edit(&project, &out, tempo, &chords, &add_tracks),
+        Commands::LinkToMidi {
+            link,
+            out,
+            folder,
+            ffmpeg,
+            keep,
+        } => link_to_midi(&link, &out, folder.as_deref(), ffmpeg.as_deref(), keep),
         Commands::ExportAudio {
             project,
             out,
@@ -632,6 +656,63 @@ fn edit(
         "wrote {} ({} undo step(s) available)",
         out.display(),
         session.undo_depth()
+    );
+    Ok(())
+}
+
+fn link_to_midi(
+    link: &str,
+    out: &PathBuf,
+    folder: Option<&std::path::Path>,
+    ffmpeg: Option<&std::path::Path>,
+    keep: bool,
+) -> Result<(), Box<dyn Error>> {
+    let cleaned = audio::link::clean(link);
+    if cleaned.is_empty() {
+        return Err("not an http(s) link".into());
+    }
+    let folder = folder
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir);
+    let ffmpeg = ffmpeg.unwrap_or_else(|| std::path::Path::new(""));
+    let path = audio::link::download(&cleaned, &folder, ffmpeg)?;
+    let bytes = fs::read(&path)?;
+    let decoded = audio::wav::decode_mono(&bytes)?;
+    let notes = audio::analysis::to_midi(&decoded.samples, decoded.sample_rate);
+    if notes.is_empty() {
+        return Err("the audio produced no notes".into());
+    }
+    let mut song = project::song::Song::new(
+        path.file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("Audio")
+            .to_string(),
+        120.0,
+    );
+    let mut track = project::song::Track::new(project::TrackId::new(1)?, "Audio to MIDI");
+    for (index, detected) in notes.iter().enumerate() {
+        let (start, duration) = audio::analysis::as_ticks(detected, 120.0);
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(u32::try_from(index + 1)?)?,
+            start,
+            duration: duration.max(1),
+            pitch: music_core::Pitch::new(detected.pitch)?,
+            velocity: music_core::Velocity::new((detected.level * 127.0).clamp(1.0, 127.0) as u8)?,
+            channel: music_core::Channel::first(),
+        });
+    }
+    song.tracks.push(track);
+    let encoded = smf::encode(&song)?;
+    fs::write(out, encoded)
+        .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+    if !keep {
+        let _ = fs::remove_file(&path);
+    }
+    println!(
+        "converted {} note(s) from {} to {}",
+        notes.len(),
+        cleaned,
+        out.display()
     );
     Ok(())
 }
