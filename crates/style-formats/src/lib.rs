@@ -19,6 +19,7 @@
 use thiserror::Error;
 
 pub mod casm;
+pub mod catalog;
 pub mod import;
 pub mod write;
 

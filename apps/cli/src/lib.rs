@@ -184,6 +184,27 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         track: usize,
     },
+    /// List styles under a folder with stable numbers.
+    StyleCatalog {
+        /// Folder to scan.
+        root: PathBuf,
+        /// Show only the first N entries.
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+    /// Render one numbered style from a folder.
+    StyleByNumber {
+        /// Number from `style-catalog`.
+        number: usize,
+        /// Folder to scan.
+        root: PathBuf,
+        /// Section to render; defaults to the first.
+        #[arg(long)]
+        section: Option<String>,
+        /// Write the compiled section to this `.mid` file.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Print a MIDI control map.
     MidiMapShow {
         /// Map file path.
@@ -615,6 +636,36 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 pdf.len()
             );
             Ok(())
+        }
+        Commands::StyleCatalog { root, limit } => {
+            let entries = style_formats::catalog::catalog(&root)?;
+            let shown = limit.unwrap_or(entries.len());
+            for entry in entries.iter().take(shown) {
+                println!("{:>6}  {}", entry.number, entry.name);
+            }
+            println!("{} style(s) under {}", entries.len(), root.display());
+            Ok(())
+        }
+        Commands::StyleByNumber {
+            number,
+            root,
+            section,
+            out,
+        } => {
+            let entries = style_formats::catalog::catalog(&root)?;
+            let entry = style_formats::catalog::by_number(&entries, number).ok_or_else(|| {
+                format!(
+                    "no style numbered {number}; the catalog has {}",
+                    entries.len()
+                )
+            })?;
+            println!(
+                "{:>6}  {}  ({})",
+                entry.number,
+                entry.name,
+                entry.path.display()
+            );
+            style_command(&entry.path, section.as_deref(), out.as_ref(), &[], false)
         }
         Commands::MidiMapShow { file } => {
             let text = fs::read_to_string(&file).unwrap_or_default();
