@@ -25,6 +25,12 @@ pub enum ToolError {
     Command(#[from] CommandError),
 }
 
+impl From<arranging::ArrangingError> for ToolError {
+    fn from(error: arranging::ArrangingError) -> Self {
+        Self::Command(CommandError::Validation(error.to_string()))
+    }
+}
+
 /// One tool definition.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tool {
@@ -101,6 +107,59 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "find_chords",
+            description: "Recognize a chord per bar from the notes and write the chord timeline.",
+            input_schema: json!({"type": "object", "properties": {}}),
+        },
+        Tool {
+            name: "arrangement_doctor",
+            description: "Return Arrangement Doctor proposals (crowded bars, literal repeats).",
+            input_schema: json!({"type": "object", "properties": {}}),
+        },
+        Tool {
+            name: "extract_groove",
+            description: "Return the groove (1/16 timing offsets and levels) of a track's first bar.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}},
+                "required": ["track"]
+            }),
+        },
+        Tool {
+            name: "apply_groove",
+            description: "Apply one track's groove to the other tracks.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "timing": {"type": "number"},
+                    "accents": {"type": "number"}
+                },
+                "required": ["track"]
+            }),
+        },
+        Tool {
+            name: "make_song_form",
+            description: "Write a preset song form to the timeline: short, gig, long_intro or instrumental.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"preset": {"type": "string"}},
+                "required": ["preset"]
+            }),
+        },
+        Tool {
+            name: "reharmonize",
+            description: "Replace the chord at a tick with a tritone, borrowed, two_five or relative rule.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "tick": {"type": "integer"},
+                    "kind": {"type": "string"}
+                },
+                "required": ["tick", "kind"]
+            }),
+        },
+        Tool {
             name: "get_undo",
             description: "Return how many undo steps are available.",
             input_schema: json!({"type": "object", "properties": {}}),
@@ -155,10 +214,151 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             session.apply(Command::InsertTrack { track })?;
             Ok(json!({"track": id.get()}))
         }
+        "find_chords" => Ok(json!({"chords": arranging::chords::find_chords(session)?})),
+        "arrangement_doctor" => {
+            let proposals: Vec<Value> = arranging::analyze(session.song())
+                .into_iter()
+                .map(|proposal| {
+                    json!({
+                        "title": proposal.title,
+                        "detail": proposal.detail,
+                        "bar": proposal.bar,
+                        "edits": proposal.edits.len(),
+                    })
+                })
+                .collect();
+            Ok(json!({"proposals": proposals}))
+        }
+        "extract_groove" => extract_groove(session, arguments),
+        "apply_groove" => apply_groove(session, arguments),
+        "make_song_form" => make_song_form(session, arguments),
+        "reharmonize" => reharmonize(session, arguments),
         "add_notes" => add_notes(session, arguments),
         "set_chords" => set_chords(session, arguments),
         _ => Err(ToolError::UnknownTool(String::from(name))),
     }
+}
+
+fn track_argument(arguments: &Value) -> Result<TrackId, ToolError> {
+    let value = arguments
+        .get("track")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| ToolError::Arguments(String::from("track is required")))?;
+    TrackId::new(u32::try_from(value).unwrap_or(0))
+        .map_err(|error| ToolError::Arguments(error.to_string()))
+}
+
+fn extract_groove(session: &mut EditSession, arguments: &Value) -> Result<Value, ToolError> {
+    let track = track_argument(arguments)?;
+    let Some(source) = session.song().tracks.iter().find(|entry| entry.id == track) else {
+        return Err(ToolError::Arguments(format!("unknown track {track}")));
+    };
+    let bar = session.song().time_signature.bar_ticks().max(1);
+    let groove = arranging::groove::extract(&source.notes, bar, music_core::PPQ / 4)
+        .ok_or_else(|| ToolError::Arguments(String::from("no groove")))?;
+    Ok(json!({"grid": groove.grid, "offsets": groove.offsets, "levels": groove.levels}))
+}
+
+fn apply_groove(session: &mut EditSession, arguments: &Value) -> Result<Value, ToolError> {
+    let track = track_argument(arguments)?;
+    let amounts = arranging::groove::Amounts {
+        timing: arguments
+            .get("timing")
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0) as f32,
+        accents: arguments
+            .get("accents")
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0) as f32,
+    };
+    let Some(groove) = extract_groove(session, arguments).ok().and_then(|_| {
+        let source = session
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)?;
+        let bar = session.song().time_signature.bar_ticks().max(1);
+        arranging::groove::extract(&source.notes, bar, music_core::PPQ / 4)
+    }) else {
+        return Err(ToolError::Arguments(String::from(
+            "no groove in that track",
+        )));
+    };
+    let others: Vec<TrackId> = session
+        .song()
+        .tracks
+        .iter()
+        .filter(|entry| entry.id != track && !entry.notes.is_empty())
+        .map(|entry| entry.id)
+        .collect();
+    let mut changed = 0;
+    for other in others {
+        let Some(entry) = session.song().tracks.iter().find(|entry| entry.id == other) else {
+            continue;
+        };
+        let notes = arranging::groove::apply(&entry.notes, &groove, amounts);
+        session.apply(Command::ReplaceTrackNotes {
+            track: other,
+            notes,
+        })?;
+        changed += 1;
+    }
+    Ok(json!({"tracks": changed}))
+}
+
+fn make_song_form(session: &mut EditSession, arguments: &Value) -> Result<Value, ToolError> {
+    let preset = arguments
+        .get("preset")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::Arguments(String::from("preset is required")))?;
+    let sections = arranging::forms::sections(session.song());
+    let form = match preset {
+        "short" => arranging::forms::short(&sections),
+        "gig" => arranging::forms::gig(&sections),
+        "long_intro" => arranging::forms::long_intro(&sections),
+        "instrumental" => arranging::forms::instrumental(&sections),
+        other => return Err(ToolError::Arguments(format!("unknown preset {other}"))),
+    };
+    let copied = arranging::forms::apply(session, &sections, &form)?;
+    Ok(json!({"form": form.name, "notes": copied}))
+}
+
+fn reharmonize(session: &mut EditSession, arguments: &Value) -> Result<Value, ToolError> {
+    let tick = arguments
+        .get("tick")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+    let kind_name = arguments
+        .get("kind")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::Arguments(String::from("kind is required")))?;
+    let kind = match kind_name {
+        "tritone" => music_core::reharmonize::Kind::TritoneSubstitute,
+        "borrowed" => music_core::reharmonize::Kind::Borrowed,
+        "two_five" => music_core::reharmonize::Kind::TwoFive,
+        "relative" => music_core::reharmonize::Kind::Relative,
+        other => return Err(ToolError::Arguments(format!("unknown kind {other}"))),
+    };
+    let Some(original) = session
+        .song()
+        .chords
+        .iter()
+        .find(|event| event.tick == tick)
+        .map(|event| event.chord)
+    else {
+        return Err(ToolError::Arguments(String::from("no chord at that tick")));
+    };
+    let chords = music_core::reharmonize::apply(original, kind);
+    let bar = session.song().time_signature.bar_ticks().max(1);
+    session.apply(Command::RemoveChord { tick })?;
+    let step = bar / chords.len() as Tick;
+    for (index, chord) in chords.iter().enumerate() {
+        session.apply(Command::SetChord {
+            tick: tick + (index as Tick) * step,
+            chord: *chord,
+        })?;
+    }
+    Ok(json!({"chords": chords.len()}))
 }
 
 fn song_summary(song: &project::song::Song) -> Value {
@@ -564,5 +764,88 @@ mod transport_tests {
         assert!(lines[0].contains("\"result\""));
         assert!(lines[1].contains("-32700"));
         assert!(lines[2].contains("\"tools\""));
+    }
+}
+
+#[cfg(test)]
+mod arranging_tool_tests {
+    use super::*;
+    use music_core::{Chord, PPQ, Pitch, Velocity};
+    use project::Marker;
+    use project::song::{Note, Track};
+
+    fn session() -> EditSession {
+        let mut song = project::song::Song::new("Tools", 120.0);
+        let mut lead = Track::new(TrackId::new(1).expect("valid"), "Lead");
+        lead.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::from_name("C6").expect("valid"),
+            velocity: Velocity::new(110).expect("valid"),
+            channel: Channel::first(),
+        });
+        let mut band = Track::new(TrackId::new(2).expect("valid"), "Band");
+        for id in 1..=12 {
+            band.notes.push(Note {
+                id: NoteId::new(id).expect("valid"),
+                start: (id as Tick) * 10,
+                duration: PPQ,
+                pitch: Pitch::from_name(["C4", "E4", "G4"][(id as usize - 1) % 3]).expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(lead);
+        song.tracks.push(band);
+        song.markers.push(Marker {
+            tick: 0,
+            name: String::from("Main A"),
+        });
+        song.chords.push(ChordEvent {
+            tick: 0,
+            chord: Chord::parse("C").expect("valid"),
+        });
+        EditSession::new(ProjectFile::new(song)).expect("valid")
+    }
+
+    #[test]
+    fn the_doctor_returns_proposals() {
+        let mut session = session();
+        let result = call(&mut session, "arrangement_doctor", &json!({})).expect("call");
+        assert!(!result["proposals"].as_array().expect("array").is_empty());
+    }
+
+    #[test]
+    fn find_chords_writes_the_timeline() {
+        let mut session = session();
+        let result = call(&mut session, "find_chords", &json!({})).expect("call");
+        assert!(result["chords"].as_u64().expect("count") >= 1);
+        assert!(!session.song().chords.is_empty());
+    }
+
+    #[test]
+    fn grooves_can_be_extracted_and_applied() {
+        let mut session = session();
+        let result = call(&mut session, "extract_groove", &json!({"track": 1})).expect("groove");
+        assert_eq!(result["grid"], PPQ / 4);
+        assert!(result["offsets"].is_array());
+        let applied = call(&mut session, "apply_groove", &json!({"track": 1})).expect("apply");
+        assert!(applied["tracks"].as_u64().unwrap_or(0) >= 1);
+    }
+
+    #[test]
+    fn a_form_and_a_reharmonization_apply() {
+        let mut session = session();
+        let form = call(&mut session, "make_song_form", &json!({"preset": "gig"})).expect("form");
+        assert!(form["notes"].as_u64().expect("notes") > 0);
+        let reharm = call(
+            &mut session,
+            "reharmonize",
+            &json!({"tick": 0, "kind": "two_five"}),
+        )
+        .expect("reharmonize");
+        assert_eq!(reharm["chords"], 2);
+        assert!(call(&mut session, "make_song_form", &json!({"preset": "nope"})).is_err());
     }
 }

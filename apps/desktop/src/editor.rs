@@ -298,61 +298,10 @@ impl Editor {
     ///
     /// Returns a message when a command is rejected.
     pub fn find_chords(&mut self) -> Result<usize, String> {
-        let meter = self.song().time_signature;
-        let bar = meter.bar_ticks().max(1);
-        let end = self.song().end_tick().max(bar);
-        let mut found = Vec::new();
-        let mut start = 0;
-        while start < end {
-            let mut pitches = Vec::new();
-            let mut lowest = 127_u8;
-            for track in &self.song().tracks {
-                for note in &track.notes {
-                    if note.start >= start && note.start < start + bar {
-                        pitches.push(note.pitch.as_u8());
-                        lowest = lowest.min(note.pitch.as_u8());
-                    }
-                }
-            }
-            if let Some(recognized) = arranger::recognize(&pitches, Some(lowest)) {
-                found.push((start, recognized.chord));
-            }
-            start += bar;
-        }
-        for (tick, chord) in &found {
-            let existing: Vec<Tick> = self
-                .song()
-                .chords
-                .iter()
-                .filter(|event| event.tick >= *tick && event.tick < tick + bar)
-                .map(|event| event.tick)
-                .collect();
-            for event_tick in existing {
-                self.session
-                    .apply(Command::RemoveChord { tick: event_tick })
-                    .map_err(|error| error.to_string())?;
-            }
-            self.session
-                .apply(Command::SetChord {
-                    tick: *tick,
-                    chord: *chord,
-                })
-                .map_err(|error| error.to_string())?;
-        }
-        self.dirty |= !found.is_empty();
-        Ok(found.len())
-    }
-
-    /// The Arrangement Doctor's proposals for the current song.
-    #[must_use]
-    pub fn proposals(&self) -> Vec<arranging::Proposal> {
-        arranging::analyze(self.song())
-    }
-
-    /// Fit to My Synths proposals for a synth's limits.
-    #[must_use]
-    pub fn fit_proposals(&self, spec: arranging::SynthSpec) -> Vec<arranging::Proposal> {
-        arranging::fit_to_synth(self.song(), spec)
+        let found =
+            arranging::chords::find_chords(&mut self.session).map_err(|error| error.to_string())?;
+        self.dirty |= found > 0;
+        Ok(found)
     }
 
     /// Extracts a groove from one track over the first bar.
@@ -398,25 +347,6 @@ impl Editor {
         Ok(changed)
     }
 
-    /// Sections read from the song's markers.
-    #[must_use]
-    pub fn sections(&self) -> Vec<arranging::forms::Section> {
-        arranging::forms::sections(self.song())
-    }
-
-    /// Writes a song form to the timeline.
-    ///
-    /// # Errors
-    ///
-    /// Returns a message when a command is rejected.
-    pub fn apply_form(&mut self, form: &arranging::forms::Form) -> Result<usize, String> {
-        let sections = self.sections();
-        let copied = arranging::forms::apply(&mut self.session, &sections, form)
-            .map_err(|error| error.to_string())?;
-        self.dirty |= copied > 0;
-        Ok(copied)
-    }
-
     /// Adds a transition ending at `join_tick`.
     ///
     /// # Errors
@@ -434,6 +364,18 @@ impl Editor {
         Ok(added)
     }
 
+    /// The Arrangement Doctor's proposals for the current song.
+    #[must_use]
+    pub fn proposals(&self) -> Vec<arranging::Proposal> {
+        arranging::analyze(self.song())
+    }
+
+    /// Fit to My Synths proposals for a synth's limits.
+    #[must_use]
+    pub fn fit_proposals(&self, spec: arranging::SynthSpec) -> Vec<arranging::Proposal> {
+        arranging::fit_to_synth(self.song(), spec)
+    }
+
     /// Applies one Arrangement Doctor proposal.
     ///
     /// # Errors
@@ -444,6 +386,25 @@ impl Editor {
             arranging::apply(&mut self.session, proposal).map_err(|error| error.to_string())?;
         self.dirty |= changed > 0;
         Ok(changed)
+    }
+
+    /// Sections read from the song's markers.
+    #[must_use]
+    pub fn sections(&self) -> Vec<arranging::forms::Section> {
+        arranging::forms::sections(self.song())
+    }
+
+    /// Writes a song form to the timeline.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when a command is rejected.
+    pub fn apply_form(&mut self, form: &arranging::forms::Form) -> Result<usize, String> {
+        let sections = self.sections();
+        let copied = arranging::forms::apply(&mut self.session, &sections, form)
+            .map_err(|error| error.to_string())?;
+        self.dirty |= copied > 0;
+        Ok(copied)
     }
 
     /// Undoes one step; true when something was undone.
