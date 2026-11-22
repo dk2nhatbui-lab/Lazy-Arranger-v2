@@ -234,6 +234,9 @@ enum Commands {
         /// Sample rate; defaults to 48000.
         #[arg(long, default_value_t = audio::SAMPLE_RATE)]
         sample_rate: u32,
+        /// Bit depth: 16 or 24 (default 16).
+        #[arg(long, default_value_t = 16)]
+        bits: u16,
     },
     /// Record a style performance as linked intent and rendered tracks.
     Perform {
@@ -537,7 +540,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             project,
             out,
             sample_rate,
-        } => export_audio(&project, &out, sample_rate),
+            bits,
+        } => export_audio(&project, &out, sample_rate, bits),
         Commands::Perform {
             style,
             out,
@@ -1068,7 +1072,15 @@ fn link_to_midi(
     Ok(())
 }
 
-fn export_audio(project: &PathBuf, out: &PathBuf, sample_rate: u32) -> Result<(), Box<dyn Error>> {
+fn export_audio(
+    project: &PathBuf,
+    out: &PathBuf,
+    sample_rate: u32,
+    bits: u16,
+) -> Result<(), Box<dyn Error>> {
+    if !matches!(bits, 16 | 24) {
+        return Err(format!("--bits must be 16 or 24, found {bits}").into());
+    }
     if !(8_000..=192_000).contains(&sample_rate) {
         return Err(
             format!("--sample-rate must be between 8000 and 192000, found {sample_rate}").into(),
@@ -1076,7 +1088,11 @@ fn export_audio(project: &PathBuf, out: &PathBuf, sample_rate: u32) -> Result<()
     }
     let project = read_project(project)?;
     let rendered = audio::render(&project.song, sample_rate);
-    let wav = rendered.to_wav();
+    let wav = if bits == 24 {
+        rendered.to_wav24()
+    } else {
+        rendered.to_wav()
+    };
     fs::write(out, &wav).map_err(|error| format!("could not write {}: {error}", out.display()))?;
     println!(
         "rendered {} track(s) to {:.2} s at {} Hz: {} byte(s) -> {}",

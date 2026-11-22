@@ -42,6 +42,32 @@ impl RenderedAudio {
         self.frames() as f64 / f64::from(self.sample_rate)
     }
 
+    /// Encodes the buffer as a 24-bit PCM WAV file.
+    #[must_use]
+    pub fn to_wav24(&self) -> Vec<u8> {
+        let data_len = self.samples.len() * 3;
+        let mut out = Vec::with_capacity(44 + data_len);
+        let byte_rate = self.sample_rate * u32::from(CHANNELS) * 3;
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&((36 + data_len) as u32).to_le_bytes());
+        out.extend_from_slice(b"WAVEfmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&CHANNELS.to_le_bytes());
+        out.extend_from_slice(&self.sample_rate.to_le_bytes());
+        out.extend_from_slice(&byte_rate.to_le_bytes());
+        out.extend_from_slice(&(CHANNELS * 3).to_le_bytes());
+        out.extend_from_slice(&24u16.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&(data_len as u32).to_le_bytes());
+        for sample in &self.samples {
+            let value = (sample.clamp(-1.0, 1.0) * 8_388_607.0).round() as i32;
+            let bytes = value.to_le_bytes();
+            out.extend_from_slice(&bytes[0..3]);
+        }
+        out
+    }
+
     /// Encodes the buffer as a 16-bit PCM WAV file.
     #[must_use]
     pub fn to_wav(&self) -> Vec<u8> {
@@ -226,6 +252,26 @@ mod tests {
         let at_release = rendered.samples[release_start * 2].abs();
         let tail_end = rendered.samples[(frames - 1) * 2].abs();
         assert!(tail_end <= at_release);
+    }
+
+    #[test]
+    fn a_24_bit_wav_has_three_byte_samples() {
+        let rendered = RenderedAudio {
+            samples: vec![0.0, 1.0, -1.0, 0.5],
+            sample_rate: 48_000,
+        };
+        let wav = rendered.to_wav24();
+        assert_eq!(wav.len(), 44 + 4 * 3);
+        assert_eq!(u16::from_le_bytes([wav[34], wav[35]]), 24);
+        assert_eq!(
+            u16::from_le_bytes([wav[32], wav[33]]),
+            6,
+            "2 channels x 3 bytes"
+        );
+        assert_eq!(u32::from_le_bytes([wav[40], wav[41], wav[42], wav[43]]), 12);
+        assert_eq!(&wav[44..47], &[0x00, 0x00, 0x00]);
+        assert_eq!(&wav[47..50], &[0xff, 0xff, 0x7f]);
+        assert_eq!(&wav[50..53], &[0x01, 0x00, 0x80]);
     }
 
     #[test]
