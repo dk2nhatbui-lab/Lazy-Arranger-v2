@@ -1,0 +1,6 @@
+/target
+/.reference
+/.cargo-home
+*.mid
+!tests/fixtures/*.mid
+.DS_Store
