@@ -107,6 +107,7 @@ pub fn export(song: &Song, title: &str) -> String {
             {
                 write_direction(&mut out, mark.kind);
             }
+            let ties = tie_flags(track);
             let mut notes: Vec<&Note> = track
                 .notes
                 .iter()
@@ -124,7 +125,9 @@ pub fn export(song: &Song, title: &str) -> String {
                     .iter()
                     .find(|event| event.tick == note.start)
                     .map(|event| event.text.as_str());
-                write_note(&mut out, note, duration, drums, lyric);
+                let (tie_start, tie_stop) =
+                    ties.get(&note.id.get()).copied().unwrap_or((false, false));
+                write_note(&mut out, note, duration, drums, lyric, tie_start, tie_stop);
                 cursor = note.start + duration;
             }
             if cursor < stop {
@@ -136,6 +139,25 @@ pub fn export(song: &Song, title: &str) -> String {
     }
     out.push_str("</score-partwise>\n");
     out
+}
+
+fn tie_flags(track: &project::song::Track) -> std::collections::BTreeMap<u32, (bool, bool)> {
+    let mut flags: std::collections::BTreeMap<u32, (bool, bool)> =
+        std::collections::BTreeMap::new();
+    let mut open: std::collections::BTreeMap<u8, (u32, Tick)> = std::collections::BTreeMap::new();
+    let mut notes: Vec<&Note> = track.notes.iter().collect();
+    notes.sort_by_key(|note| note.start);
+    for note in notes {
+        let pitch = note.pitch.as_u8();
+        if let Some((previous_id, end)) = open.get(&pitch).copied()
+            && end == note.start
+        {
+            flags.entry(previous_id).or_default().0 = true;
+            flags.entry(note.id.get()).or_default().1 = true;
+        }
+        open.insert(pitch, (note.id.get(), note.start + note.duration.max(1)));
+    }
+    flags
 }
 
 fn write_direction(out: &mut String, kind: project::song::MarkKind) {
@@ -172,7 +194,15 @@ fn write_rest(out: &mut String, duration: Tick) {
     out.push_str("</note>\n");
 }
 
-fn write_note(out: &mut String, note: &Note, duration: Tick, drums: bool, lyric: Option<&str>) {
+fn write_note(
+    out: &mut String,
+    note: &Note,
+    duration: Tick,
+    drums: bool,
+    lyric: Option<&str>,
+    tie_start: bool,
+    tie_stop: bool,
+) {
     out.push_str("      <note>");
     if drums {
         out.push_str("<unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched>");
@@ -185,6 +215,12 @@ fn write_note(out: &mut String, note: &Note, duration: Tick, drums: bool, lyric:
     out.push_str(&format!("<duration>{duration}</duration>"));
     if let Some(kind) = note_type(duration) {
         out.push_str(&format!("<type>{kind}</type>"));
+    }
+    if tie_stop {
+        out.push_str("<tie type=\"stop\" />");
+    }
+    if tie_start {
+        out.push_str("<tie type=\"start\" />");
     }
     if let Some(text) = lyric {
         out.push_str("<lyric><syllabic>single</syllabic><text>");

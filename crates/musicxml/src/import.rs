@@ -222,6 +222,21 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                     song.lyrics
                         .push(project::song::LyricEvent { tick: start, text });
                 }
+                let tie_stop = note.children().any(|child| {
+                    child.has_tag_name("tie") && child.attribute("type") == Some("stop")
+                });
+                if tie_stop
+                    && let Some(previous) = track.notes.iter_mut().find(|held| {
+                        held.pitch.as_u8() == pitch.as_u8()
+                            && held.start + held.duration.max(1) == start
+                    })
+                {
+                    previous.duration = previous.duration.saturating_add(duration.max(1));
+                    if !is_chord {
+                        cursor = start + duration.max(1);
+                    }
+                    continue;
+                }
                 track.notes.push(Note {
                     id: NoteId::new(next_note).unwrap_or_else(|_| NoteId::new(1).expect("valid")),
                     start,

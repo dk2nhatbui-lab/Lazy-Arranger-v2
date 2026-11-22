@@ -652,3 +652,12 @@ MusicXML export writes a `direction` per mark (a `dynamics` element or a
 `words` element) and import reads those back at the measure start. Note-level
 `<notations>` articulations, transcriptions of articulations into playback and
 guitar frames are not implemented.
+
+### MusicXML ties
+
+Export detects ties per pitch across a track (a note ending exactly where the
+next of the same pitch starts) and writes `<tie type="start"/>` on the first
+note and `<tie type="stop"/>` on the second. Import merges a stop-tied note
+into the matching earlier note, summing durations, so a tied pair survives as
+one longer note. `notations`/`tied` elements, ties between different voices and
+slurs are not handled.

@@ -49,7 +49,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Song Forms (sections, presets, plan, apply) | `arranging::forms` | verified | section/plan tests and apply/undo test |
 | Song Forms dialog (Y) | `apps/desktop` | implemented | four presets |
 | MusicXML export (partwise, rests, drum clef) | `crates/musicxml` | verified | 4 tests + valid XML from a real project |
-| MusicXML import (parts, measures, notes, rests, chords, drums, tempo/meter) | `musicxml::import` | verified | 4 tests + real round trip 94 notes; drum pitch/velocity lost, no lyrics/marks |
+| MusicXML import (parts, measures, notes, rests, chords, drums, tempo/meter, lyrics, marks, ties) | `musicxml::import` | verified | round trips for notes, lyrics, marks and ties; drum pitch/velocity lost |
 | Score layout engine (pages, systems, measures, positioned notes) | `crates/score` | verified core | 4 tests + real project layout |
 | Score canvas renderer (staff, barlines, noteheads, page nav, zoom) | `apps/desktop/src/score_view.rs` | implemented | geometry tests; UI manual |
 | Key detection, spelling and accidentals | `score::spelling` | verified | 6 tests: scales, chromatic, signatures, flat keys, key detection |

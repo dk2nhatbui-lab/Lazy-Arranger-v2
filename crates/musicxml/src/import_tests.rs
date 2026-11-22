@@ -62,6 +62,29 @@ mod tests {
     }
 
     #[test]
+    fn tied_notes_survive_an_export_import_round_trip() {
+        let mut song = Song::new("Ties", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");
+        for (index, start) in [(1_u32, 0_i64), (2, 960)] {
+            track.notes.push(project::song::Note {
+                id: project::NoteId::new(index).expect("valid"),
+                start,
+                duration: 960,
+                pitch: music_core::Pitch::from_name("C4").expect("valid"),
+                velocity: music_core::Velocity::new(100).expect("valid"),
+                channel: music_core::Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        let xml = export(&song, "Ties");
+        assert!(xml.contains("type=\"start\""));
+        assert!(xml.contains("type=\"stop\""));
+        let imported = import(&xml).expect("import");
+        assert_eq!(imported.tracks[0].notes.len(), 1, "merged into one note");
+        assert_eq!(imported.tracks[0].notes[0].duration, 1920);
+    }
+
+    #[test]
     fn dynamics_and_articulations_round_trip() {
         use project::song::{Articulation, Dynamic, Mark, MarkKind};
         let mut song = Song::new("Marks", 120.0);
