@@ -62,6 +62,8 @@ pub struct DecodeReport {
     pub unmatched_note_offs: usize,
     /// SysEx or escape events that were skipped.
     pub skipped_system_events: usize,
+    /// Ticks per quarter note in the source file.
+    pub source_ppq: u32,
     /// True when the source resolution was not 960 PPQ and ticks were rescaled.
     pub rescaled: bool,
     /// Human-readable notes about lossy conversion.
@@ -209,6 +211,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
     };
     let mut report = DecodeReport {
         source_tracks: smf.tracks.len(),
+        source_ppq,
         rescaled: source_ppq != u32::from(EXPORT_PPQ),
         ..DecodeReport::default()
     };

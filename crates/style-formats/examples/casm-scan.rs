@@ -40,8 +40,10 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
     let root = PathBuf::from(target);
-    if args.next().as_deref() == Some("--detail") {
-        return detail(&root);
+    match args.next().as_deref() {
+        Some("--detail") => return detail(&root),
+        Some("--import") => return import_detail(&root),
+        _ => {}
     }
     if !root.is_dir() {
         eprintln!("not a directory: {}", root.display());
@@ -96,6 +98,103 @@ fn detail(path: &Path) -> ExitCode {
     }
     println!("stats: {:?}", rules.stats);
     ExitCode::SUCCESS
+}
+
+/// Imports one style and reports its sections, parts and a musical sanity check.
+fn import_detail(path: &Path) -> ExitCode {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("{}: {error}", path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let imported = match style_formats::import_style(&bytes) {
+        Ok(imported) => imported,
+        Err(error) => {
+            eprintln!("{}: {error}", path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    println!(
+        "{}: {} section(s), ppq {} -> 960, {:.3} bpm, {}/{}",
+        path.display(),
+        imported.sections.len(),
+        imported.source_ppq,
+        imported.tempo_bpm,
+        imported.time_signature.numerator,
+        imported.time_signature.denominator
+    );
+    let bar = imported.time_signature.bar_ticks();
+    for section in &imported.sections {
+        println!(
+            "  {:<12} {:>6} ticks ({:>4.1} bars) {:>5} note(s) {:>2} part(s)",
+            section.name,
+            section.length_ticks,
+            section.length_ticks as f64 / bar as f64,
+            section.notes,
+            section.parts
+        );
+    }
+    println!(
+        "  stats: markers {} ({} used, {} skipped), default rules {}, notes before first {}, unpaired note-ons {}",
+        imported.stats.markers_total,
+        imported.stats.markers_used,
+        imported.stats.markers_skipped,
+        imported.stats.channels_without_rule,
+        imported.stats.notes_before_first_section,
+        imported.stats.unpaired_note_ons
+    );
+    // Musical sanity: compiling at the style's source chord must keep the
+    // recorded pitches, for sections whose rules all share that source chord.
+    let mut checked = 0;
+    let mut mismatched = 0;
+    for section in &imported.native.sections {
+        // Identity is only expected where conversion cannot legitimately move
+        // a note: same source chord, no guitar snapping, and limits that do
+        // not fold octaves.
+        let all_at_source = section.parts.iter().all(|part| {
+            part.rule.source_root == imported.native.source_chord.root.as_u8()
+                && part.rule.source_chord_type == imported.native.source_chord.chord_type
+                && part.rule.transpose.ntr != arranger::Ntr::Guitar
+                && part.rule.transpose.low_limit == 0
+                && part.rule.transpose.high_limit == 127
+        });
+        if !all_at_source {
+            continue;
+        }
+        let Ok(compiled) = imported.native.compile(&section.name, 0, &[]) else {
+            mismatched += 1;
+            continue;
+        };
+        // Only parts the part gate lets sound contribute source notes; a
+        // gated part is silent on purpose, not a conversion mismatch.
+        let mut source: Vec<u8> = section
+            .parts
+            .iter()
+            .filter(|part| arranger::plays(&part.rule, &imported.native.source_chord))
+            .flat_map(|part| part.notes.iter().map(|note| note.pitch))
+            .collect();
+        let mut result: Vec<u8> = compiled.iter().map(|note| note.pitch).collect();
+        source.sort_unstable();
+        result.sort_unstable();
+        checked += 1;
+        if source != result {
+            mismatched += 1;
+            eprintln!(
+                "  identity mismatch in {:?}: {} source vs {} compiled notes",
+                section.name,
+                source.len(),
+                result.len()
+            );
+        }
+    }
+    println!("  identity check: {checked} section(s), {mismatched} mismatch(es)");
+    if mismatched == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 fn walk(dir: &Path, root: &Path, totals: &mut Totals) {

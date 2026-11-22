@@ -289,8 +289,14 @@ rules:
   clamps too), a trailing fragment is counted in `unparsed_tail_bytes`, and a
   short rule is skipped and counted. Callers see what was recovered, never a
   silent success.
-* Section boundaries are still missing: `Sdec` gives names, but the tick
-  positions of each section live in the style's MIDI track and are Stage 4 work.
+* Section boundaries and notes come from the MIDI track
+  (`style_formats::import_style`): each section starts at a marker meta event
+  whose name matches a `Sdec` entry. Notes are rebased to the section, clipped
+  to it, and grouped by source channel. A channel with no rule for that section
+  gets the oracle's default rule (`ChordRule::default_for_channel`). The last
+  section has no following marker, so its length is rounded up to a whole bar.
+* Not imported: program changes and setup events, the `SInt` region before the
+  first section, voices, and style writing.
 
 Validation against the owner's library, 2026-11-22 (read-only, no style file
 copied into this repository, run with
@@ -307,6 +313,16 @@ copied into this repository, run with
 | Files needing recovery | 88 (80 clamped lengths, 26 short rules, 2,954 tail bytes) |
 | File versions | SFF1 10,360, SFF2 5,829 |
 | Field normalisations | `ntr` 8, `ntt` 8, `rtr` 16, source chord type 3 |
+| Styles imported end to end | 16,158 |
+| Sections | 234,332 |
+| Notes | 48,823,435 |
+| Rule property checks (identity, limits) | 87,320,457 checks, 0 failures |
+
+The property checks convert every pitch `12..=115` through every parsed rule at
+that rule's own source chord. A note must not move when the selected range has
+full MIDI limits and is not guitar fingering, and must land inside the limits
+when the range can fold. Two rules in the library carry limits above 127; their
+results are compared against the MIDI-clamped window.
 
 The spot check on a real SFF2 file reproduces an independent byte dump exactly:
 `ch 11 Aco.Bass root=0 type=M7 ntr=RootTransposition ntt=Melody bass=true
@@ -333,7 +349,8 @@ exercises it headlessly.
 | capture pairing | `capture::tests` |
 | container scanning, padding | `style_formats::tests` |
 | CASM rule decoding (SFF1/SFF2, bass bit, tails) | `style_formats::casm::tests` |
-| real library coverage | `style-formats/tests/local_library.rs` (opt-in) |
+| style import: sections, notes, defaults | `style_formats::import::tests` |
+| rule identity and limits over a library | `style-formats/tests/local_library.rs` (opt-in) |
 
 Hardware record and echo have no automated test. They keep the status
 `manual only` until a device-and-loopback run is recorded in

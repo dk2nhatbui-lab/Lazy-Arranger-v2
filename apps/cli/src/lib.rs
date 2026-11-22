@@ -19,7 +19,7 @@ use std::process::ExitCode;
 use app_commands::{Command, EditSession};
 use clap::{Parser, Subcommand};
 use midi_devices::{DeviceError, list_ports};
-use music_core::{Channel, Chord, PPQ, TempoMap, Tick, Velocity};
+use music_core::{Channel, Chord, PPQ, Pitch, TempoMap, Tick, Velocity};
 use project::song::{Note, ProjectFile, Song, Track};
 use project::{NoteId, TrackId};
 use sequencer::{EventBuffer, PreparedPattern, Scheduler};
@@ -109,6 +109,23 @@ enum Commands {
         #[arg(long = "add-track", value_name = "NAME")]
         add_tracks: Vec<String>,
     },
+    /// Inspect a Yamaha style, and optionally render one section.
+    Style {
+        /// Style file (`.sty`, `.prs`, and the other Yamaha style extensions).
+        style: PathBuf,
+        /// Section to render. Defaults to the first section.
+        #[arg(long)]
+        section: Option<String>,
+        /// Write the compiled section to this `.mid` file.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Chord at a tick, for example `--chord 0=Am7`. Repeatable.
+        #[arg(long = "chord", value_name = "TICK=SYMBOL")]
+        chords: Vec<String>,
+        /// Print every part rule of the chosen section.
+        #[arg(long)]
+        rules: bool,
+    },
     /// Play a project to a MIDI output port in real time.
     Play {
         /// Project `.json` path.
@@ -189,6 +206,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             chords,
             add_tracks,
         } => edit(&project, &out, tempo, &chords, &add_tracks),
+        Commands::Style {
+            style: style_path,
+            section,
+            out,
+            chords,
+            rules,
+        } => style_command(
+            &style_path,
+            section.as_deref(),
+            out.as_ref(),
+            &chords,
+            rules,
+        ),
         Commands::Play {
             project,
             out_port,
@@ -542,6 +572,115 @@ fn edit(
         "wrote {} ({} undo step(s) available)",
         out.display(),
         session.undo_depth()
+    );
+    Ok(())
+}
+
+fn style_command(
+    path: &PathBuf,
+    section: Option<&str>,
+    out: Option<&PathBuf>,
+    chords: &[String],
+    show_rules: bool,
+) -> Result<(), Box<dyn Error>> {
+    let bytes =
+        fs::read(path).map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    let imported = style_formats::import_style(&bytes)?;
+    println!(
+        "{}: {} section(s), source ppq {}, {:.3} bpm, {}/{}",
+        path.display(),
+        imported.sections.len(),
+        imported.source_ppq,
+        imported.tempo_bpm,
+        imported.time_signature.numerator,
+        imported.time_signature.denominator
+    );
+    let bar = imported.time_signature.bar_ticks();
+    for entry in &imported.sections {
+        println!(
+            "  {:<12} {:>6} ticks ({:>4.1} bars) {:>5} note(s) {:>2} part(s)",
+            entry.name,
+            entry.length_ticks,
+            entry.length_ticks as f64 / bar as f64,
+            entry.notes,
+            entry.parts
+        );
+    }
+    println!(
+        "  markers {} ({} used, {} skipped), default rules {}, unpaired note-ons {}",
+        imported.stats.markers_total,
+        imported.stats.markers_used,
+        imported.stats.markers_skipped,
+        imported.stats.channels_without_rule,
+        imported.stats.unpaired_note_ons
+    );
+    let chosen = section.unwrap_or_else(|| {
+        imported
+            .sections
+            .first()
+            .map_or("", |entry| entry.name.as_str())
+    });
+    let Some(native_section) = imported.native.section(chosen) else {
+        return Err(format!(
+            "style has no section {chosen:?}; it has {:?}",
+            imported.section_names()
+        )
+        .into());
+    };
+    if show_rules {
+        println!("rules for {chosen:?}:");
+        for part in &native_section.parts {
+            println!(
+                "  ch{:>2}->{:>2} {:<8} {} note(s) ntr={:?} ntt={:?} bass={} limits={}..{}",
+                part.rule.source_channel,
+                part.rule.dest_channel,
+                part.name,
+                part.notes.len(),
+                part.rule.transpose.ntr,
+                part.rule.transpose.ntt,
+                part.rule.transpose.bass,
+                part.rule.transpose.low_limit,
+                part.rule.transpose.high_limit
+            );
+        }
+    }
+    let Some(out) = out else {
+        return Ok(());
+    };
+    let mut chord_events = Vec::new();
+    for entry in chords {
+        let (tick, symbol) = entry
+            .split_once('=')
+            .ok_or_else(|| format!("--chord expects TICK=SYMBOL, found {entry:?}"))?;
+        let tick: Tick = tick
+            .trim()
+            .parse()
+            .map_err(|_| format!("--chord tick {tick:?} is not a whole number"))?;
+        chord_events.push(arranger::ChordAt {
+            tick,
+            chord: arranger::ArrangerChord::try_from(&Chord::parse(symbol)?)?,
+        });
+    }
+    let compiled = imported.native.compile(chosen, 0, &chord_events)?;
+    let mut song = Song::new(format!("{} {chosen}", path.display()), imported.tempo_bpm);
+    song.time_signature = imported.time_signature;
+    let mut track = Track::new(TrackId::new(1)?, "Arranger");
+    for (index, note) in compiled.iter().enumerate() {
+        track.notes.push(Note {
+            id: NoteId::new(u32::try_from(index + 1).unwrap_or(u32::MAX))?,
+            start: note.tick,
+            duration: note.duration,
+            pitch: Pitch::new(note.pitch)?,
+            velocity: Velocity::new(note.velocity)?,
+            channel: note.channel,
+        });
+    }
+    song.tracks.push(track);
+    write_midi(out, &song)?;
+    println!(
+        "compiled {chosen:?}: {} note(s) from {} part(s)",
+        compiled.len(),
+        native_section.parts.len()
     );
     Ok(())
 }

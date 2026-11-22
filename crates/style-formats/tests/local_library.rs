@@ -11,6 +11,8 @@
 
 use std::path::Path;
 
+use arranger::{ArrangerChord, Ntr, Ntt, transpose};
+use music_core::PitchClass;
 use style_formats::casm::read_rules;
 
 const EXTENSIONS: [&str; 8] = ["sty", "prs", "sst", "pst", "bcs", "pcs", "scp", "fps"];
@@ -22,6 +24,13 @@ struct Counts {
     without_casm: usize,
     recovered: usize,
     rules: usize,
+    identity_checked: usize,
+    identity_failures: usize,
+    limit_failures: usize,
+    imported: usize,
+    sections: usize,
+    notes: usize,
+    samples: Vec<String>,
 }
 
 fn walk(dir: &Path, counts: &mut Counts) {
@@ -67,6 +76,72 @@ fn walk(dir: &Path, counts: &mut Counts) {
         {
             counts.recovered += 1;
         }
+        check_rules(&parsed, counts);
+        if let Ok(imported) = style_formats::import_style(&bytes) {
+            counts.imported += 1;
+            counts.sections += imported.sections.len();
+            counts.notes += imported
+                .sections
+                .iter()
+                .map(|section| section.notes)
+                .sum::<usize>();
+        }
+    }
+}
+
+/// At a rule's own source chord, conversion must not move a note unless the
+/// selected range folds it or the rule is guitar fingering.
+///
+/// Pitches 12..=115 are used: the nearest-note search walks past the MIDI
+/// range at the edges and clamps, which is the oracle's behaviour, not a
+/// conversion difference.
+fn check_rules(rules: &style_formats::CasmRules, counts: &mut Counts) {
+    for group in &rules.groups {
+        for rule in &group.rules {
+            let chord = ArrangerChord::new(
+                PitchClass::new(i32::from(rule.source_root)),
+                rule.source_chord_type,
+            );
+            for pitch in 12u8..=115 {
+                let range = rule.range_for(pitch);
+                let Some(result) = transpose(pitch, rule, &chord) else {
+                    counts.identity_failures += 1;
+                    counts.identity_checked += 1;
+                    continue;
+                };
+                if range.ntr == Ntr::Guitar {
+                    continue;
+                }
+                counts.identity_checked += 1;
+                // Limits above the MIDI range cannot be honoured: the final
+                // clamp wins. Compare against the reachable window.
+                let low = range.low_limit.min(127);
+                let high = range.high_limit.min(127);
+                let folds = low <= high && high - low >= 11;
+                // The oracle returns a bypassed note before it applies limits,
+                // so a bypass range may not honour them.
+                if folds && range.ntt != Ntt::Bypass && (result < low || result > high) {
+                    counts.limit_failures += 1;
+                    if counts.samples.len() < 5 {
+                        counts.samples.push(format!(
+                            "pitch={pitch} result={result} ntr={:?} ntt={:?} limits={}..{} hk={} src={} type={}",
+                            range.ntr,
+                            range.ntt,
+                            range.low_limit,
+                            range.high_limit,
+                            range.high_key,
+                            rule.source_root,
+                            rule.source_chord_type.suffix(),
+                        ));
+                    }
+                }
+                // Identity is only required where nothing may legitimately
+                // move the note: full limits, no guitar snapping.
+                if result != pitch && range.low_limit == 0 && range.high_limit == 127 {
+                    counts.identity_failures += 1;
+                }
+            }
+        }
     }
 }
 
@@ -89,6 +164,15 @@ fn a_local_library_yields_rules_for_most_styles() {
         "files={} with_rules={} without_casm={} recovered={} rules={}",
         counts.files, counts.with_rules, counts.without_casm, counts.recovered, counts.rules
     );
+    println!(
+        "imported={} sections={} notes={} identity_checked={} identity_failures={} limit_failures={}",
+        counts.imported,
+        counts.sections,
+        counts.notes,
+        counts.identity_checked,
+        counts.identity_failures,
+        counts.limit_failures
+    );
     assert!(
         counts.files > 0,
         "no style files under the configured directory"
@@ -100,4 +184,19 @@ fn a_local_library_yields_rules_for_most_styles() {
         counts.files
     );
     assert!(counts.rules > 0, "no rules were read");
+    assert_eq!(
+        counts.identity_failures, 0,
+        "conversion moved notes at their own source chord"
+    );
+    assert_eq!(
+        counts.limit_failures, 0,
+        "conversion left notes outside the rule's limits: {:?}",
+        counts.samples
+    );
+    assert!(
+        counts.imported * 100 >= counts.with_rules * 90,
+        "fewer than 90% of rule-bearing styles imported: {} of {}",
+        counts.imported,
+        counts.with_rules
+    );
 }

@@ -19,8 +19,10 @@
 use thiserror::Error;
 
 pub mod casm;
+pub mod import;
 
 pub use casm::{CasmRules, CasmStats, SectionRules, SffVersion, read_rules};
+pub use import::{ImportStats, ImportedSection, ImportedStyle, import_style};
 
 /// Errors raised while reading a style container.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -47,6 +49,12 @@ pub enum StyleError {
     /// The container declares a format this reader does not know.
     #[error("unsupported style container format {0:?}")]
     UnsupportedFormat(String),
+    /// The style's MIDI track could not be read.
+    #[error("style MIDI track could not be read: {0}")]
+    Midi(String),
+    /// No MIDI marker matched a section named by the style's CASM rules.
+    #[error("style has no section markers that match its CASM section list")]
+    NoSections,
     /// A CASM rule record was shorter than its encoding requires.
     #[error("CASM rule at byte {offset} is {len} bytes; {needed} are needed")]
     CasmRule {

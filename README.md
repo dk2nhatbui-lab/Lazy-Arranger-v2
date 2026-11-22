@@ -28,7 +28,8 @@ decisions in [`docs/adr/`](docs/adr/).
 | Chord conversion for arranger styles | verified against the pinned oracle cases | `crates/arranger` |
 | Style sections, chord following, transitions | prototype | `crates/arranger/src/style.rs` |
 | Yamaha CASM rule import (SFF1/SFF2) | verified on 16,189 real styles | `crates/style-formats/src/casm.rs` |
-| Style section tick positions and note extraction | not started | Stage 4 |
+| Style import: section markers, notes, default rules | verified on 16,158 real styles | `crates/style-formats/src/import.rs` |
+| Style writer, setup events and voices | not started | Stage 4 remainder |
 | Golden parity, arranger playback in the app, UI, audio engine | not started / blocked | Stage 3 exit needs a C++ build and a CASM style |
 
 ## Quick start
@@ -44,6 +45,11 @@ cargo run -q -p lazy-arranger-cli -- play song.json --out-port "My Keyboard" --d
 
 # List MIDI ports.
 cargo run -q -p lazy-arranger-cli -- ports
+
+# Inspect a Yamaha style, then render a section with chords.
+cargo run -q -p lazy-arranger-cli -- style "MyStyle.prs" --section "Main A" --rules
+cargo run -q -p lazy-arranger-cli -- style "MyStyle.prs" --section "Main A" \
+    --chord 0=C --chord 1920=Am --out main-a.mid
 
 # Import a C++ .arranger project, then render it.
 cargo run -q -p lazy-arranger-cli -- import tests/fixtures/legacy-cpp-v3.arranger --out song.json

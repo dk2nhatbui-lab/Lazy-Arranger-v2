@@ -89,6 +89,11 @@ pub enum Rtr {
     NoteGenerator,
 }
 
+/// Display names for the eight style parts, by destination channel 9..=16.
+pub const STYLE_PART_NAMES: [&str; 8] = [
+    "Rhythm 1", "Rhythm 2", "Bass", "Chord 1", "Chord 2", "Pad", "Phrase 1", "Phrase 2",
+];
+
 /// One note range of a channel rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransposeRange {
@@ -178,6 +183,40 @@ impl Default for ChordRule {
 }
 
 impl ChordRule {
+    /// The rule the oracle uses for a channel a style has no CASM rule for
+    /// (`StyleConvert.cpp:38-63`).
+    ///
+    /// Rhythm channels play as recorded; the bass follows the chord and the
+    /// slash bass; every other part keeps its place and takes nearest chord
+    /// tones. The source chord is C major 7.
+    #[must_use]
+    pub fn default_for_channel(channel: u8) -> Self {
+        let clamped = channel.clamp(9, 16);
+        let mut rule = Self {
+            source_channel: channel,
+            dest_channel: channel,
+            name: String::from(STYLE_PART_NAMES[usize::from(clamped - 9)]),
+            source_root: 0,
+            source_chord_type: ChordType::Major7,
+            ..Self::default()
+        };
+        if channel == 9 || channel == 10 {
+            rule.transpose.ntr = Ntr::RootFixed;
+            rule.transpose.ntt = Ntt::Bypass;
+            rule.transpose.rtr = Rtr::Stop;
+        } else if channel == 11 {
+            rule.transpose.ntt = Ntt::Melody;
+            rule.transpose.bass = true;
+            rule.transpose.rtr = Rtr::PitchShiftToRoot;
+        } else {
+            rule.transpose.ntr = Ntr::RootFixed;
+            rule.transpose.ntt = Ntt::Chord;
+        }
+        rule.low_range = rule.transpose;
+        rule.high_range = rule.transpose;
+        rule
+    }
+
     /// Creates a rule with the oracle's defaults, named and split by channel.
     #[must_use]
     pub fn new(source_channel: u8, dest_channel: u8) -> Self {
@@ -241,6 +280,32 @@ mod tests {
         let mut marked = rule;
         marked.high_range.high_limit = 100;
         assert_eq!(marked.range_for(61).high_limit, 100);
+    }
+
+    #[test]
+    fn default_rule_per_channel_matches_the_oracle() {
+        let drums = ChordRule::default_for_channel(9);
+        assert_eq!(drums.name, "Rhythm 1");
+        assert_eq!(drums.transpose.ntr, Ntr::RootFixed);
+        assert_eq!(drums.transpose.ntt, Ntt::Bypass);
+        assert_eq!(drums.transpose.rtr, Rtr::Stop);
+        assert_eq!(drums.low_range, drums.transpose);
+        assert_eq!(drums.high_range, drums.transpose);
+
+        let bass = ChordRule::default_for_channel(11);
+        assert_eq!(bass.name, "Bass");
+        assert_eq!(bass.transpose.ntr, Ntr::RootTransposition);
+        assert_eq!(bass.transpose.ntt, Ntt::Melody);
+        assert!(bass.transpose.bass);
+        assert_eq!(bass.transpose.rtr, Rtr::PitchShiftToRoot);
+
+        let chords = ChordRule::default_for_channel(12);
+        assert_eq!(chords.name, "Chord 1");
+        assert_eq!(chords.transpose.ntr, Ntr::RootFixed);
+        assert_eq!(chords.transpose.ntt, Ntt::Chord);
+
+        assert_eq!(ChordRule::default_for_channel(8).name, "Rhythm 1");
+        assert_eq!(ChordRule::default_for_channel(20).name, "Phrase 2");
     }
 
     #[test]

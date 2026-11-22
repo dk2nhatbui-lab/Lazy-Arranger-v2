@@ -12,6 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 app-commands = { path = "../../crates/app-commands" }
+arranger = { path = "../../crates/arranger" }
+style-formats = { path = "../../crates/style-formats" }
 clap.workspace = true
 midi-devices = { path = "../../crates/midi-devices" }
 music-core = { path = "../../crates/music-core" }

@@ -324,12 +324,14 @@ name = "lazy-arranger-cli"
 version = "0.1.0"
 dependencies = [
  "app-commands",
+ "arranger",
  "clap",
  "midi-devices",
  "music-core",
  "project",
  "sequencer",
  "smf",
+ "style-formats",
 ]
 
 [[package]]
@@ -611,6 +613,8 @@ name = "style-formats"
 version = "0.1.0"
 dependencies = [
  "arranger",
+ "music-core",
+ "smf",
  "thiserror",
 ]
 

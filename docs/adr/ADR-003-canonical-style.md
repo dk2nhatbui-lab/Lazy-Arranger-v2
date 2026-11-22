@@ -52,9 +52,13 @@ read-only against 16,189 styles from the owner's library (856,370 rules); no
 style file is copied into the repository, and the opt-in test reads the library
 through `ARRANGER_STYLE_LIBRARY`.
 
-What is not implemented: section tick positions (they live in the style's MIDI
-track), note extraction, style writing, retrigger (`Rtr`) behaviour on section
-changes, and golden parity. The repository fixture has no CASM, so conversion
+Section positions and notes now import: `import_style` reads section marker
+events from the MIDI track, rebases and clips notes per section, and applies the
+oracle's default rule to channels without one, producing a playable
+`arranger::Style`. 16,158 real styles imported across 234,332 sections.
+
+What is not implemented: style writing, setup events and voices, retrigger
+(`Rtr`) behaviour on section changes, and golden parity. The repository fixture has no CASM, so conversion
 parity rests on the C++ unit-test cases plus the real-library parse.
 
 ## Consequences

@@ -8,6 +8,8 @@ license.workspace = true
 
 [dependencies]
 arranger = { path = "../arranger" }
+music-core = { path = "../music-core" }
+smf = { path = "../smf" }
 thiserror.workspace = true
 
 [lints]

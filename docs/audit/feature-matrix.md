@@ -8,7 +8,7 @@
 primary C++ declaration where a note gives no line. LOC measured with `wc -l` in the pinned tree.
 Composite rows overlap: one file can serve several subsystems.
 
-**Rust status today:** `cargo test --workspace` passes 179 tests; `cargo clippy --workspace --all-targets
+**Rust status today:** `cargo test --workspace` passes 183 tests; `cargo clippy --workspace --all-targets
 -- -D warnings`, `cargo fmt --all --check` and `cargo doc` (warnings denied) pass. No subsystem is
 `parity complete`. Row statuses below were refreshed on 2026-11-22 after the Stage 2 dispatch worker and
 the Stage 3 arranger core landed.
@@ -37,9 +37,9 @@ the Stage 3 arranger core landed.
 | 6 | Notation and MusicXML/PDF | `Notation.h:31`; `ScoreLayout.h:37`; `MusicXml.h:18`; `Pdf.h:15` | 3,338 | new `notation` | port | 8 | not started | Pure model→symbols and one layout feeding screen and PDF. Six C++ score goldens are unlicensed and must be recaptured, not copied. Re-derive SMuFL codes from the spec. |
 | 7 | Piano roll | `PianoRoll.h:17` | 1,053 | `arranger` UI | redesign | 6 | not started | All editing and painting lives in JUCE. No logic worth carrying; the snap and drag rules must be restated as tests. |
 | 8 | Clip grid and scenes | `Engine.cpp:278-289`; `ClipGridView.cpp:19` | 1,198 | `project`, `sequencer` | port | 3 / 6 | not started | Scene = slot-array index is the riskiest wire structure. `ArrangerEvent` exists; no scene, slot, launch-quantise or Timeline-takeover model. |
-| 9 | Arranger style files (SFF) | `StyleFile.cpp:345-355` | 698 | `style-formats`, `arranger` | port | 4 | prototype | Container scan is padding-aware; `Ctab`/`Ctb2` rule tables parse into `ChordRule` with per-section grouping. Still missing: section tick positions from the MIDI track, note extraction, writer, and `CSEG` vendor children. |
+| 9 | Arranger style files (SFF) | `StyleFile.cpp:345-355` | 698 | `style-formats`, `arranger` | port | 4 | verified | Container scan is padding-aware; rule tables parse per section; section markers and notes import into a playable `arranger::Style`. 16,158 real styles imported (234,332 sections, 48.8M notes). Still missing: style writer, setup events, voices, `CSEG` vendor children. |
 | 10 | CASM chord conversion | `StyleFile.cpp:197-234`; `StyleConvert.cpp:38-65` | 1,421 | `style-formats`, `arranger` | port | 4 | verified | The eight-step conversion, the 35-row table, the part gate and the three note ranges are implemented and pinned to the C++ cases. `style-formats` decodes SFF1/SFF2 rule tables, including both bass encodings, and parsed 16,189 real styles (856,370 rules) read-only. Mute-mask polarity stays unverified against a device. |
-| 11 | Style playback / sections / fills | `Engine.cpp:278-289,326-350,563-579`; `StyleConvert.cpp:494-527` | 1,818 | `arranger`, `sequencer` | redesign | 3 | prototype | `Style::compile` splits a section at chord changes, gates parts, converts notes and cuts at boundaries; `TransitionState` owns the four transition modes and states fill precedence. No fills-return sugar, no retrigger (`Rtr`) behaviour, no live playback of a style yet. |
+| 11 | Style playback / sections / fills | `Engine.cpp:278-289,326-350,563-579`; `StyleConvert.cpp:494-527` | 1,818 | `arranger`, `sequencer` | redesign | 3 | prototype | `Style::compile` splits a section at chord changes, gates parts, converts notes and cuts at boundaries; imported sections compile and render to MIDI; `TransitionState` owns the four modes. No fills-return sugar, no retrigger (`Rtr`), no live playback. |
 | 12 | Quantise | `Quantise.cpp:41-67` | 98 | `music-core`, `app-commands` | port | 3 | not started | Small but exact: grid, strength, swing, ends and window. A multi-clip quantise must stay one undo step. |
 | 13 | Groove | `Groove.h:55` | 2,032 | new `groove` | port | 8 | not started | Timing and velocity templates, three drum lanes, feel transfer, listening test. |
 | 14 | Arrangement doctor | `Arranging.h:71` | 1,300 | new `arranger` | port | 8 | not started | Rule-based proposals over density, register, repetition and contrast. No model dependency. |
