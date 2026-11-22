@@ -80,6 +80,7 @@ id_type!(
     "style-",
     "Identifies a style referenced by the song."
 );
+id_type!(ClipId, "clip-", "Identifies a clip inside one track.");
 
 /// A named position on the song timeline.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

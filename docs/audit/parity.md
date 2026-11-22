@@ -27,6 +27,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Style writer: CASM SFF1 and SFF2 records | `style-formats::write_casm_sff1/sff2` | verified round-trip | writer tests check every field per version |
 | Style writer: full container (MIDI + CASM) | `style-formats::write_style`, `style-save` | implemented | rewrote a real 15-section style (19,346 bytes) and re-read it |
 | Style writer: voices, setup events, keyboard acceptance | — | missing | no PSR-S970 test; voices not written |
+| Clip regions (schema v3, migration, split, validation) | `project::song::Clip` | verified | migration and split tests; no UI yet |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | — | missing | ADR-010 (Stage 8) |

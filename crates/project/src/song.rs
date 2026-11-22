@@ -38,6 +38,34 @@ impl Note {
     }
 }
 
+/// A named region of a track's timeline.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Clip {
+    /// Stable identifier inside the track.
+    pub id: crate::ids::ClipId,
+    /// Display name.
+    #[serde(default)]
+    pub name: String,
+    /// First tick of the region.
+    pub start: Tick,
+    /// Length in ticks; always positive.
+    pub length: Tick,
+}
+
+impl Clip {
+    /// One past the last tick.
+    #[must_use]
+    pub fn end(&self) -> Tick {
+        self.start.saturating_add(self.length)
+    }
+
+    /// True when a tick falls inside the region.
+    #[must_use]
+    pub fn contains(&self, tick: Tick) -> bool {
+        tick >= self.start && tick < self.end()
+    }
+}
+
 /// A track: an ordered list of notes with a name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Track {
@@ -45,6 +73,10 @@ pub struct Track {
     pub id: TrackId,
     /// Display name.
     pub name: String,
+    /// Clip regions, in start order. A note belongs to the clip whose range
+    /// contains its start; notes outside every clip are loose notes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clips: Vec<Clip>,
     /// Notes, normally sorted by start tick.
     #[serde(default)]
     pub notes: Vec<Note>,
@@ -57,12 +89,52 @@ pub struct Track {
 }
 
 impl Track {
+    /// The clip that contains a tick, if any.
+    #[must_use]
+    pub fn clip_at(&self, tick: Tick) -> Option<&Clip> {
+        self.clips.iter().find(|clip| clip.contains(tick))
+    }
+
+    /// The notes whose start falls inside a clip, in track order.
+    #[must_use]
+    pub fn notes_in(&self, clip: &Clip) -> Vec<&Note> {
+        self.notes
+            .iter()
+            .filter(|note| clip.contains(note.start))
+            .collect()
+    }
+
+    /// Splits the clip containing `tick` into two at that tick.
+    ///
+    /// Returns the identifier of the new right-hand clip, or `None` when no
+    /// clip contains the tick or the split would leave a zero-length piece.
+    pub fn split_clip(
+        &mut self,
+        tick: Tick,
+        next_id: crate::ids::ClipId,
+    ) -> Option<crate::ids::ClipId> {
+        let index = self.clips.iter().position(|clip| clip.contains(tick))?;
+        let original = self.clips[index].clone();
+        if tick == original.start {
+            return None;
+        }
+        self.clips[index].length = tick - original.start;
+        let end = original.end();
+        let mut right = original;
+        right.id = next_id;
+        right.start = tick;
+        right.length = end - tick;
+        self.clips.insert(index + 1, right);
+        Some(next_id)
+    }
+
     /// Creates an empty track.
     #[must_use]
     pub fn new(id: TrackId, name: impl Into<String>) -> Self {
         Self {
             id,
             name: name.into(),
+            clips: Vec::new(),
             notes: Vec::new(),
             provenance: None,
             extra: BTreeMap::new(),
@@ -288,12 +360,42 @@ impl ProjectFile {
     ///
     /// Version 1 is the first schema, so there is nothing to migrate yet. The
     /// function exists so version 2 can add steps without changing callers.
+    /// Version 2 to 3: each track with notes and no clips gets one clip from
+    /// zero to the end of its notes, at least one bar long.
+    fn wrap_notes_in_clips(&mut self) {
+        let bar = self.song.time_signature.bar_ticks().max(1);
+        for track in &mut self.song.tracks {
+            if track.notes.is_empty() || !track.clips.is_empty() {
+                continue;
+            }
+            let end = track
+                .notes
+                .iter()
+                .map(|note| note.start.saturating_add(note.duration.max(0)))
+                .max()
+                .unwrap_or(0)
+                .max(bar);
+            if let Ok(id) = crate::ids::ClipId::new(1) {
+                track.clips.push(crate::song::Clip {
+                    id,
+                    name: String::from("Clip 1"),
+                    start: 0,
+                    length: end,
+                });
+            }
+        }
+    }
+
     fn migrate(&mut self) -> Result<(), ProjectError> {
         while self.version < SCHEMA_VERSION {
             match self.version {
                 // Version 2 adds track provenance. A version 1 file has no
                 // provenance, which is exactly the version 2 default.
                 1 => self.version = 2,
+                2 => {
+                    self.wrap_notes_in_clips();
+                    self.version = 3;
+                }
                 from => {
                     return Err(ProjectError::Migration {
                         from,
@@ -466,6 +568,77 @@ mod tests {
         }"#;
         let project = ProjectFile::from_json(json);
         assert!(matches!(project, Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn clips_select_their_notes_and_split_at_a_tick() {
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Clip test");
+        track.clips.push(crate::song::Clip {
+            id: crate::ids::ClipId::new(1).expect("valid"),
+            name: String::from("A"),
+            start: 0,
+            length: 1920,
+        });
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 960,
+            pitch: music_core::Pitch::from_name("C4").expect("valid"),
+            velocity: music_core::Velocity::new(100).expect("valid"),
+            channel: music_core::Channel::first(),
+        });
+        track.notes.push(Note {
+            id: NoteId::new(2).expect("valid"),
+            start: 1920,
+            duration: 960,
+            pitch: music_core::Pitch::from_name("E4").expect("valid"),
+            velocity: music_core::Velocity::new(100).expect("valid"),
+            channel: music_core::Channel::first(),
+        });
+        assert!(track.clip_at(0).is_some());
+        assert!(
+            track.clip_at(1920).is_none(),
+            "second note is outside clip A"
+        );
+        assert_eq!(track.notes_in(&track.clips[0].clone()).len(), 1);
+        let split = track
+            .split_clip(960, crate::ids::ClipId::new(2).expect("valid"))
+            .expect("split");
+        assert_eq!(track.clips.len(), 2);
+        assert_eq!(track.clips[0].length, 960);
+        assert_eq!(track.clips[1].start, 960);
+        assert_eq!(track.clips[1].length, 960);
+        assert_eq!(track.clips[1].id, split);
+        assert_eq!(
+            track.split_clip(0, crate::ids::ClipId::new(3).expect("valid")),
+            None
+        );
+    }
+
+    #[test]
+    fn a_version_2_document_gets_one_clip_per_track() {
+        let json = r#"{
+            "format": "lazy-arranger-project",
+            "version": 2,
+            "song": {
+                "name": "Old file",
+                "tempo_map": {"changes": [{"tick": 0, "bpm": 120.0}]},
+                "time_signature": {"numerator": 4, "denominator": 4},
+                "tracks": [{"id": 1, "name": "Piano", "notes": [
+                    {"id": 1, "start": 0, "duration": 960,
+                     "pitch": 60, "velocity": 100, "channel": 0},
+                    {"id": 2, "start": 1920, "duration": 480,
+                     "pitch": 64, "velocity": 100, "channel": 0}
+                ]}]
+            }
+        }"#;
+        let project = ProjectFile::from_json(json).expect("migrates");
+        assert_eq!(project.version, 3);
+        let track = &project.song.tracks[0];
+        assert_eq!(track.clips.len(), 1);
+        assert_eq!(track.clips[0].start, 0);
+        assert_eq!(track.clips[0].length, 3840, "one bar minimum");
+        assert!(track.clips[0].contains(1920));
     }
 
     #[test]

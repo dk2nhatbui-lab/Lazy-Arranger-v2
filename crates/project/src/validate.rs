@@ -87,6 +87,42 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
             ));
         }
 
+        let mut clips = track.clips.clone();
+        clips.sort_by_key(|clip| clip.start);
+        for pair in clips.windows(2) {
+            if pair[0].end() > pair[1].start {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.clips"),
+                    format!("clips overlap at tick {}", pair[1].start),
+                ));
+            }
+        }
+        let mut clip_ids = HashSet::new();
+        for clip in &track.clips {
+            if clip.length <= 0 {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.clips"),
+                    format!("clip {} has a non-positive length", clip.id),
+                ));
+            }
+            if clip.start < 0 {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.clips"),
+                    format!("clip {} starts before zero", clip.id),
+                ));
+            }
+            if !clip_ids.insert(clip.id) {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.clips"),
+                    format!("duplicate clip id {}", clip.id),
+                ));
+            }
+        }
+
         if let Some(provenance) = &track.provenance {
             if !provenance.is_well_formed() {
                 issues.push(issue(
