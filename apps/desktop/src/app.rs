@@ -54,6 +54,7 @@ pub struct ShellApp {
     selected_clip: Option<(TrackId, project::ClipId)>,
     chord_dialog: bool,
     chord_input: String,
+    key: music_core::PitchClass,
     project_path: Option<PathBuf>,
     view: View,
     roll: RollState,
@@ -96,6 +97,7 @@ impl ShellApp {
             selected_clip: None,
             chord_dialog: false,
             chord_input: String::from("Am F C G"),
+            key: music_core::PitchClass::new(0),
             project_path,
             view: View::Arrange,
             roll: RollState::default(),
@@ -304,7 +306,22 @@ impl ShellApp {
             .collapsible(false)
             .open(&mut open)
             .show(context, |ui| {
-                ui.label("Am F C G    or    C Am | F G    (| bar, % repeat, / hold)");
+                ui.label("Am F C G · vi IV I V · C Am | F G   (| bar, % repeat, / hold)");
+                ui.horizontal(|ui| {
+                    ui.label("Key:");
+                    egui::ComboBox::from_id_salt("chord-key")
+                        .selected_text(self.key.name_sharp())
+                        .show_ui(ui, |ui| {
+                            for semitone in 0..12_u8 {
+                                let candidate = music_core::PitchClass::new(i32::from(semitone));
+                                ui.selectable_value(
+                                    &mut self.key,
+                                    candidate,
+                                    candidate.name_sharp(),
+                                );
+                            }
+                        });
+                });
                 ui.add(
                     egui::TextEdit::singleline(&mut self.chord_input)
                         .desired_width(320.0)
@@ -314,7 +331,11 @@ impl ShellApp {
                     if ui.button("Apply").clicked() {
                         let bar = self.song().time_signature.bar_ticks().max(1);
                         let start = snap(self.position, bar);
-                        match self.editor.apply_progression(&self.chord_input, start) {
+                        match self.editor.apply_progression_in_key(
+                            &self.chord_input,
+                            start,
+                            self.key,
+                        ) {
                             Ok(count) => {
                                 self.load_error = None;
                                 let _ = count;

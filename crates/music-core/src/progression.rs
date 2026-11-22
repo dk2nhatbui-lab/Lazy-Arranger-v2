@@ -2,10 +2,13 @@
 //!
 //! The grammar is the one the C++ chord lane documents: chord names separated
 //! by spaces or `|` barlines, `%` repeats the previous bar, `/` holds the
-//! previous chord for a bar. Several chords in one bar divide it evenly.
+//! previous chord for a bar. Without barlines every chord owns a bar; between
+//! two barlines the chords divide the bar evenly. Roman numerals resolve in the
+//! song key.
 
 use crate::MusicError;
 use crate::chord::Chord;
+use crate::pitch::PitchClass;
 use crate::time::{Tick, TimeSignature};
 
 /// One chord placed on the timeline.
@@ -17,10 +20,7 @@ pub struct PlacedChord {
     pub chord: Chord,
 }
 
-/// Parses a progression into placed chords.
-///
-/// `start` is the tick of the first bar and `meter` decides bar length. `%`
-/// repeats the chords of the previous bar; `/` holds, adding no chord.
+/// Parses a progression of chord symbols into placed chords.
 ///
 /// # Errors
 ///
@@ -30,27 +30,54 @@ pub fn parse(
     start: Tick,
     meter: TimeSignature,
 ) -> Result<Vec<PlacedChord>, MusicError> {
+    parse_with(text, start, meter, Chord::parse)
+}
+
+/// Parses a progression that may use roman numerals in `key`.
+///
+/// # Errors
+///
+/// Returns [`MusicError::Chord`] for an unreadable token.
+pub fn parse_in_key(
+    text: &str,
+    start: Tick,
+    meter: TimeSignature,
+    key: PitchClass,
+) -> Result<Vec<PlacedChord>, MusicError> {
+    parse_with(text, start, meter, |token| {
+        if crate::roman::is_roman(token) {
+            crate::roman::roman_to_chord(token, key)
+        } else {
+            Chord::parse(token)
+        }
+    })
+}
+
+fn parse_with(
+    text: &str,
+    start: Tick,
+    meter: TimeSignature,
+    resolve: impl Fn(&str) -> Result<Chord, MusicError>,
+) -> Result<Vec<PlacedChord>, MusicError> {
     let bar = meter.bar_ticks().max(1);
     let mut out = Vec::new();
-    // Without barlines or repeat marks every chord owns a bar; with them,
-    // chords between two barlines share the bar evenly.
     let grouped = text
         .split_whitespace()
         .any(|token| matches!(token, "|" | "%" | "/"));
-    // Bars as lists of chords; holds are empty bars.
-    let mut bars: Vec<Vec<Chord>> = Vec::new();
-    let mut current: Vec<Chord> = Vec::new();
     if !grouped {
         for token in text.split_whitespace() {
             out.push(PlacedChord {
                 tick: start + (out.len() as Tick) * bar,
-                chord: Chord::parse(token)?,
+                chord: resolve(token)?,
             });
         }
         return Ok(out);
     }
-    let mut tokens = text.split_whitespace().peekable();
-    while let Some(token) = tokens.next() {
+
+    let mut bars: Vec<Vec<Chord>> = Vec::new();
+    let mut current: Vec<Chord> = Vec::new();
+    let tokens = text.split_whitespace();
+    for token in tokens {
         match token {
             "|" => {
                 if !current.is_empty() {
@@ -70,10 +97,7 @@ pub fn parse(
                 }
                 bars.push(Vec::new());
             }
-            _ => current.push(Chord::parse(token)?),
-        }
-        if tokens.peek().is_none() {
-            break;
+            _ => current.push(resolve(token)?),
         }
     }
     if !current.is_empty() {
@@ -99,7 +123,7 @@ pub fn parse(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pitch::PitchClass;
+    use crate::chord::Spelling;
 
     fn four_four() -> TimeSignature {
         TimeSignature::default()
@@ -108,26 +132,24 @@ mod tests {
     fn symbols(placed: &[PlacedChord]) -> Vec<String> {
         placed
             .iter()
-            .map(|entry| entry.chord.format(crate::chord::Spelling::Sharp))
+            .map(|entry| entry.chord.format(Spelling::Sharp))
             .collect()
     }
 
     #[test]
-    fn one_chord_per_bar_spreads_over_bars() {
+    fn one_chord_per_bar_without_barlines() {
         let placed = parse("Am F C G", 0, four_four()).expect("parse");
         assert_eq!(placed.len(), 4);
         assert_eq!(placed[0].tick, 0);
         assert_eq!(placed[1].tick, 3840);
         assert_eq!(placed[3].tick, 11520);
         assert_eq!(symbols(&placed)[0], "Am");
-        assert_eq!(placed[0].chord.root, PitchClass::new(9));
     }
 
     #[test]
     fn barlines_and_holds_are_respected() {
         let placed = parse("C | F | / | G", 0, four_four()).expect("parse");
         assert_eq!(placed.len(), 3, "the held bar adds no chord");
-        assert_eq!(placed[0].tick, 0);
         assert_eq!(placed[1].tick, 3840);
         assert_eq!(placed[2].tick, 11520);
     }
@@ -135,10 +157,9 @@ mod tests {
     #[test]
     fn percent_repeats_the_previous_bar() {
         let placed = parse("Am F | % | C", 0, four_four()).expect("parse");
-        let names = symbols(&placed);
-        assert_eq!(names, vec!["Am", "F", "Am", "F", "C"]);
+        assert_eq!(symbols(&placed), vec!["Am", "F", "Am", "F", "C"]);
         assert_eq!(placed[2].tick, 3840);
-        assert_eq!(placed[3].tick, 3840 + 1920);
+        assert_eq!(placed[3].tick, 5760);
         assert_eq!(placed[4].tick, 7680);
     }
 
@@ -147,9 +168,9 @@ mod tests {
         let placed = parse("C Am | F G", 960, four_four()).expect("parse");
         assert_eq!(placed.len(), 4);
         assert_eq!(placed[0].tick, 960);
-        assert_eq!(placed[1].tick, 960 + 1920);
-        assert_eq!(placed[2].tick, 960 + 3840);
-        assert_eq!(placed[3].tick, 960 + 3840 + 1920);
+        assert_eq!(placed[1].tick, 2880);
+        assert_eq!(placed[2].tick, 4800);
+        assert_eq!(placed[3].tick, 6720);
     }
 
     #[test]
@@ -160,7 +181,16 @@ mod tests {
     }
 
     #[test]
+    fn roman_numerals_resolve_in_the_key() {
+        let placed = parse_in_key("vi IV I V", 0, four_four(), PitchClass::new(0)).expect("parse");
+        assert_eq!(symbols(&placed), vec!["Am", "F", "C", "G"]);
+        let in_g = parse_in_key("vi IV I V", 0, four_four(), PitchClass::new(7)).expect("parse");
+        assert_eq!(symbols(&in_g), vec!["Em", "C", "G", "D"]);
+    }
+
+    #[test]
     fn bad_chords_are_errors() {
         assert!(parse("C notachord", 0, four_four()).is_err());
+        assert!(parse_in_key("V/V", 0, four_four(), PitchClass::new(0)).is_err());
     }
 }

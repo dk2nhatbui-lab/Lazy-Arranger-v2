@@ -33,6 +33,8 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Clip join command | `app-commands::join_clips` | verified | spans both, one undo step |
 | Chord progression text parser (`\|` bar, `%` repeat, `/` hold) | `music-core::progression` | verified | 6 parser tests |
 | Chord lane: draw and K dialog writing through commands | `apps/desktop` | implemented | editor progression test; UI manual |
+| Roman numerals in the song key | `music-core::roman` | verified | 5 tests, key transposition, suffix rejection |
+| Next-chord suggestions (core) | `music-core::roman::suggest_next` | verified | functional IV/V/vi/ii and minor set; no UI yet |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | — | missing | ADR-010 (Stage 8) |

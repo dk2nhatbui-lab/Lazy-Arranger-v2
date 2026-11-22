@@ -216,8 +216,22 @@ impl Editor {
     ///
     /// Returns an error for an unreadable chord symbol or a rejected command.
     pub fn apply_progression(&mut self, text: &str, start: Tick) -> Result<usize, String> {
+        self.apply_progression_in_key(text, start, music_core::PitchClass::new(0))
+    }
+
+    /// Replaces the chords with a progression that may use roman numerals.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unreadable token or a rejected command.
+    pub fn apply_progression_in_key(
+        &mut self,
+        text: &str,
+        start: Tick,
+        key: music_core::PitchClass,
+    ) -> Result<usize, String> {
         let meter = self.song().time_signature;
-        let placed = music_core::progression::parse(text, start, meter)
+        let placed = music_core::progression::parse_in_key(text, start, meter, key)
             .map_err(|error| error.to_string())?;
         if placed.is_empty() {
             return Err(String::from("no chords in that text"));
@@ -432,6 +446,21 @@ mod tests {
             "the original C chord returns"
         );
         assert_eq!(editor.song().chords[0].tick, 0);
+    }
+
+    #[test]
+    fn roman_progressions_use_the_chosen_key() {
+        let mut editor = editor();
+        editor
+            .apply_progression_in_key("vi IV I V", 0, music_core::PitchClass::new(7))
+            .expect("progression");
+        let roots: Vec<u8> = editor
+            .song()
+            .chords
+            .iter()
+            .map(|event| event.chord.root.as_u8())
+            .collect();
+        assert_eq!(roots, vec![4, 0, 7, 2], "Em C G D");
     }
 
     #[test]
