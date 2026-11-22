@@ -56,6 +56,7 @@ pub struct ShellApp {
     playing: bool,
     position: Tick,
     icon: egui::TextureHandle,
+    player: Option<audio::player::Player>,
     shown: bool,
     load_error: Option<String>,
 }
@@ -79,6 +80,7 @@ impl ShellApp {
         Self {
             editor,
             icon,
+            player: None,
             selected_note: None,
             project_path,
             view: View::Arrange,
@@ -157,6 +159,15 @@ impl ShellApp {
     }
 
     fn advance(&mut self, context: &Context) {
+        if let Some(player) = &self.player {
+            let seconds = player.frame() as f64 / f64::from(audio::SAMPLE_RATE);
+            self.position = self.song().tempo_map.tick_at_seconds(seconds);
+            self.playing = player.is_playing();
+            if self.playing {
+                context.request_repaint_after(Duration::from_millis(16));
+            }
+            return;
+        }
         if !self.playing {
             return;
         }
@@ -170,6 +181,39 @@ impl ShellApp {
             self.playing = false;
         }
         context.request_repaint_after(Duration::from_millis(16));
+    }
+
+    /// Starts, pauses or resumes the audio stream.
+    fn toggle_playback(&mut self) {
+        if let Some(player) = &self.player {
+            if player.is_playing() {
+                player.pause();
+                self.playing = false;
+            } else {
+                player.play();
+                self.playing = true;
+            }
+            return;
+        }
+        let audio = audio::render(self.song(), audio::SAMPLE_RATE);
+        match audio::player::Player::new(audio) {
+            Ok(player) => {
+                player.play();
+                self.player = Some(player);
+                self.playing = true;
+            }
+            Err(error) => self.load_error = Some(format!("audio: {error}")),
+        }
+    }
+
+    /// Stops playback and releases the device.
+    fn stop_playback(&mut self) {
+        if let Some(player) = self.player.take() {
+            player.stop();
+            player.release();
+        }
+        self.playing = false;
+        self.position = 0;
     }
 
     fn top_bar(&mut self, context: &Context) {
@@ -243,8 +287,7 @@ impl ShellApp {
                     egui::vec2(54.0, 54.0),
                 );
                 if transport_button(ui, stop, "\u{25A0}", !self.playing) {
-                    self.playing = false;
-                    self.position = 0;
+                    self.stop_playback();
                 }
                 if transport_button(
                     ui,
@@ -252,7 +295,7 @@ impl ShellApp {
                     if self.playing { "\u{2016}" } else { "\u{25B6}" },
                     self.playing,
                 ) {
-                    self.playing = !self.playing;
+                    self.toggle_playback();
                     context.request_repaint_after(std::time::Duration::from_millis(16));
                 }
 

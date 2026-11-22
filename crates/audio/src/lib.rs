@@ -4,6 +4,8 @@
 //! backend exists: one deterministic function from song to samples, so tests
 //! can check timing and level without opening an audio device.
 
+pub mod player;
+
 use std::f64::consts::TAU;
 
 use music_core::{Pitch, Velocity};
