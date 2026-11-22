@@ -112,7 +112,12 @@ pub fn export(song: &Song, title: &str) -> String {
                     write_rest(&mut out, note.start - cursor);
                 }
                 let duration = note.duration.min(stop - note.start).max(1);
-                write_note(&mut out, note, duration, drums);
+                let lyric = song
+                    .lyrics
+                    .iter()
+                    .find(|event| event.tick == note.start)
+                    .map(|event| event.text.as_str());
+                write_note(&mut out, note, duration, drums, lyric);
                 cursor = note.start + duration;
             }
             if cursor < stop {
@@ -135,7 +140,7 @@ fn write_rest(out: &mut String, duration: Tick) {
     out.push_str("</note>\n");
 }
 
-fn write_note(out: &mut String, note: &Note, duration: Tick, drums: bool) {
+fn write_note(out: &mut String, note: &Note, duration: Tick, drums: bool, lyric: Option<&str>) {
     out.push_str("      <note>");
     if drums {
         out.push_str("<unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched>");
@@ -148,6 +153,11 @@ fn write_note(out: &mut String, note: &Note, duration: Tick, drums: bool) {
     out.push_str(&format!("<duration>{duration}</duration>"));
     if let Some(kind) = note_type(duration) {
         out.push_str(&format!("<type>{kind}</type>"));
+    }
+    if let Some(text) = lyric {
+        out.push_str("<lyric><syllabic>single</syllabic><text>");
+        out.push_str(&escape(text));
+        out.push_str("</text></lyric>");
     }
     out.push_str("</note>\n");
 }

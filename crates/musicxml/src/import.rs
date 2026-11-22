@@ -160,6 +160,17 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                         Channel::new(9).expect("valid drum channel"),
                     )
                 };
+                if let Some(text) = note
+                    .children()
+                    .find(|child| child.has_tag_name("lyric"))
+                    .and_then(|lyric| lyric.children().find(|child| child.has_tag_name("text")))
+                    .and_then(|node| node.text())
+                    .map(|text| text.trim().to_string())
+                    .filter(|text| !text.is_empty())
+                {
+                    song.lyrics
+                        .push(project::song::LyricEvent { tick: start, text });
+                }
                 track.notes.push(Note {
                     id: NoteId::new(next_note).unwrap_or_else(|_| NoteId::new(1).expect("valid")),
                     start,

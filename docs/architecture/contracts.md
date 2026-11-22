@@ -634,3 +634,11 @@ hold outside them; a track without a lane uses its static fader and pan.
 evaluates them at each note start (so automation is per note, not per sample).
 `SetAutomation` replaces the lanes as one undoable edit. No lane UI, plugin
 parameter automation or MIDI-port automation exists yet.
+
+### Lyrics
+
+Schema v10 adds `Song.lyrics`, a list of `(tick, text)` syllables matched to
+notes by tick. MusicXML export writes a `<lyric>` inside the matching note and
+import reads it back; the score layout places song lyrics without needing an
+explicit list (`engrave_with` can still override them positionally). Dynamics,
+articulations and guitar frames are not imported or exported yet.

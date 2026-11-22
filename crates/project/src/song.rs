@@ -54,6 +54,15 @@ fn is_default_pan(value: &u8) -> bool {
     *value == 64
 }
 
+/// One lyric syllable tied to a note tick.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LyricEvent {
+    /// Tick of the note it belongs to.
+    pub tick: Tick,
+    /// The syllable.
+    pub text: String,
+}
+
 /// One automation lane.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Automation {
@@ -358,6 +367,9 @@ pub struct Song {
     /// Arranger intent, sorted by tick.
     #[serde(default)]
     pub arranger: Vec<ArrangerEvent>,
+    /// Lyric syllables, matched to notes by tick.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lyrics: Vec<LyricEvent>,
     /// Names for clip-grid scenes, by scene index. Missing entries use
     /// "Scene N".
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -572,6 +584,11 @@ impl ProjectFile {
                     // Version 9 adds automation lanes; none means the static
                     // fader and pan of version 8.
                     self.version = 9;
+                }
+                9 => {
+                    // Version 10 adds lyric syllables; none is the version 9
+                    // behaviour.
+                    self.version = 10;
                 }
                 from => {
                     return Err(ProjectError::Migration {
@@ -828,6 +845,26 @@ mod tests {
         assert!(track.muted && track.soloed && track.armed);
         let text = project.to_json_pretty().expect("serialize");
         assert!(text.contains("\"muted\": true"));
+    }
+
+    #[test]
+    fn lyrics_round_trip_and_default_empty() {
+        let mut song = Song::new("Lyrics", 120.0);
+        song.lyrics.push(crate::song::LyricEvent {
+            tick: 960,
+            text: String::from("la"),
+        });
+        let text = ProjectFile::new(song).to_json_pretty().expect("serialize");
+        let back = ProjectFile::from_json(&text).expect("parse");
+        assert_eq!(back.song.lyrics[0].tick, 960);
+        assert_eq!(back.song.lyrics[0].text, "la");
+        let empty = ProjectFile::new(Song::new("Empty", 120.0));
+        assert!(
+            !empty
+                .to_json_pretty()
+                .expect("serialize")
+                .contains("lyrics")
+        );
     }
 
     #[test]

@@ -62,6 +62,30 @@ mod tests {
     }
 
     #[test]
+    fn lyrics_survive_an_export_import_round_trip() {
+        let mut song = Song::new("Lyrics", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Voice");
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 960,
+            pitch: music_core::Pitch::from_name("C4").expect("valid"),
+            velocity: music_core::Velocity::new(100).expect("valid"),
+            channel: music_core::Channel::first(),
+        });
+        song.tracks.push(track);
+        song.lyrics.push(project::song::LyricEvent {
+            tick: 0,
+            text: String::from("hel"),
+        });
+        let xml = export(&song, "Lyrics");
+        assert!(xml.contains("<text>hel</text>"), "export writes the lyric");
+        let imported = import(&xml).expect("import");
+        assert_eq!(imported.lyrics.len(), 1);
+        assert_eq!(imported.lyrics[0].text, "hel");
+    }
+
+    #[test]
     fn tempo_and_meter_are_read() {
         let xml = r#"<?xml version="1.0"?>
         <score-partwise version="4.0">

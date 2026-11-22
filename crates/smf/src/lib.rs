@@ -348,6 +348,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
 
     let song = Song {
         scene_names: Vec::new(),
+        lyrics: Vec::new(),
         name: String::new(),
         tempo_map,
         time_signature: time_signature.unwrap_or_default(),

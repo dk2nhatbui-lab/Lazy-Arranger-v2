@@ -236,8 +236,17 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
                             note.pitch.as_u8(),
                             (pushed, note.start.saturating_add(note.duration)),
                         );
-                        if let Some(text) = lyrics.get(lyric_index).copied() {
+                        let explicit = lyrics.get(lyric_index).copied();
+                        if explicit.is_some() {
                             lyric_index += 1;
+                        }
+                        let text = explicit.or_else(|| {
+                            song.lyrics
+                                .iter()
+                                .find(|event| event.tick == note.start)
+                                .map(|event| event.text.as_str())
+                        });
+                        if let Some(text) = text {
                             placed_lyrics.push(Lyric {
                                 tick: note.start,
                                 text: text.to_string(),
@@ -423,6 +432,23 @@ mod tests {
         assert!(engraved.notes[0].tie_start);
         assert!(engraved.notes[1].tied);
         assert!(!engraved.notes[0].tied);
+    }
+
+    #[test]
+    fn song_lyrics_are_placed_without_an_explicit_list() {
+        let mut score = song(2);
+        score.lyrics.push(project::song::LyricEvent {
+            tick: 120,
+            text: String::from("hel"),
+        });
+        score.lyrics.push(project::song::LyricEvent {
+            tick: 3840 + 120,
+            text: String::from("lo"),
+        });
+        let engraved = engrave(&score, TrackId::new(1).expect("valid"), Settings::default());
+        assert_eq!(engraved.lyrics.len(), 2);
+        assert_eq!(engraved.lyrics[0].text, "hel");
+        assert_eq!(engraved.lyrics[1].text, "lo");
     }
 
     #[test]
