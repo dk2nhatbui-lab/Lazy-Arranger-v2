@@ -678,3 +678,11 @@ with the named keyboard is needed.
 and score marks; `style_catalog` lists a numbered folder without parsing; and
 `theory` answers scale, roman-label, cadence and voice-leading questions. The
 tool list is 22 entries; `mcp-call` exercises them from the CLI.
+
+### Synth timbres
+
+`audio::Timbre` selects a voice family from the track: channel 10 or a drum-like
+name gives noise percussion, then program ranges (0-7 piano, 16-23 organ,
+32-39 bass, 40-55 strings, 88-95 pad), then name hints. Each family has its own
+attack, decay and harmonic weights; the demo renders at RMS 0.129. There is
+still no SoundFont loading, filter, or metronome click.

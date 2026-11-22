@@ -109,6 +109,7 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
     let mut samples = vec![0.0_f32; frames * usize::from(CHANNELS)];
 
     for track in song.tracks.iter().filter(|track| song.is_audible(track)) {
+        let timbre = timbre_for(track);
         for note in &track.notes {
             let (left_gain, right_gain) = gains_at(track, note.start);
             let start_seconds = song.tempo_map.seconds_at(note.start);
@@ -120,6 +121,7 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
             let frequency = frequency(note.pitch);
             let amplitude = f64::from(note.velocity.as_u8()) / 127.0 * 0.18;
             let release = (0.08 * f64::from(sample_rate)) as usize;
+            let note_seconds = (stop - start) as f64 / f64::from(sample_rate);
             for frame in start..stop.min(frames) {
                 let t = (frame - start) as f64 / f64::from(sample_rate);
                 let remaining = stop.saturating_sub(frame);
@@ -128,7 +130,9 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
                 } else {
                     1.0
                 };
-                let value = (voice(frequency, t) * amplitude * envelope) as f32;
+                let value = (sample(timbre, frequency, t, note_seconds, note.pitch.as_u8())
+                    * amplitude
+                    * envelope) as f32;
                 samples[frame * 2] += value * left_gain;
                 samples[frame * 2 + 1] += value * right_gain;
             }
@@ -173,11 +177,131 @@ pub fn track_gains(track: &project::song::Track) -> (f32, f32) {
     gains_at(track, 0)
 }
 
-/// One voice: a sine fundamental with two quiet harmonics.
-fn voice(frequency: f64, seconds: f64) -> f64 {
+/// The synth voice family for a track.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Timbre {
+    /// Bright, decaying harmonics.
+    Piano,
+    /// Warm, sustained low harmonics.
+    Bass,
+    /// Steady drawbar-like harmonics.
+    Organ,
+    /// Soft, slow-attack bowed tone.
+    Strings,
+    /// Slow, sustained pad.
+    Pad,
+    /// Pitched percussion on channel 10.
+    Drums,
+    /// Fallback sine with two harmonics.
+    Default,
+}
+
+/// Chooses a timbre from the track's channel, program and name.
+#[must_use]
+pub fn timbre_for(track: &project::song::Track) -> Timbre {
+    let name = track.name.to_ascii_lowercase();
+    let drums = track
+        .notes
+        .first()
+        .is_some_and(|note| note.channel.zero_based() == 9)
+        || name.contains("drum")
+        || name.contains("kit")
+        || name.contains("perc");
+    if drums {
+        return Timbre::Drums;
+    }
+    match track.program {
+        Some(0..=7) => Timbre::Piano,
+        Some(16..=23) => Timbre::Organ,
+        Some(32..=39) => Timbre::Bass,
+        Some(40..=43) => Timbre::Strings,
+        Some(48..=55) => Timbre::Strings,
+        Some(88..=95) => Timbre::Pad,
+        _ => {
+            if name.contains("bass") {
+                Timbre::Bass
+            } else if name.contains("pad") {
+                Timbre::Pad
+            } else if name.contains("string") {
+                Timbre::Strings
+            } else if name.contains("organ") {
+                Timbre::Organ
+            } else if name.contains("piano") || name.contains("ep") {
+                Timbre::Piano
+            } else {
+                Timbre::Default
+            }
+        }
+    }
+}
+
+fn sample(timbre: Timbre, frequency: f64, seconds: f64, duration: f64, pitch: u8) -> f64 {
     let phase = TAU * frequency * seconds;
-    let attack = (seconds / 0.005).min(1.0);
-    attack * (phase.sin() + 0.25 * (2.0 * phase).sin() + 0.1 * (3.0 * phase).sin())
+    let attack = |time: f64| (seconds / time).min(1.0);
+    match timbre {
+        Timbre::Piano => {
+            let decay = (-2.5 * seconds).exp();
+            attack(0.004)
+                * decay
+                * ((phase).sin() + 0.42 * (2.0 * phase).sin() + 0.18 * (3.0 * phase).sin())
+        }
+        Timbre::Bass => {
+            let decay = (-1.2 * seconds).exp();
+            attack(0.006)
+                * decay
+                * ((phase).sin() + 0.5 * (2.0 * phase).sin() + 0.22 * (3.0 * phase).sin())
+        }
+        Timbre::Organ => {
+            attack(0.01)
+                * ((phase).sin()
+                    + 0.55 * (2.0 * phase).sin()
+                    + 0.35 * (3.0 * phase).sin()
+                    + 0.2 * (4.0 * phase).sin())
+        }
+        Timbre::Strings => {
+            let swell = attack(0.12) * (1.0 - (-1.5 * seconds).exp() * 0.2);
+            swell
+                * ((phase).sin()
+                    + 0.3 * (2.0 * phase).sin()
+                    + 0.12 * (3.0 * phase).sin()
+                    + 0.06 * (5.0 * phase).sin())
+        }
+        Timbre::Pad => {
+            attack(0.2)
+                * ((phase).sin()
+                    + 0.18 * (2.0 * phase).sin()
+                    + 0.08 * (3.0 * phase).sin()
+                    + 0.04 * (4.0 * phase).sin())
+                * (-0.3 * seconds / duration.max(0.1)).exp()
+        }
+        Timbre::Drums => drum(seconds, pitch),
+        Timbre::Default => attack(0.005) * (phase.sin() + 0.25 * (2.0 * phase).sin()),
+    }
+}
+
+fn drum(seconds: f64, pitch: u8) -> f64 {
+    match pitch {
+        35 | 36 => {
+            // Kick: a short low sine sweep with a click.
+            let frequency = 120.0 * (-30.0 * seconds).exp() + 45.0;
+            let phase = TAU * frequency * seconds;
+            phase.sin() * (-9.0 * seconds).exp()
+        }
+        38 | 40 => {
+            // Snare: noise plus a little body.
+            noise(seconds) * (-18.0 * seconds).exp()
+                + 0.25 * (TAU * 190.0 * seconds).sin() * (-14.0 * seconds).exp()
+        }
+        _ => noise(seconds) * (-28.0 * seconds).exp(),
+    }
+}
+
+fn noise(seconds: f64) -> f64 {
+    let mut state = (seconds * 48_000.0) as u64 ^ 0x9E37_79B9_7F4A_7C15;
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    (state as f64 / u64::MAX as f64) * 2.0 - 1.0
 }
 
 /// Converts a pitch and velocity into an approximate peak amplitude.
@@ -363,6 +487,56 @@ mod tests {
         assert_eq!(&wav[44..47], &[0x00, 0x00, 0x00]);
         assert_eq!(&wav[47..50], &[0xff, 0xff, 0x7f]);
         assert_eq!(&wav[50..53], &[0x01, 0x00, 0x80]);
+    }
+
+    #[test]
+    fn timbres_follow_channel_program_and_name() {
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Track");
+        track.program = Some(32);
+        assert_eq!(timbre_for(&track), Timbre::Bass);
+        track.program = Some(89);
+        assert_eq!(timbre_for(&track), Timbre::Pad);
+        track.program = None;
+        track.name = String::from("Drums");
+        assert_eq!(timbre_for(&track), Timbre::Drums);
+    }
+
+    #[test]
+    fn a_pad_swells_while_piano_strikes() {
+        let mut song = song_with_note();
+        song.tracks[0].program = Some(89);
+        song.tracks[0].notes[0].duration = music_core::PPQ;
+        let pad = render(&song, SAMPLE_RATE);
+        let at = |seconds: f64| {
+            let frame = (seconds * f64::from(SAMPLE_RATE)) as usize;
+            pad.samples[frame * 2..(frame + 200) * 2]
+                .iter()
+                .step_by(2)
+                .fold(0.0_f32, |peak, sample| peak.max(sample.abs()))
+        };
+        assert!(at(0.02) < at(0.3) * 0.5, "pad swells after its slow attack");
+
+        let mut piano_song = song_with_note();
+        piano_song.tracks[0].program = Some(1);
+        let piano = render(&piano_song, SAMPLE_RATE);
+        assert_ne!(pad.samples, piano.samples);
+    }
+
+    #[test]
+    fn drums_produce_noise_without_a_pitch() {
+        let mut song = Song::new("Drums", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Drums");
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 480,
+            pitch: Pitch::new(38).expect("valid"),
+            velocity: Velocity::new(120).expect("valid"),
+            channel: Channel::drums(),
+        });
+        song.tracks.push(track);
+        let rendered = render(&song, SAMPLE_RATE);
+        assert!(rendered.samples.iter().any(|sample| sample.abs() > 0.01));
     }
 
     #[test]

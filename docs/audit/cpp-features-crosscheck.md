@@ -26,7 +26,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 17 | Mixer and buses | partial | Per-track volume and pan in schema v8, applied in the synth render and audio-reference mix, and written as CC 7/10 by keyboard export. A Mix view shows per-track fader and pan sliders plus mute/solo, each writing one undoable command. No reverb/chorus, meters, buses, sends or master effects |
 | 18 | Automation | partial | Volume and pan lanes with linear interpolation and held ends, applied per note in the render, edited through one undoable command. Arrange shows a volume lane for the selected track; clicking adds a point, clicking a point removes it, and each edit is one command. No pan lane UI, plugin-parameter lanes or MIDI-port automation |
 | 19 | VST3/AU plugins | missing | ADR-007 deferred |
-| 20 | SF2/SF3 SoundFont player, metronome | partial | Additive sine voice; no SoundFont |
+| 20 | SF2/SF3 SoundFont player, metronome | partial | Built-in synth now has piano, bass, organ, strings, pad and noise drums chosen from channel, program and name, with per-family attack and decay. No SoundFont loading, sampler or metronome click |
 | 21 | MIDI devices and profiles | partial | One built-in PSR-S970 voice subset with keyword matching and a GM fallback (used by keyboard export). No YAML loader, banks, drum kits, other devices, overrides, validation or recent-MIDI buffer |
 | 22 | Synth sound editors (D-05, XioSynth, S970 XG, L6max), sysex dumps | missing | — |
 | 23 | Controller pages, MIDI Map, MIDI Learn, channel check | partial | Launchkey/X-Touch profiles referenced; no pages, map, learn |
