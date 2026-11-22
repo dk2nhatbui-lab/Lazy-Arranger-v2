@@ -1,0 +1,17 @@
+[package]
+name = "music-core"
+description = "Platform-independent musical primitives: pitch, chords, ticks, tempo, MIDI messages"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

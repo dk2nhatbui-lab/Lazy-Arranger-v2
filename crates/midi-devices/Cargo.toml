@@ -1,0 +1,16 @@
+[package]
+name = "midi-devices"
+description = "MIDI port discovery, timestamped capture and recording"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+music-core = { path = "../music-core" }
+project = { path = "../project" }
+midir.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

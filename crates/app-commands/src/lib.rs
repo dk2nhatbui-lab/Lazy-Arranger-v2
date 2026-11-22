@@ -1,0 +1,884 @@
+//! One command path for every editor.
+//!
+//! GUI, CLI, automation and a future MCP server all build the same
+//! [`Command`] values and hand them to [`EditSession::apply`]. Apply validates
+//! the command, mutates the song, validates the result, and only then records
+//! an undo step. A command that makes the song invalid is rolled back, so the
+//! session never holds a broken document.
+//!
+//! Undo granularity is one command per step. Coalescing (for typing or a drag)
+//! is deferred to ADR-006, which also covers preview and approval for
+//! destructive model-proposed edits.
+
+use music_core::{Channel, Chord, Pitch, TempoMap, Tick, Velocity};
+use project::song::{ChordEvent, Note, Song, Track};
+use project::{NoteId, ProjectError, ProjectFile, Severity, TrackId};
+use thiserror::Error;
+
+/// One edit in the shared command vocabulary.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Command {
+    /// Insert a note with a caller-chosen identifier.
+    InsertNote {
+        /// Owning track.
+        track: TrackId,
+        /// The complete note.
+        note: Note,
+    },
+    /// Remove a note.
+    RemoveNote {
+        /// Owning track.
+        track: TrackId,
+        /// The note to remove.
+        note: NoteId,
+    },
+    /// Place or replace the chord at a tick.
+    SetChord {
+        /// Position in ticks.
+        tick: Tick,
+        /// The chord.
+        chord: Chord,
+    },
+    /// Remove the chord at a tick.
+    RemoveChord {
+        /// Position in ticks.
+        tick: Tick,
+    },
+    /// Set the tempo that starts at a tick.
+    SetTempo {
+        /// Position in ticks.
+        tick: Tick,
+        /// Tempo in beats per minute.
+        bpm: f64,
+    },
+    /// Rename a track.
+    RenameTrack {
+        /// The track.
+        track: TrackId,
+        /// New name.
+        name: String,
+    },
+    /// Insert an empty track with a caller-chosen identifier.
+    InsertTrack {
+        /// The complete track.
+        track: Track,
+    },
+    /// Remove a track and every note on it.
+    RemoveTrack {
+        /// The track.
+        track: TrackId,
+    },
+    /// Restore a complete tempo map.
+    ///
+    /// Internal: undo builds it to put back an exact map after a tempo edit.
+    /// Callers use [`Command::SetTempo`].
+    ReplaceTempoMap {
+        /// The map to install.
+        map: TempoMap,
+    },
+}
+
+impl Command {
+    /// Short label used in undo descriptions.
+    #[must_use]
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::InsertNote { .. } => "insert note",
+            Self::RemoveNote { .. } => "remove note",
+            Self::SetChord { .. } => "set chord",
+            Self::RemoveChord { .. } => "remove chord",
+            Self::SetTempo { .. } => "set tempo",
+            Self::RenameTrack { .. } => "rename track",
+            Self::InsertTrack { .. } => "insert track",
+            Self::RemoveTrack { .. } => "remove track",
+            Self::ReplaceTempoMap { .. } => "restore tempo map",
+        }
+    }
+}
+
+/// Errors raised when a command cannot be applied.
+#[derive(Debug, Error, PartialEq)]
+pub enum CommandError {
+    /// No track holds that identifier.
+    #[error("no track {0}")]
+    UnknownTrack(TrackId),
+    /// The track has no note with that identifier.
+    #[error("track {track} has no note {note}")]
+    UnknownNote {
+        /// The track searched.
+        track: TrackId,
+        /// The note searched.
+        note: NoteId,
+    },
+    /// A note identifier would be duplicated inside a track.
+    #[error("track {track} already has note {note}")]
+    DuplicateNote {
+        /// The track.
+        track: TrackId,
+        /// The duplicated identifier.
+        note: NoteId,
+    },
+    /// A track identifier would be duplicated in the song.
+    #[error("song already has track {0}")]
+    DuplicateTrack(TrackId),
+    /// No chord sits at that tick.
+    #[error("no chord at tick {0}")]
+    UnknownChord(Tick),
+    /// The tempo map rejected the change.
+    #[error("tempo change rejected: {0}")]
+    Tempo(String),
+    /// The command would leave the song invalid.
+    #[error("command would make the project invalid: {0}")]
+    Validation(String),
+    /// There is nothing to undo.
+    #[error("nothing to undo")]
+    NothingToUndo,
+    /// There is nothing to redo.
+    #[error("nothing to redo")]
+    NothingToRedo,
+}
+
+/// What an apply or undo produced.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandOutcome {
+    /// Human-readable description, for logs and the UI.
+    pub description: String,
+    /// Number of steps on the undo stack after the call.
+    pub undo_depth: usize,
+    /// Number of steps on the redo stack after the call.
+    pub redo_depth: usize,
+}
+
+/// An applied command and the command that reverses it.
+#[derive(Clone, Debug, PartialEq)]
+struct UndoEntry {
+    inverse: Command,
+    description: String,
+}
+
+/// An open project plus its undo and redo history.
+#[derive(Debug)]
+pub struct EditSession {
+    project: ProjectFile,
+    undo: Vec<UndoEntry>,
+    redo: Vec<UndoEntry>,
+}
+
+impl EditSession {
+    /// Opens a session on a project. The project is validated first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProjectError`] when the document is invalid.
+    pub fn new(project: ProjectFile) -> Result<Self, ProjectError> {
+        project.check()?;
+        Ok(Self {
+            project,
+            undo: Vec::new(),
+            redo: Vec::new(),
+        })
+    }
+
+    /// The current project.
+    #[must_use]
+    pub fn project(&self) -> &ProjectFile {
+        &self.project
+    }
+
+    /// The song being edited.
+    #[must_use]
+    pub fn song(&self) -> &Song {
+        &self.project.song
+    }
+
+    /// Number of undo steps available.
+    #[must_use]
+    pub fn undo_depth(&self) -> usize {
+        self.undo.len()
+    }
+
+    /// Number of redo steps available.
+    #[must_use]
+    pub fn redo_depth(&self) -> usize {
+        self.redo.len()
+    }
+
+    /// Applies one command, or leaves the song untouched.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] for an unknown target, a duplicate identifier,
+    /// a rejected tempo, or a result that fails project validation.
+    pub fn apply(&mut self, command: Command) -> Result<CommandOutcome, CommandError> {
+        let inverse = self.inverse_for(&command)?;
+        let description = describe(&command);
+        let before = self.project.clone();
+        if let Err(err) = self.run(&command) {
+            self.project = before;
+            return Err(err);
+        }
+        if let Err(err) = self.project.check() {
+            self.project = before;
+            return Err(CommandError::Validation(err.to_string()));
+        }
+        self.undo.push(UndoEntry {
+            inverse,
+            description: description.clone(),
+        });
+        self.redo.clear();
+        Ok(self.outcome(description))
+    }
+
+    /// Reverses the most recent command.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError::NothingToUndo`] when the history is empty.
+    pub fn undo(&mut self) -> Result<CommandOutcome, CommandError> {
+        let Some(entry) = self.undo.pop() else {
+            return Err(CommandError::NothingToUndo);
+        };
+        let forward = self.inverse_for(&entry.inverse)?;
+        let before = self.project.clone();
+        if let Err(err) = self.run(&entry.inverse) {
+            self.project = before;
+            self.undo.push(entry);
+            return Err(err);
+        }
+        let description = format!("undo {}", entry.description);
+        self.redo.push(UndoEntry {
+            inverse: forward,
+            description: entry.description,
+        });
+        Ok(self.outcome(description))
+    }
+
+    /// Re-applies the most recently undone command.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError::NothingToRedo`] when the history is empty.
+    pub fn redo(&mut self) -> Result<CommandOutcome, CommandError> {
+        let Some(entry) = self.redo.pop() else {
+            return Err(CommandError::NothingToRedo);
+        };
+        let reverse = self.inverse_for(&entry.inverse)?;
+        let before = self.project.clone();
+        if let Err(err) = self.run(&entry.inverse) {
+            self.project = before;
+            self.redo.push(entry);
+            return Err(err);
+        }
+        let description = format!("redo {}", entry.description);
+        self.undo.push(UndoEntry {
+            inverse: reverse,
+            description: entry.description,
+        });
+        Ok(self.outcome(description))
+    }
+
+    /// Allocates the next free note identifier on a track.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError::UnknownTrack`] for an unknown track.
+    pub fn next_note_id(&self, track: TrackId) -> Result<NoteId, CommandError> {
+        let track = self.track(track)?;
+        let highest = track
+            .notes
+            .iter()
+            .map(|note| note.id.get())
+            .max()
+            .unwrap_or(0);
+        NoteId::new(highest.saturating_add(1))
+            .map_err(|err| CommandError::Validation(err.to_string()))
+    }
+
+    /// Allocates the next free track identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError::Validation`] when the identifier space is full.
+    pub fn next_track_id(&self) -> Result<TrackId, CommandError> {
+        let highest = self
+            .song()
+            .tracks
+            .iter()
+            .map(|track| track.id.get())
+            .max()
+            .unwrap_or(0);
+        TrackId::new(highest.saturating_add(1))
+            .map_err(|err| CommandError::Validation(err.to_string()))
+    }
+
+    /// Convenience: insert a note, allocating its identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] as [`EditSession::apply`] does.
+    pub fn add_note(
+        &mut self,
+        track: TrackId,
+        start: Tick,
+        duration: Tick,
+        pitch: Pitch,
+        velocity: Velocity,
+        channel: Channel,
+    ) -> Result<CommandOutcome, CommandError> {
+        let note = Note {
+            id: self.next_note_id(track)?,
+            start,
+            duration,
+            pitch,
+            velocity,
+            channel,
+        };
+        self.apply(Command::InsertNote { track, note })
+    }
+
+    /// Convenience: insert an empty named track, allocating its identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] as [`EditSession::apply`] does.
+    pub fn add_track(&mut self, name: impl Into<String>) -> Result<CommandOutcome, CommandError> {
+        let track = Track::new(self.next_track_id()?, name);
+        self.apply(Command::InsertTrack { track })
+    }
+
+    fn outcome(&self, description: String) -> CommandOutcome {
+        CommandOutcome {
+            description,
+            undo_depth: self.undo.len(),
+            redo_depth: self.redo.len(),
+        }
+    }
+
+    fn track(&self, id: TrackId) -> Result<&Track, CommandError> {
+        self.song()
+            .tracks
+            .iter()
+            .find(|track| track.id == id)
+            .ok_or(CommandError::UnknownTrack(id))
+    }
+
+    fn track_mut(&mut self, id: TrackId) -> Result<&mut Track, CommandError> {
+        self.project
+            .song
+            .tracks
+            .iter_mut()
+            .find(|track| track.id == id)
+            .ok_or(CommandError::UnknownTrack(id))
+    }
+
+    /// Computes the command that reverses `command`, before applying it.
+    fn inverse_for(&self, command: &Command) -> Result<Command, CommandError> {
+        Ok(match command {
+            Command::InsertNote { track, note } => {
+                let target = self.track(*track)?;
+                if target.notes.iter().any(|existing| existing.id == note.id) {
+                    return Err(CommandError::DuplicateNote {
+                        track: *track,
+                        note: note.id,
+                    });
+                }
+                Command::RemoveNote {
+                    track: *track,
+                    note: note.id,
+                }
+            }
+            Command::RemoveNote { track, note } => {
+                let target = self.track(*track)?;
+                let found = target
+                    .notes
+                    .iter()
+                    .find(|existing| existing.id == *note)
+                    .cloned()
+                    .ok_or(CommandError::UnknownNote {
+                        track: *track,
+                        note: *note,
+                    })?;
+                Command::InsertNote {
+                    track: *track,
+                    note: found,
+                }
+            }
+            Command::SetChord { tick, .. } => match self.chord_at(*tick) {
+                Some(chord) => Command::SetChord {
+                    tick: *tick,
+                    chord: *chord,
+                },
+                None => Command::RemoveChord { tick: *tick },
+            },
+            Command::RemoveChord { tick } => {
+                let chord = self
+                    .chord_at(*tick)
+                    .ok_or(CommandError::UnknownChord(*tick))?;
+                Command::SetChord {
+                    tick: *tick,
+                    chord: *chord,
+                }
+            }
+            Command::SetTempo { bpm, .. } => {
+                if !bpm.is_finite() || *bpm <= 0.0 {
+                    return Err(CommandError::Tempo(format!("{bpm} bpm is not usable")));
+                }
+                Command::ReplaceTempoMap {
+                    map: self.song().tempo_map.clone(),
+                }
+            }
+            Command::ReplaceTempoMap { .. } => Command::ReplaceTempoMap {
+                map: self.song().tempo_map.clone(),
+            },
+            Command::RenameTrack { track, .. } => Command::RenameTrack {
+                track: *track,
+                name: self.track(*track)?.name.clone(),
+            },
+            Command::InsertTrack { track } => {
+                if self
+                    .song()
+                    .tracks
+                    .iter()
+                    .any(|existing| existing.id == track.id)
+                {
+                    return Err(CommandError::DuplicateTrack(track.id));
+                }
+                Command::RemoveTrack { track: track.id }
+            }
+            Command::RemoveTrack { track } => Command::InsertTrack {
+                track: self.track(*track)?.clone(),
+            },
+        })
+    }
+
+    fn chord_at(&self, tick: Tick) -> Option<&Chord> {
+        self.song()
+            .chords
+            .iter()
+            .find(|event| event.tick == tick)
+            .map(|event| &event.chord)
+    }
+
+    fn run(&mut self, command: &Command) -> Result<(), CommandError> {
+        match command {
+            Command::InsertNote { track, note } => {
+                let target = self.track_mut(*track)?;
+                let position = target
+                    .notes
+                    .iter()
+                    .position(|existing| existing.start > note.start)
+                    .unwrap_or(target.notes.len());
+                target.notes.insert(position, note.clone());
+            }
+            Command::RemoveNote { track, note } => {
+                let target = self.track_mut(*track)?;
+                target.notes.retain(|existing| existing.id != *note);
+            }
+            Command::SetChord { tick, chord } => {
+                if *tick < 0 {
+                    return Err(CommandError::Validation(format!(
+                        "chord tick {tick} is negative"
+                    )));
+                }
+                let chords = &mut self.project.song.chords;
+                match chords.iter_mut().find(|event| event.tick == *tick) {
+                    Some(event) => event.chord = *chord,
+                    None => {
+                        let position = chords
+                            .iter()
+                            .position(|event| event.tick > *tick)
+                            .unwrap_or(chords.len());
+                        chords.insert(
+                            position,
+                            ChordEvent {
+                                tick: *tick,
+                                chord: *chord,
+                            },
+                        );
+                    }
+                }
+            }
+            Command::RemoveChord { tick } => {
+                self.project.song.chords.retain(|event| event.tick != *tick);
+            }
+            Command::SetTempo { tick, bpm } => {
+                let map = self.song().tempo_map.clone();
+                let next = if *tick == 0 {
+                    if map.changes().len() == 1 {
+                        TempoMap::constant(*bpm)
+                    } else {
+                        let mut changes = map.changes().to_vec();
+                        changes[0].bpm = *bpm;
+                        TempoMap::new(changes)
+                            .map_err(|err| CommandError::Tempo(err.to_string()))?
+                    }
+                } else {
+                    map.with_change(*tick, *bpm)
+                        .map_err(|err| CommandError::Tempo(err.to_string()))?
+                };
+                self.project.song.tempo_map = next;
+            }
+            Command::ReplaceTempoMap { map } => {
+                self.project.song.tempo_map = map.clone();
+            }
+            Command::RenameTrack { track, name } => {
+                self.track_mut(*track)?.name = name.clone();
+            }
+            Command::InsertTrack { track } => {
+                self.project.song.tracks.push(track.clone());
+            }
+            Command::RemoveTrack { track } => {
+                self.project
+                    .song
+                    .tracks
+                    .retain(|existing| existing.id != *track);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn describe(command: &Command) -> String {
+    match command {
+        Command::InsertNote { track, note } => {
+            format!("insert {} on track {track} at {}", note.pitch, note.start)
+        }
+        Command::RemoveNote { track, note } => format!("remove note {note} from track {track}"),
+        Command::SetChord { tick, chord } => format!("set chord {chord} at tick {tick}"),
+        Command::RemoveChord { tick } => format!("remove chord at tick {tick}"),
+        Command::SetTempo { tick, bpm } => format!("set tempo {bpm} bpm at tick {tick}"),
+        Command::RenameTrack { track, name } => format!("rename track {track} to {name:?}"),
+        Command::InsertTrack { track } => format!("insert track {} ({})", track.id, track.name),
+        Command::RemoveTrack { track } => format!("remove track {track}"),
+        Command::ReplaceTempoMap { .. } => String::from("restore tempo map"),
+    }
+}
+
+/// Checks that a project has no validation errors. Warnings are allowed.
+///
+/// # Errors
+///
+/// Returns the first error as text.
+pub fn check_project(project: &ProjectFile) -> Result<(), String> {
+    let issues = project.validate();
+    match issues
+        .iter()
+        .find(|issue| issue.severity == Severity::Error)
+    {
+        Some(issue) => Err(issue.to_string()),
+        None => Ok(()),
+    }
+}
+
+impl Command {
+    /// True when the command is an internal history step rather than an edit
+    /// a caller should build.
+    #[must_use]
+    pub fn is_internal(&self) -> bool {
+        matches!(self, Self::ReplaceTempoMap { .. })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session() -> EditSession {
+        let mut song = Song::new("Commands", 120.0);
+        song.tracks
+            .push(Track::new(TrackId::new(1).expect("valid"), "Piano"));
+        EditSession::new(ProjectFile::new(song)).expect("valid project")
+    }
+
+    fn pitch(name: &str) -> Pitch {
+        Pitch::from_name(name).expect("valid pitch")
+    }
+
+    #[test]
+    fn add_note_then_undo_then_redo() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.add_note(
+            track,
+            0,
+            960,
+            pitch("C4"),
+            Velocity::new(100).expect("valid"),
+            Channel::first(),
+        )
+        .expect("apply");
+        assert_eq!(edit.song().tracks[0].notes.len(), 1);
+        assert_eq!(edit.undo_depth(), 1);
+        assert_eq!(edit.redo_depth(), 0);
+
+        edit.undo().expect("undo");
+        assert_eq!(edit.song().tracks[0].notes.len(), 0);
+        assert_eq!(edit.undo_depth(), 0);
+        assert_eq!(edit.redo_depth(), 1);
+
+        edit.redo().expect("redo");
+        assert_eq!(edit.song().tracks[0].notes.len(), 1);
+        assert_eq!(edit.undo_depth(), 1);
+        assert_eq!(edit.redo_depth(), 0);
+    }
+
+    #[test]
+    fn new_command_clears_the_redo_stack() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.add_note(
+            track,
+            0,
+            960,
+            pitch("C4"),
+            Velocity::new(100).expect("valid"),
+            Channel::first(),
+        )
+        .expect("apply");
+        edit.undo().expect("undo");
+        assert_eq!(edit.redo_depth(), 1);
+        edit.add_note(
+            track,
+            0,
+            960,
+            pitch("E4"),
+            Velocity::new(100).expect("valid"),
+            Channel::first(),
+        )
+        .expect("apply");
+        assert_eq!(edit.redo_depth(), 0);
+    }
+
+    #[test]
+    fn undo_and_redo_report_empty_history() {
+        let mut edit = session();
+        assert_eq!(edit.undo().expect_err("empty"), CommandError::NothingToUndo);
+        assert_eq!(edit.redo().expect_err("empty"), CommandError::NothingToRedo);
+    }
+
+    #[test]
+    fn unknown_targets_are_rejected_without_mutation() {
+        let mut edit = session();
+        let ghost_track = TrackId::new(99).expect("valid");
+        let error = edit
+            .apply(Command::RemoveNote {
+                track: ghost_track,
+                note: NoteId::new(1).expect("valid"),
+            })
+            .expect_err("unknown track");
+        assert_eq!(error, CommandError::UnknownTrack(ghost_track));
+
+        let track = TrackId::new(1).expect("valid");
+        let error = edit.add_note(
+            ghost_track,
+            0,
+            960,
+            pitch("C4"),
+            Velocity::new(100).expect("valid"),
+            Channel::first(),
+        );
+        assert_eq!(
+            error.expect_err("unknown track"),
+            CommandError::UnknownTrack(ghost_track)
+        );
+        assert_eq!(track.get(), 1);
+        assert_eq!(edit.undo_depth(), 0);
+    }
+
+    #[test]
+    fn invalid_note_is_rolled_back() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        let note = Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 0,
+            pitch: pitch("C4"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        };
+        let error = edit
+            .apply(Command::InsertNote { track, note })
+            .expect_err("zero length note");
+        assert!(matches!(error, CommandError::Validation(_)), "{error}");
+        assert_eq!(edit.song().tracks[0].notes.len(), 0);
+        assert_eq!(edit.undo_depth(), 0);
+    }
+
+    #[test]
+    fn chords_are_inserted_in_tick_order() {
+        let mut edit = session();
+        edit.apply(Command::SetChord {
+            tick: 3840,
+            chord: Chord::parse("G7").expect("valid"),
+        })
+        .expect("apply");
+        edit.apply(Command::SetChord {
+            tick: 0,
+            chord: Chord::parse("Cmaj7").expect("valid"),
+        })
+        .expect("apply");
+        assert_eq!(edit.song().chords.len(), 2);
+        assert_eq!(edit.song().chords[0].tick, 0);
+        assert_eq!(edit.song().chords[1].tick, 3840);
+    }
+
+    #[test]
+    fn replacing_and_removing_chords_undo_exactly() {
+        let mut edit = session();
+        let tick = 960;
+        edit.apply(Command::SetChord {
+            tick,
+            chord: Chord::parse("C").expect("valid"),
+        })
+        .expect("apply");
+        edit.apply(Command::SetChord {
+            tick,
+            chord: Chord::parse("Am").expect("valid"),
+        })
+        .expect("apply");
+        assert_eq!(edit.song().chords.len(), 1);
+        assert_eq!(edit.song().chords[0].chord.to_string(), "Am");
+
+        edit.undo().expect("undo replace");
+        assert_eq!(edit.song().chords[0].chord.to_string(), "C");
+
+        edit.apply(Command::RemoveChord { tick }).expect("remove");
+        assert!(edit.song().chords.is_empty());
+        edit.undo().expect("undo remove");
+        assert_eq!(edit.song().chords[0].chord.to_string(), "C");
+
+        assert_eq!(
+            edit.apply(Command::RemoveChord { tick: 99 })
+                .expect_err("missing chord"),
+            CommandError::UnknownChord(99)
+        );
+    }
+
+    #[test]
+    fn tempo_edits_undo_to_the_exact_map() {
+        let mut edit = session();
+        let original = edit.song().tempo_map.clone();
+        edit.apply(Command::SetTempo { tick: 0, bpm: 90.0 })
+            .expect("apply");
+        assert_eq!(edit.song().tempo_map.bpm_at(0), 90.0);
+        edit.apply(Command::SetTempo {
+            tick: 3840,
+            bpm: 60.0,
+        })
+        .expect("apply");
+        assert_eq!(edit.song().tempo_map.changes().len(), 2);
+        edit.undo().expect("undo second tempo");
+        assert_eq!(edit.song().tempo_map.changes().len(), 1);
+        edit.undo().expect("undo first tempo");
+        assert_eq!(edit.song().tempo_map, original);
+    }
+
+    #[test]
+    fn invalid_tempo_is_rejected() {
+        let mut edit = session();
+        for bpm in [0.0, -10.0, f64::NAN] {
+            let error = edit
+                .apply(Command::SetTempo { tick: 0, bpm })
+                .expect_err("bad tempo");
+            assert!(matches!(error, CommandError::Tempo(_)), "{error}");
+        }
+        assert_eq!(edit.song().tempo_map.bpm_at(0), 120.0);
+    }
+
+    #[test]
+    fn track_rename_and_removal_round_trip() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.apply(Command::RenameTrack {
+            track,
+            name: String::from("Keys"),
+        })
+        .expect("rename");
+        assert_eq!(edit.song().tracks[0].name, "Keys");
+        edit.undo().expect("undo rename");
+        assert_eq!(edit.song().tracks[0].name, "Piano");
+
+        edit.apply(Command::RemoveTrack { track }).expect("remove");
+        assert!(edit.song().tracks.is_empty());
+        edit.undo().expect("undo remove");
+        assert_eq!(edit.song().tracks.len(), 1);
+        assert_eq!(edit.song().tracks[0].name, "Piano");
+    }
+
+    #[test]
+    fn identifiers_are_allocated_above_the_highest_in_use() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.add_note(
+            track,
+            0,
+            960,
+            pitch("C4"),
+            Velocity::new(100).expect("valid"),
+            Channel::first(),
+        )
+        .expect("first");
+        edit.add_note(
+            track,
+            960,
+            960,
+            pitch("D4"),
+            Velocity::new(100).expect("valid"),
+            Channel::first(),
+        )
+        .expect("second");
+        assert_eq!(edit.song().tracks[0].notes[1].id.get(), 2);
+        assert_eq!(edit.next_track_id().expect("valid").get(), 2);
+    }
+
+    #[test]
+    fn duplicate_identifiers_are_rejected() {
+        let mut edit = session();
+        let track_id = TrackId::new(1).expect("valid");
+        let note = Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 960,
+            pitch: pitch("C4"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        };
+        edit.apply(Command::InsertNote {
+            track: track_id,
+            note: note.clone(),
+        })
+        .expect("first");
+        let error = edit
+            .apply(Command::InsertNote {
+                track: track_id,
+                note,
+            })
+            .expect_err("duplicate");
+        assert_eq!(
+            error,
+            CommandError::DuplicateNote {
+                track: track_id,
+                note: NoteId::new(1).expect("valid")
+            }
+        );
+        assert_eq!(edit.song().tracks[0].notes.len(), 1);
+    }
+
+    #[test]
+    fn internal_commands_are_marked() {
+        let edit = session();
+        let internal = Command::ReplaceTempoMap {
+            map: edit.song().tempo_map.clone(),
+        };
+        assert!(internal.is_internal());
+        assert!(!Command::SetTempo { tick: 0, bpm: 90.0 }.is_internal());
+    }
+
+    #[test]
+    fn check_project_reports_errors_only() {
+        let project = ProjectFile::new(Song::default());
+        // An empty song has no tracks; that is a warning, not an error.
+        assert!(check_project(&project).is_ok());
+    }
+}

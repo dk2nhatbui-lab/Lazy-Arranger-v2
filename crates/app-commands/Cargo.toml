@@ -1,0 +1,15 @@
+[package]
+name = "app-commands"
+description = "Typed, validated edit commands with undo and redo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+music-core = { path = "../music-core" }
+project = { path = "../project" }
+thiserror.workspace = true
+
+[lints]
+workspace = true

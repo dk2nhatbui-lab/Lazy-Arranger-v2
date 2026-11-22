@@ -1,0 +1,19 @@
+[package]
+name = "smf"
+description = "Standard MIDI File read and write for the project schema"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+music-core = { path = "../music-core" }
+project = { path = "../project" }
+midly.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+sequencer = { path = "../sequencer" }
+
+[lints]
+workspace = true
