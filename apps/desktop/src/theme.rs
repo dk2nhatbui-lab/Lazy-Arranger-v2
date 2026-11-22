@@ -191,7 +191,7 @@ mod tests {
                 "text style {style:?} with {font_id:?} produced no glyphs"
             );
         }
-        context.end_pass();
+        let _ = context.end_pass();
     }
 
     #[test]
