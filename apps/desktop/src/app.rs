@@ -60,6 +60,7 @@ pub struct ShellApp {
     status: Option<String>,
     doctor_dialog: bool,
     doctor_proposals: Vec<arranging::Proposal>,
+    form_dialog: bool,
     synth: arranging::SynthSpec,
     project_path: Option<PathBuf>,
     view: View,
@@ -109,6 +110,7 @@ impl ShellApp {
             status: None,
             doctor_dialog: false,
             doctor_proposals: Vec::new(),
+            form_dialog: false,
             synth: arranging::SynthSpec::default(),
             project_path,
             view: View::Arrange,
@@ -276,6 +278,9 @@ impl ShellApp {
                 Ok(count) => self.status = Some(format!("groove applied to {count} track(s)")),
                 Err(error) => self.status = Some(error),
             }
+        }
+        if context.input(|input| input.key_pressed(egui::Key::Y)) {
+            self.form_dialog = true;
         }
         if context.input(|input| input.key_pressed(egui::Key::D)) {
             self.doctor_proposals = self.editor.proposals();
@@ -445,6 +450,40 @@ impl ShellApp {
                 });
             });
         self.chord_dialog = open && self.chord_dialog;
+    }
+
+    /// Song Forms: four preset forms built from the song's markers.
+    fn form_dialog(&mut self, context: &Context) {
+        if !self.form_dialog {
+            return;
+        }
+        let mut open = self.form_dialog;
+        egui::Window::new("Song Forms")
+            .collapsible(false)
+            .open(&mut open)
+            .show(context, |ui| {
+                let sections = self.editor.sections();
+                if sections.is_empty() {
+                    ui.label("No sections: add markers to the song first.");
+                }
+                for (label, form) in [
+                    ("Short", arranging::forms::short(&sections)),
+                    ("Gig", arranging::forms::gig(&sections)),
+                    ("Long intro", arranging::forms::long_intro(&sections)),
+                    ("Instrumental", arranging::forms::instrumental(&sections)),
+                ] {
+                    if ui.button(label).clicked() {
+                        match self.editor.apply_form(&form) {
+                            Ok(copied) => {
+                                self.status = Some(format!("{label}: {copied} note(s) placed"));
+                                self.form_dialog = false;
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                }
+            });
+        self.form_dialog = open && self.form_dialog;
     }
 
     /// The Arrangement Doctor's proposal cards.
@@ -907,6 +946,7 @@ impl eframe::App for ShellApp {
         self.chord_dialog(context);
         self.reharmonize_dialog(context);
         self.doctor_dialog(context);
+        self.form_dialog(context);
         self.advance(context);
         self.top_bar(context);
         self.status_bar(context);

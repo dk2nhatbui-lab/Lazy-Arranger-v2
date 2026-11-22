@@ -398,6 +398,25 @@ impl Editor {
         Ok(changed)
     }
 
+    /// Sections read from the song's markers.
+    #[must_use]
+    pub fn sections(&self) -> Vec<arranging::forms::Section> {
+        arranging::forms::sections(self.song())
+    }
+
+    /// Writes a song form to the timeline.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when a command is rejected.
+    pub fn apply_form(&mut self, form: &arranging::forms::Form) -> Result<usize, String> {
+        let sections = self.sections();
+        let copied = arranging::forms::apply(&mut self.session, &sections, form)
+            .map_err(|error| error.to_string())?;
+        self.dirty |= copied > 0;
+        Ok(copied)
+    }
+
     /// Applies one Arrangement Doctor proposal.
     ///
     /// # Errors
@@ -763,6 +782,46 @@ mod tests {
             }
         }
         assert_eq!(after, original);
+    }
+
+    #[test]
+    fn a_song_form_is_written_and_undoes() {
+        let mut song = Song::new("Forms", 120.0);
+        song.markers.push(project::Marker {
+            tick: 0,
+            name: String::from("Main A"),
+        });
+        song.markers.push(project::Marker {
+            tick: 3840,
+            name: String::from("Ending"),
+        });
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for index in 0..2_i64 {
+            track.notes.push(Note {
+                id: NoteId::new(index as u32 + 1).expect("valid"),
+                start: index * 3840,
+                duration: PPQ,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: music_core::Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("valid");
+        let form = arranging::forms::Form {
+            name: String::from("Twice"),
+            parts: vec![arranging::forms::FormPart {
+                section: String::from("Main A"),
+                repeats: 2,
+                no_melody: false,
+            }],
+        };
+        let copied = editor.apply_form(&form).expect("apply");
+        assert_eq!(copied, 2);
+        assert_eq!(editor.song().markers.len(), 2);
+        assert!(editor.dirty());
+        while editor.undo() {}
+        assert_eq!(editor.song().tracks[0].notes.len(), 2);
     }
 
     #[test]

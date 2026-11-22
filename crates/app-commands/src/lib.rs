@@ -69,6 +69,16 @@ pub enum Command {
         /// The track.
         track: TrackId,
     },
+    /// Replace the song's chords as one edit.
+    SetChords {
+        /// The new chord list, sorted by tick.
+        chords: Vec<ChordEvent>,
+    },
+    /// Replace the song's markers as one edit.
+    SetMarkers {
+        /// The new markers, sorted by tick.
+        markers: Vec<project::Marker>,
+    },
     /// Replace every clip region of a track.
     SetClips {
         /// The track.
@@ -113,6 +123,8 @@ impl Command {
             Self::RenameTrack { .. } => "rename track",
             Self::InsertTrack { .. } => "insert track",
             Self::RemoveTrack { .. } => "remove track",
+            Self::SetChords { .. } => "set chords",
+            Self::SetMarkers { .. } => "set markers",
             Self::SetClips { .. } => "set clips",
             Self::ReplaceTrackNotes { .. } => "replace track notes",
             Self::SetProvenance { .. } => "set provenance",
@@ -598,6 +610,12 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::SetChords { .. } => Command::SetChords {
+                chords: self.song().chords.clone(),
+            },
+            Command::SetMarkers { .. } => Command::SetMarkers {
+                markers: self.song().markers.clone(),
+            },
             Command::SetClips { track, .. } => Command::SetClips {
                 track: *track,
                 clips: self.track(*track)?.clips.clone(),
@@ -701,6 +719,14 @@ impl EditSession {
                 };
                 self.project.song.tempo_map = next;
             }
+            Command::SetChords { chords } => {
+                self.project.song.chords = chords.clone();
+                self.project.song.chords.sort_by_key(|event| event.tick);
+            }
+            Command::SetMarkers { markers } => {
+                self.project.song.markers = markers.clone();
+                self.project.song.markers.sort_by_key(|marker| marker.tick);
+            }
             Command::SetClips { track, clips } => {
                 self.track_mut(*track)?.clips = clips.clone();
             }
@@ -742,6 +768,8 @@ fn describe(command: &Command) -> String {
         Command::RenameTrack { track, name } => format!("rename track {track} to {name:?}"),
         Command::InsertTrack { track } => format!("insert track {} ({})", track.id, track.name),
         Command::RemoveTrack { track } => format!("remove track {track}"),
+        Command::SetChords { chords } => format!("set {} chord(s)", chords.len()),
+        Command::SetMarkers { markers } => format!("set {} marker(s)", markers.len()),
         Command::SetClips { track, clips } => {
             format!("set {} clip(s) on track {track}", clips.len())
         }
