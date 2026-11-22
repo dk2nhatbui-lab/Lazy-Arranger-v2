@@ -15,8 +15,9 @@
 //! record the style section it came from and the intent it was compiled for,
 //! so an intent edit can mark it stale instead of silently overwriting it.
 //! Version 3 adds clip regions per track (name, start, length); older notes are
-//! wrapped into one clip per track by the migration. Version 1 and 2 documents
-//! load through `ProjectFile::migrate`.
+//! wrapped into one clip per track by the migration. Version 4 adds an optional
+//! per-track keyboard program. Older documents load through
+//! `ProjectFile::migrate`.
 //!
 //! Clips, audio lanes and automation are still later schema versions.
 
@@ -35,7 +36,7 @@ pub use validate::{Severity, ValidationIssue};
 pub const PROJECT_FORMAT: &str = "lazy-arranger-project";
 
 /// Schema version this crate writes.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 use thiserror::Error;
 

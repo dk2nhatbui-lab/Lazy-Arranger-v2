@@ -69,6 +69,13 @@ pub enum Command {
         /// The track.
         track: TrackId,
     },
+    /// Choose the keyboard voice (GM program) for a track, or clear it.
+    SetTrackProgram {
+        /// The track.
+        track: TrackId,
+        /// Program number, or `None` to let the exporter choose.
+        program: Option<u8>,
+    },
     /// Replace the song's chords as one edit.
     SetChords {
         /// The new chord list, sorted by tick.
@@ -124,6 +131,7 @@ impl Command {
             Self::InsertTrack { .. } => "insert track",
             Self::RemoveTrack { .. } => "remove track",
             Self::SetChords { .. } => "set chords",
+            Self::SetTrackProgram { .. } => "set track program",
             Self::SetMarkers { .. } => "set markers",
             Self::SetClips { .. } => "set clips",
             Self::ReplaceTrackNotes { .. } => "replace track notes",
@@ -610,6 +618,10 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::SetTrackProgram { track, .. } => Command::SetTrackProgram {
+                track: *track,
+                program: self.track(*track)?.program,
+            },
             Command::SetChords { .. } => Command::SetChords {
                 chords: self.song().chords.clone(),
             },
@@ -719,6 +731,9 @@ impl EditSession {
                 };
                 self.project.song.tempo_map = next;
             }
+            Command::SetTrackProgram { track, program } => {
+                self.track_mut(*track)?.program = *program;
+            }
             Command::SetChords { chords } => {
                 self.project.song.chords = chords.clone();
                 self.project.song.chords.sort_by_key(|event| event.tick);
@@ -769,6 +784,10 @@ fn describe(command: &Command) -> String {
         Command::InsertTrack { track } => format!("insert track {} ({})", track.id, track.name),
         Command::RemoveTrack { track } => format!("remove track {track}"),
         Command::SetChords { chords } => format!("set {} chord(s)", chords.len()),
+        Command::SetTrackProgram { track, program } => match program {
+            Some(value) => format!("set track {track} program {value}"),
+            None => format!("clear track {track} program"),
+        },
         Command::SetMarkers { markers } => format!("set {} marker(s)", markers.len()),
         Command::SetClips { track, clips } => {
             format!("set {} clip(s) on track {track}", clips.len())
@@ -1162,6 +1181,26 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn a_track_program_can_be_set_and_cleared() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.apply(Command::SetTrackProgram {
+            track,
+            program: Some(33),
+        })
+        .expect("set");
+        assert_eq!(edit.song().tracks[0].program, Some(33));
+        edit.apply(Command::SetTrackProgram {
+            track,
+            program: None,
+        })
+        .expect("clear");
+        assert_eq!(edit.song().tracks[0].program, None);
+        edit.undo().expect("undo");
+        assert_eq!(edit.song().tracks[0].program, Some(33));
     }
 
     #[test]

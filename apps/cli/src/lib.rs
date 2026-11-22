@@ -359,7 +359,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                         } else {
                             u8::try_from(index).unwrap_or(0) & 0x0f
                         },
-                        program: midi_devices::nearest_voice(profile, &track.name),
+                        program: track
+                            .program
+                            .unwrap_or_else(|| midi_devices::nearest_voice(profile, &track.name)),
                         ..smf::KeyboardVoice::default()
                     }
                 })

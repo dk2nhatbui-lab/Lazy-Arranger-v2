@@ -523,6 +523,14 @@ which is the whole Yamaha container. `style-save` rewrote a real 15-section
 style and re-read it as SFF2. Voices and setup events are not written yet, and
 no Yamaha keyboard has accepted an output here.
 
+### Track programs
+
+`Track.program: Option<u8>` (schema v4) records the chosen General MIDI voice.
+`SetTrackProgram` sets or clears it with an exact inverse; the MCP tool
+`set_track_program` exposes it; keyboard export uses it first and falls back to
+the profile name match. The shell shows `prog N` next to the note count when a
+program is set.
+
 ## 20. Assistant tools (MCP core)
 
 `crates/mcp` holds the tool registry, JSON schemas and dispatch onto

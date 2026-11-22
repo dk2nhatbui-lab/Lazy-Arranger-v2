@@ -796,15 +796,23 @@ impl ShellApp {
                         .color(theme::TEXT_MUTED),
                 );
                 ui.add_space(4.0);
-                let rows: Vec<(usize, TrackId, String, usize)> = self
+                let rows: Vec<(usize, TrackId, String, usize, Option<u8>)> = self
                     .song()
                     .tracks
                     .iter()
                     .enumerate()
-                    .map(|(index, track)| (index, track.id, track.name.clone(), track.notes.len()))
+                    .map(|(index, track)| {
+                        (
+                            index,
+                            track.id,
+                            track.name.clone(),
+                            track.notes.len(),
+                            track.program,
+                        )
+                    })
                     .collect();
-                for (index, id, name, notes) in rows {
-                    self.track_row(ui, index, id, &name, notes);
+                for (index, id, name, notes, program) in rows {
+                    self.track_row(ui, index, id, &name, notes, program);
                 }
                 if self.song().tracks.is_empty() {
                     ui.label(egui::RichText::new("no tracks").color(theme::TEXT_DIM));
@@ -836,6 +844,7 @@ impl ShellApp {
         id: TrackId,
         name: &str,
         notes: usize,
+        program: Option<u8>,
     ) {
         let selected = self.roll.selected == Some(id);
         let colour = theme::track_colour(index);
@@ -850,11 +859,11 @@ impl ShellApp {
                     } else {
                         theme::TEXT_MUTED
                     }));
-                    ui.label(
-                        egui::RichText::new(format!("{notes} notes"))
-                            .size(9.0)
-                            .color(theme::TEXT_DIM),
-                    );
+                    let detail = match program {
+                        Some(program) => format!("{notes} notes · prog {program}"),
+                        None => format!("{notes} notes"),
+                    };
+                    ui.label(egui::RichText::new(detail).size(9.0).color(theme::TEXT_DIM));
                 });
             })
             .response;

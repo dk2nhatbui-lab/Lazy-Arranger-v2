@@ -160,6 +160,18 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "set_track_program",
+            description: "Choose the keyboard voice (GM program) for a track, or clear it with null.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "program": {"type": ["integer", "null"]}
+                },
+                "required": ["track", "program"]
+            }),
+        },
+        Tool {
             name: "get_undo",
             description: "Return how many undo steps are available.",
             input_schema: json!({"type": "object", "properties": {}}),
@@ -213,6 +225,24 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             let track = project::song::Track::new(id, track_name);
             session.apply(Command::InsertTrack { track })?;
             Ok(json!({"track": id.get()}))
+        }
+        "set_track_program" => {
+            let track = track_argument(arguments)?;
+            let program = arguments
+                .get("program")
+                .and_then(Value::as_u64)
+                .map(u8::try_from)
+                .transpose()
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            if let Some(value) = program
+                && value > 127
+            {
+                return Err(ToolError::Arguments(String::from(
+                    "a program must be 0..=127",
+                )));
+            }
+            session.apply(Command::SetTrackProgram { track, program })?;
+            Ok(json!({"track": track.get(), "program": program}))
         }
         "find_chords" => Ok(json!({"chords": arranging::chords::find_chords(session)?})),
         "arrangement_doctor" => {
@@ -814,6 +844,27 @@ mod arranging_tool_tests {
         let mut session = session();
         let result = call(&mut session, "arrangement_doctor", &json!({})).expect("call");
         assert!(!result["proposals"].as_array().expect("array").is_empty());
+    }
+
+    #[test]
+    fn a_program_can_be_set_through_tools() {
+        let mut session = session();
+        let result = call(
+            &mut session,
+            "set_track_program",
+            &json!({"track": 1, "program": 48}),
+        )
+        .expect("program");
+        assert_eq!(result["program"], 48);
+        assert_eq!(session.song().tracks[0].program, Some(48));
+        assert!(
+            call(
+                &mut session,
+                "set_track_program",
+                &json!({"track": 1, "program": 200})
+            )
+            .is_err()
+        );
     }
 
     #[test]
