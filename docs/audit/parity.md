@@ -40,6 +40,8 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Reharmonize rules (tritone, borrowed, ii-V, relative) | `music-core::reharmonize` | verified | 5 rule tests |
 | Reharmonize dialog and bar replacement | `apps/desktop`, `Editor::reharmonize` | implemented | editor undo test; UI manual |
 | Find Chords from the Music | `arranger::recognize`, `Editor::find_chords` | verified | triad, sevenths, inversion, minor, dim tests; F key |
+| Arrangement Doctor (crowded bars, literal repeats) | `arranging::doctor` | partial verified | 4 rule/apply tests; D dialog |
+| Fit to My Synths | — | missing | polyphony/range checks not built |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | — | missing | ADR-010 (Stage 8) |

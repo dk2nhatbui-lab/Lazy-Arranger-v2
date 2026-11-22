@@ -181,6 +181,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "arranging"
+version = "0.1.0"
+dependencies = [
+ "app-commands",
+ "music-core",
+ "project",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1471,6 +1481,7 @@ version = "0.1.0"
 dependencies = [
  "app-commands",
  "arranger",
+ "arranging",
  "audio",
  "eframe",
  "egui",

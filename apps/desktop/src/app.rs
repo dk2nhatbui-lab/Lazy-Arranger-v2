@@ -58,6 +58,8 @@ pub struct ShellApp {
     chord_input: String,
     key: music_core::PitchClass,
     status: Option<String>,
+    doctor_dialog: bool,
+    doctor_proposals: Vec<arranging::Proposal>,
     project_path: Option<PathBuf>,
     view: View,
     roll: RollState,
@@ -104,6 +106,8 @@ impl ShellApp {
             chord_input: String::from("Am F C G"),
             key: music_core::PitchClass::new(0),
             status: None,
+            doctor_dialog: false,
+            doctor_proposals: Vec::new(),
             project_path,
             view: View::Arrange,
             roll: RollState::default(),
@@ -258,6 +262,10 @@ impl ShellApp {
                 let _ = self.editor.join_clips(track, clip, next);
                 self.selected_clip = Some((track, clip));
             }
+        }
+        if context.input(|input| input.key_pressed(egui::Key::D)) {
+            self.doctor_proposals = self.editor.proposals();
+            self.doctor_dialog = true;
         }
         if context.input(|input| input.key_pressed(egui::Key::F)) {
             match self.editor.find_chords() {
@@ -421,6 +429,43 @@ impl ShellApp {
                 });
             });
         self.chord_dialog = open && self.chord_dialog;
+    }
+
+    /// The Arrangement Doctor's proposal cards.
+    fn doctor_dialog(&mut self, context: &Context) {
+        if !self.doctor_dialog {
+            return;
+        }
+        let mut open = self.doctor_dialog;
+        egui::Window::new("Arrangement Doctor")
+            .collapsible(false)
+            .open(&mut open)
+            .show(context, |ui| {
+                if self.doctor_proposals.is_empty() {
+                    ui.label("Nothing to suggest: no crowded or repeated bars.");
+                }
+                let mut used = None;
+                for (index, proposal) in self.doctor_proposals.iter().enumerate() {
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new(&proposal.title).strong());
+                        ui.label(&proposal.detail);
+                        if ui.button("Use").clicked() {
+                            used = Some(index);
+                        }
+                    });
+                }
+                if let Some(index) = used {
+                    let proposal = self.doctor_proposals[index].clone();
+                    match self.editor.apply_proposal(&proposal) {
+                        Ok(changed) => {
+                            self.status = Some(format!("applied: {changed} note(s) changed"));
+                            self.doctor_proposals.remove(index);
+                        }
+                        Err(error) => self.load_error = Some(error),
+                    }
+                }
+            });
+        self.doctor_dialog = open && self.doctor_dialog;
     }
 
     /// The reharmonize dialog: four rule-based proposals for the chord at the
@@ -845,6 +890,7 @@ impl eframe::App for ShellApp {
         self.recovery_dialog(context);
         self.chord_dialog(context);
         self.reharmonize_dialog(context);
+        self.doctor_dialog(context);
         self.advance(context);
         self.top_bar(context);
         self.status_bar(context);

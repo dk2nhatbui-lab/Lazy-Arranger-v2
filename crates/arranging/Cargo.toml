@@ -1,0 +1,16 @@
+[package]
+name = "arranging"
+description = "Rule-based arranging help: Arrangement Doctor and friends"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+app-commands = { path = "../app-commands" }
+music-core = { path = "../music-core" }
+project = { path = "../project" }
+thiserror.workspace = true
+
+[lints]
+workspace = true

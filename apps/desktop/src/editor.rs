@@ -343,6 +343,24 @@ impl Editor {
         Ok(found.len())
     }
 
+    /// The Arrangement Doctor's proposals for the current song.
+    #[must_use]
+    pub fn proposals(&self) -> Vec<arranging::Proposal> {
+        arranging::analyze(self.song())
+    }
+
+    /// Applies one Arrangement Doctor proposal.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when a command is rejected.
+    pub fn apply_proposal(&mut self, proposal: &arranging::Proposal) -> Result<usize, String> {
+        let changed =
+            arranging::apply(&mut self.session, proposal).map_err(|error| error.to_string())?;
+        self.dirty |= changed > 0;
+        Ok(changed)
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {
@@ -600,6 +618,45 @@ mod tests {
             "C"
         );
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn doctor_proposals_can_be_applied_and_undone() {
+        let mut song = Song::new("Doctor", 120.0);
+        let mut band = Track::new(TrackId::new(1).expect("valid"), "Band");
+        let mut lead = Track::new(TrackId::new(2).expect("valid"), "Lead");
+        lead.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::from_name("C6").expect("valid"),
+            velocity: Velocity::new(110).expect("valid"),
+            channel: music_core::Channel::first(),
+        });
+        for id in 1..=14 {
+            band.notes.push(Note {
+                id: NoteId::new(id).expect("valid"),
+                start: 0,
+                duration: PPQ,
+                pitch: Pitch::from_name("C3").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: music_core::Channel::first(),
+            });
+        }
+        song.tracks.push(band);
+        song.tracks.push(lead);
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("valid");
+        let proposals = editor.proposals();
+        assert!(!proposals.is_empty());
+        let changed = editor.apply_proposal(&proposals[0]).expect("apply");
+        assert!(changed > 0);
+        assert!(editor.undo());
+        assert!(
+            editor.song().tracks[0]
+                .notes
+                .iter()
+                .all(|note| note.velocity.as_u8() == 100)
+        );
     }
 
     #[test]
