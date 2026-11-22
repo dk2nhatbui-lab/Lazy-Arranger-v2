@@ -30,6 +30,7 @@ carry file paths and line numbers that the summaries compress:
 | [cpp-rt-midi.md](notes/cpp-rt-midi.md) | Clock ownership, scheduling order, real-time hazards, MIDI, SMF |
 | [cpp-surface.md](notes/cpp-surface.md) | Device profiles, 32 subsystems with LOC, tests, licences |
 | [refs-cadenza-vibez.md](notes/refs-cadenza-vibez.md) | Cadenza and Vibez: identity, licence, what is implemented |
+| [cpp-features-crosscheck.md](cpp-features-crosscheck.md) | All 39 C++ feature sections vs the Rust build |
 | [refs-soundcraft-cecilia.md](notes/refs-soundcraft-cecilia.md) | SoundCraft and Cecilia: score and engraving references, both MIT OR Apache-2.0 |
 
 The notes are evidence, not decisions. Where a note says `unverified`, the

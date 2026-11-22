@@ -1,6 +1,7 @@
 # Crosscheck: `features.md` (v1.0.0-beta.1) vs the Rust build
 
-Source: the 39-section feature list supplied by the owner (512 lines). Every
+Source: the 39-section feature list supplied by the owner, archived verbatim at
+[`docs/reference/cpp-features.md`](../reference/cpp-features.md) (v1.0.0-beta.1, 512 lines). Every
 section below is a row, so nothing is skipped. Status: **verified**,
 **partial**, **missing**.
 
