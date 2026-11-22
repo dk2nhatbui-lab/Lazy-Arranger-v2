@@ -431,6 +431,39 @@ impl Editor {
         Ok(())
     }
 
+    /// Reads the drum pattern of one bar from a track.
+    #[must_use]
+    pub fn beat_pattern(
+        &self,
+        track: TrackId,
+        start: Tick,
+    ) -> Option<(Tick, arranging::beat::BeatPattern)> {
+        let found = self.song().tracks.iter().find(|entry| entry.id == track)?;
+        let bar = self.song().time_signature.bar_ticks().max(1);
+        Some((
+            bar,
+            arranging::beat::BeatPattern::from_track(found, start, bar),
+        ))
+    }
+
+    /// Writes a beat pattern over one bar.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn apply_beat(
+        &mut self,
+        track: TrackId,
+        start: Tick,
+        bar: Tick,
+        pattern: &arranging::beat::BeatPattern,
+    ) -> Result<usize, String> {
+        let added = arranging::beat::apply(&mut self.session, track, start, bar, pattern)
+            .map_err(|error| error.to_string())?;
+        self.dirty |= added > 0;
+        Ok(added)
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {

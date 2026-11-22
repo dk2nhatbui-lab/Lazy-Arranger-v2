@@ -17,7 +17,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 8 | Audio tracks: waveforms, record, monitor, trim, fades, takes, stretch, convert to MIDI | missing | — (only offline WAV render) |
 | 9 | Audio analysis: stems, notes, chords, instruments, lyrics, transcription A/B | partial | Monophonic pitch detection and audio→MIDI; no stems, chords, tags, lyrics, A/B |
 | 10 | Drum sampler and slicer | missing | — |
-| 11 | Beat view step sequencer | missing | — |
+| 11 | Beat view | partial | Four drum rows by sixteen steps with off/soft/normal/loud cycling, read from and written to a bar as one undo step, B opens the grid. No pattern length, copy/paste rows, Put-in-bars or scrolling long clips |
 | 12 | Clip grid, launch, record performance | missing | — |
 | 13 | Smart chords | partial | Chord parsing, transposition, progression text, roman numerals in the chosen key, chord lane with K entry, 16 key-aware pads, and a suggestion function with dialog buttons. Reharmonize rules and dialog. Find Chords from the Music (pitch-class recognition, slash bass). No A/B audition, Launchkey pads, inversions/voicings, chord recording |
 | 14 | Styles | partial | Yamaha open, import, compile on chords, **save container (SFF1/SFF2, real 15-section style rewritten)**. No Korg, live sections, rules editor UI, style from clips, voices/setup events |
@@ -49,7 +49,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections: 0 fully verified beyond their Rust subset, 19 partial, 20 missing.
+39 sections: 0 fully verified beyond their Rust subset, 20 partial, 19 missing.
 The partials with the most depth are styles (open, import, compile, SFF1 write),
 audio-to-MIDI, Music Finder/playlists, project files and the window shell.
 

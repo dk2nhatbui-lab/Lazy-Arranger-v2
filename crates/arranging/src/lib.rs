@@ -6,6 +6,7 @@
 //! highest-sounding track); Fit to My Synths only moves, softens or removes
 //! notes that break a synth's stated limits.
 
+pub mod beat;
 pub mod chords;
 pub mod forms;
 pub mod groove;

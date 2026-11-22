@@ -72,6 +72,11 @@ pub struct ShellApp {
     doctor_dialog: bool,
     doctor_proposals: Vec<arranging::Proposal>,
     form_dialog: bool,
+    beat_dialog: bool,
+    beat_track: Option<TrackId>,
+    beat_start: Tick,
+    beat_bar: Tick,
+    beat_pattern: arranging::beat::BeatPattern,
     synth: arranging::SynthSpec,
     project_path: Option<PathBuf>,
     view: View,
@@ -122,6 +127,11 @@ impl ShellApp {
             doctor_dialog: false,
             doctor_proposals: Vec::new(),
             form_dialog: false,
+            beat_dialog: false,
+            beat_track: None,
+            beat_start: 0,
+            beat_bar: 3840,
+            beat_pattern: arranging::beat::BeatPattern::default(),
             synth: arranging::SynthSpec::default(),
             project_path,
             view: View::Arrange,
@@ -302,6 +312,22 @@ impl ShellApp {
                 Err(error) => self.status = Some(error),
             }
         }
+        if context.input(|input| input.key_pressed(egui::Key::B))
+            && let Some(track) = self
+                .roll
+                .selected
+                .or_else(|| self.song().tracks.first().map(|track| track.id))
+        {
+            let bar = self.song().time_signature.bar_ticks().max(1);
+            let start = snap(self.position, bar);
+            if let Some((bar, pattern)) = self.editor.beat_pattern(track, start) {
+                self.beat_track = Some(track);
+                self.beat_start = start;
+                self.beat_bar = bar;
+                self.beat_pattern = pattern;
+                self.beat_dialog = true;
+            }
+        }
         if context.input(|input| input.key_pressed(egui::Key::Y)) {
             self.form_dialog = true;
         }
@@ -473,6 +499,61 @@ impl ShellApp {
                 });
             });
         self.chord_dialog = open && self.chord_dialog;
+    }
+
+    /// The Beat view: four drum rows of sixteen steps for one bar.
+    fn beat_dialog(&mut self, context: &Context) {
+        if !self.beat_dialog {
+            return;
+        }
+        let mut open = self.beat_dialog;
+        egui::Window::new("Beat")
+            .collapsible(false)
+            .open(&mut open)
+            .show(context, |ui| {
+                ui.label(format!(
+                    "bar {} · click to cycle off/soft/normal/loud",
+                    self.beat_start / self.beat_bar.max(1) + 1
+                ));
+                for (row, (_, label)) in arranging::beat::ROWS.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(*label).size(10.0));
+                        for slot in 0..arranging::beat::STEPS {
+                            let level = self.beat_pattern.grid[row][slot];
+                            let text = if level == 0 {
+                                String::from("·")
+                            } else {
+                                level.to_string()
+                            };
+                            if ui.small_button(text).clicked() {
+                                self.beat_pattern.cycle(row, slot);
+                            }
+                        }
+                    });
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("Apply").clicked()
+                        && let Some(track) = self.beat_track
+                    {
+                        let bar = self.beat_bar;
+                        let start = self.beat_start;
+                        match self
+                            .editor
+                            .apply_beat(track, start, bar, &self.beat_pattern)
+                        {
+                            Ok(added) => {
+                                self.status = Some(format!("beat: {added} hit(s)"));
+                                self.beat_dialog = false;
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                    if ui.button("Close").clicked() {
+                        self.beat_dialog = false;
+                    }
+                });
+            });
+        self.beat_dialog = open && self.beat_dialog;
     }
 
     /// Song Forms: four preset forms built from the song's markers.
@@ -993,6 +1074,7 @@ impl eframe::App for ShellApp {
         self.reharmonize_dialog(context);
         self.doctor_dialog(context);
         self.form_dialog(context);
+        self.beat_dialog(context);
         self.advance(context);
         self.top_bar(context);
         self.status_bar(context);
