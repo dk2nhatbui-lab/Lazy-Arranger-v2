@@ -167,3 +167,15 @@ oracle.
 
 Live microphone or keyboard capture against a device remains manual. The capture
 here records the arranger's compiled output, which is the rendered half.
+
+## 5. Stage 6 progress (2026-11-22)
+
+| Deliverable | Location | Proof |
+| --- | --- | --- |
+| egui decision and v1 visual language | `docs/adr/ADR-001`, `docs/design/v1-visual-language.md` | tokens extracted from `resources/themes/dark.json` and `AppLookAndFeel.cpp` |
+| Themed shell: header LCDs, track browser, status bar, Perform/Arrange/Mix tabs | `apps/desktop/src/app.rs` | builds on all three OSes; UI itself is manual |
+| Read-only piano roll with shared draw/hit geometry | `apps/desktop/src/piano_roll.rs` | `ticks_and_points_invert_each_other`, `notes_grow_with_duration_and_move_with_tick`, `higher_pitches_are_higher_on_screen`, `minimum_note_width_is_visible` |
+| Theme as data (palette, metrics, Inter fonts) | `apps/desktop/src/theme.rs` | `palette_matches_the_v1_theme`, `the_clear_colour_is_not_white` |
+| Startup policy against first-frame flicker | `docs/adr/ADR-011` | manual cold-start check, not automated |
+
+Editing, playback with audio, and the Perform/Mix views are not started.

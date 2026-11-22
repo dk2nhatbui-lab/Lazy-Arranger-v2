@@ -19,10 +19,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # midir's Linux backend needs ALSA headers to build.
-      - name: Install ALSA headers
+      # midir needs ALSA headers; the egui shell needs X11/Wayland headers.
+      - name: Install Linux build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libxkbcommon-dev libwayland-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -40,6 +43,9 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace
+
+      - name: Desktop shell builds
+        run: cargo build -p lazy-arranger-desktop
 
       - name: Documentation
         run: cargo doc --workspace --no-deps

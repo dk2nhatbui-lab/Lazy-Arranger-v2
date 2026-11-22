@@ -34,7 +34,7 @@ decisions in [`docs/adr/`](docs/adr/).
 | Provenance-aware regeneration (keep/replace/duplicate) | verified | `crates/performance` |
 | Freeze / detach generated tracks | verified | `performance::freeze` |
 | UI toolkit decision | **egui**, v1 "Studio Console" style | `docs/adr/ADR-001-ui-toolkit.md` |
-| Desktop shell | not started | tokens in `docs/design/v1-visual-language.md` |
+| Desktop shell (`apps/desktop`, egui 0.31) | prototype: themed shell + read-only piano roll | `apps/desktop` |
 | Golden parity, arranger playback in the app, UI, audio engine | not started / blocked | Stage 3 exit needs a C++ build and a CASM style |
 
 ## Quick start

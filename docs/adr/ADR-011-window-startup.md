@@ -34,10 +34,13 @@ framebuffer itself instead of going through the frame pipeline.
 
 ## Decision
 
-1. **Pin an eframe version that contains the first-frame visibility fix.** Both
-   reference projects are on 0.36/0.37; the workspace will pin one version and
-   record it here when the shell is scaffolded. The fix is verified at that
-   point, not assumed.
+1. **Pin eframe 0.31.1 for the workspace.** The first-frame visibility fix is
+   present (it landed long before 0.31). 0.36 and 0.37 were rejected for now
+   because they replace the `App::update(Context)` + panel API with a
+   `Ui`-rooted `App::ui` API and remove `egui::TopBottomPanel`/`SidePanel`;
+   adopting that redesign is a separate decision, not a startup fix. Revisit
+   when the redesign is documented and the reference projects' patterns are
+   reviewed. Pinning one version also keeps `Cargo.lock` stable.
 2. **Never show an unpainted window.** Do application setup (theme, fonts,
    project load, style scan) before the first frame, and if setup is slow, paint
    a themed startup surface rather than leaving the window blank. Do not rely on
