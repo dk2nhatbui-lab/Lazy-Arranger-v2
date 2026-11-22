@@ -9,6 +9,8 @@ license.workspace = true
 [dependencies]
 music-core = { path = "../music-core" }
 project = { path = "../project" }
+roxmltree = "0.21"
+thiserror.workspace = true
 
 [lints]
 workspace = true

@@ -5,6 +5,11 @@
 //! match a plain note value are written without a `<type>`, which is valid
 //! MusicXML; tuplets and ties are not notated yet.
 
+pub mod import;
+
+#[cfg(test)]
+mod import_tests;
+
 use music_core::{Pitch, Tick, TimeSignature};
 use project::song::{Note, Song};
 

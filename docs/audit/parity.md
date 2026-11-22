@@ -47,7 +47,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Song Forms (sections, presets, plan, apply) | `arranging::forms` | verified | section/plan tests and apply/undo test |
 | Song Forms dialog (Y) | `apps/desktop` | implemented | four presets |
 | MusicXML export (partwise, rests, drum clef) | `crates/musicxml` | verified | 4 tests + valid XML from a real project |
-| MusicXML import | — | missing | — |
+| MusicXML import (parts, measures, notes, rests, chords, drums, tempo/meter) | `musicxml::import` | verified | 4 tests + real round trip 94 notes; drum pitch/velocity lost, no lyrics/marks |
 | Transitions: drum fill, lead-in, automatic | `arranging::forms::transition` | verified | 4 tests incl. apply/undo; T key |
 | Transitions: hold chord, break, straight cut presets | — | partial | straight cut is a no-op; hold/break missing |
 | Assistant tool registry and JSON dispatch | `crates/mcp` | verified (6 tools) | get_song/add_track/add_notes/set_chords/get_undo/undo; CLI mcp-tools and mcp-call |

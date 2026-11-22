@@ -7,7 +7,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 | § | C++ feature | Rust | Key gap / evidence |
 | --- | --- | --- | --- |
-| 1 | Projects, recent, autosave, MIDI/MusicXML/audio/PDF/PSR export, style open/save, Korg, L6max, SysEx | partial | `.arranger` open/save, autosave/recovery, SMF in/out, WAV out. No Recent, MusicXML, audio import, PDF, PSR export, Korg, L6max, SysEx; style save is rules-only |
+| 1 | Projects and files | partial | `.arranger` open/save, autosave/recovery, SMF in/out, WAV out, MusicXML export/import, style save. No Recent, audio import, PDF, PSR-S970 export, Korg, L6max, SysEx |
 | 2 | Window: header, views, inspector, mixer panel, AI panel, light theme, zoom | partial | Header, LCD, tabs, track list, dark theme, square corners. No inspector, mixer/AI panels, light theme; zoom is wheel-only |
 | 3 | Tracks: MIDI/audio, outputs, channel, sound, rename/duplicate/mute/solo/arm, inputs, reset | partial | MIDI tracks in the model; no add/duplicate/mute/solo UI, no audio tracks, no outputs or SoundFont |
 | 4 | Transport: play/stop, start, record, loop, metronome, ruler, tempo/meter edit, MIDI record, all-notes-off, auto inputs | partial | Audio play/pause/stop with silence on stop; no record, loop, metronome, ruler, tempo edit, quantise, auto inputs |

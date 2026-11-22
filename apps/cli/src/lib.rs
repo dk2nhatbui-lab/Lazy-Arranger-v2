@@ -138,6 +138,14 @@ enum Commands {
         #[arg(long)]
         title: Option<String>,
     },
+    /// Import a MusicXML score as a project.
+    ImportMusicXml {
+        /// Source `.musicxml` file.
+        musicxml: PathBuf,
+        /// Output project `.json` path.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Read a Yamaha Music Finder `.mfd` file and write a book.
     MusicFinderImport {
         /// Source `.mfd` file.
@@ -335,6 +343,26 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                     ((project.song.end_tick().max(bar) + bar - 1) / bar) as usize
                 }),
                 xml.len()
+            );
+            Ok(())
+        }
+        Commands::ImportMusicXml {
+            musicxml: source,
+            out,
+        } => {
+            let xml = fs::read_to_string(&source)
+                .map_err(|error| format!("could not read {}: {error}", source.display()))?;
+            let song = musicxml::import::import(&xml)?;
+            let notes: usize = song.tracks.iter().map(|track| track.notes.len()).sum();
+            let project = ProjectFile::new(song);
+            let json = project.to_json_pretty()?;
+            fs::write(&out, json)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!(
+                "imported {}: {} track(s), {notes} note(s) -> {}",
+                source.display(),
+                project.song.tracks.len(),
+                out.display()
             );
             Ok(())
         }

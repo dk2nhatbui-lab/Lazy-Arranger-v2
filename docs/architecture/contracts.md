@@ -548,3 +548,15 @@ style number at 4..6, meter at 6..8, tempo at 8..10, title at 11..43, genre at
 with `, `. The path tail after the counted records is ignored. Verified against
 the owner's `Nhat.mfd`: 1,653 entries, the same count the C++ documentation
 reports.
+
+### MusicXML import
+
+`musicxml::import` reads partwise documents with `roxmltree` (DTD allowed for
+the MusicXML doctype). One part becomes one track; measures advance by the
+meter found in the first attributes; durations convert from divisions to 960
+PPQ ticks; `<rest/>` advances without a note; `<chord/>` notes stack at the
+previous note's start; `<unpitched>` becomes a channel-10 snare. Tempo comes
+from the first `<sound tempo>`. Key, lyrics, marks, dynamics and ties are not
+imported, and drum pitches are not preserved through export because only the
+display position is written, so a round trip restores note counts and pitched
+material but not drum identities or velocities.

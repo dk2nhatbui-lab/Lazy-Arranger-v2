@@ -1,0 +1,181 @@
+//! MusicXML import.
+//!
+//! Reads a partwise document into a [`Song`]: one track per part, measures
+//! advanced by the meter, notes placed by divisions, chords stacked, rests
+//! skipped and unpitched notes treated as drums. Tempo comes from the first
+//! `<sound tempo>`; key, lyrics, marks and dynamics are not imported yet.
+
+use music_core::{Channel, PPQ, Pitch, Tick, TimeSignature, Velocity};
+use project::song::{Note, Song, Track};
+use project::{NoteId, TrackId};
+use thiserror::Error;
+
+/// Errors from MusicXML import.
+#[derive(Debug, Error)]
+pub enum ImportError {
+    /// The document is not valid XML.
+    #[error("not valid XML: {0}")]
+    Xml(#[from] roxmltree::Error),
+    /// The document has no parts.
+    #[error("the document has no parts")]
+    NoParts,
+}
+
+fn text_of(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<String> {
+    node.children()
+        .find(|child| child.has_tag_name(tag))
+        .and_then(|child| child.text())
+        .map(|text| text.trim().to_string())
+}
+
+fn number_of(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<f64> {
+    text_of(node, tag).and_then(|text| text.parse().ok())
+}
+
+/// Imports a partwise MusicXML document.
+///
+/// # Errors
+///
+/// Returns [`ImportError::Xml`] for malformed documents and
+/// [`ImportError::NoParts`] when no `<part>` exists.
+pub fn import(xml: &str) -> Result<Song, ImportError> {
+    // MusicXML files carry a DOCTYPE; roxmltree rejects it unless allowed.
+    // It reads the internal subset only and never fetches external entities.
+    let options = roxmltree::ParsingOptions {
+        allow_dtd: true,
+        ..roxmltree::ParsingOptions::default()
+    };
+    let document = roxmltree::Document::parse_with_options(xml, options)?;
+    let root = document.root_element();
+    let title = text_of(root, "work")
+        .and_then(|_| {
+            root.children()
+                .find(|node| node.has_tag_name("work"))
+                .and_then(|work| text_of(work, "work-title"))
+        })
+        .unwrap_or_else(|| String::from("Imported score"));
+    let tempo = document
+        .descendants()
+        .find(|node| node.has_tag_name("sound"))
+        .and_then(|node| node.attribute("tempo"))
+        .and_then(|value| value.parse::<f64>().ok())
+        .unwrap_or(120.0);
+    let mut song = Song::new(title, tempo);
+    let names: Vec<(String, String)> = document
+        .descendants()
+        .filter(|node| node.has_tag_name("score-part"))
+        .map(|part| {
+            (
+                part.attribute("id").unwrap_or_default().to_string(),
+                text_of(part, "part-name").unwrap_or_default(),
+            )
+        })
+        .collect();
+    let parts: Vec<roxmltree::Node<'_, '_>> = document
+        .descendants()
+        .filter(|node| node.has_tag_name("part"))
+        .collect();
+    if parts.is_empty() {
+        return Err(ImportError::NoParts);
+    }
+    let mut next_track = 0_u32;
+    let mut next_note = 0_u32;
+    let mut meter = TimeSignature::default();
+    for part in parts {
+        next_track += 1;
+        let id = part.attribute("id").unwrap_or_default();
+        let name = names
+            .iter()
+            .find(|(part_id, _)| part_id == id)
+            .map(|(_, name)| name.clone())
+            .unwrap_or_else(|| format!("Part {next_track}"));
+        let mut track = Track::new(
+            TrackId::new(next_track).map_err(|_| ImportError::NoParts)?,
+            name,
+        );
+        let mut measure_start: Tick = 0;
+        let mut measure_meter = meter;
+        for measure in part.children().filter(|node| node.has_tag_name("measure")) {
+            if let Some(attributes) = measure
+                .children()
+                .find(|node| node.has_tag_name("attributes"))
+            {
+                if let Some(time) = attributes.children().find(|node| node.has_tag_name("time")) {
+                    let beats = number_of(time, "beats").unwrap_or(4.0);
+                    let beat_type = number_of(time, "beat-type").unwrap_or(4.0);
+                    if let Ok(found) =
+                        TimeSignature::new(beats.max(1.0) as u8, beat_type.max(1.0) as u8)
+                    {
+                        measure_meter = found;
+                        meter = found;
+                    }
+                }
+                if let Some(divisions) = number_of(attributes, "divisions") {
+                    let _ = divisions;
+                }
+            }
+            let mut cursor = measure_start;
+            let mut last_start = measure_start;
+            for note in measure.children().filter(|node| node.has_tag_name("note")) {
+                let duration_units = number_of(note, "duration").unwrap_or(0.0);
+                let duration = (duration_units / 960.0 * PPQ as f64).round().max(0.0) as Tick;
+                let is_rest = note.children().any(|child| child.has_tag_name("rest"));
+                let is_chord = note.children().any(|child| child.has_tag_name("chord"));
+                let start = if is_chord { last_start } else { cursor };
+                if !is_chord {
+                    last_start = start;
+                }
+                if is_rest {
+                    if !is_chord {
+                        cursor = start + duration;
+                    }
+                    continue;
+                }
+                next_note += 1;
+                let (pitch, channel) = if let Some(pitch_node) =
+                    note.children().find(|child| child.has_tag_name("pitch"))
+                {
+                    let step = text_of(pitch_node, "step").unwrap_or_default();
+                    let alter = number_of(pitch_node, "alter").unwrap_or(0.0) as i32;
+                    let octave = number_of(pitch_node, "octave").unwrap_or(4.0) as i32;
+                    let base = match step.as_str() {
+                        "C" => 0,
+                        "D" => 2,
+                        "E" => 4,
+                        "F" => 5,
+                        "G" => 7,
+                        "A" => 9,
+                        "B" => 11,
+                        _ => 0,
+                    };
+                    let midi = (octave + 1) * 12 + base + alter;
+                    (
+                        Pitch::new(midi.clamp(0, 127) as u8)
+                            .unwrap_or_else(|_| Pitch::new(60).expect("valid middle C")),
+                        Channel::first(),
+                    )
+                } else {
+                    (
+                        Pitch::new(38).expect("valid snare"),
+                        Channel::new(9).expect("valid drum channel"),
+                    )
+                };
+                track.notes.push(Note {
+                    id: NoteId::new(next_note).unwrap_or_else(|_| NoteId::new(1).expect("valid")),
+                    start,
+                    duration: duration.max(1),
+                    pitch,
+                    velocity: Velocity::new(100).expect("valid"),
+                    channel,
+                });
+                if !is_chord {
+                    cursor = start + duration.max(1);
+                }
+            }
+            measure_start += measure_meter.bar_ticks().max(1);
+        }
+        song.tracks.push(track);
+    }
+    song.time_signature = meter;
+    Ok(song)
+}
