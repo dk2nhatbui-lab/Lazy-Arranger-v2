@@ -70,6 +70,14 @@ licence notes are in [`docs/design/v1-visual-language.md`](../design/v1-visual-l
    (immediate mode, MIT/Apache-2.0) and `iced` (retained Elm-style, MIT) are both
    viable permissive routes and are the natural candidates to prototype.
 
+## Known startup pitfall
+
+The owner has seen egui apps blink or show a blank first screen. That is a
+startup/backend bug class, not the drawing model: a window shown before its first
+themed frame, a default clear colour showing through, or a wgpu surface failure
+that panics. ADR-011 records the policy that avoids it (hidden-until-painted,
+one clear colour, handled backend failure, no direct framebuffer painting).
+
 ## Consequences
 
 * The desktop app becomes a new `apps/desktop` crate behind the same command

@@ -15,6 +15,7 @@ or **Superseded**.
 | [008](ADR-008-cpp-interop.md) | C++/Rust interoperability | Accepted, implemented |
 | [009](ADR-009-hardware-capabilities.md) | Hardware capability model and SysEx | Accepted (principles) |
 | [010](ADR-010-score-engraving.md) | Score engraving seam, tiles and PDF | Proposed (Stage 8) |
+| [011](ADR-011-window-startup.md) | Window startup, backend and first-frame flicker | Accepted |
 
 The shared type contract that these decisions constrain is
 [`../architecture/contracts.md`](../architecture/contracts.md).
