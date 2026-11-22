@@ -349,6 +349,12 @@ impl Editor {
         arranging::analyze(self.song())
     }
 
+    /// Fit to My Synths proposals for a synth's limits.
+    #[must_use]
+    pub fn fit_proposals(&self, spec: arranging::SynthSpec) -> Vec<arranging::Proposal> {
+        arranging::fit_to_synth(self.song(), spec)
+    }
+
     /// Applies one Arrangement Doctor proposal.
     ///
     /// # Errors

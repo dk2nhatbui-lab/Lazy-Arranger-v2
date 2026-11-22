@@ -41,7 +41,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Reharmonize dialog and bar replacement | `apps/desktop`, `Editor::reharmonize` | implemented | editor undo test; UI manual |
 | Find Chords from the Music | `arranger::recognize`, `Editor::find_chords` | verified | triad, sevenths, inversion, minor, dim tests; F key |
 | Arrangement Doctor (crowded bars, literal repeats) | `arranging::doctor` | partial verified | 4 rule/apply tests; D dialog |
-| Fit to My Synths | — | missing | polyphony/range checks not built |
+| Fit to My Synths | `arranging::fit_to_synth` | verified core | 3 tests: range octaves, polyphony removal, apply; default synth limits |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | — | missing | ADR-010 (Stage 8) |

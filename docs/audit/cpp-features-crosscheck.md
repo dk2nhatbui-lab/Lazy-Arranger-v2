@@ -38,7 +38,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 29 | Speech in/out (Whisper, Kitten, Kokoro) | missing | — |
 | 30 | AI music tools (humanize, drumify, continue, write part, melody) | missing | — |
 | 31 | Theory: keys, roman numerals, scales, voice-leading, skill packs | partial | Chord types, transpose, chord parse; no key finding, roman analysis, voice-leading, skills |
-| 32 | Arranging help | partial | Arrangement Doctor with crowded-bar and repeat rules, proposal cards and undo. Fit to My Synths still missing |
+| 32 | Arranging help | partial | Arrangement Doctor (crowded bars, repeats) and Fit to My Synths (range octaves, polyphony removal, drum-kit warning) with proposal cards and undo. No A/B audition |
 | 33 | Groove extraction and application | missing | — |
 | 34 | Song Forms | missing | — |
 | 35 | Kids Mode | missing | — |

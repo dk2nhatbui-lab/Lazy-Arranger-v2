@@ -60,6 +60,7 @@ pub struct ShellApp {
     status: Option<String>,
     doctor_dialog: bool,
     doctor_proposals: Vec<arranging::Proposal>,
+    synth: arranging::SynthSpec,
     project_path: Option<PathBuf>,
     view: View,
     roll: RollState,
@@ -108,6 +109,7 @@ impl ShellApp {
             status: None,
             doctor_dialog: false,
             doctor_proposals: Vec::new(),
+            synth: arranging::SynthSpec::default(),
             project_path,
             view: View::Arrange,
             roll: RollState::default(),
@@ -265,6 +267,8 @@ impl ShellApp {
         }
         if context.input(|input| input.key_pressed(egui::Key::D)) {
             self.doctor_proposals = self.editor.proposals();
+            self.doctor_proposals
+                .extend(self.editor.fit_proposals(self.synth));
             self.doctor_dialog = true;
         }
         if context.input(|input| input.key_pressed(egui::Key::F)) {
