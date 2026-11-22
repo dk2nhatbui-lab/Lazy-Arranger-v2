@@ -57,6 +57,9 @@ cargo run -q -p lazy-arranger-cli -- perform "MyStyle.prs" --section "Main A" \
 cargo run -q -p lazy-arranger-cli -- regenerate take.json --style "MyStyle.prs" \
     --policy replace --out take2.json
 
+# Render a project to a WAV file (offline synth, no audio device).
+cargo run -q -p lazy-arranger-cli -- export-audio take.json --out take.wav
+
 # Inspect a Yamaha style, then render a section with chords.
 cargo run -q -p lazy-arranger-cli -- style "MyStyle.prs" --section "Main A" --rules
 cargo run -q -p lazy-arranger-cli -- style "MyStyle.prs" --section "Main A" \

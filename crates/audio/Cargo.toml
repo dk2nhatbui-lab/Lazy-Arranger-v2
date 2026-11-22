@@ -1,0 +1,14 @@
+[package]
+name = "audio"
+description = "Offline synthesis and WAV export for Lazy Arranger"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+music-core = { path = "../music-core" }
+project = { path = "../project" }
+
+[lints]
+workspace = true

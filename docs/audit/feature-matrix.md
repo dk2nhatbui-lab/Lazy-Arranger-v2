@@ -179,3 +179,11 @@ here records the arranger's compiled output, which is the rendered half.
 | Startup policy against first-frame flicker | `docs/adr/ADR-011` | manual cold-start check, not automated |
 
 Editing, playback with audio, and the Perform/Mix views are not started.
+
+## 6. Stage 7 progress (2026-11-22)
+
+| Deliverable | Location | Proof |
+| --- | --- | --- |
+| Offline renderer and WAV encoder | `crates/audio` | `a_note_produces_sound_where_it_sounds`, `output_never_clips`, `wav_header_is_standard`, `where_the_note_ends_the_tail_decays` |
+| `export-audio` CLI | `apps/cli` | rendered a real style section to a 5.36 s stereo WAV; Python `wave` reports 2 channels, 48 kHz, 16-bit |
+| Realtime playback device | not started | needs a cpal backend; the voice already exists |

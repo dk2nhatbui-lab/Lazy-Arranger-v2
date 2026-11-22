@@ -126,6 +126,17 @@ enum Commands {
         #[arg(long)]
         rules: bool,
     },
+    /// Render a project to a 16-bit stereo WAV file.
+    ExportAudio {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Output `.wav` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Sample rate; defaults to 48000.
+        #[arg(long, default_value_t = audio::SAMPLE_RATE)]
+        sample_rate: u32,
+    },
     /// Record a style performance as linked intent and rendered tracks.
     Perform {
         /// Style file.
@@ -237,6 +248,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             chords,
             add_tracks,
         } => edit(&project, &out, tempo, &chords, &add_tracks),
+        Commands::ExportAudio {
+            project,
+            out,
+            sample_rate,
+        } => export_audio(&project, &out, sample_rate),
         Commands::Perform {
             style,
             out,
@@ -616,6 +632,27 @@ fn edit(
         "wrote {} ({} undo step(s) available)",
         out.display(),
         session.undo_depth()
+    );
+    Ok(())
+}
+
+fn export_audio(project: &PathBuf, out: &PathBuf, sample_rate: u32) -> Result<(), Box<dyn Error>> {
+    if !(8_000..=192_000).contains(&sample_rate) {
+        return Err(
+            format!("--sample-rate must be between 8000 and 192000, found {sample_rate}").into(),
+        );
+    }
+    let project = read_project(project)?;
+    let rendered = audio::render(&project.song, sample_rate);
+    let wav = rendered.to_wav();
+    fs::write(out, &wav).map_err(|error| format!("could not write {}: {error}", out.display()))?;
+    println!(
+        "rendered {} track(s) to {:.2} s at {} Hz: {} byte(s) -> {}",
+        project.song.tracks.len(),
+        rendered.duration_seconds(),
+        sample_rate,
+        wav.len(),
+        out.display()
     );
     Ok(())
 }

@@ -474,3 +474,17 @@ style, and applies an explicit `Policy`:
 
 `freeze` clears provenance, which makes a track manual and immune. A track whose
 section is missing from the supplied style is reported, not modified.
+
+## 17. Offline audio
+
+`crates/audio` renders a song to interleaved stereo `f32` at a chosen sample
+rate and encodes it as 16-bit PCM WAV. Rendering is a pure function of the song
+and the tempo map: note start and end ticks become sample frames through
+`TempoMap::seconds_at`, so timing follows tempo changes. Each note is an
+additive sine voice with two quiet harmonics, a 5 ms attack, a release that
+starts 80 ms before the note ends, and a velocity-scaled amplitude; the mix is
+clamped into `-1.0..=1.0`.
+
+`export-audio` takes a project, refuses sample rates outside 8000..=192000, and
+writes the WAV. It does not open an audio device, so it runs in CI and on
+headless machines. A realtime backend will reuse `audio::render`'s voice.
