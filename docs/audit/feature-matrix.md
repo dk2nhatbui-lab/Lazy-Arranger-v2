@@ -8,8 +8,10 @@
 primary C++ declaration where a note gives no line. LOC measured with `wc -l` in the pinned tree.
 Composite rows overlap: one file can serve several subsystems.
 
-**Rust status today:** `cargo test --workspace` passes 116 tests; `cargo clippy --workspace --all-targets
--- -D warnings` and `cargo fmt --all --check` pass. No subsystem is `parity complete`.
+**Rust status today:** `cargo test --workspace` passes 165 tests; `cargo clippy --workspace --all-targets
+-- -D warnings`, `cargo fmt --all --check` and `cargo doc` (warnings denied) pass. No subsystem is
+`parity complete`. Row statuses below were refreshed on 2026-11-22 after the Stage 2 dispatch worker and
+the Stage 3 arranger core landed.
 
 **Status key**
 
@@ -30,14 +32,14 @@ Composite rows overlap: one file can serve several subsystems.
 | 1 | Song model | `Song.h:23-32,241-333,428-458`; `SongEdit.cpp:45-48` | 1,913 | `project` | port | 1 | prototype | Schema v1 has tracks, notes, chords, arranger events, markers and a tempo map. Clips, slots, scenes, mixer, sends, forms, audio and the shared id counter are absent. |
 | 2 | Project file | `ProjectFile.cpp:694-701,833-921,959-1001` | 1,070 | `project` | port | 1 | prototype | One-way import of C++ schema 1..4 into schema v1. No C++ writer, no byte-stable save, no load-repair report. Unknown keys are preserved here, dropped by C++. |
 | 3 | Tempo / timing | `Time.h:10-13`; `TempoMap.cpp:79-83`; `Transport.cpp:8-16`; `Engine.cpp:354-358` | 442 | `music-core`, `sequencer` | keep | 2 | prototype | 960 PPQ, step tempo and the anchor-0 ceiling are tested (`rounding_never_lands_before_the_tick`). No anchor state, loop wrap or per-track release; a located start can differ by ≤1 sample. |
-| 4 | Chord model and chord input | `StyleChord.h:13-34`; `ChordInput.cpp:187-201,227-241` | 1,717 | `music-core`, `project` | port | 3 | prototype | 15 Rust chord qualities against 35 Yamaha types. Parse, format and `tones` are tested. No chord lane, typing, suggestions, voicings or reharmonise. |
+| 4 | Chord model and chord input | `StyleChord.h:13-34`; `ChordInput.cpp:187-201,227-241` | 1,717 | `music-core`, `project`, `arranger` | port | 3 | prototype | `music-core` parses 15 qualities; `arranger` now carries all 35 Yamaha types with their interval and scale tables, and maps the 15 onto them. No chord lane, typing, suggestions, voicings or reharmonise. |
 | 5 | Smart Chords / key finding / theory | `Theory.h:44`; `ChordFinder.cpp`; `MainComponent.cpp:1330`; `ChordTests.cpp:22-90` | 1,531 | `music-core`, `arranger` | port | 3 / 8 | not started | Smart Chords is the `chords` AI panel. Rust has no key finding, roman numerals, modulation or voice leading. The panel itself belongs to Stage 8. |
 | 6 | Notation and MusicXML/PDF | `Notation.h:31`; `ScoreLayout.h:37`; `MusicXml.h:18`; `Pdf.h:15` | 3,338 | new `notation` | port | 8 | not started | Pure model→symbols and one layout feeding screen and PDF. Six C++ score goldens are unlicensed and must be recaptured, not copied. Re-derive SMuFL codes from the spec. |
 | 7 | Piano roll | `PianoRoll.h:17` | 1,053 | `arranger` UI | redesign | 6 | not started | All editing and painting lives in JUCE. No logic worth carrying; the snap and drag rules must be restated as tests. |
 | 8 | Clip grid and scenes | `Engine.cpp:278-289`; `ClipGridView.cpp:19` | 1,198 | `project`, `sequencer` | port | 3 / 6 | not started | Scene = slot-array index is the riskiest wire structure. `ArrangerEvent` exists; no scene, slot, launch-quantise or Timeline-takeover model. |
-| 9 | Arranger style files (SFF) | `StyleFile.cpp:345-355` | 698 | `style-formats` | port | 4 | prototype | Chunk scan and `describe_yamaha` only. No CASM/CSEG/Sdec parse, no `Ctab`/`Ctb2` codec, no writer. `demo-style.sty` has no CASM. |
-| 10 | CASM chord conversion | `StyleFile.cpp:197-234`; `StyleConvert.cpp:38-65` | 1,421 | `style-formats`, `arranger` | port | 4 | not started | The ordered spec is in `compatibility-baseline.md` §2. The 35-row interval table must be transcribed. Mute-mask polarity is unverified. |
-| 11 | Style playback / sections / fills | `Engine.cpp:278-289,326-350,563-579`; `StyleConvert.cpp:494-527` | 1,818 | `arranger`, `sequencer` | redesign | 3 | not started | C++ has no variation/fill/break state machine. A section is a scene. Chord following is a whole-clip re-render that cuts sounding notes. |
+| 9 | Arranger style files (SFF) | `StyleFile.cpp:345-355` | 698 | `style-formats`, `arranger` | port | 4 | prototype | `style-formats` scans containers and reports CASM/CSEG presence; `arranger` now has the native style shape those chunks will feed. No CASM/CSEG/Sdec parse, no `Ctab`/`Ctb2` codec, no writer. `demo-style.sty` has no CASM. |
+| 10 | CASM chord conversion | `StyleFile.cpp:197-234`; `StyleConvert.cpp:38-65` | 1,421 | `style-formats`, `arranger` | port | 4 | prototype | The eight-step conversion, the 35-row table, the part gate and the three note ranges are implemented in `arranger` and verified against the cases the C++ test suite pins (`StyleFileTests.cpp:173-238`). CASM byte parsing into `ChordRule` is not started. Mute-mask polarity stays unverified. |
+| 11 | Style playback / sections / fills | `Engine.cpp:278-289,326-350,563-579`; `StyleConvert.cpp:494-527` | 1,818 | `arranger`, `sequencer` | redesign | 3 | prototype | `Style::compile` splits a section at chord changes, gates parts, converts notes and cuts at boundaries; `TransitionState` owns the four transition modes and states fill precedence. No fills-return sugar, no retrigger (`Rtr`) behaviour, no live playback of a style yet. |
 | 12 | Quantise | `Quantise.cpp:41-67` | 98 | `music-core`, `app-commands` | port | 3 | not started | Small but exact: grid, strength, swing, ends and window. A multi-clip quantise must stay one undo step. |
 | 13 | Groove | `Groove.h:55` | 2,032 | new `groove` | port | 8 | not started | Timing and velocity templates, three drum lanes, feel transfer, listening test. |
 | 14 | Arrangement doctor | `Arranging.h:71` | 1,300 | new `arranger` | port | 8 | not started | Rule-based proposals over density, register, repetition and contrast. No model dependency. |
@@ -63,12 +65,12 @@ Composite rows overlap: one file can serve several subsystems.
 | 34 | Localization | `Localization.cpp:11-34` | 977 | `arranger` | port | 6 | not started | da/fr/vi plus pseudo, about 203 keys each. Font must cover Vietnamese. |
 | 35 | Update checker | `UpdateChecker.cpp:48` | 277 | app | port | 8 | not started | GitHub releases plus semver. Keep the comparison, replace the transport. |
 | 36 | Metronome | `Metronome.cpp:47-59` | 177 | `sequencer`, `audio-engine` | port | 3 | not started | Click is synthesised in the engine. Rust emits no audio, so only schedule-level parity is possible until Stage 7. |
-| 37 | Session / transport | `Session.cpp:146-159`; `Transport.cpp:55-62` | 5,139 | `sequencer` | port | 2 | prototype | Play, stop, seek and publish are tested. No re-anchor, loop wrap, panic, MIDI-out scheduler, recording or held-note policy. |
+| 37 | Session / transport | `Session.cpp:146-159`; `Transport.cpp:55-62` | 5,139 | `sequencer`, `midi-devices` | port | 2 | prototype | Play, stop, seek and publish are tested. `midi-devices::dispatch` sends a prepared schedule to a port with an injected clock and ends with all-notes-off. No re-anchor, loop wrap, held-note policy or in-app recording of arranger output. |
 
 LOC totals overlap. Examples: `Song.h` counts in rows 1, 17 and 18; `Engine.cpp` in rows 3, 8, 11 and 37;
 `MidiMapView.cpp` in rows 28 and 30.
 
-## 2. Stage 1–2 deliverables (plus one Stage 4 foundation)
+## 2. Stage 1–3 deliverables
 
 `verified` means the named test calls the production function and asserts the behaviour. It does not mean
 the subsystem is parity complete.
@@ -93,8 +95,15 @@ the subsystem is parity complete.
 | Ordering, clamp, overflow | `crates/sequencer/src/lib.rs` | `note_offs_sort_before_note_ons_in_one_sample`, `simultaneous_events_order_by_track`, `block_offsets_clamp_inside_the_block`, `overflow_is_counted_not_panicking` | verified | Per-track active notes; redundant off suppression. |
 | SMF encode/decode, 960 PPQ rescale | `crates/smf/src/lib.rs` | `round_trip_preserves_notes_tempo_and_markers`, `decodes_foreign_ppq_by_rescaling`, `simultaneous_note_off_comes_before_note_on_in_the_file` | verified | SysEx, later meters, markers in file. |
 | MIDI capture pairing | `crates/midi-devices/src/capture.rs` | `pairs_note_on_and_note_off`, `repeated_pitch_closes_the_oldest_note_first`, `conversion_to_ticks_follows_the_tempo_map` | verified | Hardware timestamps; jitter. |
-| MIDI port enumeration | `crates/midi-devices/src/devices.rs` | `enumeration_does_not_fail_on_a_machine_without_hardware` | verified | Hardware behaviour; reconnect. |
+| MIDI port enumeration | `crates/midi-devices/src/devices.rs` | `enumeration_reports_ports_or_an_unavailable_backend`, `backend_failure_is_classified` | verified | Hardware behaviour; reconnect. |
 | Record and echo on hardware | `crates/midi-devices/src/devices.rs::record_to_song`, `echo` | No test exists; hardware check only | prototype | Everything; see baseline §6. |
+| Real-time MIDI dispatch | `crates/midi-devices/src/dispatch.rs::play_timed` | `sends_messages_at_their_offsets`, `equal_timestamps_do_not_wait_between_messages`, `unsorted_messages_are_rejected_before_playback`, `a_sink_error_stops_playback` | verified | Port latency, jitter, hardware. |
+| All-notes-off panic path | `crates/midi-devices/src/dispatch.rs::all_notes_off_messages` | `panic_messages_cover_each_channel_once` | verified | Device acknowledgement. |
+| 35-type chord vocabulary | `crates/arranger/src/chord_type.rs` | `every_type_has_table_data_and_a_stable_index`, `tones_match_the_oracle_examples`, `names_match_the_oracle` | verified | CASM byte mapping. |
+| Chord-rule transposition | `crates/arranger/src/transpose.rs::transpose` | `pinned_bass_cases_from_the_oracle`, `pinned_fixed_root_cases_from_the_oracle`, `bass_flag_follows_the_slash_bass`, `split_ranges_choose_their_own_rule`, `scale_flavours_behave_like_melody` | verified | Guitar mode has no oracle case; retrigger. |
+| Part gating and mute masks | `crates/arranger/src/transpose.rs::plays` | `mute_masks_gate_parts`, `cancel_gating_follows_the_chord_mute_bit` | verified | Mask polarity against a real file. |
+| Section compile with chord following | `crates/arranger/src/style.rs::Style::compile` | `chord_changes_split_the_section`, `notes_are_cut_at_a_chord_change`, `no_chord_stops_every_part_but_rhythm`, `notes_are_cut_at_the_section_end` | verified | Fill lengths; retrigger; real style data. |
+| Transition modes and precedence | `crates/arranger/src/transition.rs::TransitionState` | `next_bar_uses_the_bar_boundary`, `the_latest_request_wins_at_one_boundary`, `end_of_section_uses_the_supplied_section_end` | verified | UI wiring; fill-return convenience. |
 | CLI sprint exit | `apps/cli/tests/sprint_exit.rs` | `four_bar_phrase_schedules_at_exact_samples`, `block_size_never_changes_the_rendered_phrase`, `scheduled_events_match_the_exported_midi_file`, `legacy_project_imports_renders_and_exports`, `odd_sample_rate_keeps_note_ordering`, `a_legacy_import_reports_what_it_deferred` | verified | Style playback; MIDI out. |
 | Style container scan | `crates/style-formats/src/lib.rs` | `scans_the_demo_style_chunks`, `describes_a_style_without_casm`, `handles_a_container_with_casm_and_cseg` | verified | CASM parse, rules, sections, writer. |
 

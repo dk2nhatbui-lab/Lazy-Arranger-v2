@@ -23,6 +23,7 @@ app-commands        depends on project + music-core
 sequencer           depends on project + music-core
 smf                 depends on project + music-core
 midi-devices        depends on project + music-core (+ midir)
+arranger            depends on music-core only
 style-formats       depends on nothing but thiserror
   ↑
 apps/cli            depends on all of the above
@@ -35,6 +36,9 @@ Rules:
   only `serde` and `thiserror`.
 * The real-time path is `sequencer::Scheduler::process_block`. It must not call
   into `project`, `app-commands`, `smf` or `midi-devices`.
+* Arranger chord conversion is pure: `arranger::transpose` takes a pitch, a
+  rule and a chord and returns a pitch or nothing. It never mutates state. The
+  MIDI dispatch worker is the only crate that sleeps on audio time.
 
 Enforced by the Cargo manifests; `cargo clippy --workspace --all-targets` is
 the gate.
@@ -297,3 +301,86 @@ exercises it headlessly.
 Hardware record and echo have no automated test. They keep the status
 `manual only` until a device-and-loopback run is recorded in
 `docs/audit/compatibility-baseline.md`.
+
+## 13. Arranger: chord rules, conversion and sections
+
+Implemented in `crates/arranger`. The algorithm is a transcription of the C++
+oracle's `StyleChord.cpp`, specified in
+`docs/audit/notes/cpp-style-arranger.md` §3.
+
+Vocabulary: `ChordType` has exactly the 35 Yamaha types in file order
+(`ALL_TYPES`), each with a suffix, third/fifth/seventh intervals and a
+seven-note scale (`chord_type::TABLE`). `ChordType::from_index` rejects numbers
+above 34 instead of clamping them, because the oracle's clamp hides corrupt
+input.
+
+Rules: `ChordRule` mirrors `StyleChannelRule` with three note ranges
+(`low_range`, `transpose`, `high_range`) selected by strict comparisons against
+`middle_low`/`middle_high`. Defaults match the oracle: `ntr =
+RootTransposition`, `ntt = Chord`, `high_key = 6`, limits `0..127`,
+`note_mute = 0x0fff`, `chord_mute = 0xff_ffff_ffff` (all 40 bits set).
+
+`arranger::transpose(pitch, rule, chord) -> Option<u8>` runs the eight steps in
+order: range selection, bypass pass, no-chord test, target root (slash bass
+only when the rule sets `bass`), guitar mode, source geometry, interval
+mapping (chord tones before scale degrees; melody rejects an interval of 12),
+root placement (transposing or nearest-note with ties down), then octave
+folding inside the limits and a clamp to `0..=127`.
+
+`arranger::plays(rule, chord)` is the separate part gate: a cancel chord plays
+only when bit 34 of `chord_mute` is set; otherwise the root bit of `note_mute`
+and the chord-type bit of `chord_mute` both have to be set. A false gate clears
+the whole part.
+
+`Style::compile(section, start_tick, chords)` splits a section at chord
+changes, gates each part per segment, converts each note, and cuts a note at a
+segment boundary or at the section end. Output is sorted by
+`(tick, channel, pitch)`. The cut matches the oracle's behaviour of stopping
+notes when the chord changes. Notes are not retriggered across a change.
+
+`TransitionState` owns only *when* a section request takes effect:
+`Immediate` at the request tick, `NextBeat`/`NextBar` at the meter's next
+boundary at or after it, `EndOfSection` at the caller-supplied section end.
+When several requests are due at one tick the latest wins; a fill is an
+ordinary request, so returning from one is explicit.
+
+Status: the conversion is verified against the cases the C++ test suite pins
+(`StyleFileTests.cpp:173-238`). Section compilation has synthetic-style tests
+only. Golden parity needs a C++ build and a real CASM style (ADR-008), so the
+arranger is `prototype`, never `parity complete`.
+
+## 14. MIDI dispatch
+
+Implemented in `crates/midi-devices/src/dispatch.rs`.
+
+* A `MidiSink` accepts one `MidiMessage` at a time; `PortSink` wraps a `midir`
+  output connection.
+* A `TimedMessage` is a message plus an offset in microseconds from playback
+  start. `sample_to_micros` converts sample positions with nearest-microsecond
+  rounding.
+* `play_timed(messages, sink, clock)` waits on an injected `Clock` until each
+  message's deadline, then sends. Production uses `RealClock`; tests use a
+  logical clock that records waits, so ordering and delays are asserted without
+  sleeping.
+* The schedule must be sorted by offset. An unsorted list is rejected before
+  any message is sent.
+* `play_to_port` finishes by sending all-notes-off on every channel the
+  schedule used, one millisecond after the last message. A stopped or finished
+  playback must never leave a note held.
+* Accuracy is OS timer plus port latency. This module does not make a physical
+  port sample-accurate and must not be described as if it did.
+
+## 15. What verification currently covers
+
+| Claim | Test |
+| --- | --- |
+| 35 chord types, tones, names | `arranger::chord_type::tests` |
+| transposition pinned to the C++ cases | `arranger::transpose::tests` |
+| part gating and mute masks | `arranger::transpose::tests` |
+| section splitting, cutting, gating | `arranger::style::tests` |
+| transition boundaries and policy | `arranger::transition::tests` |
+| dispatch ordering, delays, panic | `midi_devices::dispatch::tests` |
+
+Hardware playback (`play` against a real port) stays manual. The command exists
+and prints its schedule with `--dry-run`; no automated test sends MIDI to a
+device.

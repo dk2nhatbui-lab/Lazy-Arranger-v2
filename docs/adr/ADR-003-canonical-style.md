@@ -1,6 +1,6 @@
 # ADR-003: Canonical style model and preservation of manufacturer semantics
 
-**Status:** Accepted for the model shape. Implementation starts at Stage 4.
+**Status:** Accepted. Conversion implemented at Stage 3; CASM import and parity still open.
 
 ## Context
 
@@ -32,6 +32,23 @@ MIDI import as Korg compatibility.
    whether 1 means "plays"; every downstream test depends on it.
 6. **Korg is a separate adapter and a separate milestone.** No shared
    "manufacturer magic" layer.
+
+## What is implemented now
+
+`crates/arranger` holds the manufacturer-neutral part of the decision:
+
+* the 35-type Yamaha chord vocabulary with intervals, scales and names;
+* `ChordRule`, the per-channel rule with three note ranges;
+* `transpose` and `plays`, transcribed from the oracle and verified against the
+  cases its own test suite pins;
+* `Style` / `StyleSection` / `StylePart` plus `Style::compile`, which follows
+  chords, gates parts and cuts notes at chord changes and the section end;
+* `TransitionState` for the four transition modes.
+
+What is not implemented: SFF/CASM parsing into these rules, style writing,
+retrigger (`Rtr`) behaviour on section changes, and any real style fixture. The
+only style file in the repository has no CASM, so the chord-rule path is
+verified against the C++ unit-test cases, not against a real file.
 
 ## Consequences
 

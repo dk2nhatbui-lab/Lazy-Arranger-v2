@@ -46,6 +46,15 @@ platform-free core.
    Stage 7. When added it becomes a clock source that feeds the same anchor,
    not a second scheduler.
 
+## Update: MIDI dispatch worker
+
+Stage 2 added `crates/midi-devices/src/dispatch.rs`: a `MidiSink`, an injected
+`Clock`, and `play_timed`, which sends a prepared schedule at absolute
+deadlines and finishes with all-notes-off on every channel used. The clock is
+injected so tests assert delays without sleeping. Production uses a monotonic
+clock and `thread::sleep`, so the accuracy statement in point 7 stands: internal
+timing is sample-exact, a physical port is not.
+
 ## Consequences
 
 * Tempo ramps need a new curve type in `TempoMap`; the current map is

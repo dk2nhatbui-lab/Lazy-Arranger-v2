@@ -23,9 +23,12 @@ decisions in [`docs/adr/`](docs/adr/).
 | Typed commands, validation, undo | verified | `crates/app-commands` |
 | MIDI port enumeration | verified | `crates/midi-devices` |
 | MIDI capture and pairing | verified | `crates/midi-devices` |
-| Physical keyboard record/echo | manual only | needs a device |
-| Yamaha style import (CASM, chord rules) | not started | `crates/style-formats` scans containers |
-| Arranger playback, UI, audio engine | not started | Stage 3+ |
+| Real-time MIDI dispatch | verified headless, manual on hardware | `crates/midi-devices/src/dispatch.rs` |
+| Physical keyboard record/echo/play | manual only | needs a device |
+| Chord conversion for arranger styles | verified against the pinned oracle cases | `crates/arranger` |
+| Style sections, chord following, transitions | prototype | `crates/arranger/src/style.rs` |
+| Yamaha CASM import (real style files) | not started | `crates/style-formats` scans containers |
+| Golden parity, arranger playback in the app, UI, audio engine | not started / blocked | Stage 3 exit needs a C++ build and a CASM style |
 
 ## Quick start
 
@@ -34,6 +37,9 @@ cargo test --workspace
 
 # Render a four-bar phrase through the sample-clock scheduler.
 cargo run -q -p lazy-arranger-cli -- demo --out four-bars.mid --verbose
+
+# Show the real-time MIDI schedule for a project without sending anything.
+cargo run -q -p lazy-arranger-cli -- play song.json --out-port "My Keyboard" --dry-run
 
 # List MIDI ports.
 cargo run -q -p lazy-arranger-cli -- ports
@@ -54,8 +60,9 @@ crates/project         song schema, validation, legacy C++ import
 crates/app-commands    typed commands, validation, undo/redo
 crates/sequencer       prepared patterns, sample-clock scheduler
 crates/smf             standard MIDI file encode/decode
-crates/midi-devices    ports, capture, record, echo
+crates/midi-devices    ports, capture, record, echo, real-time dispatch
 crates/style-formats   Yamaha container scanning, native style model
+crates/arranger        chord vocabulary, chord rules, conversion, sections
 apps/cli               headless binary
 ```
 
