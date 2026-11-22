@@ -103,6 +103,12 @@ pub fn install(context: &Context) {
     if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
         family.insert(0, String::from("inter"));
     }
+    // A FontFamily::Name needs its own entry; registering font data alone is
+    // not enough, and using an unbound name panics inside the paint callback.
+    fonts.families.insert(
+        FontFamily::Name(String::from("inter-semibold").into()),
+        vec![String::from("inter-semibold")],
+    );
     if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
         family.push(String::from("inter"));
     }
@@ -168,6 +174,24 @@ mod tests {
         assert_eq!(track_colour(0), TRACK_COLOURS[0]);
         assert_eq!(track_colour(7), TRACK_COLOURS[0]);
         assert_eq!(track_colour(8), TRACK_COLOURS[1]);
+    }
+
+    #[test]
+    fn every_text_style_has_a_bound_font_family() {
+        let context = Context::default();
+        install(&context);
+        context.begin_pass(egui::RawInput::default());
+        let styles = context.style().text_styles.clone();
+        for (style, font_id) in styles {
+            let galley = context.fonts(|fonts| {
+                fonts.layout_no_wrap(String::from("Lazy Arranger"), font_id.clone(), TEXT)
+            });
+            assert!(
+                !galley.rows.is_empty(),
+                "text style {style:?} with {font_id:?} produced no glyphs"
+            );
+        }
+        context.end_pass();
     }
 
     #[test]
