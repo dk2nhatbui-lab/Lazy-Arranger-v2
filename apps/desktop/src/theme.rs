@@ -44,8 +44,16 @@ pub const GRID_BAR: Color32 = Color32::from_rgb(0x2b, 0x31, 0x38);
 pub const GRID_BEAT: Color32 = Color32::from_rgb(0x1d, 0x22, 0x27);
 /// Playhead.
 pub const PLAYHEAD: Color32 = Color32::from_rgb(0xe7, 0xbd, 0x86);
-/// LCD face.
+/// LCD face (the black surround and tab strip).
 pub const LCD: Color32 = Color32::from_rgb(0x07, 0x09, 0x0a);
+/// LCD backlit plate, from `lcdBack`.
+pub const LCD_BACK: Color32 = Color32::from_rgb(0xb3, 0xbb, 0xb0);
+/// LCD ink for values, from `lcdInk`.
+pub const LCD_INK: Color32 = Color32::from_rgb(0x1d, 0x24, 0x1d);
+/// LCD dim ink for labels and dividers, from `lcdDim`.
+pub const LCD_DIM: Color32 = Color32::from_rgb(0x4d, 0x57, 0x4d);
+/// LCD bezel, from `lcdBezel`.
+pub const LCD_BEZEL: Color32 = Color32::from_rgb(0x2a, 0x2e, 0x2b);
 /// LCD text.
 pub const LCD_TEXT: Color32 = Color32::from_rgb(0xf1, 0xec, 0xe4);
 

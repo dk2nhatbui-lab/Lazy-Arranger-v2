@@ -86,6 +86,27 @@ Two rules carried over from ADR-001 and ADR-010:
    engraver's layout (ADR-010), not through egui text shaping, so the theme only
    supplies colour and size there.
 
+## Implemented in the shell
+
+The header now reproduces `HeaderBar.cpp` and `LcdDisplay::paint` rather than
+approximating them:
+
+* panel fill with a 1 px `line` bottom edge, a 220 px title area with the round
+  `accent`/`accentText` badge, 16 pt title and 12.5 pt `textMuted` subtitle;
+* transport circles at the v1 sizes (stop 44, play 54, 8 px gaps);
+* a 350 x 52 LCD in three cells of 142/116/92: `lcdBezel` bezel with a
+  `lineStrong` outline, `lcdBack` glass with a top highlight, 7% scanlines every
+  3 px, `lcdDim` separators and 9.5 pt labels, values in 20 pt `lcdInk`;
+* the bar/beat text uses the oracle's `bar . beat . sixteenth` form
+  (`Time.cpp::formatBarBeat`), tempo prints with two decimals and meter as
+  `4 / 4`;
+* view tabs on a `lcd` strip with `accent` 14% fill, 40% outline, a 26 px accent
+  underline and 10.5 pt labels.
+
+Remaining differences from v1 that need screenshots to settle: icon badge
+(the app icon is not copied), status pills, zoom buttons, mixer and AI buttons,
+and the record, loop and click transport buttons (not implemented yet).
+
 ## What is not in v1 and must be designed
 
 * A light theme (the JSON exists as a file name only).

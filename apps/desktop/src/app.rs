@@ -3,13 +3,14 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use egui::{Context, ViewportCommand};
+use egui::{Context, Rect, ViewportCommand};
 use music_core::{PPQ, Tick, Velocity};
 use project::song::{Note, ProjectFile, Song, Track};
 use project::{NoteId, ProjectError, TrackId};
 
 use crate::piano_roll::{self, RollState};
 use crate::theme;
+use crate::widgets;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum View {
@@ -19,6 +20,22 @@ enum View {
 }
 
 impl View {
+    fn index(self) -> usize {
+        match self {
+            Self::Perform => 0,
+            Self::Arrange => 1,
+            Self::Mix => 2,
+        }
+    }
+
+    fn from_index(index: usize) -> Self {
+        match index {
+            0 => Self::Perform,
+            2 => Self::Mix,
+            _ => Self::Arrange,
+        }
+    }
+
     fn label(self) -> &'static str {
         match self {
             Self::Perform => "Perform",
@@ -79,84 +96,118 @@ impl ShellApp {
     fn top_bar(&mut self, context: &Context) {
         egui::TopBottomPanel::top("header")
             .exact_height(theme::HEADER_HEIGHT)
-            .frame(
-                egui::Frame::new()
-                    .fill(theme::PANEL)
-                    .inner_margin(egui::Margin::symmetric(12, 8)),
-            )
+            .frame(egui::Frame::NONE.fill(theme::PANEL))
             .show(context, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("LAZY ARRANGER").strong().size(15.0));
-                    ui.add_space(12.0);
-                    self.lcd(
-                        ui,
-                        "TEMPO",
-                        &format!("{:.1}", self.song().tempo_map.bpm_at(self.position)),
-                    );
-                    self.lcd(
-                        ui,
-                        "METER",
-                        &format!(
-                            "{}/{}",
-                            self.song().time_signature.numerator,
-                            self.song().time_signature.denominator
-                        ),
-                    );
-                    self.lcd(ui, "POSITION", &self.position_label());
-                    ui.add_space(12.0);
-                    let play = egui::Button::new(if self.playing {
-                        "■  Stop"
-                    } else {
-                        "▶  Play"
-                    });
-                    if ui.add(play).clicked() {
-                        if self.playing {
-                            self.playing = false;
-                        } else {
-                            self.playing = true;
-                            context.request_repaint_after(Duration::from_millis(16));
-                        }
-                    }
-                    if ui.button("⏮  Return").clicked() {
-                        self.position = 0;
-                        self.playing = false;
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        for view in [View::Mix, View::Arrange, View::Perform] {
-                            let selected = self.view == view;
-                            if ui.selectable_label(selected, view.label()).clicked() {
-                                self.view = view;
-                            }
-                        }
-                    });
-                });
+                let rect = ui.max_rect();
+                ui.painter().line_segment(
+                    [rect.left_bottom(), rect.right_bottom()],
+                    egui::Stroke::new(1.0_f32, theme::LINE),
+                );
+                let mut area = rect.shrink2(egui::vec2(16.0, 0.0));
+                // Title area: badge, title, subtitle (HeaderBar::paint).
+                let title_area = Rect::from_min_size(area.min, egui::vec2(220.0, area.height()));
+                area = Rect::from_min_max(egui::pos2(title_area.right(), area.top()), area.max);
+                let badge = Rect::from_center_size(
+                    egui::pos2(title_area.left() + 18.0, title_area.center().y),
+                    egui::vec2(36.0, 36.0),
+                );
+                ui.painter().rect_filled(badge, 10.0, theme::ACCENT);
+                ui.painter().text(
+                    badge.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "A",
+                    egui::FontId::proportional(17.0),
+                    theme::ACCENT_TEXT,
+                );
+                let title_rect = Rect::from_min_max(
+                    egui::pos2(title_area.left() + 36.0 + 14.0, title_area.top() + 6.0),
+                    egui::pos2(title_area.right(), title_area.center().y),
+                );
+                let name = if self.song().name.is_empty() {
+                    "Untitled"
+                } else {
+                    self.song().name.as_str()
+                };
+                ui.painter().text(
+                    title_rect.left_bottom(),
+                    egui::Align2::LEFT_BOTTOM,
+                    name,
+                    egui::FontId::proportional(16.0),
+                    theme::TEXT,
+                );
+                let subtitle = format!(
+                    "{} BPM \u{b7} {}/{}",
+                    self.song().tempo_map.bpm_at(self.position).round() as i64,
+                    self.song().time_signature.numerator,
+                    self.song().time_signature.denominator
+                );
+                ui.painter().text(
+                    egui::pos2(title_rect.left(), title_rect.bottom() + 2.0),
+                    egui::Align2::LEFT_TOP,
+                    subtitle,
+                    egui::FontId::proportional(12.5),
+                    theme::TEXT_MUTED,
+                );
+
+                // Transport buttons: stop 44, play 54, 8 px gaps.
+                let buttons_rect = Rect::from_min_size(
+                    area.min,
+                    egui::vec2(54.0 + 4.0 * 44.0 + 4.0 * 8.0, area.height()),
+                );
+                area = Rect::from_min_max(egui::pos2(buttons_rect.right(), area.top()), area.max);
+                let mut x = buttons_rect.left();
+                let stop = Rect::from_center_size(
+                    egui::pos2(x + 22.0, buttons_rect.center().y),
+                    egui::vec2(44.0, 44.0),
+                );
+                x += 52.0;
+                let play = Rect::from_center_size(
+                    egui::pos2(x + 27.0, buttons_rect.center().y),
+                    egui::vec2(54.0, 54.0),
+                );
+                if transport_button(ui, stop, "\u{25A0}", !self.playing) {
+                    self.playing = false;
+                    self.position = 0;
+                }
+                if transport_button(
+                    ui,
+                    play,
+                    if self.playing { "\u{2016}" } else { "\u{25B6}" },
+                    self.playing,
+                ) {
+                    self.playing = !self.playing;
+                    context.request_repaint_after(std::time::Duration::from_millis(16));
+                }
+
+                // LCD, 350 x 52, then the view tabs on the right.
+                let lcd_rect = Rect::from_center_size(
+                    egui::pos2(area.left() + 16.0 + 175.0, rect.center().y),
+                    widgets::LCD_SIZE,
+                );
+                let mut lcd_ui = ui.new_child(egui::UiBuilder::new().max_rect(lcd_rect));
+                widgets::lcd(
+                    &mut lcd_ui,
+                    self.position,
+                    self.song().tempo_map.bpm_at(self.position),
+                    self.song().time_signature,
+                );
+                let tabs_rect = Rect::from_center_size(
+                    egui::pos2(
+                        rect.right() - 16.0 - widgets::TABS_SIZE.x * 0.5,
+                        rect.center().y,
+                    ),
+                    widgets::TABS_SIZE,
+                );
+                let mut tabs_ui = ui.new_child(egui::UiBuilder::new().max_rect(tabs_rect));
+                let names = [
+                    View::Perform.label(),
+                    View::Arrange.label(),
+                    View::Mix.label(),
+                ];
+                if let Some(index) = widgets::view_tabs(&mut tabs_ui, self.view.index(), &names) {
+                    self.view = View::from_index(index);
+                }
             });
-    }
-
-    fn lcd(&self, ui: &mut egui::Ui, label: &str, value: &str) {
-        ui.vertical(|ui| {
-            ui.label(egui::RichText::new(label).size(9.0).color(theme::TEXT_DIM));
-            egui::Frame::new()
-                .fill(theme::LCD)
-                .corner_radius(theme::RADIUS_SMALL)
-                .inner_margin(egui::Margin::symmetric(8, 3))
-                .show(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new(value)
-                            .monospace()
-                            .size(16.0)
-                            .color(theme::LCD_TEXT),
-                    );
-                });
-        });
-    }
-
-    fn position_label(&self) -> String {
-        let signature = self.song().time_signature;
-        let bar = signature.bar_index_at(self.position) + 1;
-        let beat = signature.beat_in_bar(self.position);
-        let ticks = self.position.rem_euclid(signature.beat_ticks());
-        format!("{bar:>3}.{beat}.{ticks:03}")
     }
 
     fn sidebar(&mut self, context: &Context) {
@@ -340,6 +391,33 @@ impl eframe::App for ShellApp {
             context.send_viewport_cmd(ViewportCommand::Visible(true));
         }
     }
+}
+
+/// A round transport button drawn like v1's `RoundButton`.
+fn transport_button(ui: &mut egui::Ui, rect: Rect, glyph: &str, active: bool) -> bool {
+    let response = ui.interact(rect, ui.id().with(glyph), egui::Sense::click());
+    let fill = if active {
+        theme::ACCENT.gamma_multiply(0.25)
+    } else if response.hovered() {
+        theme::LINE
+    } else {
+        theme::RAISED
+    };
+    ui.painter()
+        .circle_filled(rect.center(), rect.width() * 0.5, fill);
+    ui.painter().circle_stroke(
+        rect.center(),
+        rect.width() * 0.5,
+        egui::Stroke::new(1.0_f32, if active { theme::ACCENT } else { theme::LINE }),
+    );
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        glyph,
+        egui::FontId::proportional(rect.width() * 0.32),
+        if active { theme::ACCENT } else { theme::TEXT },
+    );
+    response.clicked()
 }
 
 /// Minimal file dialog: the shell must not pull a dialog crate in prematurely.

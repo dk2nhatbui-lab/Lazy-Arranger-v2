@@ -7,5 +7,6 @@
 pub mod app;
 pub mod piano_roll;
 pub mod theme;
+pub mod widgets;
 
 pub use app::{ShellApp, demo_project, load_project};
