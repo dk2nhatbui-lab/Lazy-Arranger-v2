@@ -37,6 +37,8 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Next-chord suggestions (core) | `music-core::roman::suggest_next` | verified | functional IV/V/vi/ii and minor set |
 | 16 chord pads (diatonic, borrowed, secondary dominants) | `music-core::roman::pads` | verified | 16-pad test in C and G |
 | Pads and suggestions in the chord dialog | `apps/desktop` | implemented | buttons append to the text field; UI manual |
+| Reharmonize rules (tritone, borrowed, ii-V, relative) | `music-core::reharmonize` | verified | 5 rule tests |
+| Reharmonize dialog and bar replacement | `apps/desktop`, `Editor::reharmonize` | implemented | editor undo test; UI manual |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | — | missing | ADR-010 (Stage 8) |

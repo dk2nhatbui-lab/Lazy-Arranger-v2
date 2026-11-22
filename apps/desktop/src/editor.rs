@@ -261,6 +261,34 @@ impl Editor {
         Ok(placed.len())
     }
 
+    /// Replaces the chord at `tick` with a reharmonization over one bar.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the sequence is empty or a command is rejected.
+    pub fn reharmonize(&mut self, tick: Tick, chords: &[music_core::Chord]) -> Result<(), String> {
+        if chords.is_empty() {
+            return Err(String::from("no reharmonization chords"));
+        }
+        let bar = self.song().time_signature.bar_ticks().max(1);
+        if self.song().chords.iter().any(|event| event.tick == tick) {
+            self.session
+                .apply(Command::RemoveChord { tick })
+                .map_err(|error| error.to_string())?;
+        }
+        let step = bar / chords.len() as Tick;
+        for (index, chord) in chords.iter().enumerate() {
+            self.session
+                .apply(Command::SetChord {
+                    tick: tick + (index as Tick) * step,
+                    chord: *chord,
+                })
+                .map_err(|error| error.to_string())?;
+        }
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {
@@ -461,6 +489,39 @@ mod tests {
             .map(|event| event.chord.root.as_u8())
             .collect();
         assert_eq!(roots, vec![4, 0, 7, 2], "Em C G D");
+    }
+
+    #[test]
+    fn reharmonizing_replaces_one_chord_with_a_sequence() {
+        let mut editor = editor();
+        let two_five = music_core::reharmonize::apply(
+            music_core::Chord::parse("C").expect("valid"),
+            music_core::reharmonize::Kind::TwoFive,
+        );
+        editor.reharmonize(0, &two_five).expect("reharmonize");
+        let ticks: Vec<Tick> = editor
+            .song()
+            .chords
+            .iter()
+            .map(|event| event.tick)
+            .collect();
+        assert_eq!(ticks, vec![0, 1920]);
+        assert_eq!(
+            editor.song().chords[0]
+                .chord
+                .format(music_core::Spelling::Sharp),
+            "Dm7"
+        );
+        for _ in 0..3 {
+            let _ = editor.undo();
+        }
+        assert_eq!(editor.song().chords.len(), 1);
+        assert_eq!(
+            editor.song().chords[0]
+                .chord
+                .format(music_core::Spelling::Sharp),
+            "C"
+        );
     }
 
     #[test]

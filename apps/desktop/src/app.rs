@@ -53,6 +53,8 @@ pub struct ShellApp {
     selected_note: Option<(TrackId, NoteId)>,
     selected_clip: Option<(TrackId, project::ClipId)>,
     chord_dialog: bool,
+    chord_dialog_target: Tick,
+    reharmonize_dialog: bool,
     chord_input: String,
     key: music_core::PitchClass,
     project_path: Option<PathBuf>,
@@ -96,6 +98,8 @@ impl ShellApp {
             selected_note: None,
             selected_clip: None,
             chord_dialog: false,
+            chord_dialog_target: 0,
+            reharmonize_dialog: false,
             chord_input: String::from("Am F C G"),
             key: music_core::PitchClass::new(0),
             project_path,
@@ -254,7 +258,20 @@ impl ShellApp {
             }
         }
         if context.input(|input| input.key_pressed(egui::Key::K)) {
+            let bar = self.song().time_signature.bar_ticks().max(1);
+            self.chord_dialog_target = snap(self.position, bar);
             self.chord_dialog = true;
+        }
+        if context.input(|input| input.key_pressed(egui::Key::H))
+            && let Some(found) = self
+                .song()
+                .chords
+                .iter()
+                .filter(|event| event.tick <= self.position)
+                .max_by_key(|event| event.tick)
+        {
+            self.chord_dialog_target = found.tick;
+            self.reharmonize_dialog = true;
         }
         if save {
             let path = self
@@ -395,6 +412,50 @@ impl ShellApp {
                 });
             });
         self.chord_dialog = open && self.chord_dialog;
+    }
+
+    /// The reharmonize dialog: four rule-based proposals for the chord at the
+    /// playhead, each applied over one bar.
+    fn reharmonize_dialog(&mut self, context: &Context) {
+        if !self.reharmonize_dialog {
+            return;
+        }
+        let target = self.chord_dialog_target;
+        let Some(original) = self
+            .song()
+            .chords
+            .iter()
+            .find(|event| event.tick == target)
+            .map(|event| event.chord)
+        else {
+            self.reharmonize_dialog = false;
+            return;
+        };
+        let mut open = self.reharmonize_dialog;
+        egui::Window::new("Reharmonize")
+            .collapsible(false)
+            .open(&mut open)
+            .show(context, |ui| {
+                ui.label(format!(
+                    "{} at bar {}",
+                    original.format(music_core::Spelling::Sharp),
+                    target / 3840 + 1
+                ));
+                for (kind, chords) in music_core::reharmonize::candidates(original) {
+                    let label = chords
+                        .iter()
+                        .map(|chord| chord.format(music_core::Spelling::Sharp))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    if ui.button(format!("{}: {label}", kind.label())).clicked() {
+                        match self.editor.reharmonize(target, &chords) {
+                            Ok(()) => self.reharmonize_dialog = false,
+                            Err(error) => self.load_error = Some(error),
+                        }
+                    }
+                }
+            });
+        self.reharmonize_dialog = open && self.reharmonize_dialog;
     }
 
     /// Writes an autosave when the project is dirty and the interval elapsed.
@@ -767,6 +828,7 @@ impl eframe::App for ShellApp {
         self.run_autosave();
         self.recovery_dialog(context);
         self.chord_dialog(context);
+        self.reharmonize_dialog(context);
         self.advance(context);
         self.top_bar(context);
         self.status_bar(context);
