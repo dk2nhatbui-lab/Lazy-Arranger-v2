@@ -41,6 +41,11 @@ jobs:
       - name: Tests
         run: cargo test --workspace
 
+      - name: Documentation
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
       # The sprint exit runs here: build the four-bar phrase, schedule it on
       # the sample clock and write a standard MIDI file.
       - name: Headless demo

@@ -16,8 +16,9 @@ pub enum Spelling {
 /// One chord quality: the interval set that sits above the root.
 ///
 /// The set is the common arranger-keyboard vocabulary. It is closed on
-/// purpose: adding a quality means adding a line to [`Qualities::TABLE`] and
-/// a variant here, so parsing, display and voicing stay in lockstep.
+/// purpose: parsing, display and voicing all read one private table
+/// (`Qualities::TABLE`), so adding a quality means adding one row and one
+/// variant and they cannot drift apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ChordQuality {
     /// Major triad: 0 4 7.
