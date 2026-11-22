@@ -456,7 +456,7 @@ impl ShellApp {
         let response = ui
             .horizontal(|ui| {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 28.0), egui::Sense::hover());
-                ui.painter().rect_filled(rect, 2.0, colour);
+                ui.painter().rect_filled(rect, 0.0, colour);
                 ui.vertical(|ui| {
                     let name = if name.is_empty() { "untitled" } else { name };
                     ui.label(egui::RichText::new(name).size(12.0).color(if selected {

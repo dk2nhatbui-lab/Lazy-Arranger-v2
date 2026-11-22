@@ -70,10 +70,11 @@ pub const TRACK_COLOURS: [Color32; 7] = [
 
 /// Base spacing unit.
 pub const GRID: f32 = 4.0;
-/// Panel rounding.
-pub const RADIUS: f32 = 9.0;
-/// Small control rounding.
-pub const RADIUS_SMALL: f32 = 7.0;
+/// Panel corner radius. The owner asked for square corners, so this is 0
+/// (v1 used 9 and 7).
+pub const RADIUS: f32 = 0.0;
+/// Small control corner radius; square, like [`RADIUS`].
+pub const RADIUS_SMALL: f32 = 0.0;
 /// Top bar height.
 pub const HEADER_HEIGHT: f32 = 60.0;
 /// Status bar height.

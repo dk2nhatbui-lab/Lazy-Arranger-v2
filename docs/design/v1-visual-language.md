@@ -107,6 +107,15 @@ Remaining differences from v1 that need screenshots to settle: icon badge
 (the app icon is not copied), status pills, zoom buttons, mixer and AI buttons,
 and the record, loop and click transport buttons (not implemented yet).
 
+## Deliberate deviation: square corners
+
+The owner asked for **no rounded rectangles**. v1 used `radius` 9 for panels and
+`radiusSmall` 7 for controls; the Rust shell now uses 0 for every rounded
+rectangle: header badge, LCD bezel and glass, tab strip, selected-tab fill and
+underline, track colour swatches, and piano-roll notes. Circles are kept only
+where v1 uses actual circles (transport buttons). The app icon artwork keeps its
+own rounded shape because it is the supplied v1 art, not a UI rectangle.
+
 ## App icon
 
 The v1 icon (keyboard, wave and note blocks) is reused in the Rust shell,

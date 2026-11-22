@@ -255,11 +255,11 @@ fn draw_track(
         if !rect.intersects(note_rect) {
             continue;
         }
-        painter.rect_filled(note_rect, 2.0, fill);
+        painter.rect_filled(note_rect, 0.0, fill);
         if selected {
             painter.rect_stroke(
                 note_rect,
-                2.0,
+                0.0,
                 egui::Stroke::new(1.0_f32, theme::TEXT),
                 egui::StrokeKind::Inside,
             );

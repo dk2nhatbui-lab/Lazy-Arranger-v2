@@ -52,7 +52,7 @@ pub fn lcd(ui: &mut Ui, position: Tick, bpm: f64, meter: TimeSignature) -> Respo
     let (response, painter) = ui.allocate_painter(LCD_SIZE, Sense::hover());
     let outer = response.rect.shrink(0.5);
     let screen = outer.shrink(4.0);
-    let radius = theme::RADIUS;
+    let radius = 0.0_f32;
 
     // Bezel and its outline.
     painter.rect_filled(outer, radius, theme::LCD_BEZEL);
@@ -75,7 +75,7 @@ pub fn lcd(ui: &mut Ui, position: Tick, bpm: f64, meter: TimeSignature) -> Respo
             Pos2::new(screen.left(), screen.top() + screen.height() * from),
             Pos2::new(screen.right(), screen.top() + screen.height() * to),
         );
-        painter.rect_filled(band, radius - 2.0, colour);
+        painter.rect_filled(band, 0.0, colour);
     }
 
     // Scanlines and the top highlight, as in LcdDisplay::paint.
@@ -91,7 +91,7 @@ pub fn lcd(ui: &mut Ui, position: Tick, bpm: f64, meter: TimeSignature) -> Respo
         screen.min,
         Vec2::new(screen.width(), screen.height() * 0.40),
     );
-    painter.rect_filled(highlight, radius - 2.0, Color32::WHITE.gamma_multiply(0.11));
+    painter.rect_filled(highlight, 0.0, Color32::WHITE.gamma_multiply(0.11));
 
     // Cell separators.
     let mut x = outer.left();
@@ -144,10 +144,10 @@ pub fn lcd(ui: &mut Ui, position: Tick, bpm: f64, meter: TimeSignature) -> Respo
 pub fn view_tabs(ui: &mut Ui, current: usize, names: &[&str]) -> Option<usize> {
     let (response, painter) = ui.allocate_painter(TABS_SIZE, Sense::click());
     let rect = response.rect;
-    painter.rect_filled(rect, theme::RADIUS + 2.0, theme::LCD);
+    painter.rect_filled(rect, 0.0, theme::LCD);
     painter.rect_stroke(
         rect,
-        theme::RADIUS + 2.0,
+        0.0,
         Stroke::new(1.0_f32, theme::LINE),
         StrokeKind::Inside,
     );
@@ -198,7 +198,7 @@ pub fn view_tabs(ui: &mut Ui, current: usize, names: &[&str]) -> Option<usize> {
                 Pos2::new(tab.center().x, tab.bottom() - 7.0),
                 Vec2::new(width, 2.0),
             );
-            painter.rect_filled(underline, 1.0, theme::ACCENT);
+            painter.rect_filled(underline, 0.0, theme::ACCENT);
         }
         let colour = if index == current {
             theme::TEXT
