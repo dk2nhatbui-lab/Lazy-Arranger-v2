@@ -34,7 +34,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 25 | Music Finder JSON, CSV, MFD, playlist TSV, AI tools | partial | JSON/CSV/TSV verified; MFD missing; no AI tools or CSV→playlist writer |
 | 26 | Zoom L6max mixer page and import | missing | — |
 | 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | missing | Commands already provide single undo steps |
-| 28 | MCP server, ~90 tools | missing | Planned `mcp` crate |
+| 28 | MCP server, ~90 tools | partial | Tool registry with schemas and JSON dispatch for 6 tools (song summary, add track/notes, set chords, undo), CLI `mcp-tools`/`mcp-call`. No transport, secret handshake or remaining tools |
 | 29 | Speech in/out (Whisper, Kitten, Kokoro) | missing | — |
 | 30 | AI music tools (humanize, drumify, continue, write part, melody) | missing | — |
 | 31 | Theory: keys, roman numerals, scales, voice-leading, skill packs | partial | Chord types, transpose, chord parse; no key finding, roman analysis, voice-leading, skills |
@@ -49,7 +49,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections: 0 fully verified beyond their Rust subset, 18 partial, 21 missing.
+39 sections: 0 fully verified beyond their Rust subset, 19 partial, 20 missing.
 The partials with the most depth are styles (open, import, compile, SFF1 write),
 audio-to-MIDI, Music Finder/playlists, project files and the window shell.
 

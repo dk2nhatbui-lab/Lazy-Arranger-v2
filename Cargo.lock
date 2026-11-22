@@ -1466,11 +1466,13 @@ dependencies = [
  "arranger",
  "audio",
  "clap",
+ "mcp",
  "midi-devices",
  "music-core",
  "performance",
  "project",
  "sequencer",
+ "serde_json",
  "smf",
  "style-formats",
 ]
@@ -1581,6 +1583,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62bb907fe88d54d8d9ce32a3cceab4218ed2f6b7d35617cafe9adf84e43919cb"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "mcp"
+version = "0.1.0"
+dependencies = [
+ "app-commands",
+ "music-core",
+ "project",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

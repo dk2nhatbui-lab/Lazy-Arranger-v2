@@ -126,6 +126,22 @@ enum Commands {
         #[arg(long)]
         rules: bool,
     },
+    /// Print the assistant tool list as JSON.
+    McpTools {},
+    /// Call one assistant tool on a project and print the JSON result.
+    McpCall {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Tool name.
+        #[arg(long)]
+        tool: String,
+        /// JSON arguments object.
+        #[arg(long, default_value = "{}")]
+        args: String,
+        /// Write the result back to the project.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Write a style container back to disk (MIDI song plus CASM).
     StyleSave {
         /// Style file to read.
@@ -276,6 +292,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             chords,
             add_tracks,
         } => edit(&project, &out, tempo, &chords, &add_tracks),
+        Commands::McpTools {} => {
+            println!("{}", serde_json::to_string_pretty(&mcp::tool_list_json())?);
+            Ok(())
+        }
+        Commands::McpCall {
+            project,
+            tool,
+            args,
+            out,
+        } => mcp_call(&project, &tool, &args, out.as_ref()),
         Commands::StyleSave {
             style,
             out,
@@ -673,6 +699,27 @@ fn edit(
         out.display(),
         session.undo_depth()
     );
+    Ok(())
+}
+
+fn mcp_call(
+    project: &PathBuf,
+    tool: &str,
+    args: &str,
+    out: Option<&PathBuf>,
+) -> Result<(), Box<dyn Error>> {
+    let project = read_project(project)?;
+    let mut session = mcp::session(project)?;
+    let arguments: serde_json::Value =
+        serde_json::from_str(args).map_err(|error| format!("--args is not JSON: {error}"))?;
+    let result = mcp::call(&mut session, tool, &arguments)?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    if let Some(path) = out {
+        let json = session.project().to_json_pretty()?;
+        fs::write(path, json)
+            .map_err(|error| format!("could not write {}: {error}", path.display()))?;
+        eprintln!("wrote {}", path.display());
+    }
     Ok(())
 }
 
