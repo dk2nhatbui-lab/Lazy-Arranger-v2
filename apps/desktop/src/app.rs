@@ -9,6 +9,7 @@ use project::song::{Note, ProjectFile, Song, Track};
 use project::{NoteId, ProjectError, TrackId};
 
 use crate::editor::{Editor, snap};
+use crate::persistence::{self, Autosave};
 
 use crate::piano_roll::{self, RollState};
 use crate::theme;
@@ -57,6 +58,8 @@ pub struct ShellApp {
     position: Tick,
     icon: egui::TextureHandle,
     player: Option<audio::player::Player>,
+    autosave: Autosave,
+    recovery: Option<std::path::PathBuf>,
     shown: bool,
     load_error: Option<String>,
 }
@@ -81,6 +84,11 @@ impl ShellApp {
             editor,
             icon,
             player: None,
+            autosave: Autosave::new(std::time::Duration::from_secs(10)),
+            recovery: project_path
+                .as_ref()
+                .filter(|path| persistence::recovery_available(path))
+                .map(|path| persistence::autosave_path(path)),
             selected_note: None,
             project_path,
             view: View::Arrange,
@@ -153,7 +161,9 @@ impl ShellApp {
             if let Err(error) = self.editor.save(&path) {
                 self.load_error = Some(error);
             } else {
+                let _ = std::fs::remove_file(persistence::autosave_path(&path));
                 self.project_path = Some(path);
+                self.recovery = None;
             }
         }
     }
@@ -181,6 +191,61 @@ impl ShellApp {
             self.playing = false;
         }
         context.request_repaint_after(Duration::from_millis(16));
+    }
+
+    /// Writes an autosave when the project is dirty and the interval elapsed.
+    fn run_autosave(&mut self) {
+        if !self.editor.dirty() {
+            return;
+        }
+        let Some(path) = self.project_path.clone() else {
+            return;
+        };
+        let Ok(json) = self.editor.project().to_json_pretty() else {
+            return;
+        };
+        let _ = self.autosave.maybe_save(Some(&path), true, &json);
+    }
+
+    /// Offers to restore an autosave that is newer than the project.
+    fn recovery_dialog(&mut self, context: &Context) {
+        let Some(autosave) = self.recovery.clone() else {
+            return;
+        };
+        let mut open = true;
+        egui::Window::new("Recovered edits found")
+            .collapsible(false)
+            .open(&mut open)
+            .show(context, |ui| {
+                ui.label(format!("{} is newer than the project.", autosave.display()));
+                ui.horizontal(|ui| {
+                    if ui.button("Restore").clicked() {
+                        match load_project(&autosave) {
+                            Ok(project) => match Editor::new(project) {
+                                Ok(editor) => {
+                                    self.editor = editor;
+                                    let original = self
+                                        .project_path
+                                        .clone()
+                                        .unwrap_or_else(|| autosave.clone());
+                                    self.project_path = Some(original);
+                                    let _ = std::fs::remove_file(&autosave);
+                                    self.recovery = None;
+                                }
+                                Err(error) => self.load_error = Some(error.to_string()),
+                            },
+                            Err(error) => self.load_error = Some(error.to_string()),
+                        }
+                    }
+                    if ui.button("Discard").clicked() {
+                        let _ = std::fs::remove_file(&autosave);
+                        self.recovery = None;
+                    }
+                });
+            });
+        if !open {
+            self.recovery = None;
+        }
     }
 
     /// Starts, pauses or resumes the audio stream.
@@ -495,6 +560,8 @@ impl eframe::App for ShellApp {
             context.set_style(style);
         }
         self.handle_keys(context);
+        self.run_autosave();
+        self.recovery_dialog(context);
         self.advance(context);
         self.top_bar(context);
         self.status_bar(context);
