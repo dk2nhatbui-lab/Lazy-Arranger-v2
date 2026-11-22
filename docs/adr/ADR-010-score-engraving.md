@@ -107,6 +107,8 @@ measure width. It has no toolkit dependency and makes no rendering decisions.
 
 The egui canvas adapter now exists: it draws staff lines, barlines and noteheads from the layout, with page navigation and zoom.
 
-Still missing: PDF export, spelling and accidentals,
+The PDF adapter now exists: a dependency-free PDF 1.4 writer draws staff lines, barlines, stems and noteheads, with accidentals as paths because base-14 fonts lack music glyphs. `pdfinfo` reads a three-page A4 export.
+
+Still missing: spelling and accidentals,
 clefs and staves beyond one, beams, ties, collisions, lyrics, marks, editing
 and the two-page validation score from the acceptance list.

@@ -6,6 +6,7 @@
 //! fixed measure widths; spelling, beams, ties, collisions, lyrics and marks
 //! come later.
 
+pub mod pdf;
 pub mod spelling;
 
 use music_core::{Pitch, Tick};

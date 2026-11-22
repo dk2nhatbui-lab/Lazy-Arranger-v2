@@ -162,6 +162,20 @@ enum Commands {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Write a track's score as a PDF.
+    ScorePdf {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Output `.pdf` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Track index, from zero; defaults to the first track.
+        #[arg(long, default_value_t = 0)]
+        track: usize,
+        /// Score title; defaults to the song name.
+        #[arg(long)]
+        title: Option<String>,
+    },
     /// Lay out a track as score pages and report the geometry.
     ScoreLayout {
         /// Project `.json` path.
@@ -528,6 +542,32 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                     .map_err(|error| format!("could not write {}: {error}", path.display()))?;
                 println!("{} chord(s) -> {}", chords.len(), path.display());
             }
+            Ok(())
+        }
+        Commands::ScorePdf {
+            project,
+            out,
+            track,
+            title,
+        } => {
+            let project = read_project(&project)?;
+            let Some(entry) = project.song.tracks.get(track) else {
+                return Err(format!("no track at index {track}").into());
+            };
+            let settings = score::Settings::default();
+            let engraved = score::engrave(&project.song, entry.id, settings);
+            let score_title = title.unwrap_or_else(|| project.song.name.clone());
+            let pdf = score::pdf::to_pdf(&engraved, settings, &score_title);
+            fs::write(&out, &pdf)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!(
+                "wrote {}: {} page(s), {} system(s), {} note(s), {} byte(s)",
+                out.display(),
+                engraved.pages.len(),
+                engraved.systems(),
+                engraved.notes.len(),
+                pdf.len()
+            );
             Ok(())
         }
         Commands::ScoreLayout { project, track } => {

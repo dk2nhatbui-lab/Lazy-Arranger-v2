@@ -53,6 +53,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Score layout engine (pages, systems, measures, positioned notes) | `crates/score` | verified core | 4 tests + real project layout |
 | Score canvas renderer (staff, barlines, noteheads, page nav, zoom) | `apps/desktop/src/score_view.rs` | implemented | geometry tests; UI manual |
 | Key detection, spelling and accidentals | `score::spelling` | verified | 6 tests: scales, chromatic, signatures, flat keys, key detection |
+| Vector PDF score export | `score::pdf`, CLI `score-pdf` | verified | pdfinfo: 3 pages A4, title/page text extractable; xref test |
 | PSR-S970 keyboard song export (setup bar, voices, chords, drums ch10) | `smf::export_keyboard` | implemented | 3 tests; real project 94 notes, 5 tracks; programs from profile name matching |
 | Style Remote, style-by-number, keyboard acceptance | — | missing | no hardware test |
 | Transitions: drum fill, lead-in, automatic | `arranging::forms::transition` | verified | 4 tests incl. apply/undo; T key |

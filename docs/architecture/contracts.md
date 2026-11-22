@@ -612,3 +612,11 @@ at 90% gain under the synth, and returns any file it could not read. Both the
 export and cpal paths call it; the render buffer grows to cover audio that
 ends after the last note. There is still no waveform, recording, trimming,
 fades or stretching.
+
+### Score PDF
+
+`score::pdf::to_pdf` writes PDF 1.4 from the same `Engraved` layout the canvas
+uses: A4 pages, Helvetica for title and page numbers, stroked staff lines,
+barlines and stems, filled-circle noteheads, and accidentals drawn as vector
+paths (base-14 fonts have no printable sharp or flat). It has no crate
+dependency and no print dialog; `score-pdf` writes the file.
