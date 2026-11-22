@@ -11,7 +11,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 2 | Window: header, views, inspector, mixer panel, AI panel, light theme, zoom | partial | Header, LCD, tabs, track list, dark theme, square corners. No inspector, mixer/AI panels, light theme; zoom is wheel-only |
 | 3 | Tracks: MIDI/audio, outputs, channel, sound, rename/duplicate/mute/solo/arm, inputs, reset | partial | MIDI tracks in the model; no add/duplicate/mute/solo UI, no audio tracks, no outputs or SoundFont |
 | 4 | Transport: play/stop, start, record, loop, metronome, ruler, tempo/meter edit, MIDI record, all-notes-off, auto inputs | partial | Audio play/pause/stop with silence on stop; no record, loop, metronome, ruler, tempo edit, quantise, auto inputs |
-| 5 | Timeline clips | partial | Clip regions in schema v3 with migration, membership, split and overlap validation. No add/move/resize UI, join, snap, chord lane or lyrics |
+| 5 | Timeline clips | partial | Clip regions in schema v3, migration, and undoable insert/move/resize/split/remove commands with overlap rejection. No UI, join, snap, chord lane or lyrics |
 | 6 | Note editor: add/select/move/resize/delete, arrows, velocity lane, grid, quantise, piano keys, select all | partial | Click insert, select, delete, undo/redo, save. No drag-move, resize, velocity lane, quantise, piano keys, copy/paste |
 | 7 | Cut/copy/paste in every view | missing | — |
 | 8 | Audio tracks: waveforms, record, monitor, trim, fades, takes, stretch, convert to MIDI | missing | — (only offline WAV render) |

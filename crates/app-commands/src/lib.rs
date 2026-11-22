@@ -12,7 +12,7 @@
 
 use music_core::{Channel, Chord, Pitch, TempoMap, Tick, Velocity};
 use project::provenance;
-use project::song::{ChordEvent, Note, Song, Track};
+use project::song::{ChordEvent, Clip, Note, Song, Track};
 use project::{NoteId, ProjectError, ProjectFile, Severity, TrackId};
 use thiserror::Error;
 
@@ -69,6 +69,13 @@ pub enum Command {
         /// The track.
         track: TrackId,
     },
+    /// Replace every clip region of a track.
+    SetClips {
+        /// The track.
+        track: TrackId,
+        /// The new clip list; validation rejects overlaps and bad ranges.
+        clips: Vec<Clip>,
+    },
     /// Replace every note of a track, keeping the track itself.
     ReplaceTrackNotes {
         /// The track.
@@ -106,6 +113,7 @@ impl Command {
             Self::RenameTrack { .. } => "rename track",
             Self::InsertTrack { .. } => "insert track",
             Self::RemoveTrack { .. } => "remove track",
+            Self::SetClips { .. } => "set clips",
             Self::ReplaceTrackNotes { .. } => "replace track notes",
             Self::SetProvenance { .. } => "set provenance",
             Self::ReplaceTempoMap { .. } => "restore tempo map",
@@ -311,6 +319,118 @@ impl EditSession {
             .map_err(|err| CommandError::Validation(err.to_string()))
     }
 
+    /// Adds a clip region to a track.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] when the track is unknown or the result is invalid.
+    pub fn insert_clip(
+        &mut self,
+        track: TrackId,
+        clip: Clip,
+    ) -> Result<CommandOutcome, CommandError> {
+        let mut clips = self.track(track)?.clips.clone();
+        clips.push(clip);
+        clips.sort_by_key(|clip| clip.start);
+        self.apply(Command::SetClips { track, clips })
+    }
+
+    /// Removes a clip region by identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] when the track or clip is unknown.
+    pub fn remove_clip(
+        &mut self,
+        track: TrackId,
+        clip: project::ClipId,
+    ) -> Result<CommandOutcome, CommandError> {
+        let mut clips = self.track(track)?.clips.clone();
+        let before = clips.len();
+        clips.retain(|candidate| candidate.id != clip);
+        if clips.len() == before {
+            return Err(CommandError::Validation(format!("unknown clip {clip}")));
+        }
+        self.apply(Command::SetClips { track, clips })
+    }
+
+    /// Moves a clip region to a new start tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] when the track or clip is unknown or the result overlaps.
+    pub fn move_clip(
+        &mut self,
+        track: TrackId,
+        clip: project::ClipId,
+        start: Tick,
+    ) -> Result<CommandOutcome, CommandError> {
+        let mut clips = self.track(track)?.clips.clone();
+        let Some(found) = clips.iter_mut().find(|candidate| candidate.id == clip) else {
+            return Err(CommandError::Validation(format!("unknown clip {clip}")));
+        };
+        found.start = start;
+        clips.sort_by_key(|clip| clip.start);
+        self.apply(Command::SetClips { track, clips })
+    }
+
+    /// Changes a clip region's length.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] when the track or clip is unknown or the length is not positive.
+    pub fn resize_clip(
+        &mut self,
+        track: TrackId,
+        clip: project::ClipId,
+        length: Tick,
+    ) -> Result<CommandOutcome, CommandError> {
+        if length <= 0 {
+            return Err(CommandError::Validation(String::from(
+                "a clip length must be positive",
+            )));
+        }
+        let mut clips = self.track(track)?.clips.clone();
+        let Some(found) = clips.iter_mut().find(|candidate| candidate.id == clip) else {
+            return Err(CommandError::Validation(format!("unknown clip {clip}")));
+        };
+        found.length = length;
+        self.apply(Command::SetClips { track, clips })
+    }
+
+    /// Splits the clip containing `tick` into two.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] when the track or clip is unknown or the split is empty.
+    pub fn split_clip(
+        &mut self,
+        track: TrackId,
+        tick: Tick,
+        new_id: project::ClipId,
+    ) -> Result<CommandOutcome, CommandError> {
+        let mut clips = self.track(track)?.clips.clone();
+        let Some(index) = clips.iter().position(|clip| clip.contains(tick)) else {
+            return Err(CommandError::Validation(String::from(
+                "no clip contains that tick",
+            )));
+        };
+        let original = clips[index].clone();
+        if tick == original.start {
+            return Err(CommandError::Validation(String::from("the split is empty")));
+        }
+        clips[index].length = tick - original.start;
+        let mut right = original;
+        right.id = new_id;
+        right.start = tick;
+        right.length = right.end() - tick;
+        if right.length <= 0 {
+            return Err(CommandError::Validation(String::from("the split is empty")));
+        }
+        clips.insert(index + 1, right);
+        self.apply(Command::SetClips { track, clips })
+    }
+
     /// Allocates the next free track identifier.
     ///
     /// # Errors
@@ -444,6 +564,10 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::SetClips { track, .. } => Command::SetClips {
+                track: *track,
+                clips: self.track(*track)?.clips.clone(),
+            },
             Command::ReplaceTrackNotes { track, .. } => Command::ReplaceTrackNotes {
                 track: *track,
                 notes: self.track(*track)?.notes.clone(),
@@ -543,6 +667,9 @@ impl EditSession {
                 };
                 self.project.song.tempo_map = next;
             }
+            Command::SetClips { track, clips } => {
+                self.track_mut(*track)?.clips = clips.clone();
+            }
             Command::ReplaceTrackNotes { track, notes } => {
                 self.track_mut(*track)?.notes = notes.clone();
             }
@@ -581,6 +708,9 @@ fn describe(command: &Command) -> String {
         Command::RenameTrack { track, name } => format!("rename track {track} to {name:?}"),
         Command::InsertTrack { track } => format!("insert track {} ({})", track.id, track.name),
         Command::RemoveTrack { track } => format!("remove track {track}"),
+        Command::SetClips { track, clips } => {
+            format!("set {} clip(s) on track {track}", clips.len())
+        }
         Command::ReplaceTrackNotes { track, notes } => {
             format!("replace {} note(s) on track {track}", notes.len())
         }
@@ -904,6 +1034,66 @@ mod tests {
             }
         );
         assert_eq!(edit.song().tracks[0].notes.len(), 1);
+    }
+
+    fn clip(id: u32, start: Tick, length: Tick) -> Clip {
+        Clip {
+            id: project::ClipId::new(id).expect("valid"),
+            name: format!("Clip {id}"),
+            start,
+            length,
+        }
+    }
+
+    #[test]
+    fn clip_commands_round_trip_through_undo() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.insert_clip(track, clip(1, 0, 1920)).expect("insert");
+        assert_eq!(edit.song().tracks[0].clips.len(), 1);
+
+        edit.move_clip(track, project::ClipId::new(1).expect("valid"), 960)
+            .expect("move");
+        assert_eq!(edit.song().tracks[0].clips[0].start, 960);
+
+        edit.resize_clip(track, project::ClipId::new(1).expect("valid"), 480)
+            .expect("resize");
+        assert_eq!(edit.song().tracks[0].clips[0].length, 480);
+
+        edit.split_clip(track, 1200, project::ClipId::new(2).expect("valid"))
+            .expect("split");
+        assert_eq!(edit.song().tracks[0].clips.len(), 2);
+
+        edit.remove_clip(track, project::ClipId::new(2).expect("valid"))
+            .expect("remove");
+        assert_eq!(edit.song().tracks[0].clips.len(), 1);
+
+        for _ in 0..5 {
+            edit.undo().expect("undo");
+        }
+        assert!(edit.song().tracks[0].clips.is_empty());
+    }
+
+    #[test]
+    fn clip_commands_reject_bad_edits() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.insert_clip(track, clip(1, 0, 1920)).expect("insert");
+        assert!(
+            edit.resize_clip(track, project::ClipId::new(1).expect("valid"), 0)
+                .is_err()
+        );
+        assert!(
+            edit.split_clip(track, 0, project::ClipId::new(2).expect("valid"))
+                .is_err()
+        );
+        assert!(
+            edit.remove_clip(track, project::ClipId::new(9).expect("valid"))
+                .is_err()
+        );
+        edit.insert_clip(track, clip(2, 1000, 100))
+            .expect_err("overlap");
+        assert_eq!(edit.song().tracks[0].clips.len(), 1);
     }
 
     #[test]
