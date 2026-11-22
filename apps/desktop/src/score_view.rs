@@ -85,6 +85,20 @@ pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) {
             let x = origin.x + note.x * zoom;
             let y = origin.y + note.y * zoom;
             let radius = 0.58 * settings.staff_space * zoom;
+            if let Some(alter) = note.spelled.accidental {
+                let glyph = match alter {
+                    1 => "\u{266F}",
+                    -1 => "\u{266D}",
+                    _ => "\u{266E}",
+                };
+                painter.text(
+                    Pos2::new(x - radius * 2.4, y),
+                    egui::Align2::CENTER_CENTER,
+                    glyph,
+                    egui::FontId::proportional(radius * 2.2),
+                    Color32::from_rgb(0x14, 0x14, 0x14),
+                );
+            }
             painter.circle_filled(Pos2::new(x, y), radius, Color32::from_rgb(0x14, 0x14, 0x14));
             painter.line_segment(
                 [

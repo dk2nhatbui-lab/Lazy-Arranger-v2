@@ -6,6 +6,8 @@
 //! fixed measure widths; spelling, beams, ties, collisions, lyrics and marks
 //! come later.
 
+pub mod spelling;
+
 use music_core::{Pitch, Tick};
 use project::TrackId;
 use project::song::Song;
@@ -58,6 +60,8 @@ pub struct PlacedNote {
     pub page: usize,
     /// Measure index, from zero.
     pub measure: usize,
+    /// Letter, alteration, octave and any accidental to print.
+    pub spelled: spelling::Spelled,
 }
 
 /// One measure.
@@ -104,6 +108,8 @@ pub struct Engraved {
     pub track: TrackId,
     /// Total measures.
     pub measures: usize,
+    /// Detected key, from the chords or the notes.
+    pub key: spelling::Key,
 }
 
 impl Engraved {
@@ -128,6 +134,7 @@ pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
         .max(1.0) as usize;
     let per_page = (content_height / settings.system_gap).floor().max(1.0) as usize;
 
+    let key = spelling::detect_key(song);
     let mut pages = Vec::new();
     let mut notes = Vec::new();
     let source = song.tracks.iter().find(|entry| entry.id == track);
@@ -158,10 +165,14 @@ pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
                     x_end: x + width,
                 };
                 if let Some(track) = source {
-                    for note in &track.notes {
-                        if note.start < start || note.start >= start + bar {
-                            continue;
-                        }
+                    let mut state = key.signature();
+                    let mut in_measure: Vec<&project::song::Note> = track
+                        .notes
+                        .iter()
+                        .filter(|note| note.start >= start && note.start < start + bar)
+                        .collect();
+                    in_measure.sort_by_key(|note| note.start);
+                    for note in in_measure {
                         let offset = f32::from(i16::try_from(note.start - start).unwrap_or(0))
                             / bar as f32
                             * width;
@@ -172,6 +183,7 @@ pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
                             y: 0.0,
                             page: page_index,
                             measure: measure_index,
+                            spelled: spelling::spell(note.pitch, key, &mut state),
                         });
                     }
                 }
@@ -217,6 +229,7 @@ pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
         notes,
         track,
         measures: measure_count,
+        key,
     }
 }
 
@@ -322,6 +335,22 @@ mod tests {
                 .expect("measure");
             assert!(note.x >= measure.x && note.x <= measure.x_end);
         }
+    }
+
+    #[test]
+    fn chromatic_notes_carry_accidentals_and_the_key_is_reported() {
+        let mut score = song(1);
+        score.chords.push(project::song::ChordEvent {
+            tick: 0,
+            chord: music_core::Chord::parse("C").expect("valid"),
+        });
+        score.tracks[0].notes[0].pitch = MCNotePitch::from_name("C#4").expect("valid");
+        let engraved = engrave(&score, TrackId::new(1).expect("valid"), Settings::default());
+        let note = &engraved.notes[0];
+        assert_eq!(note.spelled.step, 0);
+        assert_eq!(note.spelled.alter, 1);
+        assert_eq!(note.spelled.accidental, Some(1));
+        assert_eq!(engraved.key.tonic.as_u8(), 0);
     }
 
     #[test]
