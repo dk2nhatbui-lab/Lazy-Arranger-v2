@@ -29,6 +29,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Style writer: full container (MIDI + CASM) | `style-formats::write_style`, `style-save` | implemented | rewrote a real 15-section style (19,346 bytes) and re-read it |
 | Style writer: voices, setup events, keyboard acceptance | — | missing | no PSR-S970 test; voices not written |
 | Clip regions (schema v3, migration, split, validation) | `project::song::Clip` | verified | migration and split tests |
+| Recent projects list (10 entries, missing dropped, clear) | `project::recent`, shell sidebar, CLI `recent` | verified | 3 tests + CLI run |
 | Clip edit commands (insert, move, resize, split, remove) | `app-commands::EditSession` | verified | one undo step each; overlap rejected |
 | Clip lane: draw, select, arrow-move, shift+arrow resize, J join, N add, Delete remove | `apps/desktop` | implemented | geometry test; UI manual |
 | Clip join command | `app-commands::join_clips` | verified | spans both, one undo step |

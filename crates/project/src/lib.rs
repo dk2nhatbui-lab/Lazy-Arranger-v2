@@ -25,6 +25,7 @@
 pub mod ids;
 pub mod legacy;
 pub mod provenance;
+pub mod recent;
 pub mod song;
 pub mod validate;
 

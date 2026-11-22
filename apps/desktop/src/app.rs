@@ -82,6 +82,8 @@ pub struct ShellApp {
     beat_bar: Tick,
     beat_pattern: arranging::beat::BeatPattern,
     launcher: arranging::grid::Launcher,
+    recent: Vec<std::path::PathBuf>,
+    recent_file: std::path::PathBuf,
     rename_scene: Option<usize>,
     rename_scene_input: String,
     last_bar: i64,
@@ -141,6 +143,8 @@ impl ShellApp {
             beat_bar: 3840,
             beat_pattern: arranging::beat::BeatPattern::default(),
             launcher: arranging::grid::Launcher::default(),
+            recent_file: std::path::PathBuf::from("recent-projects.txt"),
+            recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
             rename_scene: None,
             rename_scene_input: String::new(),
             last_bar: 0,
@@ -381,6 +385,8 @@ impl ShellApp {
                 self.load_error = Some(error);
             } else {
                 let _ = std::fs::remove_file(persistence::autosave_path(&path));
+                self.recent = project::recent::record(&self.recent_file, &path)
+                    .unwrap_or_else(|_| self.recent.clone());
                 self.project_path = Some(path);
                 self.recovery = None;
             }
@@ -1033,6 +1039,28 @@ impl ShellApp {
                     ui.label(egui::RichText::new("no tracks").color(theme::TEXT_DIM));
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                    if !self.recent.is_empty() {
+                        ui.label(
+                            egui::RichText::new("RECENT")
+                                .size(9.0)
+                                .color(theme::TEXT_DIM),
+                        );
+                        let entries = self.recent.clone();
+                        for entry in entries {
+                            let label = entry
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or("project")
+                                .to_string();
+                            if ui
+                                .button(label)
+                                .on_hover_text(entry.display().to_string())
+                                .clicked()
+                            {
+                                self.open(&entry);
+                            }
+                        }
+                    }
                     if ui.button("Open project…").clicked()
                         && let Some(path) = rfd_pick()
                     {
@@ -1159,6 +1187,8 @@ impl ShellApp {
                 }
                 self.selected_note = None;
                 self.project_path = Some(path.clone());
+                self.recent = project::recent::record(&self.recent_file, path)
+                    .unwrap_or_else(|_| self.recent.clone());
                 self.position = 0;
                 self.playing = false;
                 self.load_error = None;

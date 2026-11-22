@@ -168,6 +168,18 @@ enum Commands {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Manage the recent-projects list.
+    Recent {
+        /// List file path.
+        #[arg(long, default_value = "recent-projects.txt")]
+        file: PathBuf,
+        /// Add a project to the front of the list.
+        #[arg(long)]
+        record: Option<PathBuf>,
+        /// Clear the list.
+        #[arg(long)]
+        clear: bool,
+    },
     /// Read a Yamaha Music Finder `.mfd` file and write a book.
     MusicFinderImport {
         /// Source `.mfd` file.
@@ -497,6 +509,26 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 project.song.tracks.len(),
                 out.display()
             );
+            Ok(())
+        }
+        Commands::Recent {
+            file,
+            record,
+            clear,
+        } => {
+            if clear {
+                project::recent::clear(&file)?;
+            }
+            if let Some(project) = record {
+                project::recent::record(&file, &project)?;
+            }
+            let entries = project::recent::read(&file);
+            if entries.is_empty() {
+                println!("no recent projects");
+            }
+            for (index, entry) in entries.iter().enumerate() {
+                println!("{:>2}. {}", index + 1, entry.display());
+            }
             Ok(())
         }
         Commands::MusicFinderImport { mfd, out } => {
