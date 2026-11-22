@@ -9,6 +9,7 @@
 pub mod beat;
 pub mod chords;
 pub mod forms;
+pub mod grid;
 pub mod groove;
 
 use std::collections::BTreeMap;

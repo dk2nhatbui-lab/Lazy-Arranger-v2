@@ -107,6 +107,15 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "get_clip_grid",
+            description: "Return the clip grid: scenes of N bars (default 2) and a slot per track.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"bars": {"type": "integer"}},
+                "required": []
+            }),
+        },
+        Tool {
             name: "find_chords",
             description: "Recognize a chord per bar from the notes and write the chord timeline.",
             input_schema: json!({"type": "object", "properties": {}}),
@@ -243,6 +252,31 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             }
             session.apply(Command::SetTrackProgram { track, program })?;
             Ok(json!({"track": track.get(), "program": program}))
+        }
+        "get_clip_grid" => {
+            let bars = arguments
+                .get("bars")
+                .and_then(Value::as_u64)
+                .unwrap_or(2)
+                .max(1);
+            let grid =
+                arranging::grid::from_timeline(session.song(), usize::try_from(bars).unwrap_or(1));
+            let scenes: Vec<Value> = grid
+                .rows
+                .iter()
+                .map(|row| {
+                    json!({
+                        "name": row.scene.name,
+                        "start": row.scene.start,
+                        "length": row.scene.length,
+                        "slots": row.slots.iter().map(|slot| slot.clip.map(|clip| clip.get())).collect::<Vec<_>>(),
+                    })
+                })
+                .collect();
+            Ok(json!({
+                "tracks": grid.tracks.iter().map(|track| track.get()).collect::<Vec<_>>(),
+                "scenes": scenes,
+            }))
         }
         "find_chords" => Ok(json!({"chords": arranging::chords::find_chords(session)?})),
         "arrangement_doctor" => {
@@ -865,6 +899,26 @@ mod arranging_tool_tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn the_clip_grid_is_reported() {
+        let mut session = session();
+        session
+            .apply(Command::SetClips {
+                track: TrackId::new(1).expect("valid"),
+                clips: vec![project::song::Clip {
+                    id: project::ClipId::new(1).expect("valid"),
+                    name: String::from("A"),
+                    start: 0,
+                    length: 3840,
+                }],
+            })
+            .expect("clips");
+        let result = call(&mut session, "get_clip_grid", &json!({"bars": 1})).expect("grid");
+        assert_eq!(result["scenes"].as_array().expect("scenes").len(), 1);
+        assert_eq!(result["scenes"][0]["slots"][0], 1);
+        assert_eq!(result["tracks"].as_array().expect("tracks").len(), 2);
     }
 
     #[test]
