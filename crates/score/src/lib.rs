@@ -51,6 +51,8 @@ impl Default for Settings {
 pub struct PlacedNote {
     /// Tick of the note.
     pub tick: Tick,
+    /// Duration in ticks.
+    pub duration: Tick,
     /// MIDI pitch.
     pub pitch: Pitch,
     /// Horizontal position.
@@ -63,6 +65,25 @@ pub struct PlacedNote {
     pub measure: usize,
     /// Letter, alteration, octave and any accidental to print.
     pub spelled: spelling::Spelled,
+    /// True when this note starts a tie into the next one.
+    pub tie_start: bool,
+    /// True when this note continues a tie: no notehead is drawn.
+    pub tied: bool,
+}
+
+/// One lyric syllable placed under a note.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lyric {
+    /// Tick of the note it belongs to.
+    pub tick: Tick,
+    /// The syllable.
+    pub text: String,
+    /// Horizontal position.
+    pub x: f32,
+    /// Vertical position (below the staff).
+    pub y: f32,
+    /// Page holding it.
+    pub page: usize,
 }
 
 /// One measure.
@@ -111,6 +132,8 @@ pub struct Engraved {
     pub measures: usize,
     /// Detected key, from the chords or the notes.
     pub key: spelling::Key,
+    /// Lyrics, one syllable per placed note.
+    pub lyrics: Vec<Lyric>,
 }
 
 impl Engraved {
@@ -121,9 +144,15 @@ impl Engraved {
     }
 }
 
-/// Lays out one track as a scored document.
+/// Lays out one track as a scored document without lyrics.
 #[must_use]
 pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
+    engrave_with(song, track, settings, &[])
+}
+
+/// Lays out one track, placing one lyric syllable per note.
+#[must_use]
+pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&str]) -> Engraved {
     let bar = song.time_signature.bar_ticks().max(1);
     let end = song.end_tick().max(bar);
     let measure_count = usize::try_from((end + bar - 1) / bar).unwrap_or(1);
@@ -137,7 +166,11 @@ pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
 
     let key = spelling::detect_key(song);
     let mut pages = Vec::new();
-    let mut notes = Vec::new();
+    let mut notes: Vec<PlacedNote> = Vec::new();
+    let mut placed_lyrics: Vec<Lyric> = Vec::new();
+    let mut lyric_index = 0;
+    let mut open_ties: std::collections::BTreeMap<u8, (usize, Tick)> =
+        std::collections::BTreeMap::new();
     let source = song.tracks.iter().find(|entry| entry.id == track);
     let mut measure_index = 0;
     while measure_index < measure_count {
@@ -177,15 +210,42 @@ pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
                         let offset = f32::from(i16::try_from(note.start - start).unwrap_or(0))
                             / bar as f32
                             * width;
+                        let tie_start = false;
+                        let mut tied = false;
+                        if let Some((index, end)) = open_ties.get(&note.pitch.as_u8())
+                            && *end == note.start
+                        {
+                            notes[*index].tie_start = true;
+                            tied = true;
+                        }
+                        let note_x = x + offset;
                         notes.push(PlacedNote {
                             tick: note.start,
+                            duration: note.duration,
                             pitch: note.pitch,
-                            x: x + offset,
+                            x: note_x,
                             y: 0.0,
                             page: page_index,
                             measure: measure_index,
                             spelled: spelling::spell(note.pitch, key, &mut state),
+                            tie_start,
+                            tied,
                         });
+                        let pushed = notes.len() - 1;
+                        open_ties.insert(
+                            note.pitch.as_u8(),
+                            (pushed, note.start.saturating_add(note.duration)),
+                        );
+                        if let Some(text) = lyrics.get(lyric_index).copied() {
+                            lyric_index += 1;
+                            placed_lyrics.push(Lyric {
+                                tick: note.start,
+                                text: text.to_string(),
+                                x: note_x,
+                                y: 0.0,
+                                page: page_index,
+                            });
+                        }
                     }
                 }
                 x = measure.x_end + settings.measure_gap;
@@ -211,6 +271,17 @@ pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
             system.page = page_index;
         }
     }
+    for lyric in &mut placed_lyrics {
+        if let Some(system) = pages.get(lyric.page).and_then(|page| {
+            page.systems.iter().find(|system| {
+                system.measures.iter().any(|measure| {
+                    lyric.tick >= measure.start && lyric.tick < measure.start + measure.length
+                })
+            })
+        }) {
+            lyric.y = system.y + 4.0 * settings.staff_space + 12.0;
+        }
+    }
     for note in &mut notes {
         let system = pages.get(note.page).and_then(|page| {
             page.systems.iter().find(|system| {
@@ -231,6 +302,7 @@ pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
         track,
         measures: measure_count,
         key,
+        lyrics: placed_lyrics,
     }
 }
 
@@ -336,6 +408,76 @@ mod tests {
                 .expect("measure");
             assert!(note.x >= measure.x && note.x <= measure.x_end);
         }
+    }
+
+    #[test]
+    fn touching_notes_of_one_pitch_are_tied() {
+        let mut score = song(1);
+        score.tracks[0].notes[0].start = 0;
+        score.tracks[0].notes[0].duration = 960;
+        let mut second = score.tracks[0].notes[0].clone();
+        second.id = NoteId::new(99).expect("valid");
+        second.start = 960;
+        score.tracks[0].notes.push(second);
+        let engraved = engrave(&score, TrackId::new(1).expect("valid"), Settings::default());
+        assert!(engraved.notes[0].tie_start);
+        assert!(engraved.notes[1].tied);
+        assert!(!engraved.notes[0].tied);
+    }
+
+    #[test]
+    fn lyrics_sit_under_their_notes() {
+        let score = song(2);
+        let engraved = engrave_with(
+            &score,
+            TrackId::new(1).expect("valid"),
+            Settings::default(),
+            &["la", "la"],
+        );
+        assert_eq!(engraved.lyrics.len(), 2);
+        assert_eq!(engraved.lyrics[0].x, engraved.notes[0].x);
+        assert!(engraved.lyrics[0].y > engraved.notes[0].y);
+        assert_eq!(engraved.lyrics[1].page, engraved.notes[1].page);
+    }
+
+    #[test]
+    fn a_forty_bar_piece_spans_two_pages() {
+        let mut score = Song::new("Acceptance", 120.0);
+        score.chords.push(project::song::ChordEvent {
+            tick: 0,
+            chord: music_core::Chord::parse("C").expect("valid"),
+        });
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for bar in 0..40_i64 {
+            for (offset, name) in [(0_i64, "C4"), (0, "E4"), (0, "G4")] {
+                let mut entry = Note {
+                    id: NoteId::new(track.notes.len() as u32 + 1).expect("valid"),
+                    start: bar * 3840 + offset,
+                    duration: 3840,
+                    pitch: MCNotePitch::from_name(name).expect("valid"),
+                    velocity: Velocity::new(100).expect("valid"),
+                    channel: Channel::first(),
+                };
+                if offset == 0 {
+                    entry.duration = 3840;
+                }
+                track.notes.push(entry);
+            }
+        }
+        score.tracks.push(track);
+        let lyrics: Vec<&str> = vec!["la"; 120];
+        let engraved = engrave_with(
+            &score,
+            TrackId::new(1).expect("valid"),
+            Settings::default(),
+            &lyrics,
+        );
+        assert!(engraved.pages.len() >= 2, "40 bars need more than one page");
+        assert_eq!(engraved.lyrics.len(), 120);
+        let tied = engraved.notes.iter().filter(|note| note.tied).count();
+        assert!(tied > 0, "bar-to-bar notes are tied");
+        let pdf = pdf::to_pdf(&engraved, Settings::default(), "Acceptance");
+        assert_eq!(pdf::page_count(&pdf), Some(engraved.pages.len()));
     }
 
     #[test]

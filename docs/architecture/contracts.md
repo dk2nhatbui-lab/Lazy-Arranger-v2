@@ -618,5 +618,9 @@ fades or stretching.
 `score::pdf::to_pdf` writes PDF 1.4 from the same `Engraved` layout the canvas
 uses: A4 pages, Helvetica for title and page numbers, stroked staff lines,
 barlines and stems, filled-circle noteheads, and accidentals drawn as vector
-paths (base-14 fonts have no printable sharp or flat). It has no crate
-dependency and no print dialog; `score-pdf` writes the file.
+paths (base-14 fonts have no printable sharp or flat). It has no crate dependency and no print dialog; `score-pdf` writes the file.
+
+Ties are detected per pitch when a note ends exactly where the next of the same
+pitch starts; the continued note draws no head and both renderers draw the tie.
+`engrave_with` places one lyric syllable per note under its staff. Beams,
+collision avoidance, tuplets and dragged marks are not implemented.

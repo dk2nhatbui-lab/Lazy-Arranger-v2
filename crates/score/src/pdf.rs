@@ -79,7 +79,20 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     }
                 }
             }
-            for note in engraved.notes.iter().filter(|note| note.page == index) {
+            for lyric in engraved.lyrics.iter().filter(|lyric| lyric.page == index) {
+                let _ = writeln!(
+                    content,
+                    "BT /F1 9 Tf {x:.1} {y:.1} Td ({text}) Tj ET",
+                    x = lyric.x - 6.0,
+                    y = settings.page_height - lyric.y,
+                    text = escape(&lyric.text)
+                );
+            }
+            for note in engraved
+                .notes
+                .iter()
+                .filter(|note| note.page == index && !note.tied)
+            {
                 let x = note.x;
                 let y = settings.page_height - note.y;
                 let radius = 0.58 * settings.staff_space;
