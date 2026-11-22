@@ -22,7 +22,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 13 | Smart chords | partial | Chord parsing, transposition, progression text, roman numerals in the chosen key, chord lane with K entry, 16 key-aware pads, and a suggestion function with dialog buttons. Reharmonize rules and dialog. Find Chords from the Music (pitch-class recognition, slash bass). No A/B audition, Launchkey pads, inversions/voicings, chord recording |
 | 14 | Styles | partial | Yamaha open, import, compile on chords, **save container (SFF1/SFF2, real 15-section style rewritten)**. No Korg, live sections, rules editor UI, style from clips, voices/setup events |
 | 15 | Style from Audio and Link | partial | Link→monophonic MIDI; no style output, no match scores |
-| 16 | Score view: engraving, spelling, clefs, edit, inputs, marks, chords, PDF | missing | ADR-010 design only |
+| 16 | Score view | partial | MusicXML export with parts, measures, rests, sharps and drum clef; no engraving view, PDF, marks or editing |
 | 17 | Mixer and buses | missing | — |
 | 18 | Automation | missing | — |
 | 19 | VST3/AU plugins | missing | ADR-007 deferred |

@@ -127,6 +127,17 @@ enum Commands {
         #[arg(long)]
         rules: bool,
     },
+    /// Export a project as MusicXML.
+    ExportMusicXml {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Output `.musicxml` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Score title; defaults to the song name.
+        #[arg(long)]
+        title: Option<String>,
+    },
     /// Read a Yamaha Music Finder `.mfd` file and write a book.
     MusicFinderImport {
         /// Source `.mfd` file.
@@ -305,6 +316,28 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             chords,
             add_tracks,
         } => edit(&project, &out, tempo, &chords, &add_tracks),
+        Commands::ExportMusicXml {
+            project,
+            out,
+            title,
+        } => {
+            let project = read_project(&project)?;
+            let title = title.unwrap_or_else(|| project.song.name.clone());
+            let xml = musicxml::export(&project.song, &title);
+            fs::write(&out, &xml)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!(
+                "wrote {}: {} track(s), {} measure(s), {} byte(s)",
+                out.display(),
+                project.song.tracks.len(),
+                project.song.tracks.first().map_or(0, |_track| {
+                    let bar = project.song.time_signature.bar_ticks().max(1);
+                    ((project.song.end_tick().max(bar) + bar - 1) / bar) as usize
+                }),
+                xml.len()
+            );
+            Ok(())
+        }
         Commands::MusicFinderImport { mfd, out } => {
             let bytes = fs::read(&mfd)
                 .map_err(|error| format!("could not read {}: {error}", mfd.display()))?;

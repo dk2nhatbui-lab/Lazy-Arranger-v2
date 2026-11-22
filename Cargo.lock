@@ -1471,6 +1471,7 @@ dependencies = [
  "mcp",
  "midi-devices",
  "music-core",
+ "musicxml",
  "performance",
  "project",
  "sequencer",
@@ -1711,6 +1712,14 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "musicxml"
+version = "0.1.0"
+dependencies = [
+ "music-core",
+ "project",
 ]
 
 [[package]]
