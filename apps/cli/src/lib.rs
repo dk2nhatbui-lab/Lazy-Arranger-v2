@@ -1172,7 +1172,13 @@ fn export_audio(
         );
     }
     let project = read_project(project)?;
-    let rendered = audio::render(&project.song, sample_rate);
+    let mut rendered = audio::render(&project.song, sample_rate);
+    for problem in audio::mix::mix_audio_references(&mut rendered, &project.song, 0.9) {
+        eprintln!(
+            "audio {} on track {}: {}",
+            problem.path, problem.track, problem.reason
+        );
+    }
     let wav = if bits == 24 {
         rendered.to_wav24()
     } else {

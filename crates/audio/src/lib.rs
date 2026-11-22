@@ -7,6 +7,7 @@
 pub mod analysis;
 pub mod chords;
 pub mod link;
+pub mod mix;
 pub mod player;
 pub mod wav;
 
@@ -97,7 +98,12 @@ impl RenderedAudio {
 /// Renders every track of a song with a simple additive voice.
 #[must_use]
 pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
-    let end_tick = song.end_tick();
+    let mut end_tick = song.end_tick();
+    for track in &song.tracks {
+        if let Some(reference) = &track.audio {
+            end_tick = end_tick.max(reference.start.saturating_add(reference.length));
+        }
+    }
     let duration = song.tempo_map.duration_seconds(0, end_tick.max(1)) + 0.75;
     let frames = (duration * f64::from(sample_rate)).ceil() as usize;
     let mut samples = vec![0.0_f32; frames * usize::from(CHANNELS)];
@@ -185,6 +191,23 @@ mod tests {
         // One beat at 120 bpm is 0.5 s, plus the release tail.
         assert!(rendered.duration_seconds() > 0.5);
         assert!(rendered.duration_seconds() < 2.0);
+    }
+
+    #[test]
+    fn an_audio_reference_extends_the_buffer() {
+        let mut song = song_with_note();
+        let mut take = Track::new(TrackId::new(2).expect("valid"), "Take");
+        take.audio = Some(project::song::AudioRef {
+            path: String::from("/tmp/unused.wav"),
+            start: 0,
+            length: 7680,
+        });
+        song.tracks.push(take);
+        let rendered = render(&song, SAMPLE_RATE);
+        assert!(
+            rendered.duration_seconds() > 4.0,
+            "four seconds of audio at 120 bpm must fit"
+        );
     }
 
     #[test]

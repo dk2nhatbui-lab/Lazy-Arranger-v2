@@ -606,5 +606,9 @@ material need the model-based pipeline the C++ app runs outside its process.
 Schema v7 adds `Track.audio: Option<AudioRef { path, start, length }>`. The file
 stays outside the project, as in the C++ app; `add-audio` reads the WAV header
 (`audio::wav::info`), converts seconds to ticks at the tempo at the start tick,
-and inserts a track holding the reference. There is no waveform, recording,
-trimming or stretching yet, and nothing plays the referenced file.
+and inserts a track holding the reference. `audio::mix::mix_audio_references` reads the referenced WAVs, resamples them
+linearly to the render rate, places each at its tempo-derived start, mixes them
+at 90% gain under the synth, and returns any file it could not read. Both the
+export and cpal paths call it; the render buffer grows to cover audio that
+ends after the last note. There is still no waveform, recording, trimming,
+fades or stretching.
