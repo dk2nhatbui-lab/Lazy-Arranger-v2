@@ -14,7 +14,7 @@ paragraph, bullet or table row.
 | C++ app `arranger-midi-daw` | `/Users/far-mini/repos/arranger-midi-daw` | `8ca41644a2be5f5677bce8cae060a55f7b19e8fc` | `fix/audit-critical-high` | 2026-11-22 12:01:41 +0100 | C++20; no `.c` under `src/` | 71,723 LOC, 226 files under `src/` | CMake + FetchContent | 2026-11-22 |
 | Cadenza | `.reference/cadenza` | `6bd80233c20482eba53167233f065039ea42fc36` | `dev` | 2026-11-01 17:23:33 -0500 | Rust 2024, MSRV 1.88 | 194,959 non-test LOC; 489 `.rs` files | Cargo, resolver 3, 17 members | 2026-11-22 |
 | Vibez | `.reference/vibez` | `1d2c708ffedfbe03256e1cc9003c57be417cdfcd` | `dev` | 2026-11-21 00:28:29 +0000 | Rust 2021 | 235,802 non-test LOC; 955 `.rs` files | Cargo, resolver 2, 10 members | 2026-11-22 |
-| This repository | `.` | staged in commits `21f3b8f` and `a36137a` on `master` | `master` | 2026-11-22 | Rust 2024, MSRV 1.88 | 7,884 LOC, 21 `.rs` files | Cargo, resolver 3, 7 crates + 1 app | 2026-11-22 |
+| This repository | `.` | first four commits on `main` | `main` | 2026-11-22 | Rust 2024, MSRV 1.88 | 7,884 LOC, 21 `.rs` files | Cargo, resolver 3, 7 crates + 1 app | 2026-11-22 |
 
 The audited commit is the tip of `fix/audit-critical-high`, and it is **10 commits ahead of `origin/main`**
 (`975e97d1004b8a9813339fddbc258c3bcf5eb6a5`). `git rev-list --left-right --count origin/main...HEAD`

@@ -74,8 +74,8 @@ GPLv3; **§10** (`:446`) forbids added downstream terms, so GPL code cannot be r
 (`:471`) ties the patent grant to GPL terms. **§13** (`:552`) is the AGPL interop clause, not a network
 clause, so running a fork as a service is not a GPL trigger.
 
-Consequences for this repository, which declares `license = "MIT OR Apache-2.0"` (`Cargo.toml:9`) and
-states the same in `README.md:80`:
+Consequences for this repository, which declares `license = "Apache-2.0"` (`Cargo.toml:9`) and states the
+same in `README.md` under Licence:
 
 | Action | Result |
 |---|---|
@@ -86,8 +86,8 @@ states the same in `README.md:80`:
 | Run their binary as a separate process over IPC | Allowed as mere aggregation, and useless here |
 | Cite their SHAs in design notes | Allowed and expected |
 
-The README records the intent to stay MIT OR Apache-2.0 (`README.md:78-83`), so neither repository's code
-may be imported. Re-implementing an idea is the only route.
+This workspace is Apache-2.0, so neither repository's code may be imported. Re-implementing an idea is the
+only route.
 
 **Vibez carries an extra in-tree hazard: an aubio port.** `crates/vibez-core/src/onset/aubio.rs:1-9`
 declares it verbatim:
@@ -164,8 +164,9 @@ them, cite their SHAs, re-derive the patterns in our own words, then write the c
 
 ## 5. Actions required before any public release
 
-1. Add `LICENSE-MIT` and `LICENSE-APACHE`. `Cargo.toml:9` declares `MIT OR Apache-2.0`; no licence text
-   file exists at the root today.
+1. Licence text is present: the destination repository (`dk2nhatbui-lab/Lazy-Arranger-v2`) already
+   carried `LICENSE` with the Apache-2.0 text, and `Cargo.toml:9` now declares `Apache-2.0` to match. No
+   separate MIT grant exists, so the workspace is Apache-2.0 only.
 2. Record the owner's written grant for the three copied fixtures, or replace them with synthetic
    fixtures (§1.1).
 3. Add a `THIRD-PARTY.md` (or `NOTICE`) listing the Rust dependencies and their licences. MIT and
@@ -197,7 +198,7 @@ them, cite their SHAs, re-derive the patterns in our own words, then write the c
 | `clap` | 4.6.9 | MIT OR Apache-2.0 | `Cargo.toml:17` | `clap-4.6.9/Cargo.toml:42` |
 
 Development-only dependencies add nothing new: `serde_json` (already listed) and the path crate
-`sequencer` (`crates/smf/Cargo.toml`). The eight workspace crates inherit `license = "MIT OR Apache-2.0"`
+`sequencer` (`crates/smf/Cargo.toml`). The eight workspace crates inherit `license = "Apache-2.0"`
 from `Cargo.toml:9`.
 
 Full lock-file scan, 2026-11-22: 98 packages. 87 are external crates present in the local registry cache,

@@ -77,7 +77,8 @@ environment allows it; CI does.
 
 ## Licence
 
-MIT OR Apache-2.0. The audit found that the C++ application ships no licence
-file and that Cadenza and Vibez are GPL-3.0-or-later; none of their code is
-copied here. See [`docs/audit/licensing.md`](docs/audit/licensing.md) for the
-evidence and the consequences.
+Apache-2.0, as stated in [`LICENSE`](LICENSE). The audit found that the C++
+application ships no licence file and that Cadenza and Vibez are
+GPL-3.0-or-later; none of their code is copied here. See
+[`docs/audit/licensing.md`](docs/audit/licensing.md) for the evidence and the
+consequences.

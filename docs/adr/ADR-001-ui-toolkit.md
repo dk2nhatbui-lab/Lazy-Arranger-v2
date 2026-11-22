@@ -12,9 +12,8 @@ accessibility stories and licences.
 The licence question is a gating criterion, not a footnote. The licensing audit
 (`docs/audit/licensing.md`) records that the C++ application links JUCE, which
 is AGPL-3.0-or-later or commercial. Choosing a GPL-family UI toolkit would put
-the same copyleft obligation on the binary. This Rust workspace is MIT OR
-Apache-2.0, so the toolkit's licence must be verified before the choice, not
-after.
+the same copyleft obligation on the binary. This Rust workspace is Apache-2.0, so the toolkit's licence must be verified
+before the choice, not after.
 
 ## Decision
 
