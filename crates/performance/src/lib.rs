@@ -195,7 +195,7 @@ impl PerformanceRecorder {
                     found
                         .parts
                         .iter()
-                        .find(|part| u8::from(part.rule.dest_channel) == channel)
+                        .find(|part| part.rule.dest_channel == channel)
                 })
                 .map(|part| part.name.clone())
                 .filter(|name| !name.trim().is_empty())
