@@ -37,7 +37,8 @@ pub fn mix_audio_references(
         let Some(reference) = &track.audio else {
             continue;
         };
-        match mix_one(rendered, song, reference, gain) {
+        let (left_gain, right_gain) = crate::track_gains(track);
+        match mix_one(rendered, song, reference, gain, (left_gain, right_gain)) {
             Ok(()) => {}
             Err(reason) => problems.push(AudioProblem {
                 track: track.id,
@@ -57,6 +58,7 @@ fn mix_one(
     song: &Song,
     reference: &AudioRef,
     gain: f32,
+    (left_gain, right_gain): (f32, f32),
 ) -> Result<(), String> {
     let bytes = std::fs::read(Path::new(&reference.path))
         .map_err(|error| format!("could not read audio: {error}"))?;
@@ -85,8 +87,8 @@ fn mix_one(
             break;
         }
         let value = decoded.samples[source] * gain;
-        rendered.samples[target * 2] += value;
-        rendered.samples[target * 2 + 1] += value;
+        rendered.samples[target * 2] += value * left_gain;
+        rendered.samples[target * 2 + 1] += value * right_gain;
     }
     Ok(())
 }

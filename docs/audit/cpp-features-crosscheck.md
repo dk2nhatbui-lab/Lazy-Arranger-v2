@@ -23,7 +23,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 14 | Styles | partial | Yamaha open, import, compile on chords, **save container (SFF1/SFF2, real 15-section style rewritten)**. No Korg, live sections, rules editor UI, style from clips, voices/setup events |
 | 15 | Style from Audio and Link | partial | Link→monophonic MIDI; no style output, no match scores |
 | 16 | Score view | partial | MusicXML export/import plus a toolkit-independent layout engine (pages, systems, measures, positioned notes, CLI report). An egui page canvas renders staff lines, barlines, noteheads, page navigation and zoom from the layout. Key detection, spelling, accidentals, canvas, vector PDF, per-pitch ties and a lyric line (40-bar two-page acceptance test). No print dialog, grand/drum staves, beams, collision avoidance, marks, tuplets or note entry |
-| 17 | Mixer and buses | missing | — |
+| 17 | Mixer and buses | partial | Per-track volume and pan in schema v8, applied in the synth render and audio-reference mix, and written as CC 7/10 by keyboard export. No mixer UI, reverb/chorus, meters, buses, sends or master effects |
 | 18 | Automation | missing | — |
 | 19 | VST3/AU plugins | missing | ADR-007 deferred |
 | 20 | SF2/SF3 SoundFont player, metronome | partial | Additive sine voice; no SoundFont |
@@ -49,7 +49,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections: 0 fully verified beyond their Rust subset, 20 partial, 19 missing.
+39 sections: 0 fully verified beyond their Rust subset, 21 partial, 18 missing.
 The partials with the most depth are styles (open, import, compile, SFF1 write),
 audio-to-MIDI, Music Finder/playlists, project files and the window shell.
 

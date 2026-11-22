@@ -109,6 +109,7 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
     let mut samples = vec![0.0_f32; frames * usize::from(CHANNELS)];
 
     for track in song.tracks.iter().filter(|track| song.is_audible(track)) {
+        let (left_gain, right_gain) = track_gains(track);
         for note in &track.notes {
             let start_seconds = song.tempo_map.seconds_at(note.start);
             let end_seconds = song
@@ -128,8 +129,8 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
                     1.0
                 };
                 let value = (voice(frequency, t) * amplitude * envelope) as f32;
-                samples[frame * 2] += value;
-                samples[frame * 2 + 1] += value;
+                samples[frame * 2] += value * left_gain;
+                samples[frame * 2 + 1] += value * right_gain;
             }
         }
     }
@@ -146,6 +147,24 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
 #[must_use]
 pub fn frequency(pitch: Pitch) -> f64 {
     440.0 * 2.0_f64.powf((f64::from(pitch.as_u8()) - 69.0) / 12.0)
+}
+
+/// Left and right gains for a track's fader and pan.
+#[must_use]
+pub fn track_gains(track: &project::song::Track) -> (f32, f32) {
+    let volume = f32::from(track.volume.min(127)) / 100.0;
+    let pan = track.pan.min(127);
+    let left = if pan <= 64 {
+        1.0
+    } else {
+        f32::from(127 - pan) / 63.0
+    };
+    let right = if pan >= 64 {
+        1.0
+    } else {
+        f32::from(pan) / 64.0
+    };
+    (volume * left, volume * right)
 }
 
 /// One voice: a sine fundamental with two quiet harmonics.
@@ -240,6 +259,21 @@ mod tests {
         song.tracks[1].muted = true;
         let silent = render(&song, SAMPLE_RATE);
         assert!(silent.samples.iter().all(|sample| sample.abs() < 1.0e-6));
+    }
+
+    #[test]
+    fn faders_and_pans_change_the_mix() {
+        let mut song = song_with_note();
+        let centred = render(&song, SAMPLE_RATE);
+        song.tracks[0].volume = 0;
+        let silent = render(&song, SAMPLE_RATE);
+        assert!(silent.samples.iter().all(|sample| sample.abs() < 1.0e-6));
+        song.tracks[0].volume = 100;
+        song.tracks[0].pan = 127;
+        let right = render(&song, SAMPLE_RATE);
+        assert!(right.samples.chunks(2).all(|frame| frame[0].abs() < 1.0e-6));
+        assert!(right.samples.chunks(2).any(|frame| frame[1].abs() > 0.001));
+        assert_ne!(centred.samples, right.samples);
     }
 
     #[test]

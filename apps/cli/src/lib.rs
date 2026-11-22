@@ -423,7 +423,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                         program: track
                             .program
                             .unwrap_or_else(|| midi_devices::nearest_voice(profile, &track.name)),
-                        ..smf::KeyboardVoice::default()
+                        volume: track.volume.min(127),
+                        pan: track.pan.min(127),
                     }
                 })
                 .collect();

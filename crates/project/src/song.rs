@@ -38,6 +38,22 @@ impl Note {
     }
 }
 
+fn default_volume() -> u8 {
+    100
+}
+
+fn default_pan() -> u8 {
+    64
+}
+
+fn is_default_volume(value: &u8) -> bool {
+    *value == 100
+}
+
+fn is_default_pan(value: &u8) -> bool {
+    *value == 64
+}
+
 /// A reference to an audio file placed on a track.
 ///
 /// The project stores the path and the span; the audio itself never lives in
@@ -103,6 +119,12 @@ pub struct Track {
     /// Record arm. No recording path uses it yet.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub armed: bool,
+    /// Fader level, 0..=127 with 100 as unity.
+    #[serde(default = "default_volume", skip_serializing_if = "is_default_volume")]
+    pub volume: u8,
+    /// Pan, 0 = hard left, 64 = centre, 127 = hard right.
+    #[serde(default = "default_pan", skip_serializing_if = "is_default_pan")]
+    pub pan: u8,
     /// Reference to an audio file, for audio tracks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<AudioRef>,
@@ -168,6 +190,8 @@ impl Track {
             muted: false,
             soloed: false,
             armed: false,
+            volume: 100,
+            pan: 64,
             audio: None,
             program: None,
             provenance: None,
@@ -462,6 +486,11 @@ impl ProjectFile {
                     // is the version 6 behaviour.
                     self.version = 7;
                 }
+                7 => {
+                    // Version 8 adds volume and pan; unity and centre are the
+                    // version 7 behaviour.
+                    self.version = 8;
+                }
                 from => {
                     return Err(ProjectError::Migration {
                         from,
@@ -717,6 +746,31 @@ mod tests {
         assert!(track.muted && track.soloed && track.armed);
         let text = project.to_json_pretty().expect("serialize");
         assert!(text.contains("\"muted\": true"));
+    }
+
+    #[test]
+    fn volume_and_pan_default_to_unity_and_round_trip() {
+        let mut song = Song::new("Mixer", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        song.tracks.push(track.clone());
+        let text = ProjectFile::new(song.clone())
+            .to_json_pretty()
+            .expect("serialize");
+        assert!(
+            !text.contains("volume") && !text.contains("\"pan\""),
+            "defaults are omitted"
+        );
+        track.volume = 80;
+        track.pan = 20;
+        song.tracks[0] = track;
+        let text = ProjectFile::new(song).to_json_pretty().expect("serialize");
+        assert!(text.contains("\"volume\": 80"));
+        assert!(text.contains("\"pan\": 20"));
+        let back = ProjectFile::from_json(&text).expect("parse");
+        assert_eq!(
+            (back.song.tracks[0].volume, back.song.tracks[0].pan),
+            (80, 20)
+        );
     }
 
     #[test]
