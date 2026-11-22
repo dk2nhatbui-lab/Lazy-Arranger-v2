@@ -130,6 +130,52 @@ impl Editor {
         Ok(())
     }
 
+    /// Adds a clip region.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] when the track is unknown or the clips overlap.
+    pub fn insert_clip(
+        &mut self,
+        track: TrackId,
+        clip: project::song::Clip,
+    ) -> Result<(), CommandError> {
+        self.session.insert_clip(track, clip)?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Moves a clip region.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] when the clip is unknown or the move overlaps.
+    pub fn move_clip(
+        &mut self,
+        track: TrackId,
+        clip: project::ClipId,
+        start: Tick,
+    ) -> Result<(), CommandError> {
+        self.session.move_clip(track, clip, start)?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Removes a clip region; its notes stay in the track.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] when the clip is unknown.
+    pub fn remove_clip(
+        &mut self,
+        track: TrackId,
+        clip: project::ClipId,
+    ) -> Result<(), CommandError> {
+        self.session.remove_clip(track, clip)?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {
@@ -263,6 +309,32 @@ mod tests {
         assert_eq!(snap(960, PPQ), 960);
         assert_eq!(snap(-5, PPQ), -960, "negative ticks floor like the oracle");
         assert_eq!(snap(1234, 0), 1234);
+    }
+
+    #[test]
+    fn clip_edits_are_undoable_and_keep_notes() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let clip = project::song::Clip {
+            id: project::ClipId::new(1).expect("valid"),
+            name: String::from("Clip 1"),
+            start: 0,
+            length: 1920,
+        };
+        editor.insert_clip(track, clip).expect("insert");
+        assert_eq!(editor.song().tracks[0].clips.len(), 1);
+        editor
+            .move_clip(track, project::ClipId::new(1).expect("valid"), 960)
+            .expect("move");
+        assert_eq!(editor.song().tracks[0].clips[0].start, 960);
+        editor
+            .remove_clip(track, project::ClipId::new(1).expect("valid"))
+            .expect("remove");
+        assert!(editor.song().tracks[0].clips.is_empty());
+        assert_eq!(editor.song().tracks[0].notes.len(), 1, "notes stay");
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].clips.len(), 1);
+        assert!(editor.dirty());
     }
 
     #[test]

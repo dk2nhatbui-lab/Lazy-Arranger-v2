@@ -51,6 +51,7 @@ impl View {
 pub struct ShellApp {
     editor: Editor,
     selected_note: Option<(TrackId, NoteId)>,
+    selected_clip: Option<(TrackId, project::ClipId)>,
     project_path: Option<PathBuf>,
     view: View,
     roll: RollState,
@@ -90,6 +91,7 @@ impl ShellApp {
                 .filter(|path| persistence::recovery_available(path))
                 .map(|path| persistence::autosave_path(path)),
             selected_note: None,
+            selected_clip: None,
             project_path,
             view: View::Arrange,
             roll: RollState::default(),
@@ -106,6 +108,12 @@ impl ShellApp {
 
     /// Applies a click from the piano roll: select a note, or insert one.
     fn edit_click(&mut self, click: piano_roll::RollClick) {
+        if let Some((track, clip)) = click.clip {
+            self.roll.selected = Some(track);
+            self.selected_clip = Some((track, clip));
+            self.selected_note = None;
+            return;
+        }
         if let Some((track, note)) = click.note {
             self.roll.selected = Some(track);
             self.selected_note = Some((track, note));
@@ -149,9 +157,61 @@ impl ShellApp {
             self.editor.redo();
             self.selected_note = None;
         }
-        if delete && let Some((track, note)) = self.selected_note {
-            let _ = self.editor.delete(track, note);
-            self.selected_note = None;
+        if delete {
+            if let Some((track, clip)) = self.selected_clip.take() {
+                let _ = self.editor.remove_clip(track, clip);
+            } else if let Some((track, note)) = self.selected_note.take() {
+                let _ = self.editor.delete(track, note);
+            }
+        }
+        if context.input(|input| input.key_pressed(egui::Key::N))
+            && self.selected_clip.is_none()
+            && let Some(track) = self
+                .roll
+                .selected
+                .or_else(|| self.song().tracks.first().map(|track| track.id))
+        {
+            let bar = self.song().time_signature.bar_ticks().max(1);
+            let start = snap(self.position, bar);
+            let next = self
+                .song()
+                .tracks
+                .iter()
+                .find(|candidate| candidate.id == track)
+                .and_then(|candidate| candidate.clips.iter().map(|clip| clip.id.get()).max())
+                .unwrap_or(0)
+                .saturating_add(1);
+            if let Ok(id) = project::ClipId::new(next) {
+                let clip = project::song::Clip {
+                    id,
+                    name: format!("Clip {next}"),
+                    start,
+                    length: bar,
+                };
+                let _ = self.editor.insert_clip(track, clip);
+                self.selected_clip = Some((track, id));
+            }
+        }
+        if let Some((track, clip)) = self.selected_clip {
+            let bar = self.song().time_signature.bar_ticks().max(1);
+            let right = context.input(|input| input.key_pressed(egui::Key::ArrowRight));
+            let left = context.input(|input| input.key_pressed(egui::Key::ArrowLeft));
+            if (right || left)
+                && let Some(found) = self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|candidate| candidate.id == track)
+                    .and_then(|candidate| candidate.clips.iter().find(|cl| cl.id == clip))
+                    .cloned()
+            {
+                let target = if right {
+                    found.start + bar
+                } else {
+                    (found.start - bar).max(0)
+                };
+                let _ = self.editor.move_clip(track, clip, target);
+            }
         }
         if save {
             let path = self
@@ -573,10 +633,17 @@ impl eframe::App for ShellApp {
                 let position = self.position;
                 let mut clicked = None;
                 let Self { editor, roll, .. } = self;
+                let selected_clip = self.selected_clip;
                 let project = editor.project();
                 match view {
                 View::Arrange => {
-                    if let Some(click) = piano_roll::show(ui, &project.song, roll, position) {
+                    if let Some(click) = piano_roll::show(
+                        ui,
+                        &project.song,
+                        roll,
+                        position,
+                        selected_clip.map(|(_, clip)| clip),
+                    ) {
                         clicked = Some(click);
                     }
                 }

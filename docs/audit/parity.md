@@ -29,6 +29,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Style writer: voices, setup events, keyboard acceptance | — | missing | no PSR-S970 test; voices not written |
 | Clip regions (schema v3, migration, split, validation) | `project::song::Clip` | verified | migration and split tests |
 | Clip edit commands (insert, move, resize, split, remove) | `app-commands::EditSession` | verified | one undo step each; overlap rejected |
+| Clip lane: draw, select, arrow-move, N to add, Delete to remove | `apps/desktop` | implemented | geometry test; UI manual |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | — | missing | ADR-010 (Stage 8) |

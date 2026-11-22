@@ -7,9 +7,13 @@
 use egui::{Pos2, Rect, Ui, Vec2};
 use music_core::{Tick, TimeSignature};
 use project::TrackId;
+use project::song::Clip;
 use project::song::{Song, Track};
 
 use crate::theme;
+
+/// Height of the clip lane above the notes.
+pub const CLIP_LANE_HEIGHT: f32 = 18.0;
 
 /// Horizontal zoom: ticks per screen point.
 const MIN_TICKS_PER_POINT: f32 = 2.0;
@@ -110,10 +114,18 @@ pub struct RollClick {
     pub pitch: u8,
     /// Note that was hit, if any.
     pub note: Option<(TrackId, project::NoteId)>,
+    /// Clip that was hit, if any.
+    pub clip: Option<(TrackId, project::ClipId)>,
 }
 
 /// Draws the roll and handles zoom and scroll; returns a primary click.
-pub fn show(ui: &mut Ui, song: &Song, state: &mut RollState, playhead: Tick) -> Option<RollClick> {
+pub fn show(
+    ui: &mut Ui,
+    song: &Song,
+    state: &mut RollState,
+    playhead: Tick,
+    selected_clip: Option<project::ClipId>,
+) -> Option<RollClick> {
     let available = ui.available_size();
     let (response, painter) = ui.allocate_painter(available, egui::Sense::click_and_drag());
     let rect = response.rect;
@@ -153,6 +165,14 @@ pub fn show(ui: &mut Ui, song: &Song, state: &mut RollState, playhead: Tick) -> 
     };
 
     painter.rect_filled(rect, 0.0, theme::TIMELINE);
+    draw_clip_lane(
+        &painter,
+        rect,
+        &geometry,
+        song,
+        state.selected,
+        selected_clip,
+    );
     draw_grid(&painter, rect, &geometry, song);
     for (index, track) in song.tracks.iter().enumerate() {
         let colour = theme::track_colour(index);
@@ -168,6 +188,20 @@ pub fn show(ui: &mut Ui, song: &Song, state: &mut RollState, playhead: Tick) -> 
     }
     let tick = geometry.tick_at(pointer.x).max(0);
     let pitch = geometry.pitch_at(pointer.y);
+    if let Some(track_id) = state.selected
+        && let Some(track) = song.tracks.iter().find(|track| track.id == track_id)
+    {
+        for clip in &track.clips {
+            if clip_rect(rect, &geometry, clip).contains(pointer) {
+                return Some(RollClick {
+                    tick,
+                    pitch,
+                    note: None,
+                    clip: Some((track.id, clip.id)),
+                });
+            }
+        }
+    }
     let order: Vec<&Track> = state
         .selected
         .and_then(|id| song.tracks.iter().find(|track| track.id == id))
@@ -186,6 +220,7 @@ pub fn show(ui: &mut Ui, song: &Song, state: &mut RollState, playhead: Tick) -> 
                     tick,
                     pitch: note.pitch.as_u8(),
                     note: Some((track.id, note.id)),
+                    clip: None,
                 });
             }
         }
@@ -194,6 +229,7 @@ pub fn show(ui: &mut Ui, song: &Song, state: &mut RollState, playhead: Tick) -> 
         tick,
         pitch,
         note: None,
+        clip: None,
     })
 }
 
@@ -233,6 +269,62 @@ fn draw_grid(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song:
                     egui::Stroke::new(1.0_f32, theme::GRID_BEAT),
                 );
             }
+        }
+    }
+}
+
+/// Rectangle of one clip in the lane above the notes.
+#[must_use]
+pub fn clip_rect(rect: Rect, geometry: &RollGeometry, clip: &Clip) -> Rect {
+    let left = geometry.x_at(clip.start).max(rect.left());
+    let right = geometry.x_at(clip.end()).min(rect.right());
+    Rect::from_min_max(
+        Pos2::new(left, rect.top() + 3.0),
+        Pos2::new(right.max(left + 2.0), rect.top() + CLIP_LANE_HEIGHT - 2.0),
+    )
+}
+
+fn draw_clip_lane(
+    painter: &egui::Painter,
+    rect: Rect,
+    geometry: &RollGeometry,
+    song: &Song,
+    selected_track: Option<TrackId>,
+    selected_clip: Option<project::ClipId>,
+) {
+    let Some(track) = selected_track.and_then(|id| song.tracks.iter().find(|track| track.id == id))
+    else {
+        return;
+    };
+    painter.rect_filled(
+        Rect::from_min_size(rect.min, Vec2::new(rect.width(), CLIP_LANE_HEIGHT)),
+        0.0,
+        theme::LANE_ALT,
+    );
+    for clip in &track.clips {
+        let clip_rect = clip_rect(rect, geometry, clip);
+        let selected = selected_clip == Some(clip.id);
+        painter.rect_filled(
+            clip_rect,
+            0.0,
+            theme::ACCENT.gamma_multiply(if selected { 0.35 } else { 0.18 }),
+        );
+        if selected {
+            painter.rect_stroke(
+                clip_rect,
+                0.0,
+                egui::Stroke::new(1.0_f32, theme::ACCENT),
+                egui::StrokeKind::Inside,
+            );
+        }
+        if clip_rect.width() > 28.0 {
+            painter.text(
+                Pos2::new(clip_rect.left() + 4.0, clip_rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                &clip.name,
+                egui::FontId::proportional(9.0),
+                theme::TEXT_MUTED,
+            );
         }
     }
 }
@@ -341,6 +433,39 @@ mod tests {
         let geometry = geometry();
         let tiny = geometry.note_rect(0, 1, 60);
         assert!(tiny.width() >= 1.5);
+    }
+
+    #[test]
+    fn clips_map_to_the_lane() {
+        let geometry = RollGeometry {
+            origin: Pos2::new(48.0, 20.0),
+            ticks_per_point: 10.0,
+            row_height: 10.0,
+            top_pitch: 96,
+            meter: TimeSignature::default(),
+        };
+        let canvas = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(800.0, 400.0));
+        let clip = project::song::Clip {
+            id: project::ClipId::new(1).expect("valid"),
+            name: String::from("A"),
+            start: 0,
+            length: 1920,
+        };
+        let lane = clip_rect(canvas, &geometry, &clip);
+        assert!((lane.left() - 48.0).abs() < 0.5);
+        assert!((lane.width() - 192.0).abs() < 0.5);
+        assert!(lane.top() >= canvas.top());
+        assert!(lane.bottom() <= canvas.top() + CLIP_LANE_HEIGHT);
+        let later = clip_rect(
+            canvas,
+            &geometry,
+            &project::song::Clip {
+                start: 1920,
+                length: 1920,
+                ..clip
+            },
+        );
+        assert!(later.left() > lane.left());
     }
 
     #[test]
