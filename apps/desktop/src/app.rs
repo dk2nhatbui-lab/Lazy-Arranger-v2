@@ -47,7 +47,6 @@ impl View {
     }
 }
 
-#[derive(Debug)]
 pub struct ShellApp {
     editor: Editor,
     selected_note: Option<(TrackId, NoteId)>,
@@ -56,6 +55,7 @@ pub struct ShellApp {
     roll: RollState,
     playing: bool,
     position: Tick,
+    icon: egui::TextureHandle,
     shown: bool,
     load_error: Option<String>,
 }
@@ -64,12 +64,21 @@ impl ShellApp {
     #[must_use]
     pub fn new(context: &Context, project: ProjectFile, project_path: Option<PathBuf>) -> Self {
         theme::install(context);
+        let icon = context.load_texture(
+            "app-icon",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [256, 256],
+                include_bytes!("../assets/app-icon-256.rgba"),
+            ),
+            egui::TextureOptions::LINEAR,
+        );
         let editor = match Editor::new(project) {
             Ok(editor) => editor,
             Err(_) => Editor::new(demo_project()).expect("the demo project is valid"),
         };
         Self {
             editor,
+            icon,
             selected_note: None,
             project_path,
             view: View::Arrange,
@@ -181,13 +190,11 @@ impl ShellApp {
                     egui::pos2(title_area.left() + 18.0, title_area.center().y),
                     egui::vec2(36.0, 36.0),
                 );
-                ui.painter().rect_filled(badge, 10.0, theme::ACCENT);
-                ui.painter().text(
-                    badge.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "A",
-                    egui::FontId::proportional(17.0),
-                    theme::ACCENT_TEXT,
+                ui.painter().image(
+                    self.icon.id(),
+                    badge,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
                 );
                 let title_rect = Rect::from_min_max(
                     egui::pos2(title_area.left() + 36.0 + 14.0, title_area.top() + 6.0),
@@ -419,6 +426,19 @@ impl ShellApp {
             }
             Err(error) => self.load_error = Some(error.to_string()),
         }
+    }
+}
+
+impl std::fmt::Debug for ShellApp {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ShellApp")
+            .field("tracks", &self.song().tracks.len())
+            .field("view", &self.view)
+            .field("playing", &self.playing)
+            .field("position", &self.position)
+            .field("dirty", &self.editor.dirty())
+            .finish()
     }
 }
 

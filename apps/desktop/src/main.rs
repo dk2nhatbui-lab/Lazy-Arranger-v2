@@ -1,6 +1,7 @@
 //! Desktop entry point. All behaviour lives in the library so tests can reach it.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 fn main() -> eframe::Result<()> {
     let project_path: Option<PathBuf> = std::env::args().nth(1).map(PathBuf::from);
@@ -15,7 +16,8 @@ fn main() -> eframe::Result<()> {
             .with_inner_size([1360.0, 840.0])
             .with_min_inner_size([960.0, 600.0])
             // ADR-011: start hidden; the shell shows it after the first frame.
-            .with_visible(false),
+            .with_visible(false)
+            .with_icon(Arc::new(lazy_arranger_desktop::icon_data())),
         ..Default::default()
     };
     eframe::run_native(

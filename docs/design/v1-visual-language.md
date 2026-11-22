@@ -107,6 +107,17 @@ Remaining differences from v1 that need screenshots to settle: icon badge
 (the app icon is not copied), status pills, zoom buttons, mixer and AI buttons,
 and the record, loop and click transport buttons (not implemented yet).
 
+## App icon
+
+The v1 icon (keyboard, wave and note blocks) is reused in the Rust shell,
+ringed by a generic steel-style cog in Rust orange. The gear is drawn from
+scratch, not the official Rust logo mark, so no Rust Foundation trademark is
+used. The source art belongs to this product.
+
+Files in `apps/desktop/assets/`: `app-icon.png` (1024), sized variants down to
+32 px, and `app-icon-256.rgba` (raw RGBA) for the window icon and the header
+badge, which no longer shows the placeholder "A".
+
 ## What is not in v1 and must be designed
 
 * A light theme (the JSON exists as a file name only).
