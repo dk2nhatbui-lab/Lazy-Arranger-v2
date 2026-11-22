@@ -57,6 +57,7 @@ pub struct ShellApp {
     reharmonize_dialog: bool,
     chord_input: String,
     key: music_core::PitchClass,
+    status: Option<String>,
     project_path: Option<PathBuf>,
     view: View,
     roll: RollState,
@@ -102,6 +103,7 @@ impl ShellApp {
             reharmonize_dialog: false,
             chord_input: String::from("Am F C G"),
             key: music_core::PitchClass::new(0),
+            status: None,
             project_path,
             view: View::Arrange,
             roll: RollState::default(),
@@ -255,6 +257,13 @@ impl ShellApp {
             {
                 let _ = self.editor.join_clips(track, clip, next);
                 self.selected_clip = Some((track, clip));
+            }
+        }
+        if context.input(|input| input.key_pressed(egui::Key::F)) {
+            match self.editor.find_chords() {
+                Ok(0) => self.status = Some(String::from("no chords found")),
+                Ok(count) => self.status = Some(format!("found {count} chord(s)")),
+                Err(error) => self.status = Some(error),
             }
         }
         if context.input(|input| input.key_pressed(egui::Key::K)) {
@@ -768,6 +777,13 @@ impl ShellApp {
                         format!("{errors} validation error(s)")
                     };
                     ui.label(egui::RichText::new(label).size(10.0).color(if errors == 0 { theme::TEXT_MUTED } else { theme::RECORDING }));
+                    if let Some(status) = &self.status {
+                        ui.label(
+                            egui::RichText::new(status)
+                                .size(10.0)
+                                .color(theme::TEXT_MUTED),
+                        );
+                    }
                     if let Some(path) = &self.project_path {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(

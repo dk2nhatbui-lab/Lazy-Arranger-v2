@@ -12,12 +12,14 @@
 //! cases the C++ test suite already pins.
 
 pub mod chord_type;
+pub mod recognize;
 pub mod rules;
 pub mod style;
 pub mod transition;
 pub mod transpose;
 
 pub use chord_type::{ArrangerChord, ChordType};
+pub use recognize::{Recognized, recognize, symbol as recognize_symbol};
 pub use rules::{ChordRule, Ntr, Ntt, Rtr, TransposeRange};
 pub use style::{ChordAt, CompiledNote, Style, StyleError, StyleNote, StylePart, StyleSection};
 pub use transition::{SectionRequest, TransitionMode, TransitionState};

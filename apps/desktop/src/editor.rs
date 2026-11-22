@@ -289,6 +289,60 @@ impl Editor {
         Ok(())
     }
 
+    /// Finds chords from the notes, one per bar, and writes them.
+    ///
+    /// Returns how many bars got a chord. Bars whose notes match nothing are
+    /// left unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when a command is rejected.
+    pub fn find_chords(&mut self) -> Result<usize, String> {
+        let meter = self.song().time_signature;
+        let bar = meter.bar_ticks().max(1);
+        let end = self.song().end_tick().max(bar);
+        let mut found = Vec::new();
+        let mut start = 0;
+        while start < end {
+            let mut pitches = Vec::new();
+            let mut lowest = 127_u8;
+            for track in &self.song().tracks {
+                for note in &track.notes {
+                    if note.start >= start && note.start < start + bar {
+                        pitches.push(note.pitch.as_u8());
+                        lowest = lowest.min(note.pitch.as_u8());
+                    }
+                }
+            }
+            if let Some(recognized) = arranger::recognize(&pitches, Some(lowest)) {
+                found.push((start, recognized.chord));
+            }
+            start += bar;
+        }
+        for (tick, chord) in &found {
+            let existing: Vec<Tick> = self
+                .song()
+                .chords
+                .iter()
+                .filter(|event| event.tick >= *tick && event.tick < tick + bar)
+                .map(|event| event.tick)
+                .collect();
+            for event_tick in existing {
+                self.session
+                    .apply(Command::RemoveChord { tick: event_tick })
+                    .map_err(|error| error.to_string())?;
+            }
+            self.session
+                .apply(Command::SetChord {
+                    tick: *tick,
+                    chord: *chord,
+                })
+                .map_err(|error| error.to_string())?;
+        }
+        self.dirty |= !found.is_empty();
+        Ok(found.len())
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {
@@ -522,6 +576,30 @@ mod tests {
                 .format(music_core::Spelling::Sharp),
             "C"
         );
+    }
+
+    #[test]
+    fn chords_are_found_from_the_notes() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        for (index, name) in [(2_u32, "E4"), (3, "G4")] {
+            editor
+                .insert(
+                    track,
+                    PPQ * i64::from(index - 1),
+                    Pitch::from_name(name).expect("valid"),
+                )
+                .expect("insert");
+        }
+        let found = editor.find_chords().expect("find");
+        assert_eq!(found, 1);
+        assert_eq!(
+            editor.song().chords[0]
+                .chord
+                .format(music_core::Spelling::Sharp),
+            "C"
+        );
+        assert!(editor.undo());
     }
 
     #[test]
