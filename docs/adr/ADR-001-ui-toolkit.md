@@ -31,6 +31,13 @@ whose conditions (attribution, scope, revenue limits) need a full read before
 use. The earlier wording here, that a GPL-family toolkit necessarily forces
 copyleft on the binary, was too strong for Slint and is corrected.
 
+A third source, Codex's review of Cecilia and SoundCraft, also recommends
+`egui` for the application with a toolkit-agnostic engraving module behind it
+(see ADR-010). All named options therefore have a permissive path:
+`egui` MIT OR Apache-2.0, `iced` MIT, and Slint's royalty-free licence after
+its conditions are read. The choice is now about editor ergonomics and
+rendering control, not licensing.
+
 Both reference UI layers are large: Cadenza has 124 source files under
 `crates/app/src`, Vibez has 495 under `crates/vibez-ui/src`. That is the scale a
 dense editor reaches, and it is a warning against treating the toolkit choice as

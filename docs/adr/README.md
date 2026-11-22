@@ -14,6 +14,7 @@ or **Superseded**.
 | [007](ADR-007-plugin-host.md) | Plugin host isolation and licensing | Deferred |
 | [008](ADR-008-cpp-interop.md) | C++/Rust interoperability | Accepted, implemented |
 | [009](ADR-009-hardware-capabilities.md) | Hardware capability model and SysEx | Accepted (principles) |
+| [010](ADR-010-score-engraving.md) | Score engraving seam, tiles and PDF | Proposed (Stage 8) |
 
 The shared type contract that these decisions constrain is
 [`../architecture/contracts.md`](../architecture/contracts.md).
