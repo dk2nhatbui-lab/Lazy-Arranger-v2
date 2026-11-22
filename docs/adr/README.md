@@ -5,7 +5,7 @@ or **Superseded**.
 
 | ADR | Decision | Status |
 | --- | --- | --- |
-| [001](ADR-001-ui-toolkit.md) | Desktop UI toolkit | Deferred (Stage 6) |
+| [001](ADR-001-ui-toolkit.md) | Desktop UI toolkit | **Accepted: egui, v1 Studio Console style** |
 | [002](ADR-002-audio-clock.md) | Audio clock, tick/sample conversion, MIDI dispatch | Accepted; internal clock and dispatch worker implemented |
 | [003](ADR-003-canonical-style.md) | Canonical style model, manufacturer metadata | Accepted; conversion implemented, CASM import open |
 | [004](ADR-004-project-schema.md) | Project schema versioning and legacy migration | Accepted, implemented |

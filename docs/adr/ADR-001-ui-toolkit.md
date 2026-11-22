@@ -1,6 +1,6 @@
 # ADR-001: Desktop UI toolkit
 
-**Status:** Deferred. Revisit at Stage 6.
+**Status:** Accepted at Stage 6: **egui**, styled after the v1 "Studio Console" theme.
 
 ## Context
 
@@ -48,13 +48,22 @@ cheap to reverse.
 
 ## Decision
 
-1. Do not choose a toolkit now. Keep building headless.
+**egui is the toolkit.** The product owner chose it, and the shell must match the
+graphic style of Lazy Arranger v1 (the C++/JUCE application): near-black
+surfaces, warm off-white text, coral accent, LCD-style transport displays, Inter
+for UI text and the seven-colour track palette. Token values, metrics and font
+licence notes are in [`docs/design/v1-visual-language.md`](../design/v1-visual-language.md).
+
+1. Use `eframe`/`egui` for the application shell and editing controls. Track the
+   version the reference projects use (SoundCraft: 0.37; Cadenza: 0.36) and pin
+   one version for the workspace.
 2. Keep every domain type and every edit reachable through `app-commands`, so a
    UI is a client of the model rather than a layer inside it. The workspace
    already enforces this: no UI crate can appear below `apps/`.
-3. Before choosing, record in this ADR: licence and cost, piano-roll scroll and
-   redraw performance with 50k notes, text/score rendering quality, IME and
-   accessibility support, and plugin-window embedding.
+3. Before the shell is called usable, record in this ADR: piano-roll scroll and
+   redraw performance with 50k notes, text rendering quality, IME and
+   accessibility support, and plugin-window embedding. Score rendering is
+   ADR-010's engraver, not egui text shaping.
 4. Treat a copyleft toolkit, or a royalty-free licence with conditions, as a
    product-level decision that needs explicit owner approval, the same way
    ADR-007 treats plugin hosting. The reference projects show that `egui`
@@ -63,6 +72,11 @@ cheap to reverse.
 
 ## Consequences
 
+* The desktop app becomes a new `apps/desktop` crate behind the same command
+  path; no UI type enters the domain crates.
+* CI gains a compile-only desktop job. Linux needs X11/Wayland development
+  packages to build `eframe`; that is a CI dependency, not a product one.
+* The v1 theme is data, so a light theme can follow without touching widgets.
 * Stage 6 pays the evaluation cost, but no earlier work is blocked.
 * If the chosen toolkit is copyleft, the whole product licence changes. That
   decision is recorded here or in a superseding ADR.
