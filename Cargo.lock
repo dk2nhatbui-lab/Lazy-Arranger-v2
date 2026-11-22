@@ -1603,6 +1603,7 @@ dependencies = [
  "music-core",
  "project",
  "serde_json",
+ "style-formats",
  "thiserror 2.0.21",
 ]
 

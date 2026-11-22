@@ -25,6 +25,12 @@ pub enum ToolError {
     Command(#[from] CommandError),
 }
 
+impl From<music_core::MusicError> for ToolError {
+    fn from(error: music_core::MusicError) -> Self {
+        Self::Arguments(error.to_string())
+    }
+}
+
 impl From<arranging::ArrangingError> for ToolError {
     fn from(error: arranging::ArrangingError) -> Self {
         Self::Command(CommandError::Validation(error.to_string()))
@@ -113,6 +119,59 @@ pub fn tools() -> Vec<Tool> {
                 "type": "object",
                 "properties": {"bars": {"type": "integer"}},
                 "required": []
+            }),
+        },
+        Tool {
+            name: "get_automation",
+            description: "Read a track's volume and pan automation lanes.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}},
+                "required": ["track"]
+            }),
+        },
+        Tool {
+            name: "set_automation",
+            description: "Replace a track's automation lanes; points are (tick, value 0..127).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "lanes": {"type": "array"}
+                },
+                "required": ["track", "lanes"]
+            }),
+        },
+        Tool {
+            name: "get_lyrics",
+            description: "Read the song's lyrics and score marks.",
+            input_schema: json!({"type": "object", "properties": {}}),
+        },
+        Tool {
+            name: "style_catalog",
+            description: "List numbered style files under a folder.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "root": {"type": "string"},
+                    "limit": {"type": "integer"}
+                },
+                "required": ["root"]
+            }),
+        },
+        Tool {
+            name: "theory",
+            description: "Scale names, roman labels, cadence or voice-leading cost.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "op": {"type": "string"},
+                    "tonic": {"type": "string"},
+                    "mode": {"type": "string"},
+                    "chords": {"type": "array"},
+                    "to": {"type": "string"}
+                },
+                "required": ["op"]
             }),
         },
         Tool {
@@ -293,6 +352,134 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "scenes": scenes,
             }))
         }
+        "get_automation" => {
+            let track = track_argument(arguments)?;
+            let found = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
+            Ok(json!({
+                "volume": found.volume,
+                "pan": found.pan,
+                "lanes": found.automation.iter().map(|lane| json!({
+                    "target": match lane.target {
+                        project::song::AutomationTarget::Volume => "volume",
+                        project::song::AutomationTarget::Pan => "pan",
+                    },
+                    "points": lane.points.iter().map(|point| json!({"tick": point.tick, "value": point.value})).collect::<Vec<_>>()
+                })).collect::<Vec<_>>()
+            }))
+        }
+        "set_automation" => {
+            use project::song::{Automation, AutomationPoint, AutomationTarget};
+            let track = track_argument(arguments)?;
+            let lanes = arguments
+                .get("lanes")
+                .and_then(Value::as_array)
+                .ok_or_else(|| ToolError::Arguments(String::from("lanes must be an array")))?;
+            let mut parsed = Vec::new();
+            for lane in lanes {
+                let target = match lane.get("target").and_then(Value::as_str) {
+                    Some("volume") => AutomationTarget::Volume,
+                    Some("pan") => AutomationTarget::Pan,
+                    _ => {
+                        return Err(ToolError::Arguments(String::from(
+                            "lane target must be volume or pan",
+                        )));
+                    }
+                };
+                let points = lane
+                    .get("points")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| ToolError::Arguments(String::from("lane needs points")))?;
+                let mut points: Vec<AutomationPoint> = points
+                    .iter()
+                    .map(|point| {
+                        let tick = point.get("tick").and_then(Value::as_i64).unwrap_or(0);
+                        let value = point.get("value").and_then(Value::as_f64).unwrap_or(0.0);
+                        AutomationPoint {
+                            tick: tick.max(0),
+                            value: value.clamp(0.0, 127.0) as f32,
+                        }
+                    })
+                    .collect();
+                points.sort_by_key(|point| point.tick);
+                parsed.push(Automation { target, points });
+            }
+            session.apply(Command::SetAutomation {
+                track,
+                lanes: parsed.clone(),
+            })?;
+            Ok(json!({"lanes": parsed.len()}))
+        }
+        "get_lyrics" => Ok(json!({
+            "lyrics": session.song().lyrics.iter().map(|event| json!({"tick": event.tick, "text": event.text})).collect::<Vec<_>>(),
+            "marks": session.song().marks.iter().map(|mark| json!({"tick": mark.tick, "kind": format!("{:?}", mark.kind)})).collect::<Vec<_>>()
+        })),
+        "style_catalog" => {
+            let root = arguments
+                .get("root")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("root is required")))?;
+            let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+            let entries = style_formats::catalog::catalog(std::path::Path::new(root))
+                .map_err(ToolError::Arguments)?;
+            Ok(json!({
+                "total": entries.len(),
+                "entries": entries.iter().take(limit).map(|entry| json!({
+                    "number": entry.number,
+                    "name": entry.name,
+                    "path": entry.path.display().to_string()
+                })).collect::<Vec<_>>()
+            }))
+        }
+        "theory" => {
+            let op = arguments
+                .get("op")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("op is required")))?;
+            match op {
+                "scale" => {
+                    let tonic = parse_tonic_argument(arguments)?;
+                    let mode = arguments
+                        .get("mode")
+                        .and_then(Value::as_str)
+                        .unwrap_or("major");
+                    let mode = music_core::theory::Mode::parse(mode)?;
+                    Ok(json!({
+                        "tonic": tonic.name_sharp(),
+                        "mode": mode.name(),
+                        "notes": music_core::theory::scale(tonic, mode).iter().map(|pitch| pitch.name_sharp()).collect::<Vec<_>>()
+                    }))
+                }
+                "label" => {
+                    let tonic = parse_tonic_argument(arguments)?;
+                    let chords = chord_arguments(arguments)?;
+                    Ok(json!({
+                        "labels": chords.iter().map(|chord| music_core::theory::roman_label(*chord, tonic)).collect::<Vec<_>>(),
+                        "cadence": format!("{:?}", music_core::theory::cadence(&chords, tonic))
+                    }))
+                }
+                "voice_leading" => {
+                    let from = arguments
+                        .get("tonic")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| {
+                            ToolError::Arguments(String::from("tonic must name the first chord"))
+                        })?;
+                    let to = arguments
+                        .get("to")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| ToolError::Arguments(String::from("to is required")))?;
+                    let from = music_core::Chord::parse(from)?;
+                    let to = music_core::Chord::parse(to)?;
+                    Ok(json!({"cost": music_core::theory::voice_leading_cost(from, to)}))
+                }
+                other => Err(ToolError::Arguments(format!("unknown theory op {other}"))),
+            }
+        }
         "edit_slot" => {
             let scene = arguments
                 .get("scene")
@@ -352,6 +539,40 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
         "set_chords" => set_chords(session, arguments),
         _ => Err(ToolError::UnknownTool(String::from(name))),
     }
+}
+
+fn parse_tonic_argument(arguments: &Value) -> Result<music_core::PitchClass, ToolError> {
+    let name = arguments
+        .get("tonic")
+        .and_then(Value::as_str)
+        .unwrap_or("C");
+    let with_octave = if name
+        .chars()
+        .last()
+        .is_some_and(|last| last.is_ascii_digit())
+    {
+        name.to_string()
+    } else {
+        format!("{name}4")
+    };
+    let pitch = music_core::Pitch::from_name(&with_octave)?;
+    Ok(music_core::PitchClass::new(i32::from(pitch.as_u8() % 12)))
+}
+
+fn chord_arguments(arguments: &Value) -> Result<Vec<music_core::Chord>, ToolError> {
+    let chords = arguments
+        .get("chords")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ToolError::Arguments(String::from("chords must be an array")))?;
+    chords
+        .iter()
+        .map(|value| {
+            let symbol = value
+                .as_str()
+                .ok_or_else(|| ToolError::Arguments(String::from("chords must be strings")))?;
+            Ok(music_core::Chord::parse(symbol)?)
+        })
+        .collect()
 }
 
 fn track_argument(arguments: &Value) -> Result<TrackId, ToolError> {
@@ -613,6 +834,93 @@ mod tests {
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"add_notes"));
         assert!(list[0]["inputSchema"].is_object());
+    }
+
+    #[test]
+    fn automation_is_read_and_written_through_tools() {
+        let mut session = session_with_track();
+        let written = call(
+            &mut session,
+            "set_automation",
+            &json!({
+                "track": 1,
+                "lanes": [{
+                    "target": "volume",
+                    "points": [
+                        {"tick": 960, "value": 100.0},
+                        {"tick": 0, "value": 0.0}
+                    ]
+                }]
+            }),
+        )
+        .expect("set");
+        assert_eq!(written["lanes"], 1);
+        let read = call(&mut session, "get_automation", &json!({"track": 1})).expect("get");
+        assert_eq!(read["lanes"][0]["target"], "volume");
+        assert_eq!(
+            read["lanes"][0]["points"][0]["tick"], 0,
+            "points are sorted"
+        );
+        assert!(
+            call(
+                &mut session,
+                "set_automation",
+                &json!({"track": 1, "lanes": [{"target": "tempo"}]})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn lyrics_marks_style_catalog_and_theory_are_available() {
+        let mut song = project::song::Song::new("Tools", 120.0);
+        song.tracks.push(project::song::Track::new(
+            TrackId::new(1).expect("valid"),
+            "Piano",
+        ));
+        song.lyrics.push(project::song::LyricEvent {
+            tick: 0,
+            text: String::from("la"),
+        });
+        let mut session = EditSession::new(project::song::ProjectFile::new(song)).expect("valid");
+        let lyrics = call(&mut session, "get_lyrics", &json!({})).expect("lyrics");
+        assert_eq!(lyrics["lyrics"][0]["text"], "la");
+
+        let directory = std::env::temp_dir().join("lazy-arranger-mcp-catalog");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("dir");
+        std::fs::write(directory.join("one.sty"), b"x").expect("write");
+        let catalog = call(
+            &mut session,
+            "style_catalog",
+            &json!({"root": directory.display().to_string()}),
+        )
+        .expect("catalog");
+        assert_eq!(catalog["total"], 1);
+        assert_eq!(catalog["entries"][0]["number"], 1);
+        let _ = std::fs::remove_dir_all(&directory);
+
+        let scale = call(
+            &mut session,
+            "theory",
+            &json!({"op": "scale", "tonic": "C", "mode": "major"}),
+        )
+        .expect("scale");
+        assert_eq!(scale["notes"], json!(["C", "D", "E", "F", "G", "A", "B"]));
+        let labels = call(
+            &mut session,
+            "theory",
+            &json!({"op": "label", "tonic": "C", "chords": ["C", "Am", "F", "G"]}),
+        )
+        .expect("labels");
+        assert_eq!(labels["labels"][1], "VIm");
+        let cost = call(
+            &mut session,
+            "theory",
+            &json!({"op": "voice_leading", "tonic": "C", "to": "F"}),
+        )
+        .expect("cost");
+        assert_eq!(cost["cost"], 3);
     }
 
     #[test]

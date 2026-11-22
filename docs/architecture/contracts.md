@@ -670,3 +670,11 @@ shell polls it once per frame, resolves each message through `MidiMap`, and
 runs the action: play/stop toggle, undo, scene launch, or a track fader set to
 the control-change value. Hardware behaviour is not verified here; a machine
 with the named keyboard is needed.
+
+### New assistant tools
+
+`get_automation` and `set_automation` read and replace a track's lanes
+(points are sorted and values clamped to 0..127); `get_lyrics` returns lyrics
+and score marks; `style_catalog` lists a numbered folder without parsing; and
+`theory` answers scale, roman-label, cadence and voice-leading questions. The
+tool list is 22 entries; `mcp-call` exercises them from the CLI.

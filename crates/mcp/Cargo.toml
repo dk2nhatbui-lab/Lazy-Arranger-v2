@@ -11,6 +11,7 @@ app-commands = { path = "../app-commands" }
 arranging = { path = "../arranging" }
 music-core = { path = "../music-core" }
 project = { path = "../project" }
+style-formats = { path = "../style-formats" }
 serde_json = { workspace = true }
 thiserror.workspace = true
 
