@@ -7,7 +7,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 | § | C++ feature | Rust | Key gap / evidence |
 | --- | --- | --- | --- |
-| 1 | Projects and files | partial | `.arranger` open/save, autosave/recovery, SMF in/out, WAV out, MusicXML export/import, style save. No Recent, audio import, PDF, PSR-S970 export, Korg, L6max, SysEx |
+| 1 | Projects and files | partial | `.arranger` open/save, autosave/recovery, SMF in/out, WAV out, MusicXML export/import, style save, PSR-S970 song export. No Recent, audio import, PDF, Korg, L6max, SysEx |
 | 2 | Window: header, views, inspector, mixer panel, AI panel, light theme, zoom | partial | Header, LCD, tabs, track list, dark theme, square corners. No inspector, mixer/AI panels, light theme; zoom is wheel-only |
 | 3 | Tracks: MIDI/audio, outputs, channel, sound, rename/duplicate/mute/solo/arm, inputs, reset | partial | MIDI tracks in the model; no add/duplicate/mute/solo UI, no audio tracks, no outputs or SoundFont |
 | 4 | Transport: play/stop, start, record, loop, metronome, ruler, tempo/meter edit, MIDI record, all-notes-off, auto inputs | partial | Audio play/pause/stop with silence on stop; no record, loop, metronome, ruler, tempo edit, quantise, auto inputs |
@@ -30,7 +30,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 21 | Device profiles (YAML), built-ins, overrides, validation, AI authoring, recent MIDI | partial | Typed profile structs and five devices; no YAML loader, overrides, recent buffer |
 | 22 | Synth sound editors (D-05, XioSynth, S970 XG, L6max), sysex dumps | missing | — |
 | 23 | Controller pages, MIDI Map, MIDI Learn, channel check | partial | Launchkey/X-Touch profiles referenced; no pages, map, learn |
-| 24 | PSR-S970 song export, Style Remote, style by number, WAV for keyboard | missing | — |
+| 24 | PSR-S970 tools | partial | Song export with setup bar, program/volume/pan per part, chord markers, lyrics events and drums on channel 10. No Style Remote, style-by-number or hardware verification |
 | 25 | Music Finder and Playlists | partial | JSON, CSV, TSV and MFD (1,653-record real file), CLI import. No AI tools or CSV→playlist writer |
 | 26 | Zoom L6max mixer page and import | missing | — |
 | 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | missing | Commands already provide single undo steps |

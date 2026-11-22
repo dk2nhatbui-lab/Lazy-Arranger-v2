@@ -23,6 +23,9 @@ use project::ids::{Marker, NoteId, TrackId};
 use project::song::{Note, Song, Track};
 use thiserror::Error;
 
+pub mod keyboard;
+pub use keyboard::{Report as KeyboardReport, Voice as KeyboardVoice, export as export_keyboard};
+
 /// Ticks per quarter note used by every encoded file.
 pub const EXPORT_PPQ: u16 = 960;
 

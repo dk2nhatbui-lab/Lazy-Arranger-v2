@@ -560,3 +560,16 @@ from the first `<sound tempo>`. Key, lyrics, marks, dynamics and ties are not
 imported, and drum pitches are not preserved through export because only the
 display position is written, so a round trip restores note counts and pitched
 material but not drum identities or velocities.
+
+### Keyboard song export
+
+`smf::export_keyboard` writes a format-1 MIDI file with a setup track: track
+name, tempo, meter, then a program change (voice), volume (CC 7) and pan
+(CC 10) for each part; chord names as `Chord: X` markers and lyrics as lyric
+events. Music starts one bar after the setup, drum parts are forced to channel
+10, and the report counts tracks, notes, markers, lyrics and the shift.
+
+Voices come from the caller (`--voice CHANNEL:PROGRAM`); there is no lookup in
+a device profile yet, so the nearest-voice rule the C++ app applies is not
+implemented. No keyboard has been used to confirm playback, and Style Remote,
+style-by-number and Beat-pattern export are missing.

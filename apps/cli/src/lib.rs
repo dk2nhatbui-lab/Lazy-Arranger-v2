@@ -127,6 +127,17 @@ enum Commands {
         #[arg(long)]
         rules: bool,
     },
+    /// Export a song for the Yamaha PSR-S970 Song player.
+    ExportKeyboard {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Output `.mid` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Voice per track as CHANNEL:PROGRAM, repeatable.
+        #[arg(long = "voice", value_name = "CHANNEL:PROGRAM")]
+        voices: Vec<String>,
+    },
     /// Export a project as MusicXML.
     ExportMusicXml {
         /// Project `.json` path.
@@ -324,6 +335,42 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             chords,
             add_tracks,
         } => edit(&project, &out, tempo, &chords, &add_tracks),
+        Commands::ExportKeyboard {
+            project,
+            out,
+            voices,
+        } => {
+            let project = read_project(&project)?;
+            let mut parsed: Vec<smf::KeyboardVoice> = Vec::new();
+            for entry in &voices {
+                let (channel, program) = entry
+                    .split_once(':')
+                    .ok_or_else(|| format!("--voice expects CHANNEL:PROGRAM, found {entry:?}"))?;
+                parsed.push(smf::KeyboardVoice {
+                    channel: channel.trim().parse()?,
+                    program: program.trim().parse()?,
+                    ..smf::KeyboardVoice::default()
+                });
+            }
+            while parsed.len() < project.song.tracks.len() {
+                parsed.push(smf::KeyboardVoice {
+                    channel: u8::try_from(parsed.len()).unwrap_or(0),
+                    ..smf::KeyboardVoice::default()
+                });
+            }
+            let (bytes, report) = smf::export_keyboard(&project.song, &parsed, &[]);
+            fs::write(&out, &bytes)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!(
+                "wrote {}: {} track(s), {} note(s), {} chord marker(s), setup bar of {} ticks",
+                out.display(),
+                report.tracks,
+                report.notes,
+                report.chords,
+                report.shift
+            );
+            Ok(())
+        }
         Commands::ExportMusicXml {
             project,
             out,
