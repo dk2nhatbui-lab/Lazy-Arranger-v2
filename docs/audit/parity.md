@@ -24,7 +24,8 @@ regressions. Status values: **verified** (tested here), **implemented**
 | YouTube link to MIDI end to end | `link-to-midi` CLI | implemented, not run against YouTube | needs yt-dlp + ffmpeg |
 | WAV decoding | `audio::wav` | verified | 16-bit PCM round trip |
 | AI/MCP tools for assistants | — | missing | C++ `McpServer`; planned `mcp` crate |
-| Style writer | — | missing | Stage 4 remainder |
+| Style writer: CASM SFF1 rules and sections | `style-formats::write_casm_sff1` | partial, round-trip verified | one test writes and re-reads a group |
+| Style writer: SFF2, MIDI track, voices, setup events | — | missing | Stage 4 remainder |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | — | missing | ADR-010 (Stage 8) |

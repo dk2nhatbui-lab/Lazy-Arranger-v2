@@ -509,3 +509,11 @@ decodes 16-bit PCM (`audio::wav`), detects monophonic notes
 (`audio::analysis`), and writes a 960 PPQ MIDI file at 120 bpm. The app does not
 download by itself and does not bundle yt-dlp or ffmpeg; a missing program is
 reported, never silently skipped. Downloaded WAVs are deleted unless `--keep`.
+
+## 19. Style writing
+
+`style_formats::write_casm_sff1` emits a `CASM` chunk containing one `CSEG` per
+group: an `Sdec` with the section names and a `Ctab` with 26-byte SFF1 records.
+Names are truncated to eight bytes; NTT values SFF1 cannot express become
+melody; the vendor tail is kept verbatim. Only SFF1 is written so far, and only
+the rule data: the MIDI track, voices and setup events are not written yet.

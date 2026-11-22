@@ -18,6 +18,7 @@
 //! `rtt = 110/128` and `ntt = 127`, two rules each.
 
 use arranger::ChordType;
+use arranger::chord_type::ALL_TYPES;
 use arranger::rules::{ChordRule, Ntr, Ntt, Rtr, TransposeRange};
 
 use crate::Chunk;
@@ -706,5 +707,129 @@ mod tests {
         let rules = read_rules(&bytes);
         assert_eq!(rules.version, SffVersion::Mixed);
         assert_eq!(rules.groups[0].rules.len(), 2);
+    }
+}
+
+/// Encodes rules as an SFF1 `CASM` chunk (`CSEG` with `Sdec` and `Ctab`).
+///
+/// Only values representable in SFF1 are encoded exactly: NTT types other than
+/// bypass, melody, chord, melodic minor and harmonic minor become melody, and
+/// names are truncated to eight bytes. Rules keep their vendor tail.
+#[must_use]
+pub fn write_casm_sff1(groups: &[SectionRules]) -> Vec<u8> {
+    let mut cseg_children = Vec::new();
+    let mut rules = Vec::new();
+    for group in groups {
+        let names = group.sections.join(",");
+        cseg_children.extend(chunk(b"Sdec", names.as_bytes()));
+        for rule in &group.rules {
+            rules.extend(encode_rule_sff1(rule));
+        }
+    }
+    if !rules.is_empty() {
+        cseg_children.extend(chunk(b"Ctab", &rules));
+    }
+    chunk(b"CASM", &chunk(b"CSEG", &cseg_children))
+}
+
+fn chunk(id: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(8 + payload.len() + 1);
+    out.extend_from_slice(id);
+    out.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+    out.extend_from_slice(payload);
+    if payload.len() % 2 == 1 {
+        out.push(0);
+    }
+    out
+}
+
+fn encode_rule_sff1(rule: &ChordRule) -> Vec<u8> {
+    let mut out = vec![0_u8; 26];
+    out[0] = (rule.source_channel.saturating_sub(1)) & 0x0f;
+    for (index, byte) in rule.name.as_bytes().iter().take(8).enumerate() {
+        out[1 + index] = *byte;
+    }
+    out[9] = (rule.dest_channel.saturating_sub(1)) & 0x0f;
+    out[10] = u8::from(!rule.editable);
+    out[11..13].copy_from_slice(&(rule.note_mute & 0x0fff).to_be_bytes());
+    let mute = (rule.chord_mute & 0x00ff_ffff_ffff).to_be_bytes();
+    out[13..18].copy_from_slice(&mute[3..8]);
+    out[18] = rule.source_root % 12;
+    out[19] = u8::try_from(
+        ALL_TYPES
+            .iter()
+            .position(|kind| *kind == rule.source_chord_type)
+            .unwrap_or(0),
+    )
+    .unwrap_or(0);
+    let range = &rule.transpose;
+    out[20] = match range.ntr {
+        Ntr::RootTransposition => 0,
+        Ntr::RootFixed => 1,
+        Ntr::Guitar => 2,
+    };
+    out[21] = match (range.ntt, range.bass) {
+        (Ntt::Bypass, _) => 0,
+        (Ntt::Melody, true) => 3,
+        (Ntt::Melody, false) => 1,
+        (Ntt::MelodicMinor, _) => 4,
+        (Ntt::HarmonicMinor, _) => 5,
+        _ => 1,
+    };
+    out[22] = range.high_key;
+    out[23] = range.low_limit;
+    out[24] = range.high_limit;
+    out[25] = match range.rtr {
+        Rtr::Stop => 0,
+        Rtr::PitchShift => 1,
+        Rtr::PitchShiftToRoot => 2,
+        Rtr::Retrigger => 3,
+        Rtr::RetriggerToRoot => 4,
+        Rtr::NoteGenerator => 5,
+    };
+    out.extend_from_slice(&rule.special);
+    out
+}
+
+#[cfg(test)]
+mod writer_tests {
+    use super::*;
+
+    #[test]
+    fn an_sff1_group_round_trips_through_the_reader() {
+        let mut rule = ChordRule::new(11, 11);
+        rule.name = String::from("Bass");
+        rule.editable = true;
+        rule.note_mute = 0x0f0f;
+        rule.chord_mute = 0x0000_00ff_ffff;
+        rule.source_root = 0;
+        rule.source_chord_type = ChordType::Major7;
+        rule.transpose.ntr = Ntr::RootFixed;
+        rule.transpose.ntt = Ntt::Melody;
+        rule.transpose.bass = true;
+        rule.transpose.high_key = 6;
+        rule.transpose.low_limit = 0;
+        rule.transpose.high_limit = 127;
+        rule.transpose.rtr = Rtr::PitchShiftToRoot;
+        let group = SectionRules {
+            sections: vec![String::from("Main A"), String::from("Fill A")],
+            rules: vec![rule.clone()],
+        };
+        let bytes = write_casm_sff1(&[group]);
+        let parsed = read_rules(&bytes);
+        assert!(parsed.has_casm);
+        assert_eq!(parsed.version, SffVersion::Sff1);
+        assert_eq!(parsed.groups.len(), 1);
+        assert_eq!(parsed.groups[0].sections, vec!["Main A", "Fill A"]);
+        let read = &parsed.groups[0].rules[0];
+        assert_eq!(read.source_channel, rule.source_channel);
+        assert_eq!(read.dest_channel, rule.dest_channel);
+        assert_eq!(read.name, rule.name);
+        assert_eq!(read.source_chord_type, rule.source_chord_type);
+        assert_eq!(read.transpose.ntr, rule.transpose.ntr);
+        assert_eq!(read.transpose.ntt, rule.transpose.ntt);
+        assert!(read.transpose.bass);
+        assert_eq!(read.transpose.rtr, rule.transpose.rtr);
+        assert_eq!(read.special, rule.special);
     }
 }
