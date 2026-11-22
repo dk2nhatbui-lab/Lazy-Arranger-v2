@@ -39,7 +39,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 30 | AI music tools (humanize, drumify, continue, write part, melody) | missing | — |
 | 31 | Theory: keys, roman numerals, scales, voice-leading, skill packs | partial | Chord types, transpose, chord parse; no key finding, roman analysis, voice-leading, skills |
 | 32 | Arranging help | partial | Arrangement Doctor (crowded bars, repeats) and Fit to My Synths (range octaves, polyphony removal, drum-kit warning) with proposal cards and undo. No A/B audition |
-| 33 | Groove extraction and application | missing | — |
+| 33 | Groove | partial | Timing offset and velocity level per 1/16 slot, extract/apply with timing and accent amounts, feel-match score, G applies the selected track's groove to the others. No audio groove, words, library files or Play Before/After |
 | 34 | Song Forms | missing | — |
 | 35 | Kids Mode | missing | — |
 | 36 | Languages (EN/DA/FR/VI) | missing | English only |
@@ -49,7 +49,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections: 0 fully verified beyond their Rust subset, 16 partial, 23 missing.
+39 sections: 0 fully verified beyond their Rust subset, 17 partial, 22 missing.
 The partials with the most depth are styles (open, import, compile, SFF1 write),
 audio-to-MIDI, Music Finder/playlists, project files and the window shell.
 

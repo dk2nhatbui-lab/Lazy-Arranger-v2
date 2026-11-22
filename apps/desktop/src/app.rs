@@ -265,6 +265,18 @@ impl ShellApp {
                 self.selected_clip = Some((track, clip));
             }
         }
+        if context.input(|input| input.key_pressed(egui::Key::G))
+            && let Some(source) = self.roll.selected
+        {
+            match self
+                .editor
+                .apply_groove(source, arranging::groove::Amounts::default())
+            {
+                Ok(0) => self.status = Some(String::from("no other track to groove")),
+                Ok(count) => self.status = Some(format!("groove applied to {count} track(s)")),
+                Err(error) => self.status = Some(error),
+            }
+        }
         if context.input(|input| input.key_pressed(egui::Key::D)) {
             self.doctor_proposals = self.editor.proposals();
             self.doctor_proposals

@@ -42,6 +42,8 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Find Chords from the Music | `arranger::recognize`, `Editor::find_chords` | verified | triad, sevenths, inversion, minor, dim tests; F key |
 | Arrangement Doctor (crowded bars, literal repeats) | `arranging::doctor` | partial verified | 4 rule/apply tests; D dialog |
 | Fit to My Synths | `arranging::fit_to_synth` | verified core | 3 tests: range octaves, polyphony removal, apply; default synth limits |
+| Groove extraction, application, feel match | `arranging::groove` | verified core | 5 tests: averaging, amounts, match, bad grids |
+| Groove applied from the selected track (G) | `apps/desktop` | implemented | editor test moves a second track and undoes |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | — | missing | ADR-010 (Stage 8) |

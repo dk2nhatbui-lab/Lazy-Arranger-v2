@@ -355,6 +355,49 @@ impl Editor {
         arranging::fit_to_synth(self.song(), spec)
     }
 
+    /// Extracts a groove from one track over the first bar.
+    #[must_use]
+    pub fn extract_groove(&self, track: TrackId) -> Option<arranging::groove::Groove> {
+        let source = self.song().tracks.iter().find(|entry| entry.id == track)?;
+        let bar = self.song().time_signature.bar_ticks().max(1);
+        arranging::groove::extract(&source.notes, bar, music_core::PPQ / 4)
+    }
+
+    /// Applies a track's groove to every other track.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when a command is rejected.
+    pub fn apply_groove(
+        &mut self,
+        source: TrackId,
+        amounts: arranging::groove::Amounts,
+    ) -> Result<usize, String> {
+        let Some(groove) = self.extract_groove(source) else {
+            return Err(String::from("no groove in that track"));
+        };
+        let others: Vec<TrackId> = self
+            .song()
+            .tracks
+            .iter()
+            .filter(|track| track.id != source && !track.notes.is_empty())
+            .map(|track| track.id)
+            .collect();
+        let mut changed = 0;
+        for track in others {
+            let Some(entry) = self.song().tracks.iter().find(|entry| entry.id == track) else {
+                continue;
+            };
+            let notes = arranging::groove::apply(&entry.notes, &groove, amounts);
+            self.session
+                .apply(Command::ReplaceTrackNotes { track, notes })
+                .map_err(|error| error.to_string())?;
+            changed += 1;
+        }
+        self.dirty |= changed > 0;
+        Ok(changed)
+    }
+
     /// Applies one Arrangement Doctor proposal.
     ///
     /// # Errors
@@ -663,6 +706,63 @@ mod tests {
                 .iter()
                 .all(|note| note.velocity.as_u8() == 100)
         );
+    }
+
+    #[test]
+    fn a_groove_moves_the_other_tracks_and_undoes() {
+        let mut song = Song::new("Groove", 120.0);
+        let mut swung = Track::new(TrackId::new(1).expect("valid"), "Swung");
+        let mut straight = Track::new(TrackId::new(2).expect("valid"), "Straight");
+        for index in 0..4 {
+            let start = i64::from(index) * PPQ;
+            let offset = if index % 2 == 1 { 40 } else { 0 };
+            swung.notes.push(Note {
+                id: NoteId::new(index + 1).expect("valid"),
+                start: start + offset,
+                duration: PPQ,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: music_core::Channel::first(),
+            });
+            straight.notes.push(Note {
+                id: NoteId::new(index + 1).expect("valid"),
+                start,
+                duration: PPQ,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: music_core::Channel::first(),
+            });
+        }
+        song.tracks.push(swung);
+        song.tracks.push(straight);
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("valid");
+        let mut original = vec![];
+        let mut edited = vec![];
+        for track in &editor.song().tracks {
+            if track.id == TrackId::new(2).expect("valid") {
+                original = track.notes.iter().map(|note| note.start).collect();
+            }
+        }
+        editor
+            .apply_groove(
+                TrackId::new(1).expect("valid"),
+                arranging::groove::Amounts::default(),
+            )
+            .expect("apply");
+        for track in &editor.song().tracks {
+            if track.id == TrackId::new(2).expect("valid") {
+                edited = track.notes.iter().map(|note| note.start).collect();
+            }
+        }
+        assert_ne!(original, edited);
+        assert!(editor.undo());
+        let mut after = vec![];
+        for track in &editor.song().tracks {
+            if track.id == TrackId::new(2).expect("valid") {
+                after = track.notes.iter().map(|note| note.start).collect();
+            }
+        }
+        assert_eq!(after, original);
     }
 
     #[test]

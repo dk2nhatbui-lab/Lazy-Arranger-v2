@@ -6,6 +6,8 @@
 //! highest-sounding track); Fit to My Synths only moves, softens or removes
 //! notes that break a synth's stated limits.
 
+pub mod groove;
+
 use std::collections::BTreeMap;
 
 use app_commands::{Command, CommandError, EditSession};
