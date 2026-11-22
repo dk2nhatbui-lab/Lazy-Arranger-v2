@@ -209,6 +209,18 @@ impl Settings {
     }
 }
 
+/// The honest answer to "check for updates": this build has no channel.
+#[must_use]
+pub fn update_status() -> &'static str {
+    "No update channel is configured; this build is used as installed."
+}
+
+/// Summarises discovered MIDI ports for the settings window.
+#[must_use]
+pub fn ports_summary(inputs: &[String], outputs: &[String]) -> String {
+    format!("{} input(s), {} output(s)", inputs.len(), outputs.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,6 +257,15 @@ mod tests {
         assert_eq!(settings.language, "en");
         assert_eq!(settings.grade, 5);
         assert!(!settings.kids_mode);
+    }
+
+    #[test]
+    fn the_update_answer_is_honest() {
+        assert!(update_status().contains("No update channel"));
+        assert_eq!(
+            ports_summary(&[String::from("a"), String::from("b")], &[]),
+            "2 input(s), 0 output(s)"
+        );
     }
 
     #[test]

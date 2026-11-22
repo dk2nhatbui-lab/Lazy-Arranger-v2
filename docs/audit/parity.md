@@ -64,6 +64,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Numbered style catalog and style-by-number rendering | `style-formats::catalog`, CLI `style-catalog`/`style-by-number` | verified | 2 tests; real library lists 16,220; number 2 rendered 124 notes |
 | MCP tools for automation, lyrics/marks, style catalog and theory | `crates/mcp` | verified | 4 new tools, tool tests and CLI calls; 22 tools total |
 | Synth families: piano, bass, organ, strings, pad, drums (with noise percussion) | `audio::Timbre` | verified | timbre tests, pad swell, drum energy; demo RMS 0.129 |
+| Settings device list and update answer | `apps/desktop/src/settings.rs`, settings window | verified helper | port summary and update text tests; device enumeration needs hardware |
 | Built-in sixteen-bar demo (drums, bass, piano, pad, chords, marks, lyrics) | `arranging::demo` | verified | validation, counts, render test; shell first run; CLI `demo-project` |
 | Theory helpers: scales, roman labels, cadences, voice-leading cost | `music-core::theory`, CLI `theory-*` | verified | 4 tests + CLI runs |
 | PSR-S970 keyboard song export (setup bar, voices, chords, drums ch10) | `smf::export_keyboard` | implemented | 3 tests; real project 94 notes, 5 tracks; programs from profile name matching |

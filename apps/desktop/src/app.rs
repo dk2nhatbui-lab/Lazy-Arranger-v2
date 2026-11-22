@@ -100,6 +100,7 @@ pub struct ShellApp {
     recent_file: std::path::PathBuf,
     midi_input: Option<midi_devices::devices::LiveInput>,
     midi_map: midi_devices::map::MidiMap,
+    midi_ports: Option<(Vec<String>, Vec<String>)>,
     settings: crate::settings::Settings,
     settings_open: bool,
     shortcuts_open: bool,
@@ -167,6 +168,7 @@ impl ShellApp {
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
             midi_input: None,
+            midi_ports: None,
             midi_map: std::fs::read_to_string("lazy-arranger-midi-map.txt")
                 .ok()
                 .and_then(|text| midi_devices::map::MidiMap::from_text(&text).ok())
@@ -669,6 +671,39 @@ impl ShellApp {
                         } else {
                             Some(keyboard)
                         };
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Find MIDI inputs").clicked() {
+                            match midi_devices::devices::list_ports() {
+                                Ok(names) => {
+                                    self.status = Some(crate::settings::ports_summary(
+                                        &names.inputs,
+                                        &names.outputs,
+                                    ));
+                                    self.midi_ports = Some((names.inputs, names.outputs));
+                                }
+                                Err(error) => self.status = Some(error.to_string()),
+                            }
+                        }
+                        if let Some((inputs, _)) = &self.midi_ports {
+                            for name in inputs {
+                                if ui
+                                    .selectable_label(
+                                        self.settings.keyboard.as_deref() == Some(name.as_str()),
+                                        name,
+                                    )
+                                    .clicked()
+                                {
+                                    self.settings.keyboard = Some(name.clone());
+                                    self.midi_input = None;
+                                    let _ = self.settings.save(&crate::settings::Settings::path());
+                                    self.status = Some(format!("MIDI input: {name}"));
+                                }
+                            }
+                        }
+                    });
+                    if ui.button("Check for updates").clicked() {
+                        self.status = Some(String::from(crate::settings::update_status()));
                     }
                     ui.checkbox(&mut self.settings.metronome, "metronome with playback");
                     ui.checkbox(&mut self.settings.reduced_motion, "reduced motion");
