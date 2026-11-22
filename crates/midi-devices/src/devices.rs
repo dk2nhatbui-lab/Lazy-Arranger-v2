@@ -17,7 +17,7 @@ use thiserror::Error;
 use crate::capture::{CaptureStats, CapturedNote, NoteCapture};
 
 /// Errors raised by port access.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum DeviceError {
     /// The MIDI backend could not be started.
     #[error("MIDI backend unavailable: {0}")]
@@ -46,6 +46,14 @@ pub enum DeviceError {
     /// A project could not be built from the recording.
     #[error("recording could not be stored: {0}")]
     Project(String),
+    /// A dispatch schedule was not sorted by time.
+    #[error("dispatch schedule goes back in time: {at} us after {previous} us")]
+    ScheduleOrder {
+        /// The offending offset.
+        at: u64,
+        /// The offset before it.
+        previous: u64,
+    },
 }
 
 /// Input and output port names.
@@ -93,6 +101,15 @@ pub fn list_ports() -> Result<PortNames, DeviceError> {
         );
     }
     Ok(names)
+}
+
+/// Opens a named output port.
+///
+/// # Errors
+///
+/// Returns [`DeviceError`] when the MIDI backend or the port is unavailable.
+pub fn open_output(name: &str) -> Result<MidiOutputConnection, DeviceError> {
+    find_output(name)
 }
 
 fn find_output(name: &str) -> Result<MidiOutputConnection, DeviceError> {

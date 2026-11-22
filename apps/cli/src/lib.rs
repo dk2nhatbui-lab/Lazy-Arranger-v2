@@ -109,6 +109,20 @@ enum Commands {
         #[arg(long = "add-track", value_name = "NAME")]
         add_tracks: Vec<String>,
     },
+    /// Play a project to a MIDI output port in real time.
+    Play {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Output port name, exactly as `ports` prints it.
+        #[arg(long = "out-port")]
+        out_port: String,
+        /// Audio sample rate used to convert sample positions to time.
+        #[arg(long, default_value_t = DEFAULT_SAMPLE_RATE)]
+        sample_rate: u32,
+        /// Print the schedule without sending anything.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Record MIDI input to a standard MIDI file.
     Record {
         /// Input port name, exactly as `ports` prints it.
@@ -175,6 +189,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             chords,
             add_tracks,
         } => edit(&project, &out, tempo, &chords, &add_tracks),
+        Commands::Play {
+            project,
+            out_port,
+            sample_rate,
+            dry_run,
+        } => play(&project, &out_port, sample_rate, dry_run),
         Commands::Record {
             input,
             out,
@@ -523,6 +543,46 @@ fn edit(
         out.display(),
         session.undo_depth()
     );
+    Ok(())
+}
+
+fn play(
+    project_path: &PathBuf,
+    out_port: &str,
+    sample_rate: u32,
+    dry_run: bool,
+) -> Result<(), Box<dyn Error>> {
+    let project = read_project(project_path)?;
+    let prepared = PreparedPattern::prepare(&project.song, sample_rate)?;
+    let messages: Vec<midi_devices::TimedMessage> = prepared
+        .events()
+        .iter()
+        .map(|event| midi_devices::TimedMessage {
+            at_micros: midi_devices::sample_to_micros(event.sample, sample_rate),
+            message: event.message,
+        })
+        .collect();
+    let last = messages.last().map_or(0, |message| message.at_micros);
+    println!(
+        "schedule: {} message(s) over {:.3} s at {} Hz",
+        messages.len(),
+        last as f64 / 1_000_000.0,
+        sample_rate
+    );
+    if dry_run {
+        for message in messages.iter().take(8) {
+            println!(
+                "  {:>8} us ch {} {}",
+                message.at_micros,
+                message.message.channel(),
+                message_label(message.message)
+            );
+        }
+        println!("dry run: nothing was sent to {out_port:?}");
+        return Ok(());
+    }
+    let sent = midi_devices::play_to_port(out_port, &messages)?;
+    println!("sent {sent} message(s) to {out_port:?}, then all-notes-off");
     Ok(())
 }
 
