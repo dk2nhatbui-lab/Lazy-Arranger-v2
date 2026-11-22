@@ -59,6 +59,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Dynamics and articulations (schema v11) | `project`, `musicxml`, `score`, renderers | verified | round trip; placed above/below staff; canvas/PDF text |
 | Settings file (language, grade, MIDI keyboard, metronome, reduced motion, Kids Mode) and shortcut list | `apps/desktop/src/settings.rs` | verified | round trip, clamping, missing file, unique keys |
 | English and Danish strings; Kids Mode restricts tabs and enlarges controls | `apps/desktop/src/strings.rs`, header | implemented | table completeness test; UI manual |
+| MIDI control map (notes/CC to actions) with text persistence and learn capture | `midi-devices::map`, CLI `midi-map-*` | verified | 5 tests + CLI bind/show run; not wired to live input in the shell |
 | Built-in sixteen-bar demo (drums, bass, piano, pad, chords, marks, lyrics) | `arranging::demo` | verified | validation, counts, render test; shell first run; CLI `demo-project` |
 | Theory helpers: scales, roman labels, cadences, voice-leading cost | `music-core::theory`, CLI `theory-*` | verified | 4 tests + CLI runs |
 | PSR-S970 keyboard song export (setup bar, voices, chords, drums ch10) | `smf::export_keyboard` | implemented | 3 tests; real project 94 notes, 5 tracks; programs from profile name matching |

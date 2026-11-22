@@ -184,6 +184,22 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         track: usize,
     },
+    /// Print a MIDI control map.
+    MidiMapShow {
+        /// Map file path.
+        #[arg(long, default_value = "lazy-arranger-midi-map.txt")]
+        file: PathBuf,
+    },
+    /// Bind one control in a MIDI control map.
+    MidiMapBind {
+        /// Map file path.
+        #[arg(long, default_value = "lazy-arranger-midi-map.txt")]
+        file: PathBuf,
+        /// Control, e.g. `note 36` or `cc 7`.
+        control: String,
+        /// Action, e.g. `play`, `stop`, `scene 1`, `fader track-2`.
+        action: String,
+    },
     /// Print a scale as pitch-class names.
     TheoryScale {
         /// Tonic, e.g. C, F# or Bb.
@@ -598,6 +614,30 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 engraved.notes.len(),
                 pdf.len()
             );
+            Ok(())
+        }
+        Commands::MidiMapShow { file } => {
+            let text = fs::read_to_string(&file).unwrap_or_default();
+            let map = midi_devices::map::MidiMap::from_text(&text)?;
+            if map.bindings.is_empty() {
+                println!("no bindings in {}", file.display());
+            }
+            for binding in &map.bindings {
+                println!("{} -> {:?}", binding.control_label(), binding.action);
+            }
+            Ok(())
+        }
+        Commands::MidiMapBind {
+            file,
+            control,
+            action,
+        } => {
+            let text = fs::read_to_string(&file).unwrap_or_default();
+            let mut map = midi_devices::map::MidiMap::from_text(&text)?;
+            map.bind_text(&control, &action)?;
+            fs::write(&file, map.to_text())
+                .map_err(|error| format!("could not write {}: {error}", file.display()))?;
+            println!("bound {control} to {action} in {}", file.display());
             Ok(())
         }
         Commands::TheoryScale { tonic, mode } => {
