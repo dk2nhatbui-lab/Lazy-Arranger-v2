@@ -188,7 +188,19 @@ impl PerformanceRecorder {
                 end.max(start + 1),
                 &notes,
             );
-            let mut track = Track::new(id, format!("{section} ch{channel}"));
+            let label = self
+                .style
+                .section(section)
+                .and_then(|found| {
+                    found
+                        .parts
+                        .iter()
+                        .find(|part| u8::from(part.rule.dest_channel) == channel)
+                })
+                .map(|part| part.name.clone())
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| part_label(channel, &notes));
+            let mut track = Track::new(id, format!("{label} {section}"));
             track.notes = notes;
             track.provenance = Some(provenance);
             self.song.tracks.push(track);
@@ -220,6 +232,53 @@ impl PerformanceRecorder {
         }
         Ok(self.style.compile(section, start, &chords)?)
     }
+}
+
+/// A short role label for a part, when the style gives no name.
+///
+/// Uses the channel, average pitch and the largest number of notes that sound
+/// together: drums on channel 10, then bass, chords, melody or a pad.
+#[must_use]
+pub fn part_label(channel: u8, notes: &[Note]) -> String {
+    if channel == 9 {
+        return String::from("Drums");
+    }
+    if notes.is_empty() {
+        return String::from("Part");
+    }
+    let average: f64 = notes
+        .iter()
+        .map(|note| f64::from(note.pitch.as_u8()))
+        .sum::<f64>()
+        / notes.len() as f64;
+    let mut sorted: Vec<&Note> = notes.iter().collect();
+    sorted.sort_by_key(|note| note.start);
+    let mut active = 0_usize;
+    let mut peak = 0_usize;
+    let mut edges: Vec<(Tick, i32)> = Vec::new();
+    for note in &sorted {
+        edges.push((note.start, 1));
+        edges.push((note.start + note.duration.max(1), -1));
+    }
+    edges.sort_by_key(|(tick, edge)| (*tick, *edge));
+    for (_, edge) in edges {
+        if edge > 0 {
+            active += 1;
+            peak = peak.max(active);
+        } else {
+            active = active.saturating_sub(1);
+        }
+    }
+    if peak >= 3 {
+        return String::from("Chords");
+    }
+    if average < 48.0 {
+        return String::from("Bass");
+    }
+    if average >= 68.0 {
+        return String::from("Melody");
+    }
+    String::from("Pad")
 }
 
 /// Classifies the generated tracks of one style.
@@ -511,7 +570,7 @@ mod tests {
             .song()
             .tracks
             .iter()
-            .find(|track| track.name.contains("ch11"))
+            .find(|track| track.name.contains("Bass"))
             .expect("bass")
             .notes
             .iter()
@@ -528,7 +587,7 @@ mod tests {
             .song()
             .tracks
             .iter()
-            .find(|track| track.name.contains("ch11"))
+            .find(|track| track.name.contains("Bass"))
             .expect("bass")
             .notes
             .iter()
@@ -550,7 +609,7 @@ mod tests {
             .song()
             .tracks
             .iter()
-            .find(|track| track.name.contains("ch11"))
+            .find(|track| track.name.contains("Bass"))
             .expect("bass")
             .id;
         let mut notes = edit
@@ -664,5 +723,43 @@ mod tests {
         let report = regenerate(&mut edit, &style(), style_id(), Policy::Replace).expect("regen");
         assert_eq!(report.other_style, 1);
         assert!(!report.replaced.contains(&track_id));
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+    use music_core::{PPQ, Pitch, Velocity};
+
+    fn note(id: u32, start: Tick, pitch: &str) -> Note {
+        Note {
+            id: NoteId::new(id).expect("valid"),
+            start,
+            duration: PPQ,
+            pitch: Pitch::from_name(pitch).expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        }
+    }
+
+    #[test]
+    fn channels_and_ranges_name_a_part() {
+        assert_eq!(part_label(9, &[]), "Drums");
+        assert_eq!(
+            part_label(2, &[note(1, 0, "C2"), note(2, 960, "G2")]),
+            "Bass"
+        );
+        assert_eq!(
+            part_label(4, &[note(1, 0, "C5"), note(2, 960, "E5")]),
+            "Melody"
+        );
+        assert_eq!(part_label(5, &[note(1, 0, "C4")]), "Pad");
+        assert_eq!(part_label(6, &[]), "Part");
+    }
+
+    #[test]
+    fn stacked_notes_name_a_chord_part() {
+        let notes = vec![note(1, 0, "C4"), note(2, 0, "E4"), note(3, 0, "G4")];
+        assert_eq!(part_label(3, &notes), "Chords");
     }
 }

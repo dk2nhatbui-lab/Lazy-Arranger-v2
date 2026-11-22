@@ -63,7 +63,8 @@ regressions. Status values: **verified** (tested here), **implemented**
 | UI shell (Perform/Arrange/Mix) | `apps/desktop` | implemented | themed shell, editing, audio |
 | Audio playback | `audio` | implemented | cpal; audible check pending |
 | WAV/offline render | `audio` | verified | 5.36 s real-style render |
-| Device profile voice matching | `midi-devices::profiles` | partial | PSR-S970 subset (13 voices) + keyword fallback, 3 tests |
+| Device profile voice matching | `midi-devices::profiles` | partial | PSR-S970 subset + keyword fallback; EP/Rhodes mapping; 3 tests |
+| Named style parts in recorded tracks | `performance::part_label` | verified | style part names, else drums/bass/chords/melody/pad heuristics |
 | Device profiles: YAML loader, banks, drum kits, other devices, editors, mixer maps | — | missing | earlier claim of five typed profiles was wrong; corrected |
 | AI/MCP | `apps/mcp` | missing | Stage 8; `mcp` crate planned |
 | Korg Pa import | — | missing | Stage 8 extension |

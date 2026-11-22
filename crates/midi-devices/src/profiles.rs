@@ -90,6 +90,12 @@ pub const PSR_S970: DeviceProfile = DeviceProfile {
 #[must_use]
 pub fn program_for_track(name: &str) -> u8 {
     let lower = name.to_lowercase();
+    if lower
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .any(|word| matches!(word, "ep" | "rhodes" | "dx"))
+    {
+        return 4;
+    }
     const TABLE: &[(&[&str], u8)] = &[
         (&["drum", "percussion", "kit"], 0),
         (&["piano", "keys", "rhodes"], 0),
@@ -159,6 +165,7 @@ mod tests {
         assert_eq!(program_for_track("Warm Strings"), 48);
         assert_eq!(program_for_track("Drum Kit"), 0);
         assert_eq!(program_for_track("Mystery Part"), 0);
+        assert_eq!(program_for_track("Ep Main A"), 4);
     }
 
     #[test]
