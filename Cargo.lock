@@ -1391,6 +1391,7 @@ dependencies = [
 name = "lazy-arranger-desktop"
 version = "0.1.0"
 dependencies = [
+ "app-commands",
  "eframe",
  "egui",
  "music-core",

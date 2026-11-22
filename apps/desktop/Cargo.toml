@@ -11,6 +11,7 @@ name = "lazy-arranger-desktop"
 path = "src/main.rs"
 
 [dependencies]
+app-commands = { path = "../../crates/app-commands" }
 music-core = { path = "../../crates/music-core" }
 project = { path = "../../crates/project" }
 eframe = { version = "0.31", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11"] }

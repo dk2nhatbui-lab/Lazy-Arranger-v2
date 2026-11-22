@@ -101,8 +101,19 @@ impl RollState {
     }
 }
 
-/// Draws the roll into the remaining space and handles zoom and scroll.
-pub fn show(ui: &mut Ui, song: &Song, state: &mut RollState, playhead: Tick) {
+/// A primary click in the roll, resolved to musical coordinates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RollClick {
+    /// Tick under the pointer.
+    pub tick: Tick,
+    /// Pitch row under the pointer.
+    pub pitch: u8,
+    /// Note that was hit, if any.
+    pub note: Option<(TrackId, project::NoteId)>,
+}
+
+/// Draws the roll and handles zoom and scroll; returns a primary click.
+pub fn show(ui: &mut Ui, song: &Song, state: &mut RollState, playhead: Tick) -> Option<RollClick> {
     let available = ui.available_size();
     let (response, painter) = ui.allocate_painter(available, egui::Sense::click_and_drag());
     let rect = response.rect;
@@ -150,6 +161,40 @@ pub fn show(ui: &mut Ui, song: &Song, state: &mut RollState, playhead: Tick) {
     }
     draw_playhead(&painter, rect, &geometry, playhead);
     draw_pitch_guide(&painter, rect, &geometry);
+
+    let pointer = response.interact_pointer_pos()?;
+    if !response.clicked() {
+        return None;
+    }
+    let tick = geometry.tick_at(pointer.x).max(0);
+    let pitch = geometry.pitch_at(pointer.y);
+    let order: Vec<&Track> = state
+        .selected
+        .and_then(|id| song.tracks.iter().find(|track| track.id == id))
+        .into_iter()
+        .chain(
+            song.tracks
+                .iter()
+                .filter(|track| Some(track.id) != state.selected),
+        )
+        .collect();
+    for track in order {
+        for note in &track.notes {
+            let note_rect = geometry.note_rect(note.start, note.duration, note.pitch.as_u8());
+            if note_rect.contains(pointer) {
+                return Some(RollClick {
+                    tick,
+                    pitch: note.pitch.as_u8(),
+                    note: Some((track.id, note.id)),
+                });
+            }
+        }
+    }
+    Some(RollClick {
+        tick,
+        pitch,
+        note: None,
+    })
 }
 
 fn draw_grid(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song: &Song) {

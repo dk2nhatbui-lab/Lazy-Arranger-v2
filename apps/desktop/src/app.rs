@@ -8,6 +8,8 @@ use music_core::{PPQ, Tick, Velocity};
 use project::song::{Note, ProjectFile, Song, Track};
 use project::{NoteId, ProjectError, TrackId};
 
+use crate::editor::{Editor, snap};
+
 use crate::piano_roll::{self, RollState};
 use crate::theme;
 use crate::widgets;
@@ -47,7 +49,8 @@ impl View {
 
 #[derive(Debug)]
 pub struct ShellApp {
-    project: ProjectFile,
+    editor: Editor,
+    selected_note: Option<(TrackId, NoteId)>,
     project_path: Option<PathBuf>,
     view: View,
     roll: RollState,
@@ -61,8 +64,13 @@ impl ShellApp {
     #[must_use]
     pub fn new(context: &Context, project: ProjectFile, project_path: Option<PathBuf>) -> Self {
         theme::install(context);
+        let editor = match Editor::new(project) {
+            Ok(editor) => editor,
+            Err(_) => Editor::new(demo_project()).expect("the demo project is valid"),
+        };
         Self {
-            project,
+            editor,
+            selected_note: None,
             project_path,
             view: View::Arrange,
             roll: RollState::default(),
@@ -74,7 +82,69 @@ impl ShellApp {
     }
 
     fn song(&self) -> &Song {
-        &self.project.song
+        self.editor.song()
+    }
+
+    /// Applies a click from the piano roll: select a note, or insert one.
+    fn edit_click(&mut self, click: piano_roll::RollClick) {
+        if let Some((track, note)) = click.note {
+            self.roll.selected = Some(track);
+            self.selected_note = Some((track, note));
+            return;
+        }
+        let Some(track) = self
+            .roll
+            .selected
+            .or_else(|| self.song().tracks.first().map(|track| track.id))
+        else {
+            return;
+        };
+        let Ok(pitch) = music_core::Pitch::new(click.pitch) else {
+            return;
+        };
+        let start = snap(click.tick, PPQ);
+        let _ = self.editor.insert(track, start, pitch);
+        self.selected_note = None;
+    }
+
+    /// Undo, redo, delete and save, from the keyboard.
+    fn handle_keys(&mut self, context: &Context) {
+        let undo =
+            context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Z));
+        let redo = context.input_mut(|input| {
+            input.consume_key(
+                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                egui::Key::Z,
+            )
+        });
+        let save =
+            context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::S));
+        let delete = context.input(|input| {
+            input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace)
+        });
+        if undo {
+            self.editor.undo();
+            self.selected_note = None;
+        }
+        if redo {
+            self.editor.redo();
+            self.selected_note = None;
+        }
+        if delete && let Some((track, note)) = self.selected_note {
+            let _ = self.editor.delete(track, note);
+            self.selected_note = None;
+        }
+        if save {
+            let path = self
+                .project_path
+                .clone()
+                .unwrap_or_else(|| std::path::PathBuf::from("lazy-arranger.json"));
+            if let Err(error) = self.editor.save(&path) {
+                self.load_error = Some(error);
+            } else {
+                self.project_path = Some(path);
+            }
+        }
     }
 
     fn advance(&mut self, context: &Context) {
@@ -303,7 +373,7 @@ impl ShellApp {
             .show(context, |ui| {
                 ui.horizontal(|ui| {
                     let notes: usize = self.song().tracks.iter().map(|track| track.notes.len()).sum();
-                    let issues = self.project.validate();
+                    let issues = self.editor.project().validate();
                     let errors = issues
                         .iter()
                         .filter(|issue| issue.severity == project::Severity::Error)
@@ -311,7 +381,7 @@ impl ShellApp {
                     let label = if errors == 0 {
                         format!(
                             "schema v{}  ·  {} track(s)  ·  {notes} note(s)  ·  no audio engine (shell only)",
-                            self.project.version,
+                            self.editor.project().version,
                             self.song().tracks.len()
                         )
                     } else {
@@ -334,7 +404,14 @@ impl ShellApp {
     fn open(&mut self, path: &PathBuf) {
         match load_project(path) {
             Ok(project) => {
-                self.project = project;
+                match Editor::new(project) {
+                    Ok(editor) => self.editor = editor,
+                    Err(error) => {
+                        self.load_error = Some(error.to_string());
+                        return;
+                    }
+                }
+                self.selected_note = None;
                 self.project_path = Some(path.clone());
                 self.position = 0;
                 self.playing = false;
@@ -354,19 +431,24 @@ impl eframe::App for ShellApp {
             style.visuals = theme::visuals();
             context.set_style(style);
         }
+        self.handle_keys(context);
         self.advance(context);
         self.top_bar(context);
         self.status_bar(context);
         self.sidebar(context);
-        egui::CentralPanel::default()
+        let panel = egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::TIMELINE))
             .show(context, |ui| {
                 let view = self.view;
                 let position = self.position;
-                let Self { project, roll, .. } = self;
+                let mut clicked = None;
+                let Self { editor, roll, .. } = self;
+                let project = editor.project();
                 match view {
                 View::Arrange => {
-                    piano_roll::show(ui, &project.song, roll, position);
+                    if let Some(click) = piano_roll::show(ui, &project.song, roll, position) {
+                        clicked = Some(click);
+                    }
                 }
                 View::Perform => {
                     ui.centered_and_justified(|ui| {
@@ -385,7 +467,11 @@ impl eframe::App for ShellApp {
                     });
                 }
                 }
+                clicked
             });
+        if let Some(click) = panel.inner {
+            self.edit_click(click);
+        }
         if !self.shown {
             self.shown = true;
             context.send_viewport_cmd(ViewportCommand::Visible(true));
