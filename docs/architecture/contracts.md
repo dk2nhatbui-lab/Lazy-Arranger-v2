@@ -581,3 +581,13 @@ Voices come from the caller (`--voice CHANNEL:PROGRAM`); there is no lookup in
 a device profile yet, so the nearest-voice rule the C++ app applies is not
 implemented. No keyboard has been used to confirm playback, and Style Remote,
 style-by-number and Beat-pattern export are missing.
+
+### Mix flags
+
+Schema v5 adds `muted`, `soloed` and `armed` to every track, all false and
+omitted from JSON when false. `Song::is_audible` applies one rule: if any track
+is soloed, only soloed tracks sound; otherwise muted tracks are silent. The
+sequencer and the offline renderer filter by it, so a muted track exports as
+silence in a WAV; MIDI file export still writes every track because mute is a
+mix setting, not a file property. `SetTrackFlags` is one undoable command; the
+shell shows M and S toggles in the track row.

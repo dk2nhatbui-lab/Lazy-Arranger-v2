@@ -69,6 +69,17 @@ pub enum Command {
         /// The track.
         track: TrackId,
     },
+    /// Set a track's mute, solo and arm flags.
+    SetTrackFlags {
+        /// The track.
+        track: TrackId,
+        /// New mute state.
+        muted: bool,
+        /// New solo state.
+        soloed: bool,
+        /// New arm state.
+        armed: bool,
+    },
     /// Choose the keyboard voice (GM program) for a track, or clear it.
     SetTrackProgram {
         /// The track.
@@ -132,6 +143,7 @@ impl Command {
             Self::RemoveTrack { .. } => "remove track",
             Self::SetChords { .. } => "set chords",
             Self::SetTrackProgram { .. } => "set track program",
+            Self::SetTrackFlags { .. } => "set track flags",
             Self::SetMarkers { .. } => "set markers",
             Self::SetClips { .. } => "set clips",
             Self::ReplaceTrackNotes { .. } => "replace track notes",
@@ -618,6 +630,15 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::SetTrackFlags { track, .. } => {
+                let found = self.track(*track)?;
+                Command::SetTrackFlags {
+                    track: *track,
+                    muted: found.muted,
+                    soloed: found.soloed,
+                    armed: found.armed,
+                }
+            }
             Command::SetTrackProgram { track, .. } => Command::SetTrackProgram {
                 track: *track,
                 program: self.track(*track)?.program,
@@ -731,6 +752,17 @@ impl EditSession {
                 };
                 self.project.song.tempo_map = next;
             }
+            Command::SetTrackFlags {
+                track,
+                muted,
+                soloed,
+                armed,
+            } => {
+                let target = self.track_mut(*track)?;
+                target.muted = *muted;
+                target.soloed = *soloed;
+                target.armed = *armed;
+            }
             Command::SetTrackProgram { track, program } => {
                 self.track_mut(*track)?.program = *program;
             }
@@ -784,6 +816,12 @@ fn describe(command: &Command) -> String {
         Command::InsertTrack { track } => format!("insert track {} ({})", track.id, track.name),
         Command::RemoveTrack { track } => format!("remove track {track}"),
         Command::SetChords { chords } => format!("set {} chord(s)", chords.len()),
+        Command::SetTrackFlags {
+            track,
+            muted,
+            soloed,
+            armed,
+        } => format!("track {track}: muted {muted}, soloed {soloed}, armed {armed}"),
         Command::SetTrackProgram { track, program } => match program {
             Some(value) => format!("set track {track} program {value}"),
             None => format!("clear track {track} program"),
@@ -1181,6 +1219,31 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn track_flags_are_one_undo_step() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.apply(Command::SetTrackFlags {
+            track,
+            muted: true,
+            soloed: false,
+            armed: false,
+        })
+        .expect("mute");
+        assert!(edit.song().tracks[0].muted);
+        edit.apply(Command::SetTrackFlags {
+            track,
+            muted: true,
+            soloed: true,
+            armed: false,
+        })
+        .expect("solo");
+        assert!(edit.song().tracks[0].soloed);
+        edit.undo().expect("undo");
+        assert!(!edit.song().tracks[0].soloed);
+        assert!(edit.song().tracks[0].muted);
     }
 
     #[test]

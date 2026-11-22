@@ -84,7 +84,7 @@ impl PreparedPattern {
         }
         let mut events = Vec::with_capacity(song.tracks.iter().map(|t| t.notes.len() * 2).sum());
         let mut end_tick: Tick = 0;
-        for track in &song.tracks {
+        for track in song.tracks.iter().filter(|track| song.is_audible(track)) {
             for note in &track.notes {
                 if note.start < 0 || note.duration <= 0 {
                     return Err(SequenceError::InvalidNote {

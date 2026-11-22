@@ -66,6 +66,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Device profile voice matching | `midi-devices::profiles` | partial | PSR-S970 subset + keyword fallback; EP/Rhodes mapping; 3 tests |
 | Named style parts in recorded tracks | `performance::part_label` | verified | style part names, else drums/bass/chords/melody/pad heuristics |
 | Per-track keyboard program (schema v4) | `project`, `app-commands`, `mcp` | verified | migration, command, MCP tool; export honors it |
+| Mute / solo / arm (schema v5) | `project`, `app-commands`, `sequencer`, `audio` | verified | mix rules tested; render/sequencer honor them; M/S in the track list |
 | Device profiles: YAML loader, banks, drum kits, other devices, editors, mixer maps | — | missing | earlier claim of five typed profiles was wrong; corrected |
 | AI/MCP | `apps/mcp` | missing | Stage 8; `mcp` crate planned |
 | Korg Pa import | — | missing | Stage 8 extension |

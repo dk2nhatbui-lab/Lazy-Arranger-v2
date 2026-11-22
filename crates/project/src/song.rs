@@ -80,6 +80,15 @@ pub struct Track {
     /// Notes, normally sorted by start tick.
     #[serde(default)]
     pub notes: Vec<Note>,
+    /// Silence this track unless another track is soloed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub muted: bool,
+    /// Play only soloed tracks.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub soloed: bool,
+    /// Record arm. No recording path uses it yet.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub armed: bool,
     /// Keyboard voice (General MIDI program) chosen for this track.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<u8>,
@@ -139,6 +148,9 @@ impl Track {
             name: name.into(),
             clips: Vec::new(),
             notes: Vec::new(),
+            muted: false,
+            soloed: false,
+            armed: false,
             program: None,
             provenance: None,
             extra: BTreeMap::new(),
@@ -254,6 +266,14 @@ impl Song {
             .rev()
             .find(|event| event.tick <= tick)
             .map(|event| &event.chord)
+    }
+
+    /// True when the track sounds: any solo makes only soloed tracks audible,
+    /// otherwise muted tracks are silent.
+    #[must_use]
+    pub fn is_audible(&self, track: &Track) -> bool {
+        let any_solo = self.tracks.iter().any(|entry| entry.soloed);
+        if any_solo { track.soloed } else { !track.muted }
     }
 
     /// Total length in ticks: the last note end, chord or marker.
@@ -404,6 +424,11 @@ impl ProjectFile {
                     // Version 4 adds an optional per-track program; None is
                     // exactly the version 3 meaning.
                     self.version = 4;
+                }
+                4 => {
+                    // Version 5 adds mute, solo and arm flags, all false by
+                    // default, which is the version 4 behaviour.
+                    self.version = 5;
                 }
                 from => {
                     return Err(ProjectError::Migration {
@@ -625,6 +650,44 @@ mod tests {
     }
 
     #[test]
+    fn solo_overrides_mute_and_defaults_to_audible() {
+        let mut song = Song::new("Mix", 120.0);
+        let mut first = Track::new(TrackId::new(1).expect("valid"), "A");
+        let mut second = Track::new(TrackId::new(2).expect("valid"), "B");
+        song.tracks.push(first.clone());
+        song.tracks.push(second.clone());
+        assert!(song.is_audible(&first) && song.is_audible(&second));
+        first.muted = true;
+        assert!(!song.is_audible(&first));
+        second.soloed = true;
+        song.tracks[0] = first;
+        song.tracks[1] = second.clone();
+        assert!(
+            !song.is_audible(&song.tracks[0]),
+            "mute loses to another track's solo"
+        );
+        assert!(song.is_audible(&second));
+        let mut third = Track::new(TrackId::new(3).expect("valid"), "C");
+        third.muted = true;
+        song.tracks.push(third);
+        second.soloed = true;
+        assert!(!song.is_audible(&song.tracks[2]));
+    }
+
+    #[test]
+    fn mute_solo_and_arm_default_false_and_round_trip() {
+        let json = r#"{"format":"lazy-arranger-project","version":5,"song":{
+            "name":"Flags","tempo_map":{"changes":[{"tick":0,"bpm":120.0}]},
+            "time_signature":{"numerator":4,"denominator":4},
+            "tracks":[{"id":1,"name":"A","muted":true,"soloed":true,"armed":true}]}}"#;
+        let project = ProjectFile::from_json(json).expect("parse");
+        let track = &project.song.tracks[0];
+        assert!(track.muted && track.soloed && track.armed);
+        let text = project.to_json_pretty().expect("serialize");
+        assert!(text.contains("\"muted\": true"));
+    }
+
+    #[test]
     fn a_version_3_document_gains_an_empty_program() {
         let json = r#"{
             "format": "lazy-arranger-project",
@@ -639,7 +702,7 @@ mod tests {
             }
         }"#;
         let project = ProjectFile::from_json(json).expect("migrates");
-        assert_eq!(project.version, 4);
+        assert_eq!(project.version, SCHEMA_VERSION);
         assert_eq!(project.song.tracks[0].program, None);
         assert_eq!(project.song.tracks[0].clips.len(), 1);
     }

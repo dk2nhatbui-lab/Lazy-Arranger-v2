@@ -48,6 +48,17 @@ impl View {
     }
 }
 
+/// One row of the track list, snapshotted before drawing so the borrow ends.
+struct Row {
+    index: usize,
+    id: TrackId,
+    name: String,
+    notes: usize,
+    program: Option<u8>,
+    muted: bool,
+    soloed: bool,
+}
+
 pub struct ShellApp {
     editor: Editor,
     selected_note: Option<(TrackId, NoteId)>,
@@ -796,23 +807,23 @@ impl ShellApp {
                         .color(theme::TEXT_MUTED),
                 );
                 ui.add_space(4.0);
-                let rows: Vec<(usize, TrackId, String, usize, Option<u8>)> = self
+                let rows: Vec<Row> = self
                     .song()
                     .tracks
                     .iter()
                     .enumerate()
-                    .map(|(index, track)| {
-                        (
-                            index,
-                            track.id,
-                            track.name.clone(),
-                            track.notes.len(),
-                            track.program,
-                        )
+                    .map(|(index, track)| Row {
+                        index,
+                        id: track.id,
+                        name: track.name.clone(),
+                        notes: track.notes.len(),
+                        program: track.program,
+                        muted: track.muted,
+                        soloed: track.soloed,
                     })
                     .collect();
-                for (index, id, name, notes, program) in rows {
-                    self.track_row(ui, index, id, &name, notes, program);
+                for row in rows {
+                    self.track_row(ui, &row);
                 }
                 if self.song().tracks.is_empty() {
                     ui.label(egui::RichText::new("no tracks").color(theme::TEXT_DIM));
@@ -837,38 +848,52 @@ impl ShellApp {
         }
     }
 
-    fn track_row(
-        &mut self,
-        ui: &mut egui::Ui,
-        index: usize,
-        id: TrackId,
-        name: &str,
-        notes: usize,
-        program: Option<u8>,
-    ) {
-        let selected = self.roll.selected == Some(id);
-        let colour = theme::track_colour(index);
+    fn track_row(&mut self, ui: &mut egui::Ui, row: &Row) {
+        let selected = self.roll.selected == Some(row.id);
+        let colour = theme::track_colour(row.index);
         let response = ui
             .horizontal(|ui| {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 28.0), egui::Sense::hover());
                 ui.painter().rect_filled(rect, 0.0, colour);
+                if ui
+                    .selectable_label(row.muted, "M")
+                    .on_hover_text("Mute")
+                    .clicked()
+                {
+                    let _ = self
+                        .editor
+                        .set_track_flags(row.id, !row.muted, row.soloed, false);
+                }
+                if ui
+                    .selectable_label(row.soloed, "S")
+                    .on_hover_text("Solo")
+                    .clicked()
+                {
+                    let _ = self
+                        .editor
+                        .set_track_flags(row.id, row.muted, !row.soloed, false);
+                }
                 ui.vertical(|ui| {
-                    let name = if name.is_empty() { "untitled" } else { name };
+                    let name = if row.name.is_empty() {
+                        "untitled"
+                    } else {
+                        row.name.as_str()
+                    };
                     ui.label(egui::RichText::new(name).size(12.0).color(if selected {
                         theme::TEXT
                     } else {
                         theme::TEXT_MUTED
                     }));
-                    let detail = match program {
-                        Some(program) => format!("{notes} notes · prog {program}"),
-                        None => format!("{notes} notes"),
+                    let detail = match row.program {
+                        Some(program) => format!("{} notes · prog {program}", row.notes),
+                        None => format!("{} notes", row.notes),
                     };
                     ui.label(egui::RichText::new(detail).size(9.0).color(theme::TEXT_DIM));
                 });
             })
             .response;
         if response.interact(egui::Sense::click()).clicked() {
-            self.roll.selected = if selected { None } else { Some(id) };
+            self.roll.selected = if selected { None } else { Some(row.id) };
         }
     }
 

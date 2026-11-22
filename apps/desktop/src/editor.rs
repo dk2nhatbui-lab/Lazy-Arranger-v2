@@ -407,6 +407,30 @@ impl Editor {
         Ok(copied)
     }
 
+    /// Sets a track's mute, solo and arm flags.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the command is rejected.
+    pub fn set_track_flags(
+        &mut self,
+        track: TrackId,
+        muted: bool,
+        soloed: bool,
+        armed: bool,
+    ) -> Result<(), String> {
+        self.session
+            .apply(Command::SetTrackFlags {
+                track,
+                muted,
+                soloed,
+                armed,
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {

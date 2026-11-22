@@ -75,7 +75,7 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
     let frames = (duration * f64::from(sample_rate)).ceil() as usize;
     let mut samples = vec![0.0_f32; frames * usize::from(CHANNELS)];
 
-    for track in &song.tracks {
+    for track in song.tracks.iter().filter(|track| song.is_audible(track)) {
         for note in &track.notes {
             let start_seconds = song.tempo_map.seconds_at(note.start);
             let end_seconds = song
@@ -158,6 +158,38 @@ mod tests {
         // One beat at 120 bpm is 0.5 s, plus the release tail.
         assert!(rendered.duration_seconds() > 0.5);
         assert!(rendered.duration_seconds() < 2.0);
+    }
+
+    #[test]
+    fn muted_and_soloed_tracks_follow_the_mix_rules() {
+        let mut song = song_with_note();
+        let mut second =
+            project::song::Track::new(project::TrackId::new(2).expect("valid"), "Second");
+        second.notes.push(Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: music_core::PPQ,
+            pitch: Pitch::from_name("A5").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        song.tracks.push(second);
+        let both = render(&song, SAMPLE_RATE);
+        song.tracks[1].muted = true;
+        let muted = render(&song, SAMPLE_RATE);
+        assert_ne!(both.samples, muted.samples);
+        song.tracks[1].muted = false;
+        song.tracks[1].soloed = true;
+        let soloed = render(&song, SAMPLE_RATE);
+        assert_ne!(
+            both.samples, soloed.samples,
+            "solo silences the first track"
+        );
+        song.tracks[1].soloed = false;
+        song.tracks[0].muted = true;
+        song.tracks[1].muted = true;
+        let silent = render(&song, SAMPLE_RATE);
+        assert!(silent.samples.iter().all(|sample| sample.abs() < 1.0e-6));
     }
 
     #[test]
