@@ -49,7 +49,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections: 0 fully verified beyond their Rust subset, 24 partial, 15 missing.
+39 sections: 0 fully verified beyond their Rust subset, 25 partial, 14 missing.
 The partials with the most depth are styles (open, import, compile, SFF1 write),
 audio-to-MIDI, Music Finder/playlists, project files and the window shell.
 

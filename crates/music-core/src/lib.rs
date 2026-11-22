@@ -17,6 +17,7 @@ pub mod progression;
 pub mod reharmonize;
 pub mod roman;
 pub mod tempo;
+pub mod theory;
 pub mod time;
 
 pub use chord::{Chord, ChordQuality, Spelling};

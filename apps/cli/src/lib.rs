@@ -184,6 +184,29 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         track: usize,
     },
+    /// Print a scale as pitch-class names.
+    TheoryScale {
+        /// Tonic, e.g. C, F# or Bb.
+        tonic: String,
+        /// Mode name.
+        #[arg(long, default_value = "major")]
+        mode: String,
+    },
+    /// Print roman labels and the final cadence for a progression.
+    TheoryAnalyze {
+        /// Chord symbols, in order.
+        chords: Vec<String>,
+        /// Tonic; defaults to the first chord's root.
+        #[arg(long)]
+        key: Option<String>,
+    },
+    /// Print the voice-leading cost between two chords.
+    TheoryVoiceLeading {
+        /// First chord symbol.
+        from: String,
+        /// Second chord symbol.
+        to: String,
+    },
     /// Write the built-in demo project as JSON.
     DemoProject {
         /// Output `.json` path.
@@ -574,6 +597,52 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 engraved.systems(),
                 engraved.notes.len(),
                 pdf.len()
+            );
+            Ok(())
+        }
+        Commands::TheoryScale { tonic, mode } => {
+            let tonic = parse_tonic(&tonic)?;
+            let mode = music_core::theory::Mode::parse(&mode)?;
+            let notes: Vec<&str> = music_core::theory::scale(tonic, mode)
+                .iter()
+                .map(|pitch| pitch.name_sharp())
+                .collect();
+            println!(
+                "{} {}: {}",
+                tonic.name_sharp(),
+                mode.name(),
+                notes.join(" ")
+            );
+            Ok(())
+        }
+        Commands::TheoryAnalyze { chords, key } => {
+            let parsed: Vec<music_core::Chord> = chords
+                .iter()
+                .map(|symbol| music_core::Chord::parse(symbol))
+                .collect::<Result<_, _>>()?;
+            let tonic = match key {
+                Some(name) => parse_tonic(&name)?,
+                None => parsed
+                    .first()
+                    .map(|chord| chord.root)
+                    .ok_or("at least one chord is required")?,
+            };
+            let labels: Vec<String> = parsed
+                .iter()
+                .map(|chord| music_core::theory::roman_label(*chord, tonic))
+                .collect();
+            println!("{} in {}", labels.join(" - "), tonic.name_sharp());
+            println!("cadence: {:?}", music_core::theory::cadence(&parsed, tonic));
+            Ok(())
+        }
+        Commands::TheoryVoiceLeading { from, to } => {
+            let from = music_core::Chord::parse(&from)?;
+            let to = music_core::Chord::parse(&to)?;
+            println!(
+                "{} -> {}: cost {}",
+                from.format(music_core::Spelling::Sharp),
+                to.format(music_core::Spelling::Sharp),
+                music_core::theory::voice_leading_cost(from, to)
             );
             Ok(())
         }
@@ -1246,6 +1315,21 @@ fn link_to_midi(
         out.display()
     );
     Ok(())
+}
+
+fn parse_tonic(name: &str) -> Result<music_core::PitchClass, Box<dyn Error>> {
+    let name = name.trim();
+    let with_octave = if name
+        .chars()
+        .last()
+        .is_some_and(|last| last.is_ascii_digit())
+    {
+        name.to_string()
+    } else {
+        format!("{name}4")
+    };
+    let pitch = music_core::Pitch::from_name(&with_octave)?;
+    Ok(music_core::PitchClass::new(i32::from(pitch.as_u8() % 12)))
 }
 
 fn export_audio(
