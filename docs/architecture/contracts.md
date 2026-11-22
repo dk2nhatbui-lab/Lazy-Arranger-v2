@@ -591,3 +591,12 @@ sequencer and the offline renderer filter by it, so a muted track exports as
 silence in a WAV; MIDI file export still writes every track because mute is a
 mix setting, not a file property. `SetTrackFlags` is one undoable command; the
 shell shows M and S toggles in the track row.
+
+### Audio chord recognition
+
+`audio::chords` estimates a 12-bin chroma per segment with a Hann-windowed
+Goertzel filter over octaves 2..6, keeps classes above 45% of the peak, and
+feeds them to `arranger::recognize`. `chords-from-audio` reports segments and
+can write a chord-only project at a given tempo. It works on clean triads and
+sevenths; dense mixes, inversions other than the lowest class, and rhythmic
+material need the model-based pipeline the C++ app runs outside its process.

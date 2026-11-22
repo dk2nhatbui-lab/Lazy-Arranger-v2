@@ -138,6 +138,17 @@ enum Commands {
         #[arg(long = "voice", value_name = "CHANNEL:PROGRAM")]
         voices: Vec<String>,
     },
+    /// Find chords in a WAV file and optionally write a chord project.
+    ChordsFromAudio {
+        /// Source `.wav` file.
+        wav: PathBuf,
+        /// Tempo used for bar length and ticks.
+        #[arg(long, default_value_t = 120.0)]
+        bpm: f64,
+        /// Output project `.json` path with the found chords.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Export a project as MusicXML.
     ExportMusicXml {
         /// Project `.json` path.
@@ -404,6 +415,43 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 report.chords,
                 report.shift
             );
+            Ok(())
+        }
+        Commands::ChordsFromAudio { wav, bpm, out } => {
+            let bytes = fs::read(&wav)
+                .map_err(|error| format!("could not read {}: {error}", wav.display()))?;
+            let decoded = audio::wav::decode_mono(&bytes)?;
+            let bar_seconds = 4.0 * 60.0 / bpm.max(1.0);
+            let chords =
+                audio::chords::recognize(&decoded.samples, decoded.sample_rate, bar_seconds);
+            for chord in &chords {
+                println!(
+                    "{:>7.2}s  {}  ({:.0}%)",
+                    chord.start,
+                    chord.chord.format(music_core::Spelling::Sharp),
+                    chord.score * 100.0
+                );
+            }
+            if let Some(path) = out {
+                let mut song = Song::new(
+                    wav.file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .unwrap_or("Audio chords"),
+                    bpm,
+                );
+                for chord in &chords {
+                    song.chords.push(project::song::ChordEvent {
+                        tick: audio::chords::to_ticks(chord.start, bpm),
+                        chord: chord.chord,
+                    });
+                }
+                song.chords.sort_by_key(|event| event.tick);
+                let project = ProjectFile::new(song);
+                let json = project.to_json_pretty()?;
+                fs::write(&path, json)
+                    .map_err(|error| format!("could not write {}: {error}", path.display()))?;
+                println!("{} chord(s) -> {}", chords.len(), path.display());
+            }
             Ok(())
         }
         Commands::ExportMusicXml {

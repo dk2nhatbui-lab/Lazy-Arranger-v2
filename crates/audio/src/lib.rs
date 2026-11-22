@@ -5,6 +5,7 @@
 //! can check timing and level without opening an audio device.
 
 pub mod analysis;
+pub mod chords;
 pub mod link;
 pub mod player;
 pub mod wav;

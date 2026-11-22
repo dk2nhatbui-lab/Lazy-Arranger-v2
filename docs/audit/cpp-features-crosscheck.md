@@ -15,7 +15,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 6 | Note editor: add/select/move/resize/delete, arrows, velocity lane, grid, quantise, piano keys, select all | partial | Click insert, select, delete, undo/redo, save. No drag-move, resize, velocity lane, quantise, piano keys, copy/paste |
 | 7 | Cut/copy/paste in every view | missing | — |
 | 8 | Audio tracks: waveforms, record, monitor, trim, fades, takes, stretch, convert to MIDI | missing | — (only offline WAV render) |
-| 9 | Audio analysis: stems, notes, chords, instruments, lyrics, transcription A/B | partial | Monophonic pitch detection and audio→MIDI; no stems, chords, tags, lyrics, A/B |
+| 9 | Audio analysis | partial | Monophonic audio→MIDI, chroma-based chord recognition with a CLI, transcription answers still missing. No stems, instrument tags, lyrics or model-based polyphony |
 | 10 | Drum sampler and slicer | missing | — |
 | 11 | Beat view | partial | Four drum rows by sixteen steps with off/soft/normal/loud cycling, read from and written to a bar as one undo step, B opens the grid. No pattern length, copy/paste rows, Put-in-bars or scrolling long clips |
 | 12 | Clip grid | partial | Scenes of N bars, slots, a bar-quantised launcher with waiting/cancel/log, scene recording to the timeline as undoable edits, `get_clip_grid`. Loops view shows scene rows and track slots, queues on click and records a take. Scene names persist and can be renamed; slot length, clear and copy-to-tick work and are exposed as `edit_slot`. No audio loops, slot UI controls or Launchkey mapping |
