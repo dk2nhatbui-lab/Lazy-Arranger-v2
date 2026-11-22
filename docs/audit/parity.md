@@ -20,7 +20,9 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Audio-to-MIDI, polyphonic/models (Basic Pitch) | — | missing | C++ runs it as an external helper |
 | Stem separation (Demucs), instrument tags (PANNs), lyrics (Whisper) | — | missing | external helpers in C++ |
 | Audio chord detection | — | missing | C++ `AudioAnalysis.cpp` |
-| Link audio (yt-dlp arguments, download parsing) | — | missing | C++ `LinkAudio.h` |
+| Link audio (yt-dlp arguments, download parsing) | `audio::link` | verified offline | link/args/parse tests; real download needs yt-dlp |
+| YouTube link to MIDI end to end | `link-to-midi` CLI | implemented, not run against YouTube | needs yt-dlp + ffmpeg |
+| WAV decoding | `audio::wav` | verified | 16-bit PCM round trip |
 | AI/MCP tools for assistants | — | missing | C++ `McpServer`; planned `mcp` crate |
 | Style writer | — | missing | Stage 4 remainder |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |

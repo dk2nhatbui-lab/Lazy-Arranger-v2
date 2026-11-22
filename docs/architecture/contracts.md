@@ -500,3 +500,12 @@ The model-heavy halves stay outside the core, as in the C++ design: stem
 separation, polyphonic transcription, instrument tagging and lyrics are produced
 by external helpers as JSON and read back. They are not implemented here yet,
 and the parity table records them as missing rather than implied.
+
+### YouTube links
+
+`link-to-midi <url> --out song.mid` cleans and validates the link, runs yt-dlp
+with `--no-playlist -x --audio-format wav`, parses the `FILE <path>` line,
+decodes 16-bit PCM (`audio::wav`), detects monophonic notes
+(`audio::analysis`), and writes a 960 PPQ MIDI file at 120 bpm. The app does not
+download by itself and does not bundle yt-dlp or ffmpeg; a missing program is
+reported, never silently skipped. Downloaded WAVs are deleted unless `--keep`.
