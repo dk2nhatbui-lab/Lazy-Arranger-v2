@@ -488,3 +488,15 @@ clamped into `-1.0..=1.0`.
 `export-audio` takes a project, refuses sample rates outside 8000..=192000, and
 writes the WAV. It does not open an audio device, so it runs in CI and on
 headless machines. A realtime backend will reuse `audio::render`'s voice.
+
+## 18. Audio analysis and smart features
+
+`audio::analysis` is the in-process half of audio-to-MIDI: autocorrelation pitch
+detection with a first-local-maximum rule and parabolic refinement, then frame
+segmentation into monophonic notes (`DetectedNote`), with `as_ticks` and
+`as_pitch` converting results for the project model.
+
+The model-heavy halves stay outside the core, as in the C++ design: stem
+separation, polyphonic transcription, instrument tagging and lyrics are produced
+by external helpers as JSON and read back. They are not implemented here yet,
+and the parity table records them as missing rather than implied.

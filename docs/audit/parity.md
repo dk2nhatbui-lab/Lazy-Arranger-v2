@@ -16,6 +16,12 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Music Finder books (JSON, CSV, MFD) | `library` | partial: JSON + CSV verified; MFD missing | C++ `core/src/MusicFinder.cpp` |
 | Yamaha playlists (TSV) | `library` | verified | 4 round-trip tests, CRLF and ON/OFF flags |
 | Music Finder/playlist browser UI | — | missing | no shell panel yet |
+| Audio-to-MIDI, monophonic | `audio::analysis` | implemented | `a_440_hz_tone_is_found`, `audio_to_midi_finds_an_a4_note` |
+| Audio-to-MIDI, polyphonic/models (Basic Pitch) | — | missing | C++ runs it as an external helper |
+| Stem separation (Demucs), instrument tags (PANNs), lyrics (Whisper) | — | missing | external helpers in C++ |
+| Audio chord detection | — | missing | C++ `AudioAnalysis.cpp` |
+| Link audio (yt-dlp arguments, download parsing) | — | missing | C++ `LinkAudio.h` |
+| AI/MCP tools for assistants | — | missing | C++ `McpServer`; planned `mcp` crate |
 | Style writer | — | missing | Stage 4 remainder |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |

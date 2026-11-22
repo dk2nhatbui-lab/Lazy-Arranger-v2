@@ -34,6 +34,7 @@ decisions in [`docs/adr/`](docs/adr/).
 | Provenance-aware regeneration (keep/replace/duplicate) | verified | `crates/performance` |
 | Freeze / detach generated tracks | verified | `performance::freeze` |
 | Feature parity tracker vs the C++ app | in progress | `docs/audit/parity.md` |
+| Audio-to-MIDI (monophonic) | verified: 440 Hz tone maps to A4 | `crates/audio/src/analysis.rs` |
 | Music Finder books and Yamaha playlists | JSON + CSV + TSV verified; MFD missing; no browser UI | `crates/library` |
 | UI toolkit decision | **egui**, v1 "Studio Console" style | `docs/adr/ADR-001-ui-toolkit.md` |
 | Desktop shell (`apps/desktop`, egui 0.31) | prototype: themed shell + read-only piano roll | `apps/desktop` |
