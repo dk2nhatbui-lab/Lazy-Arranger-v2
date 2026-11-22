@@ -8,10 +8,11 @@
 primary C++ declaration where a note gives no line. LOC measured with `wc -l` in the pinned tree.
 Composite rows overlap: one file can serve several subsystems.
 
-**Rust status today:** `cargo test --workspace` passes 201 tests; `cargo clippy --workspace --all-targets
+**Rust status today (round 60):** `cargo test --workspace` passes 438 tests; `cargo clippy --workspace --all-targets
 -- -D warnings`, `cargo fmt --all --check` and `cargo doc` (warnings denied) pass. No subsystem is
-`parity complete`. Row statuses below were refreshed on 2026-11-22 after the Stage 2 dispatch worker and
-the Stage 3 arranger core landed.
+`parity complete`. Row statuses below were refreshed after the Stage 3 arranger core and have not
+been revisited since; the current per-section view is
+[`cpp-features-crosscheck.md`](cpp-features-crosscheck.md).
 
 **Status key**
 

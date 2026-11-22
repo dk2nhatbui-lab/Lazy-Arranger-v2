@@ -4,9 +4,35 @@ The target is behavioural parity: same features, same observable results, no
 regressions. Status values: **verified** (tested here), **implemented**
 (builds and runs, needs comparison), **missing**, **not planned**.
 
+## State at round 60
+
+This table grew over sixty rounds and some middle rows describe earlier
+states. The reconciled view is
+[`cpp-features-crosscheck.md`](cpp-features-crosscheck.md): 39 sections, **31
+partial and 8 missing**, no section fully verified. `cargo test --workspace`
+passes **438 tests**; fmt, clippy with `-D warnings` and rustdoc pass.
+
+Verified by tests or offline evidence: project schema v11 with migrations,
+undo/inverses and validation; legacy import; Yamaha style parse/import/compile
+and SFF1/SFF2 writing; clip model, slots, launcher and take recording; chord
+parsing, roman numerals, reharmonisation and find-chords; doctor, fit, groove,
+forms and transitions; score layout, spelling, accidentals, ties, lyrics,
+marks, canvas, PDF, MusicXML import/export; audio render with six timbres,
+audio references and mixing, monophonic audio→MIDI and chroma chords; mixer,
+automation, MIDI map with learn, style catalog, theory helpers, settings,
+strings, the sixteen-bar demo and the 22-tool MCP server.
+
+Unverified: real MIDI hardware, PSR-S970 acceptance, audible cpal output on
+every host, YouTube download, and visual comparison with the C++ app.
+
+Still missing: clipboard work, drum sampler/slicer, VST3/AU, synth editors and
+sysex, L6max, AI chat/speech/music tools, Korg and PSR style import, SoundFont
+loading, waveform audio editing, score note entry with grand staff/beams, and
+the wider ~90-tool MCP surface.
+
 | C++ capability | Rust module | Status | Evidence |
 | --- | --- | --- | --- |
-| Song/project model, undo, validation | `project`, `app-commands` | verified | 234 tests, schema v2, inverses |
+| Song/project model, undo, validation | `project`, `app-commands` | verified | schema v11 with tested migrations, inverses and validation |
 | Legacy C++ project import (v1..v4) | `project::legacy` | verified | fixtures `legacy-cpp-v3/v4` |
 | Style parser (SFF1/SFF2, CASM) | `style-formats` | verified | 16,219 containers, 856,370 rules |
 | Style section import to playable style | `style-formats::import` | verified | 16,158 styles, 48.8M notes |
@@ -20,11 +46,9 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Audio chord recognition (chroma + recogniser) | `audio::chords` | verified | 4 tests; 4 s C triad WAV found C twice and wrote ticks 0/3840 |
 | Audio-to-MIDI, polyphonic/models (Basic Pitch) | — | missing | C++ runs it as an external helper |
 | Stem separation (Demucs), instrument tags (PANNs), lyrics (Whisper) | — | missing | external helpers in C++ |
-| Audio chord detection | — | missing | C++ `AudioAnalysis.cpp` |
 | Link audio (yt-dlp arguments, download parsing) | `audio::link` | verified offline | link/args/parse tests; real download needs yt-dlp |
 | YouTube link to MIDI end to end | `link-to-midi` CLI | implemented, not run against YouTube | needs yt-dlp + ffmpeg |
 | WAV decoding | `audio::wav` | verified | 16-bit PCM round trip |
-| AI/MCP tools for assistants | — | missing | C++ `McpServer`; planned `mcp` crate |
 | Style writer: CASM SFF1 and SFF2 records | `style-formats::write_casm_sff1/sff2` | verified round-trip | writer tests check every field per version |
 | Style writer: full container (MIDI + CASM) | `style-formats::write_style`, `style-save` | implemented | rewrote a real 15-section style (19,346 bytes) and re-read it |
 | Style writer: voices, setup events, keyboard acceptance | — | missing | no PSR-S970 test; voices not written |

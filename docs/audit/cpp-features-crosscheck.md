@@ -8,12 +8,12 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | § | C++ feature | Rust | Key gap / evidence |
 | --- | --- | --- | --- |
 | 1 | Projects and files | partial | `.arranger` open/save, autosave/recovery, SMF in/out, WAV export in 16 and 24 bit, MusicXML export/import, style save, PSR-S970 song export. Recent list and audio-reference import (WAV). No editing of audio, PDF, Korg, L6max, SysEx |
-| 2 | Window: header, views, inspector, mixer panel, AI panel, light theme, zoom | partial | Header, LCD, tabs, track list, dark theme, square corners. No inspector, mixer/AI panels, light theme; zoom is wheel-only |
-| 3 | Tracks | partial | MIDI tracks with an optional keyboard program (schema v4, shown in the track list, MCP tool, honored by keyboard export). No audio tracks, per-track input, outputs or SoundFont; mute/solo/arm flags exist and sequencer/audio honor mute and solo |
-| 4 | Transport: play/stop, start, record, loop, metronome, ruler, tempo/meter edit, MIDI record, all-notes-off, auto inputs | partial | Audio play/pause/stop with silence on stop; no record, loop, metronome, ruler, tempo edit, quantise, auto inputs |
-| 5 | Timeline clips | partial | Clip regions in schema v3, migration, and undoable insert/move/resize/split/remove commands with overlap rejection. No UI, join, snap, chord lane or lyrics |
-| 6 | Note editor: add/select/move/resize/delete, arrows, velocity lane, grid, quantise, piano keys, select all | partial | Click insert, select, delete, undo/redo, save. No drag-move, resize, velocity lane, quantise, piano keys, copy/paste |
-| 7 | Cut/copy/paste in every view | missing | — |
+| 2 | Window: header, views, inspector, mixer panel, AI panel, light theme, zoom | partial | Header, LCD, five views, track list, Mix strips, volume automation lane, dark theme, square corners, wheel and slider zoom. No inspector, AI panel or light theme |
+| 3 | Tracks | partial | MIDI tracks with program, volume, pan, mute/solo/arm and audio references (schema v11); track list, mixer strips and keyboard export honour them. No per-track input routing, outputs, SoundFont or waveform audio tracks |
+| 4 | Transport: play/stop, start, record, loop, metronome, ruler, tempo/meter edit, MIDI record, all-notes-off, auto inputs | partial | Audio play/pause/stop with silence on stop; CLI MIDI record/echo and clip-grid take recording. No transport record arm, loop, metronome, ruler, tempo edit, quantise or auto inputs |
+| 5 | Timeline clips | partial | Clip and chord lanes: click select, arrow move, shift+arrow resize, J join, N add, Delete remove; clip commands are undoable with overlap rejection. No snap, timeline lyrics or multi-clip editing |
+| 6 | Note editor: add/select/move/resize/delete, arrows, velocity lane, grid, quantise, piano keys, select all | partial | Click insert, select, delete, undo/redo, save, scroll/zoom. No drag-move, resize, velocity lane, quantise, piano keys, select all or copy/paste |
+| 7 | Cut/copy/paste in every view | missing | No clipboard commands in any view |
 | 8 | Audio tracks | partial | Audio references on tracks (schema v7) with WAV header import and tempo-derived length. Referenced WAVs mix into render and cpal playback, honouring mute/solo, with linear resampling and reported missing files; the buffer extends to cover them. No waveforms, recording, monitoring, trimming, fades, takes or stretching |
 | 9 | Audio analysis | partial | Monophonic audio→MIDI, chroma-based chord recognition with a CLI, transcription answers still missing. No stems, instrument tags, lyrics or model-based polyphony |
 | 10 | Drum sampler and slicer | missing | — |
@@ -27,39 +27,50 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 18 | Automation | partial | Volume and pan lanes with linear interpolation and held ends, applied per note in the render, edited through one undoable command. Arrange shows a volume lane for the selected track; clicking adds a point, clicking a point removes it, and each edit is one command. No pan lane UI, plugin-parameter lanes or MIDI-port automation |
 | 19 | VST3/AU plugins | missing | ADR-007 deferred |
 | 20 | SF2/SF3 SoundFont player, metronome | partial | Built-in synth now has piano, bass, organ, strings, pad and noise drums chosen from channel, program and name, with per-family attack and decay. No SoundFont loading, sampler or metronome click |
-| 21 | MIDI devices and profiles | partial | One built-in PSR-S970 voice subset with keyword matching and a GM fallback (used by keyboard export). No YAML loader, banks, drum kits, other devices, overrides, validation or recent-MIDI buffer |
+| 21 | MIDI devices and profiles | partial | One built-in PSR-S970 voice subset with keyword matching and GM fallback; port enumeration, live input, CLI record/echo. No YAML loader, banks, drum kits, other devices, overrides or recent-MIDI buffer |
 | 22 | Synth sound editors (D-05, XioSynth, S970 XG, L6max), sysex dumps | missing | — |
-| 23 | Controller pages, MIDI Map, MIDI Learn, channel check | partial | Launchkey/X-Touch profiles referenced; no pages, map, learn |
-| 24 | PSR-S970 tools | partial | Song export with setup bar, program/volume/pan per part, chord markers, lyrics events and drums on channel 10. No Style Remote, style-by-number or hardware verification |
-| 25 | Music Finder and Playlists | partial | JSON, CSV, TSV and MFD (1,653-record real file), CLI import. No AI tools or CSV→playlist writer |
+| 23 | Controller pages, MIDI Map, MIDI Learn, channel check | partial | MIDI map model with text persistence, learn capture, CLI bind/show, and live application of play/stop/undo/scene/fader. No controller pages, on-screen learn dialog or channel check |
+| 24 | PSR-S970 tools | partial | Song export with setup bar, program, volume, pan, chord markers, lyrics and drums on channel 10; numbered style catalog and `style-by-number` rendering. No remote panel, audition queue or hardware verification |
+| 25 | Music Finder and Playlists | partial | JSON, CSV, TSV and MFD import (1,653-record real file), CLI. No browser UI, AI tools or CSV→playlist writer |
 | 26 | Zoom L6max mixer page and import | missing | — |
 | 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | missing | Commands already provide single undo steps |
-| 28 | MCP server, ~90 tools | partial | Tool registry with schemas and JSON dispatch for 6 tools (song summary, add track/notes, set chords, undo), CLI `mcp-tools`/`mcp-call`. Stdio JSON-RPC transport and 12 tools (song summary, add track/notes, set chords, undo, find chords, doctor, extract/apply groove, song forms, reharmonize), saving after each call. No socket transport, per-start secret or most tools |
+| 28 | MCP server, ~90 tools | partial | Stdio JSON-RPC server with 22 tools (song, tracks, notes, chords, undo, doctor, grooves, forms, reharmonise, clip grid, slots, programs, automation, lyrics/marks, style catalog, theory) and save-after-call; `mcp-tools`/`mcp-call`. No socket transport, per-start secret or most of the ~90 target tools |
 | 29 | Speech in/out (Whisper, Kitten, Kokoro) | missing | — |
 | 30 | AI music tools (humanize, drumify, continue, write part, melody) | missing | — |
-| 31 | Theory: keys, roman numerals, scales, voice-leading, skill packs | partial | Chord types, transpose, chord parse; no key finding, roman analysis, voice-leading, skills |
+| 31 | Theory: keys, roman numerals, scales, voice-leading, skill packs | partial | Nine scale modes, roman labels, cadence classification and voice-leading cost, as CLI and MCP tools; key detection in the score. No skill packs, graded lessons or theory panel |
 | 32 | Arranging help | partial | Arrangement Doctor (crowded bars, repeats) and Fit to My Synths (range octaves, polyphony removal, drum-kit warning) with proposal cards and undo. No A/B audition |
 | 33 | Groove | partial | Timing offset and velocity level per 1/16 slot, extract/apply with timing and accent amounts, feel-match score, G applies the selected track's groove to the others. No audio groove, words, library files or Play Before/After |
 | 34 | Song Forms | partial | Sections from markers, Short/Gig/Long-intro/Instrumental presets, plan and apply to timeline with chords and markers, undo. Drum-fill and lead-in transitions with automatic choice, applied as one undo step (T). No hold/break transitions, join loops or learned preferences |
-| 35 | Kids Mode | missing | — |
-| 36 | Languages (EN/DA/FR/VI) | missing | English only |
-| 37 | Settings, shortcut editor, updates | missing | — |
+| 35 | Kids Mode | partial | Settings switch restricts tabs to Perform and Arrange, forces a simple view, enlarges header controls and shows a translated banner. No kid-specific songs, lessons or simplified editor |
+| 36 | Languages (EN/DA/FR/VI) | partial | English and Danish string tables with a runtime switch and a completeness test. French and Vietnamese missing, as are plural rules and localized help |
+| 37 | Settings, shortcut editor, updates | partial | Settings file, settings window, shortcut list, MIDI port picker, and an update answer that states no channel is configured. No updater, editable shortcut bindings or telemetry controls |
 | 38 | Performance and safety: native, idle CPU, plugin scan, damaged-file tolerance | partial | Native Rust, audio thread separate, damaged styles counted; idle CPU and plugin scan unmeasured/absent |
-| 39 | Demo content (2 songs + 540 styles) | partial | CLI demo and a four-bar shell demo; no named songs or style pack |
+| 39 | Demo content (2 songs + 540 styles) | partial | Sixteen-bar built-in demo (drums, bass, piano, pad, chords, marks, lyrics) on first run and via `demo-project`; the short MIDI `demo` remains. No named song set, style pack or tutorial |
 
 ## Scorecard
 
-39 sections: 0 fully verified beyond their Rust subset, 27 partial, 12 missing.
-The partials with the most depth are styles (open, import, compile, SFF1 write),
-audio-to-MIDI, Music Finder/playlists, project files and the window shell.
+39 sections at round 60: 0 fully verified beyond their Rust subset, 31 partial, 8 missing.
+The partials with the most depth are styles (open, import, compile, SFF1/SFF2 write), project files, the score layout/PDF path, audio references, the MIDI map and the MCP surface.
+
+## State at round 60
+
+`cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (438 tests) and
+`cargo doc` pass. The eight missing sections are clipboard work (§7), the drum
+sampler/slicer (§10), VST3/AU (§19), synth editors and sysex (§22), the L6max
+page/import (§26), the AI chat UI (§27), speech (§29) and AI music tools (§30).
+Korg import, PSR style import, SoundFont loading, waveform audio editing,
+grand-staff/beam engraving, note entry, socket transport and a 90-tool MCP
+surface are also absent.
+
+Parity is **not** achieved. Hardware-dependent claims (real MIDI keyboards,
+PSR-S970 acceptance, cpal output on every host, YouTube download) remain
+unverified; CI builds and tests are the only continuous evidence.
 
 ## Next blocks, in dependency order
 
-1. Finish the style writer (MIDI track, SFF2) and add `Save .sty`.
-2. Clip model (Timeline, Clip grid shared) — unblocks §5, §7, §12, §14 editing.
-3. Score/notation per ADR-010 (§16, PDF).
-4. Smart chords lane/pads and reharmonize (§13) on the existing chord model.
-5. Arrangement Doctor and Fit to My Synths (§32), then Groove and Song Forms.
-6. MCP tool server (testable without models), then AI chat/speech/tools.
-7. Audio tracks, mixer/buses, automation, plugins; Korg, MusicXML, PSR export,
-   L6max, synth editors, Kids Mode, languages.
+1. Clipboard commands in every view (§7), then drum sampler/slicer (§10).
+2. Waveform audio editing and recording takes (§8), then buses/sends/effects (§17).
+3. Korg import, PSR style import and SoundFont loading (§14, §20, §24).
+4. Grand staff, beams, tuplets and note entry in the score (§16).
+5. AI chat/speech/music tools and the socket transport (§27, §29, §30).
+6. Plugin hosting (§19), synth editors (§22), L6max (§26).

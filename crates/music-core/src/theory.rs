@@ -46,7 +46,7 @@ impl Mode {
     ///
     /// # Errors
     ///
-    /// Returns [`MusicError::Note`] for an unknown name.
+    /// Returns [`MusicError::Pitch`] for an unknown name.
     pub fn parse(name: &str) -> Result<Self, MusicError> {
         Ok(match name.trim().to_ascii_lowercase().as_str() {
             "major" | "ionian" => Self::Major,
