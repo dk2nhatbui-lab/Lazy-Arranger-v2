@@ -88,6 +88,9 @@ pub struct ShellApp {
     launcher: arranging::grid::Launcher,
     recent: Vec<std::path::PathBuf>,
     recent_file: std::path::PathBuf,
+    settings: crate::settings::Settings,
+    settings_open: bool,
+    shortcuts_open: bool,
     score_page: usize,
     score_zoom: f32,
     rename_scene: Option<usize>,
@@ -151,6 +154,9 @@ impl ShellApp {
             launcher: arranging::grid::Launcher::default(),
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
+            settings: crate::settings::Settings::load(&crate::settings::Settings::path()),
+            settings_open: false,
+            shortcuts_open: false,
             score_page: 0,
             score_zoom: 1.0,
             rename_scene: None,
@@ -536,6 +542,84 @@ impl ShellApp {
             self.last_bar = bar_index;
             if let Some(scene) = self.launcher.advance(bar_index * bar) {
                 self.status = Some(format!("scene {}", scene + 1));
+            }
+        }
+    }
+
+    /// Settings and shortcut windows.
+    fn windows(&mut self, context: &egui::Context) {
+        if self.settings_open {
+            let mut open = self.settings_open;
+            egui::Window::new("Settings")
+                .open(&mut open)
+                .collapsible(false)
+                .show(context, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Language");
+                        egui::ComboBox::from_id_salt("settings-language")
+                            .selected_text(&self.settings.language)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.settings.language,
+                                    String::from("en"),
+                                    "en",
+                                );
+                            });
+                        ui.label(
+                            egui::RichText::new("only English ships strings")
+                                .size(9.0)
+                                .color(theme::TEXT_DIM),
+                        );
+                    });
+                    ui.add(egui::Slider::new(&mut self.settings.grade, 1..=9).text("chord grade"));
+                    let mut keyboard = self.settings.keyboard.clone().unwrap_or_default();
+                    if ui
+                        .add(egui::TextEdit::singleline(&mut keyboard).hint_text("MIDI keyboard"))
+                        .changed()
+                    {
+                        self.settings.keyboard = if keyboard.trim().is_empty() {
+                            None
+                        } else {
+                            Some(keyboard)
+                        };
+                    }
+                    ui.checkbox(&mut self.settings.metronome, "metronome with playback");
+                    ui.checkbox(&mut self.settings.reduced_motion, "reduced motion");
+                    ui.checkbox(&mut self.settings.kids_mode, "Kids Mode");
+                    if ui.button("Save settings").clicked() {
+                        match self.settings.save(&crate::settings::Settings::path()) {
+                            Ok(()) => {
+                                self.status = Some(String::from("settings saved"));
+                                self.settings_open = false;
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                });
+            if !open {
+                self.settings_open = false;
+            }
+        }
+        if self.shortcuts_open {
+            let mut open = self.shortcuts_open;
+            egui::Window::new("Shortcuts")
+                .open(&mut open)
+                .collapsible(false)
+                .show(context, |ui| {
+                    for shortcut in crate::settings::SHORTCUTS {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(shortcut.keys).monospace().size(10.0));
+                            ui.label(shortcut.action);
+                            ui.label(
+                                egui::RichText::new(shortcut.context)
+                                    .size(9.0)
+                                    .color(theme::TEXT_DIM),
+                            );
+                        });
+                    }
+                });
+            if !open {
+                self.shortcuts_open = false;
             }
         }
     }
@@ -1309,6 +1393,7 @@ impl eframe::App for ShellApp {
         self.beat_dialog(context);
         self.advance(context);
         self.top_bar(context);
+        self.windows(context);
         self.status_bar(context);
         self.sidebar(context);
         let panel = egui::CentralPanel::default()
