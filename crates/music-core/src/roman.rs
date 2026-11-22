@@ -72,6 +72,34 @@ pub fn roman_to_chord(token: &str, key: PitchClass) -> Result<Chord, MusicError>
     Ok(Chord::new(root, quality))
 }
 
+/// The sixteen chord pads for a key.
+///
+/// Seven diatonic triads, four borrowed chords (bIII, bVI, bVII, iv) and five
+/// secondary dominants (V of ii, iii, IV, V and vi).
+#[must_use]
+pub fn pads(key: PitchClass) -> Vec<Chord> {
+    let degree =
+        |semitones: i32, quality: ChordQuality| Chord::new(key.transpose(semitones), quality);
+    vec![
+        degree(0, ChordQuality::Major),
+        degree(2, ChordQuality::Minor),
+        degree(4, ChordQuality::Minor),
+        degree(5, ChordQuality::Major),
+        degree(7, ChordQuality::Major),
+        degree(9, ChordQuality::Minor),
+        degree(11, ChordQuality::Diminished),
+        degree(3, ChordQuality::Major),
+        degree(8, ChordQuality::Major),
+        degree(10, ChordQuality::Major),
+        degree(5, ChordQuality::Minor),
+        degree(4, ChordQuality::Major),
+        degree(6, ChordQuality::Major),
+        degree(7, ChordQuality::Major),
+        degree(9, ChordQuality::Major),
+        degree(11, ChordQuality::Major),
+    ]
+}
+
 /// True when a token looks like a roman numeral rather than a chord symbol.
 #[must_use]
 pub fn is_roman(token: &str) -> bool {
@@ -180,6 +208,19 @@ mod tests {
         assert!(is_roman("ii"));
         assert!(is_roman("bVII"));
         assert!(roman_to_chord("H", c()).is_err());
+    }
+
+    #[test]
+    fn sixteen_pads_cover_diatonic_borrowed_and_secondary_chords() {
+        let pad_chords = pads(c());
+        let names: Vec<String> = pad_chords.iter().map(|chord| text(*chord)).collect();
+        assert_eq!(pad_chords.len(), 16);
+        assert_eq!(&names[..7], &["C", "Dm", "Em", "F", "G", "Am", "Bdim"]);
+        assert_eq!(&names[7..11], &["D#", "G#", "A#", "Fm"]);
+        assert_eq!(&names[11..], &["E", "F#", "G", "A", "B"]);
+        let g = pads(PitchClass::new(7));
+        assert_eq!(text(g[0]), "G");
+        assert_eq!(text(g[1]), "Am");
     }
 
     #[test]

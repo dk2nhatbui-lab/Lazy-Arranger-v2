@@ -296,6 +296,16 @@ impl ShellApp {
         context.request_repaint_after(Duration::from_millis(16));
     }
 
+    /// Appends a chord symbol to the chord text field.
+    fn append_chord(&mut self, text: &str) {
+        if self.chord_input.trim().is_empty() {
+            self.chord_input = text.to_string();
+        } else {
+            self.chord_input.push(' ');
+            self.chord_input.push_str(text);
+        }
+    }
+
     /// The chord lane entry dialog: type a progression, apply or cancel.
     fn chord_dialog(&mut self, context: &Context) {
         if !self.chord_dialog {
@@ -327,6 +337,41 @@ impl ShellApp {
                         .desired_width(320.0)
                         .hint_text("Am F C G"),
                 );
+                let pad_chords = music_core::roman::pads(self.key);
+                egui::Grid::new("chord-pads")
+                    .num_columns(4)
+                    .spacing([4.0, 4.0])
+                    .show(ui, |ui| {
+                        for (index, chord) in pad_chords.iter().enumerate() {
+                            let label = chord.format(music_core::Spelling::Sharp);
+                            if ui.button(label.clone()).clicked() {
+                                self.append_chord(&label);
+                            }
+                            if index % 4 == 3 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+                let suggestions = music_core::progression::parse_in_key(
+                    &self.chord_input,
+                    0,
+                    self.song().time_signature,
+                    self.key,
+                )
+                .ok()
+                .and_then(|placed| placed.last().map(|entry| entry.chord))
+                .map(music_core::roman::suggest_next);
+                if let Some(list) = suggestions {
+                    ui.horizontal(|ui| {
+                        ui.label("Next:");
+                        for chord in list {
+                            let label = chord.format(music_core::Spelling::Sharp);
+                            if ui.button(label.clone()).clicked() {
+                                self.append_chord(&label);
+                            }
+                        }
+                    });
+                }
                 ui.horizontal(|ui| {
                     if ui.button("Apply").clicked() {
                         let bar = self.song().time_signature.bar_ticks().max(1);

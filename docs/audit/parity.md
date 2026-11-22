@@ -34,7 +34,9 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Chord progression text parser (`\|` bar, `%` repeat, `/` hold) | `music-core::progression` | verified | 6 parser tests |
 | Chord lane: draw and K dialog writing through commands | `apps/desktop` | implemented | editor progression test; UI manual |
 | Roman numerals in the song key | `music-core::roman` | verified | 5 tests, key transposition, suffix rejection |
-| Next-chord suggestions (core) | `music-core::roman::suggest_next` | verified | functional IV/V/vi/ii and minor set; no UI yet |
+| Next-chord suggestions (core) | `music-core::roman::suggest_next` | verified | functional IV/V/vi/ii and minor set |
+| 16 chord pads (diatonic, borrowed, secondary dominants) | `music-core::roman::pads` | verified | 16-pad test in C and G |
+| Pads and suggestions in the chord dialog | `apps/desktop` | implemented | buttons append to the text field; UI manual |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | — | missing | ADR-010 (Stage 8) |
