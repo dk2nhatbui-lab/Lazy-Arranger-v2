@@ -80,6 +80,15 @@ pub enum Command {
         /// New arm state.
         armed: bool,
     },
+    /// Set a track's fader and pan, each 0..=127.
+    SetTrackGain {
+        /// The track.
+        track: TrackId,
+        /// Fader level.
+        volume: u8,
+        /// Pan position.
+        pan: u8,
+    },
     /// Choose the keyboard voice (GM program) for a track, or clear it.
     SetTrackProgram {
         /// The track.
@@ -149,6 +158,7 @@ impl Command {
             Self::SetChords { .. } => "set chords",
             Self::SetTrackProgram { .. } => "set track program",
             Self::SetTrackFlags { .. } => "set track flags",
+            Self::SetTrackGain { .. } => "set track gain",
             Self::SetMarkers { .. } => "set markers",
             Self::SetSceneNames { .. } => "set scene names",
             Self::SetClips { .. } => "set clips",
@@ -636,6 +646,14 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::SetTrackGain { track, .. } => {
+                let found = self.track(*track)?;
+                Command::SetTrackGain {
+                    track: *track,
+                    volume: found.volume,
+                    pan: found.pan,
+                }
+            }
             Command::SetTrackFlags { track, .. } => {
                 let found = self.track(*track)?;
                 Command::SetTrackFlags {
@@ -761,6 +779,11 @@ impl EditSession {
                 };
                 self.project.song.tempo_map = next;
             }
+            Command::SetTrackGain { track, volume, pan } => {
+                let target = self.track_mut(*track)?;
+                target.volume = (*volume).min(127);
+                target.pan = (*pan).min(127);
+            }
             Command::SetTrackFlags {
                 track,
                 muted,
@@ -828,6 +851,9 @@ fn describe(command: &Command) -> String {
         Command::InsertTrack { track } => format!("insert track {} ({})", track.id, track.name),
         Command::RemoveTrack { track } => format!("remove track {track}"),
         Command::SetChords { chords } => format!("set {} chord(s)", chords.len()),
+        Command::SetTrackGain { track, volume, pan } => {
+            format!("track {track}: volume {volume}, pan {pan}")
+        }
         Command::SetTrackFlags {
             track,
             muted,
@@ -1231,6 +1257,27 @@ mod tests {
                 project::ClipId::new(1).expect("valid")
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn a_track_gain_can_be_set_and_undone() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.apply(Command::SetTrackGain {
+            track,
+            volume: 90,
+            pan: 20,
+        })
+        .expect("gain");
+        assert_eq!(
+            (edit.song().tracks[0].volume, edit.song().tracks[0].pan),
+            (90, 20)
+        );
+        edit.undo().expect("undo");
+        assert_eq!(
+            (edit.song().tracks[0].volume, edit.song().tracks[0].pan),
+            (100, 64)
         );
     }
 

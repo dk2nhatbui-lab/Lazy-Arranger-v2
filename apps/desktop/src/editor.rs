@@ -505,6 +505,19 @@ impl Editor {
         Ok(())
     }
 
+    /// Sets a track's fader and pan.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the command is rejected.
+    pub fn set_track_gain(&mut self, track: TrackId, volume: u8, pan: u8) -> Result<(), String> {
+        self.session
+            .apply(Command::SetTrackGain { track, volume, pan })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {

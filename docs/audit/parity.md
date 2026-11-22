@@ -75,6 +75,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Per-track keyboard program (schema v4) | `project`, `app-commands`, `mcp` | verified | migration, command, MCP tool; export honors it |
 | Mute / solo / arm (schema v5) | `project`, `app-commands`, `sequencer`, `audio` | verified | mix rules tested; render/sequencer honor them; M/S in the track list |
 | Track volume and pan (schema v8) | `project`, `audio`, `smf` export | verified | fader/pan render tests; CC 7/10 written; defaults omitted |
+| Mixer panel (per-track fader, pan, mute, solo) | `apps/desktop` | implemented | one undoable command per change; UI manual |
 | Beat view (4 rows × 16 steps, velocity cycle, apply/undo) | `arranging::beat`, `apps/desktop` | verified core | 4 tests; B opens the grid |
 | Clip grid model (scenes × tracks, slots) | `arranging::grid`, MCP `get_clip_grid` | verified core | 3 tests + tool |
 | Scene launcher (bar-quantised, waiting/cancel, log) | `arranging::grid::Launcher` | verified core | 2 tests |

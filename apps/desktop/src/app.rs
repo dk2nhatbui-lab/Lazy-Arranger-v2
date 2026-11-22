@@ -540,6 +540,73 @@ impl ShellApp {
         }
     }
 
+    /// Mixer strips: one per track with a fader, pan and mute/solo.
+    fn mixer_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Mixer");
+        let strips: Vec<(TrackId, String, u8, u8, bool, bool)> = self
+            .song()
+            .tracks
+            .iter()
+            .map(|track| {
+                (
+                    track.id,
+                    track.name.clone(),
+                    track.volume,
+                    track.pan,
+                    track.muted,
+                    track.soloed,
+                )
+            })
+            .collect();
+        if strips.is_empty() {
+            ui.label(egui::RichText::new("No tracks to mix.").color(theme::TEXT_MUTED));
+            return;
+        }
+        for (id, name, volume, pan, muted, soloed) in strips {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(if name.is_empty() { "untitled" } else { &name })
+                        .size(11.0),
+                );
+                let mut level = i32::from(volume);
+                let response = ui.add(
+                    egui::Slider::new(&mut level, 0..=127)
+                        .text("vol")
+                        .show_value(true),
+                );
+                if response.changed() {
+                    let _ =
+                        self.editor
+                            .set_track_gain(id, u8::try_from(level).unwrap_or(volume), pan);
+                }
+                let mut position = i32::from(pan);
+                let pan_response = ui.add(
+                    egui::Slider::new(&mut position, 0..=127)
+                        .text("pan")
+                        .show_value(true),
+                );
+                if pan_response.changed() {
+                    let _ = self.editor.set_track_gain(
+                        id,
+                        volume,
+                        u8::try_from(position).unwrap_or(pan),
+                    );
+                }
+                if ui.selectable_label(muted, "M").clicked() {
+                    let _ = self.editor.set_track_flags(id, !muted, soloed, false);
+                }
+                if ui.selectable_label(soloed, "S").clicked() {
+                    let _ = self.editor.set_track_flags(id, muted, !soloed, false);
+                }
+            });
+        }
+        ui.label(
+            egui::RichText::new("Fader and pan write through one undoable command each.")
+                .size(10.0)
+                .color(theme::TEXT_DIM),
+        );
+    }
+
     /// The clip grid: scenes as rows, tracks as columns, launch and record.
     fn grid_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading(format!(
@@ -1274,12 +1341,7 @@ impl eframe::App for ShellApp {
                     });
                 }
                 View::Mix => {
-                    ui.centered_and_justified(|ui| {
-                        ui.label(
-                            egui::RichText::new("Mix view arrives with routing and SoundFont playback (Stage 7).")
-                                .color(theme::TEXT_MUTED),
-                        );
-                    });
+                    self.mixer_panel(ui);
                 }
                 View::Loops => {
                     self.grid_panel(ui);
