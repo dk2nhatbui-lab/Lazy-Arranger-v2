@@ -1,0 +1,19 @@
+# Architecture decision records
+
+One file per decision. Status is one of **Proposed**, **Accepted**, **Deferred**
+or **Superseded**.
+
+| ADR | Decision | Status |
+| --- | --- | --- |
+| [001](ADR-001-ui-toolkit.md) | Desktop UI toolkit | Deferred (Stage 6) |
+| [002](ADR-002-audio-clock.md) | Audio clock, tick/sample conversion, MIDI dispatch | Accepted, implemented |
+| [003](ADR-003-canonical-style.md) | Canonical style model, manufacturer metadata | Accepted, implementation Stage 4 |
+| [004](ADR-004-project-schema.md) | Project schema versioning and legacy migration | Accepted, implemented |
+| [005](ADR-005-provenance.md) | Intent-to-generated-MIDI provenance and regeneration | Proposed (Stage 5) |
+| [006](ADR-006-command-undo-mcp.md) | Typed commands, undo/redo, MCP approval | Accepted (commands), proposed (MCP) |
+| [007](ADR-007-plugin-host.md) | Plugin host isolation and licensing | Deferred |
+| [008](ADR-008-cpp-interop.md) | C++/Rust interoperability | Accepted, implemented |
+| [009](ADR-009-hardware-capabilities.md) | Hardware capability model and SysEx | Accepted (principles) |
+
+The shared type contract that these decisions constrain is
+[`../architecture/contracts.md`](../architecture/contracts.md).
