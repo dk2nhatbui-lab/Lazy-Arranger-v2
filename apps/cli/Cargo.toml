@@ -18,6 +18,7 @@ style-formats = { path = "../../crates/style-formats" }
 clap.workspace = true
 midi-devices = { path = "../../crates/midi-devices" }
 music-core = { path = "../../crates/music-core" }
+library = { path = "../../crates/library" }
 mcp = { path = "../../crates/mcp" }
 serde_json = { workspace = true }
 performance = { path = "../../crates/performance" }

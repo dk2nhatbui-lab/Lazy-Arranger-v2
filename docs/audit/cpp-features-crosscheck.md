@@ -31,7 +31,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 22 | Synth sound editors (D-05, XioSynth, S970 XG, L6max), sysex dumps | missing | — |
 | 23 | Controller pages, MIDI Map, MIDI Learn, channel check | partial | Launchkey/X-Touch profiles referenced; no pages, map, learn |
 | 24 | PSR-S970 song export, Style Remote, style by number, WAV for keyboard | missing | — |
-| 25 | Music Finder JSON, CSV, MFD, playlist TSV, AI tools | partial | JSON/CSV/TSV verified; MFD missing; no AI tools or CSV→playlist writer |
+| 25 | Music Finder and Playlists | partial | JSON, CSV, TSV and MFD (1,653-record real file), CLI import. No AI tools or CSV→playlist writer |
 | 26 | Zoom L6max mixer page and import | missing | — |
 | 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | missing | Commands already provide single undo steps |
 | 28 | MCP server, ~90 tools | partial | Tool registry with schemas and JSON dispatch for 6 tools (song summary, add track/notes, set chords, undo), CLI `mcp-tools`/`mcp-call`. Stdio JSON-RPC transport and 12 tools (song summary, add track/notes, set chords, undo, find chords, doctor, extract/apply groove, song forms, reharmonize), saving after each call. No socket transport, per-start secret or most tools |

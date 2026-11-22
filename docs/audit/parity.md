@@ -13,7 +13,7 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Chord conversion and rules | `arranger` | verified | oracle-pinned cases |
 | Scheduling with late-event clamping | `sequencer` | verified | clock tests |
 | MIDI devices, capture, all-notes-off | `midi-devices` | verified (hardware manual) | unit tests; hardware untested |
-| Music Finder books (JSON, CSV, MFD) | `library` | partial: JSON + CSV verified; MFD missing | C++ `core/src/MusicFinder.cpp` |
+| Music Finder books (JSON, CSV, MFD) | `library` | verified | MFD read 1,653 records from the real Nhat.mfd, matching the C++ doc; CLI music-finder-import |
 | Yamaha playlists (TSV) | `library` | verified | 4 round-trip tests, CRLF and ON/OFF flags |
 | Music Finder/playlist browser UI | — | missing | no shell panel yet |
 | Audio-to-MIDI, monophonic | `audio::analysis` | implemented | `a_440_hz_tone_is_found`, `audio_to_midi_finds_an_a4_note` |

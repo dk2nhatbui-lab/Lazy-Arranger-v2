@@ -122,6 +122,69 @@ impl Book {
         .to_string()
     }
 
+    /// Parses a Yamaha Music Finder file (`MDB-100-100-3000`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LibraryError::Format`] for another file or a truncated one.
+    pub fn from_mfd(bytes: &[u8]) -> Result<Self, LibraryError> {
+        const HEADER: usize = 36;
+        const RECORD: usize = 92;
+        let magic = b"MDB-100-100-3000";
+        if bytes.len() < HEADER || !bytes.starts_with(magic) {
+            return Err(LibraryError::Format(String::from(
+                "not a Yamaha Music Finder file",
+            )));
+        }
+        let count = usize::from(u16::from_be_bytes([bytes[34], bytes[35]]));
+        let records = if count > 0 {
+            count
+        } else {
+            (bytes.len() - HEADER) / RECORD
+        };
+        let field = |at: usize, offset: usize, length: usize| -> String {
+            let start = at + offset;
+            let end = (start + length).min(bytes.len());
+            let slice = &bytes[start.min(end)..end];
+            let stop = slice
+                .iter()
+                .position(|byte| *byte == 0)
+                .unwrap_or(slice.len());
+            String::from_utf8_lossy(&slice[..stop]).trim().to_string()
+        };
+        let mut entries = Vec::new();
+        for index in 0..records {
+            let at = HEADER + index * RECORD;
+            if at + RECORD > bytes.len() {
+                break;
+            }
+            let name = field(at, 11, 32);
+            if name.is_empty() {
+                continue;
+            }
+            let mut notes = field(at, 43, 16);
+            let keywords = field(at, 59, 32);
+            if !keywords.is_empty() {
+                if notes.is_empty() {
+                    notes = keywords;
+                } else {
+                    notes = format!("{notes}, {keywords}");
+                }
+            }
+            entries.push(Entry {
+                name,
+                style: String::new(),
+                tempo: f64::from(u16::from_be_bytes([bytes[at + 8], bytes[at + 9]])),
+                style_number: i32::from(u16::from_be_bytes([bytes[at + 4], bytes[at + 5]])),
+                time_numerator: u32::from(bytes[at + 6]),
+                time_denominator: u32::from(bytes[at + 7]),
+                voices: Vec::new(),
+                notes,
+            });
+        }
+        Ok(Self { entries })
+    }
+
     /// Writes `name,style,tempo,voices,notes` CSV, quoting as the C++ code does.
     #[must_use]
     pub fn to_csv(&self) -> String {
@@ -333,6 +396,36 @@ mod tests {
         assert_eq!(parsed.entries[0].notes, "a, \"b\"");
         assert_eq!(parsed.entries[0].voices, vec!["Piano", "Strings"]);
         assert!(Book::from_csv("wrong\n").is_err());
+    }
+
+    #[test]
+    fn mfd_reads_records_and_skips_empty_names() {
+        let mut bytes = vec![0_u8; 36];
+        bytes[..16].copy_from_slice(b"MDB-100-100-3000");
+        bytes[34] = 0;
+        bytes[35] = 3;
+        let mut record = |name: &str, number: u16, meter: (u8, u8), tempo: u16, genre: &str| {
+            let mut entry = vec![0_u8; 92];
+            entry[4..6].copy_from_slice(&number.to_be_bytes());
+            entry[6] = meter.0;
+            entry[7] = meter.1;
+            entry[8..10].copy_from_slice(&tempo.to_be_bytes());
+            entry[11..11 + name.len()].copy_from_slice(name.as_bytes());
+            entry[43..43 + genre.len()].copy_from_slice(genre.as_bytes());
+            bytes.extend_from_slice(&entry);
+        };
+        record("My Way", 42, (4, 4), 72, "Pop");
+        record("", 7, (3, 4), 90, "Jazz");
+        record("Autumn Leaves", 9, (4, 4), 120, "Jazz");
+        let book = Book::from_mfd(&bytes).expect("parse");
+        assert_eq!(book.entries.len(), 2);
+        assert_eq!(book.entries[0].name, "My Way");
+        assert_eq!(book.entries[0].style_number, 42);
+        assert_eq!(book.entries[0].tempo, 72.0);
+        assert_eq!(book.entries[0].time_numerator, 4);
+        assert_eq!(book.entries[0].notes, "Pop");
+        assert_eq!(book.entries[1].name, "Autumn Leaves");
+        assert!(Book::from_mfd(b"not an mfd").is_err());
     }
 
     #[test]

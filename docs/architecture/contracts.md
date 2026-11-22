@@ -538,3 +538,13 @@ successful call.
 
 Transport is stdio only here. The C++ app also offers a local socket with a
 secret regenerated at each start; that, and the remaining tools, are not built.
+
+### Music Finder MFD
+
+`library::Book::from_mfd` reads the Yamaha `MDB-100-100-3000` layout: 36-byte
+header with a big-endian record count at 34..36, then 92-byte records with the
+style number at 4..6, meter at 6..8, tempo at 8..10, title at 11..43, genre at
+43..59 and keywords at 59..91. Empty titles are skipped; genre and keywords join
+with `, `. The path tail after the counted records is ignored. Verified against
+the owner's `Nhat.mfd`: 1,653 entries, the same count the C++ documentation
+reports.

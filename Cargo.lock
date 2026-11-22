@@ -1467,6 +1467,7 @@ dependencies = [
  "arranger",
  "audio",
  "clap",
+ "library",
  "mcp",
  "midi-devices",
  "music-core",

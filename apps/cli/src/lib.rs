@@ -127,6 +127,13 @@ enum Commands {
         #[arg(long)]
         rules: bool,
     },
+    /// Read a Yamaha Music Finder `.mfd` file and write a book.
+    MusicFinderImport {
+        /// Source `.mfd` file.
+        mfd: PathBuf,
+        /// Output path: `.json` (default) or `.csv`.
+        out: PathBuf,
+    },
     /// Print the assistant tool list as JSON.
     McpTools {},
     /// Serve assistant tools over newline-delimited JSON-RPC on stdin/stdout.
@@ -298,6 +305,20 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             chords,
             add_tracks,
         } => edit(&project, &out, tempo, &chords, &add_tracks),
+        Commands::MusicFinderImport { mfd, out } => {
+            let bytes = fs::read(&mfd)
+                .map_err(|error| format!("could not read {}: {error}", mfd.display()))?;
+            let book = library::Book::from_mfd(&bytes)?;
+            let text = if out.extension().and_then(|ext| ext.to_str()) == Some("csv") {
+                book.to_csv()
+            } else {
+                book.to_json()
+            };
+            fs::write(&out, text)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!("{} entries -> {}", book.entries.len(), out.display());
+            Ok(())
+        }
         Commands::McpTools {} => {
             println!("{}", serde_json::to_string_pretty(&mcp::tool_list_json())?);
             Ok(())
