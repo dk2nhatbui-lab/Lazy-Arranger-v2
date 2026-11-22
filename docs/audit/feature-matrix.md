@@ -8,7 +8,7 @@
 primary C++ declaration where a note gives no line. LOC measured with `wc -l` in the pinned tree.
 Composite rows overlap: one file can serve several subsystems.
 
-**Rust status today:** `cargo test --workspace` passes 183 tests; `cargo clippy --workspace --all-targets
+**Rust status today:** `cargo test --workspace` passes 201 tests; `cargo clippy --workspace --all-targets
 -- -D warnings`, `cargo fmt --all --check` and `cargo doc` (warnings denied) pass. No subsystem is
 `parity complete`. Row statuses below were refreshed on 2026-11-22 after the Stage 2 dispatch worker and
 the Stage 3 arranger core landed.
@@ -154,3 +154,16 @@ the first goldens (G01–G20 in `compatibility-baseline.md`) from the pinned C++
 build configuration, and only then start SFF/CASM import. Doing SFF first would produce a style importer
 whose output nobody can check; doing the chord and launch path first gives every later style test an
 oracle.
+
+## 4. Stage 5 progress (2026-11-22)
+
+| Deliverable | Location | Proof | Status |
+| --- | --- | --- | --- |
+| Track provenance, intent and notes digests | `crates/project/src/provenance.rs` | `fresh_edited_stale_and_both_are_distinguished`, `intent_outside_the_range_does_not_make_a_track_stale`, `note_digest_ignores_order_and_ids` | verified |
+| Schema v2 and migration | `crates/project/src/song.rs` | `a_version_1_document_migrates_to_version_2` | verified |
+| Dual capture of a performance | `crates/performance/src/lib.rs` | `a_section_is_recorded_as_intent_plus_rendered_tracks` | verified |
+| Regeneration policies | `crates/performance` | `policy_keep_changes_nothing_and_reports_stale_tracks`, `policy_replace_recompiles_and_refreshes`, `policy_duplicate_adds_fresh_copies_and_keeps_the_old_tracks`, `a_hand_edit_is_visible_and_replaced_only_by_request` | verified |
+| Freeze / detach | `crates/performance::freeze` | `freezing_a_track_makes_it_manual_and_immune` | verified |
+
+Live microphone or keyboard capture against a device remains manual. The capture
+here records the arranger's compiled output, which is the rendered half.

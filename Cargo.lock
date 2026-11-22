@@ -328,6 +328,7 @@ dependencies = [
  "clap",
  "midi-devices",
  "music-core",
+ "performance",
  "project",
  "sequencer",
  "smf",
@@ -442,6 +443,17 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "performance"
+version = "0.1.0"
+dependencies = [
+ "app-commands",
+ "arranger",
+ "music-core",
+ "project",
+ "thiserror",
 ]
 
 [[package]]

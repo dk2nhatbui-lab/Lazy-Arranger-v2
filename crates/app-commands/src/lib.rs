@@ -11,6 +11,7 @@
 //! destructive model-proposed edits.
 
 use music_core::{Channel, Chord, Pitch, TempoMap, Tick, Velocity};
+use project::provenance;
 use project::song::{ChordEvent, Note, Song, Track};
 use project::{NoteId, ProjectError, ProjectFile, Severity, TrackId};
 use thiserror::Error;
@@ -68,6 +69,20 @@ pub enum Command {
         /// The track.
         track: TrackId,
     },
+    /// Replace every note of a track, keeping the track itself.
+    ReplaceTrackNotes {
+        /// The track.
+        track: TrackId,
+        /// The new note list, usually from a regeneration.
+        notes: Vec<Note>,
+    },
+    /// Set or clear a track's generation provenance.
+    SetProvenance {
+        /// The track.
+        track: TrackId,
+        /// New provenance; `None` freezes or detaches the track.
+        provenance: Option<provenance::Provenance>,
+    },
     /// Restore a complete tempo map.
     ///
     /// Internal: undo builds it to put back an exact map after a tempo edit.
@@ -91,6 +106,8 @@ impl Command {
             Self::RenameTrack { .. } => "rename track",
             Self::InsertTrack { .. } => "insert track",
             Self::RemoveTrack { .. } => "remove track",
+            Self::ReplaceTrackNotes { .. } => "replace track notes",
+            Self::SetProvenance { .. } => "set provenance",
             Self::ReplaceTempoMap { .. } => "restore tempo map",
         }
     }
@@ -427,6 +444,14 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::ReplaceTrackNotes { track, .. } => Command::ReplaceTrackNotes {
+                track: *track,
+                notes: self.track(*track)?.notes.clone(),
+            },
+            Command::SetProvenance { track, .. } => Command::SetProvenance {
+                track: *track,
+                provenance: self.track(*track)?.provenance.clone(),
+            },
             Command::ReplaceTempoMap { .. } => Command::ReplaceTempoMap {
                 map: self.song().tempo_map.clone(),
             },
@@ -518,6 +543,12 @@ impl EditSession {
                 };
                 self.project.song.tempo_map = next;
             }
+            Command::ReplaceTrackNotes { track, notes } => {
+                self.track_mut(*track)?.notes = notes.clone();
+            }
+            Command::SetProvenance { track, provenance } => {
+                self.track_mut(*track)?.provenance = provenance.clone();
+            }
             Command::ReplaceTempoMap { map } => {
                 self.project.song.tempo_map = map.clone();
             }
@@ -550,6 +581,16 @@ fn describe(command: &Command) -> String {
         Command::RenameTrack { track, name } => format!("rename track {track} to {name:?}"),
         Command::InsertTrack { track } => format!("insert track {} ({})", track.id, track.name),
         Command::RemoveTrack { track } => format!("remove track {track}"),
+        Command::ReplaceTrackNotes { track, notes } => {
+            format!("replace {} note(s) on track {track}", notes.len())
+        }
+        Command::SetProvenance { track, provenance } => {
+            if provenance.is_some() {
+                format!("set provenance on track {track}")
+            } else {
+                format!("clear provenance on track {track}")
+            }
+        }
         Command::ReplaceTempoMap { .. } => String::from("restore tempo map"),
     }
 }
@@ -863,6 +904,70 @@ mod tests {
             }
         );
         assert_eq!(edit.song().tracks[0].notes.len(), 1);
+    }
+
+    #[test]
+    fn replacing_track_notes_undoes_exactly() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        let first = Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 960,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        };
+        edit.apply(Command::ReplaceTrackNotes {
+            track,
+            notes: vec![first.clone()],
+        })
+        .expect("replace");
+        assert_eq!(edit.song().tracks[0].notes.len(), 1);
+
+        let replacement = Note {
+            start: 1920,
+            ..first
+        };
+        edit.apply(Command::ReplaceTrackNotes {
+            track,
+            notes: vec![replacement],
+        })
+        .expect("replace");
+        assert_eq!(edit.song().tracks[0].notes[0].start, 1920);
+        edit.undo().expect("undo");
+        assert_eq!(edit.song().tracks[0].notes[0].start, 0);
+    }
+
+    #[test]
+    fn provenance_can_be_set_and_cleared() {
+        use project::StyleId;
+        use project::provenance::Provenance;
+
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        let provenance = Provenance::capture(
+            edit.song(),
+            StyleId::new(1).expect("valid"),
+            "Main A",
+            0,
+            3840,
+            &[],
+        );
+        edit.apply(Command::SetProvenance {
+            track,
+            provenance: Some(provenance.clone()),
+        })
+        .expect("set");
+        assert_eq!(edit.song().tracks[0].provenance, Some(provenance));
+        edit.apply(Command::SetProvenance {
+            track,
+            provenance: None,
+        })
+        .expect("clear");
+        assert_eq!(edit.song().tracks[0].provenance, None);
+        edit.undo().expect("undo clear");
+        assert!(edit.song().tracks[0].provenance.is_some());
     }
 
     #[test]

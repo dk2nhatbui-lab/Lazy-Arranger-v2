@@ -21,7 +21,7 @@ use clap::{Parser, Subcommand};
 use midi_devices::{DeviceError, list_ports};
 use music_core::{Channel, Chord, PPQ, Pitch, TempoMap, Tick, Velocity};
 use project::song::{Note, ProjectFile, Song, Track};
-use project::{NoteId, TrackId};
+use project::{NoteId, StyleId, TrackId};
 use sequencer::{EventBuffer, PreparedPattern, Scheduler};
 
 /// Default audio sample rate for scheduling.
@@ -126,6 +126,37 @@ enum Commands {
         #[arg(long)]
         rules: bool,
     },
+    /// Record a style performance as linked intent and rendered tracks.
+    Perform {
+        /// Style file.
+        style: PathBuf,
+        /// Output project `.json` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Section to perform. Defaults to the first section.
+        #[arg(long)]
+        section: Option<String>,
+        /// Chord at a tick, for example `--chord 0=Am7`. Repeatable.
+        #[arg(long = "chord", value_name = "TICK=SYMBOL")]
+        chords: Vec<String>,
+        /// Tempo; defaults to the style's own tempo.
+        #[arg(long)]
+        tempo: Option<f64>,
+    },
+    /// Regenerate generated tracks after an intent edit.
+    Regenerate {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Style file the generated tracks came from.
+        #[arg(long)]
+        style: PathBuf,
+        /// Output project `.json` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// keep (default), replace or duplicate.
+        #[arg(long, default_value = "keep")]
+        policy: String,
+    },
     /// Play a project to a MIDI output port in real time.
     Play {
         /// Project `.json` path.
@@ -206,6 +237,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             chords,
             add_tracks,
         } => edit(&project, &out, tempo, &chords, &add_tracks),
+        Commands::Perform {
+            style,
+            out,
+            section,
+            chords,
+            tempo,
+        } => perform(&style, &out, section.as_deref(), &chords, tempo),
+        Commands::Regenerate {
+            project,
+            style,
+            out,
+            policy,
+        } => regenerate_project(&project, &style, &out, &policy),
         Commands::Style {
             style: style_path,
             section,
@@ -576,6 +620,113 @@ fn edit(
     Ok(())
 }
 
+fn read_style(path: &PathBuf) -> Result<style_formats::ImportedStyle, Box<dyn Error>> {
+    let bytes =
+        fs::read(path).map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    Ok(style_formats::import_style(&bytes)?)
+}
+
+fn parse_chords(chords: &[String]) -> Result<Vec<(Tick, Chord)>, Box<dyn Error>> {
+    let mut out = Vec::new();
+    for entry in chords {
+        let (tick, symbol) = entry
+            .split_once('=')
+            .ok_or_else(|| format!("--chord expects TICK=SYMBOL, found {entry:?}"))?;
+        let tick: Tick = tick
+            .trim()
+            .parse()
+            .map_err(|_| format!("--chord tick {tick:?} is not a whole number"))?;
+        out.push((tick, Chord::parse(symbol)?));
+    }
+    Ok(out)
+}
+
+fn perform(
+    style_path: &PathBuf,
+    out: &PathBuf,
+    section: Option<&str>,
+    chords: &[String],
+    tempo: Option<f64>,
+) -> Result<(), Box<dyn Error>> {
+    let imported = read_style(style_path)?;
+    let chosen = section
+        .map(String::from)
+        .or_else(|| imported.sections.first().map(|entry| entry.name.clone()))
+        .ok_or("style has no sections")?;
+    let mut recorder = performance::PerformanceRecorder::new(
+        imported.native.clone(),
+        StyleId::new(1)?,
+        format!("{} {chosen}", style_path.display()),
+        tempo.unwrap_or(imported.tempo_bpm),
+    );
+    for (tick, chord) in parse_chords(chords)? {
+        recorder.chord(tick, &chord)?;
+    }
+    let tracks = recorder.section(&chosen, 0)?;
+    if tracks.is_empty() {
+        return Err(format!("section {chosen:?} produced no notes").into());
+    }
+    let project = recorder.finish();
+    let json = project.to_json_pretty()?;
+    fs::write(out, json).map_err(|error| format!("could not write {}: {error}", out.display()))?;
+    let notes = project
+        .song
+        .tracks
+        .iter()
+        .map(|track| track.notes.len())
+        .sum::<usize>();
+    println!(
+        "recorded {chosen:?} from {}: {} track(s), {} note(s), provenance on {} track(s)",
+        style_path.display(),
+        project.song.tracks.len(),
+        notes,
+        project
+            .song
+            .tracks
+            .iter()
+            .filter(|track| track.provenance.is_some())
+            .count()
+    );
+    println!("wrote {}", out.display());
+    Ok(())
+}
+
+fn regenerate_project(
+    project_path: &PathBuf,
+    style_path: &PathBuf,
+    out: &PathBuf,
+    policy: &str,
+) -> Result<(), Box<dyn Error>> {
+    let imported = read_style(style_path)?;
+    let policy = match policy {
+        "keep" => performance::Policy::Keep,
+        "replace" => performance::Policy::Replace,
+        "duplicate" => performance::Policy::Duplicate,
+        other => {
+            return Err(
+                format!("--policy must be keep, replace or duplicate, found {other:?}").into(),
+            );
+        }
+    };
+    let project = read_project(project_path)?;
+    let mut session = EditSession::new(project)?;
+    let report = performance::regenerate(&mut session, &imported.native, StyleId::new(1)?, policy)?;
+    let json = session.project().to_json_pretty()?;
+    fs::write(out, json).map_err(|error| format!("could not write {}: {error}", out.display()))?;
+    println!(
+        "regenerate: fresh {} kept {} replaced {} duplicated {} missing-section {} manual {} other-style {}",
+        report.fresh.len(),
+        report.kept.len(),
+        report.replaced.len(),
+        report.duplicated.len(),
+        report.missing_sections.len(),
+        report.manual,
+        report.other_style
+    );
+    println!("wrote {}", out.display());
+    Ok(())
+}
+
 fn style_command(
     path: &PathBuf,
     section: Option<&str>,
@@ -660,6 +811,7 @@ fn style_command(
             tick,
             chord: arranger::ArrangerChord::try_from(&Chord::parse(symbol)?)?,
         });
+        let _ = &chords;
     }
     let compiled = imported.native.compile(chosen, 0, &chord_events)?;
     let mut song = Song::new(format!("{} {chosen}", path.display()), imported.tempo_bpm);

@@ -11,16 +11,21 @@
 //! writer therefore never silently deletes data it does not understand, which
 //! is the requirement for importing legacy C++ projects (ADR-004).
 //!
-//! Schema version 1 covers the headless MVP: tracks of notes, chords, arranger
-//! intent, markers and a tempo map. Clips, audio lanes, automation and
-//! provenance are later schema versions with explicit migrations.
+//! Schema version 2 adds generated-track provenance (ADR-005): a track can
+//! record the style section it came from and the intent it was compiled for,
+//! so an intent edit can mark it stale instead of silently overwriting it.
+//! Version 1 documents load through the migration in `ProjectFile::migrate`.
+//!
+//! Clips, audio lanes and automation are still later schema versions.
 
 pub mod ids;
 pub mod legacy;
+pub mod provenance;
 pub mod song;
 pub mod validate;
 
 pub use ids::{Marker, NoteId, StyleId, TrackId};
+pub use provenance::{Provenance, TrackStatus, intent_digest, notes_digest, track_status};
 pub use song::{ArrangerEvent, ChordEvent, Note, ProjectFile, Song, Track};
 pub use validate::{Severity, ValidationIssue};
 
@@ -28,7 +33,7 @@ pub use validate::{Severity, ValidationIssue};
 pub const PROJECT_FORMAT: &str = "lazy-arranger-project";
 
 /// Schema version this crate writes.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 use thiserror::Error;
 

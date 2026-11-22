@@ -30,6 +30,9 @@ decisions in [`docs/adr/`](docs/adr/).
 | Yamaha CASM rule import (SFF1/SFF2) | verified on 16,189 real styles | `crates/style-formats/src/casm.rs` |
 | Style import: section markers, notes, default rules | verified on 16,158 real styles | `crates/style-formats/src/import.rs` |
 | Style writer, setup events and voices | not started | Stage 4 remainder |
+| Dual capture: intent + rendered tracks | verified | `crates/performance` |
+| Provenance-aware regeneration (keep/replace/duplicate) | verified | `crates/performance` |
+| Freeze / detach generated tracks | verified | `performance::freeze` |
 | Golden parity, arranger playback in the app, UI, audio engine | not started / blocked | Stage 3 exit needs a C++ build and a CASM style |
 
 ## Quick start
@@ -45,6 +48,12 @@ cargo run -q -p lazy-arranger-cli -- play song.json --out-port "My Keyboard" --d
 
 # List MIDI ports.
 cargo run -q -p lazy-arranger-cli -- ports
+
+# Record a style section as intent plus rendered tracks, then regenerate.
+cargo run -q -p lazy-arranger-cli -- perform "MyStyle.prs" --section "Main A" \
+    --chord 0=C --chord 1920=Am --out take.json
+cargo run -q -p lazy-arranger-cli -- regenerate take.json --style "MyStyle.prs" \
+    --policy replace --out take2.json
 
 # Inspect a Yamaha style, then render a section with chords.
 cargo run -q -p lazy-arranger-cli -- style "MyStyle.prs" --section "Main A" --rules

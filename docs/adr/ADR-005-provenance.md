@@ -1,6 +1,6 @@
 # ADR-005: Intent-to-generated-MIDI provenance, freeze and regeneration
 
-**Status:** Proposed. Required before Stage 5 (live capture).
+**Status:** Accepted, revised at Stage 5: provenance is per track and range, not per clip.
 
 ## Context
 
@@ -18,13 +18,15 @@ over edited notes would silently destroy work.
 1. **Two lanes, one timeline.** Chord and arranger events stay in
    `Song.chords` / `Song.arranger`. Generated notes live on ordinary tracks, so
    the sequencer and SMF export do not need a second note type.
-2. **Provenance is a per-clip record**, not a per-note flag:
-   `{ source: Arranger { style, section }, revision, frozen: bool,
-   generated_from: TickRange }`. Notes of a generated clip inherit it.
+2. **Provenance is a per-track record over a range**: `{ style, section,
+   start, end, intent_digest, notes_digest }`. Schema v1 has no clips, and each
+   generated track covers exactly one style section, so a track-and-range
+   record carries the same facts without inventing a clip container first. When
+   clips arrive, a clip inherits its parent track's provenance.
 3. **Regeneration never overwrites silently.** When intent changes, generated
-   clips whose range overlaps the change are marked `stale`. The user chooses
-   per clip: replace, keep, or duplicate with a new id. The default is to mark
-   stale and change nothing.
+   tracks whose range overlaps the change read as `stale`; hand-edited ones read
+   as `edited`. The user chooses keep, replace or duplicate, and the default is
+   keep. Data loss needs an explicit `Policy::Replace`.
 4. **Freeze is explicit and reversible.** Freezing detaches provenance and
    makes the clip a plain MIDI clip. It is one undo step.
 5. **Manual edits inside a generated clip mark it `edited`**, so regeneration

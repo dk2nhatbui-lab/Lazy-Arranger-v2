@@ -87,6 +87,26 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
             ));
         }
 
+        if let Some(provenance) = &track.provenance {
+            if !provenance.is_well_formed() {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.provenance"),
+                    format!(
+                        "range {}..{} or section {:?} is not usable",
+                        provenance.start, provenance.end, provenance.section
+                    ),
+                ));
+            }
+            if track.notes.is_empty() {
+                issues.push(issue(
+                    Severity::Warning,
+                    format!("{track_path}.notes"),
+                    String::from("generated track has no notes"),
+                ));
+            }
+        }
+
         let mut note_ids: HashSet<u32> = HashSet::new();
         let mut previous_start: Option<Tick> = None;
         let mut sounding: HashMap<(u8, u8), Tick> = HashMap::new();

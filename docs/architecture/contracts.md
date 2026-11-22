@@ -208,7 +208,9 @@ import is therefore deferred and documented as unverified.
 * `CommandError` distinguishes unknown targets, duplicates, bad tempo,
   validation failure and empty history.
 * The command set is data (`Command` enum), so a future MCP server can log,
-  preview and approve the same values. Coalescing and approval are ADR-006.
+  preview and approve the same values.
+* `ReplaceTrackNotes` and `SetProvenance` are the two commands regeneration
+  uses. Both store exact inverses, so a whole regeneration is undoable. Coalescing and approval are ADR-006.
 * The real-time scheduler never executes a command; it consumes a prepared
   snapshot (section 8).
 
@@ -351,6 +353,9 @@ exercises it headlessly.
 | CASM rule decoding (SFF1/SFF2, bass bit, tails) | `style_formats::casm::tests` |
 | style import: sections, notes, defaults | `style_formats::import::tests` |
 | rule identity and limits over a library | `style-formats/tests/local_library.rs` (opt-in) |
+| dual capture of intent and rendered tracks | `performance::tests` |
+| staleness and edit detection by digest | `project::provenance::tests` |
+| regeneration policies (keep/replace/duplicate) | `performance::tests` |
 
 Hardware record and echo have no automated test. They keep the status
 `manual only` until a device-and-loopback run is recorded in
@@ -438,3 +443,34 @@ Implemented in `crates/midi-devices/src/dispatch.rs`.
 Hardware playback (`play` against a real port) stays manual. The command exists
 and prints its schedule with `--dry-run`; no automated test sends MIDI to a
 device.
+
+## 16. Performance capture and provenance
+
+Schema version 2 adds `Track.provenance: Option<Provenance>`, and
+`ProjectFile::migrate` upgrades version 1 documents by defaulting it to `None`.
+
+`Provenance` records the style id, the section name, the generated range
+`start..end`, a digest of the intent in force over that range, and a digest of
+the notes as generated (`project::provenance`). The intent digest covers the
+meter, the tempo in force and every tempo change up to `end`, the chords that
+start in the range, and arranger events in the range; changes outside the range
+do not affect it. The notes digest is order- and id-independent, so a manual
+edit is detected while renumbering is not.
+
+`track_status` classifies a track as `Manual`, `Fresh`, `Stale`, `Edited` or
+`StaleAndEdited`.
+
+`performance::PerformanceRecorder` writes both representations: chord and
+style-selection events in the intent lanes, and one track per destination
+channel per section, each with provenance for that range.
+`performance::regenerate` never touches manual tracks or tracks of another
+style, and applies an explicit `Policy`:
+
+| Status | `Keep` (default) | `Replace` | `Duplicate` |
+| --- | --- | --- | --- |
+| `Fresh` | untouched | untouched | untouched |
+| `Stale` | kept, reported | recompiled, provenance refreshed | fresh copy added, old kept |
+| `Edited` / `StaleAndEdited` | kept, reported | recompiled, edit discarded | fresh copy added, old kept |
+
+`freeze` clears provenance, which makes a track manual and immune. A track whose
+section is missing from the supplied style is reported, not modified.
