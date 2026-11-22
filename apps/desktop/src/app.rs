@@ -25,6 +25,36 @@ enum View {
 }
 
 impl View {
+    /// Every view, in tab order.
+    const ALL: [Self; 5] = [
+        Self::Perform,
+        Self::Arrange,
+        Self::Mix,
+        Self::Loops,
+        Self::Score,
+    ];
+
+    /// The views Kids Mode offers.
+    #[must_use]
+    fn allowed(kids_mode: bool) -> Vec<Self> {
+        if kids_mode {
+            vec![Self::Perform, Self::Arrange]
+        } else {
+            Self::ALL.to_vec()
+        }
+    }
+
+    /// The translatable label key.
+    fn key(self) -> crate::strings::Key {
+        match self {
+            Self::Perform => crate::strings::Key::Perform,
+            Self::Arrange => crate::strings::Key::Arrange,
+            Self::Mix => crate::strings::Key::Mix,
+            Self::Loops => crate::strings::Key::Loops,
+            Self::Score => crate::strings::Key::Score,
+        }
+    }
+
     fn index(self) -> usize {
         match self {
             Self::Perform => 0,
@@ -32,26 +62,6 @@ impl View {
             Self::Mix => 2,
             Self::Loops => 3,
             Self::Score => 4,
-        }
-    }
-
-    fn from_index(index: usize) -> Self {
-        match index {
-            0 => Self::Perform,
-            2 => Self::Mix,
-            3 => Self::Loops,
-            4 => Self::Score,
-            _ => Self::Arrange,
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Perform => "Perform",
-            Self::Arrange => "Arrange",
-            Self::Mix => "Mix",
-            Self::Loops => "Loops",
-            Self::Score => "Score",
         }
     }
 }
@@ -559,14 +569,16 @@ impl ShellApp {
                         egui::ComboBox::from_id_salt("settings-language")
                             .selected_text(&self.settings.language)
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut self.settings.language,
-                                    String::from("en"),
-                                    "en",
-                                );
+                                for tag in ["en", "da"] {
+                                    ui.selectable_value(
+                                        &mut self.settings.language,
+                                        tag.to_string(),
+                                        tag,
+                                    );
+                                }
                             });
                         ui.label(
-                            egui::RichText::new("only English ships strings")
+                            egui::RichText::new("English and Danish ship strings")
                                 .size(9.0)
                                 .color(theme::TEXT_DIM),
                         );
@@ -1056,6 +1068,9 @@ impl ShellApp {
             .exact_height(theme::HEADER_HEIGHT)
             .frame(egui::Frame::NONE.fill(theme::PANEL))
             .show(context, |ui| {
+                if self.settings.kids_mode {
+                    ui.spacing_mut().button_padding = egui::Vec2::new(10.0, 7.0);
+                }
                 let rect = ui.max_rect();
                 ui.painter().line_segment(
                     [rect.left_bottom(), rect.right_bottom()],
@@ -1154,13 +1169,24 @@ impl ShellApp {
                     widgets::TABS_SIZE,
                 );
                 let mut tabs_ui = ui.new_child(egui::UiBuilder::new().max_rect(tabs_rect));
-                let names = [
-                    View::Perform.label(),
-                    View::Arrange.label(),
-                    View::Mix.label(),
-                ];
-                if let Some(index) = widgets::view_tabs(&mut tabs_ui, self.view.index(), &names) {
-                    self.view = View::from_index(index);
+                let views = View::allowed(self.settings.kids_mode);
+                let names: Vec<&str> = views
+                    .iter()
+                    .map(|view| {
+                        crate::strings::text(
+                            crate::strings::Language::parse(&self.settings.language),
+                            view.key(),
+                        )
+                    })
+                    .collect();
+                let selected = views
+                    .iter()
+                    .position(|view| *view == self.view)
+                    .unwrap_or(0);
+                if let Some(index) = widgets::view_tabs(&mut tabs_ui, selected, &names)
+                    && let Some(view) = views.get(index)
+                {
+                    self.view = *view;
                 }
             });
     }
@@ -1384,6 +1410,9 @@ impl eframe::App for ShellApp {
             context.set_style(style);
         }
         self.handle_keys(context);
+        if self.settings.kids_mode && self.view.index() > 1 {
+            self.view = View::Arrange;
+        }
         self.run_autosave();
         self.recovery_dialog(context);
         self.chord_dialog(context);
@@ -1551,4 +1580,18 @@ pub fn load_project(path: &PathBuf) -> Result<ProjectFile, ProjectError> {
 #[must_use]
 pub fn demo_project() -> ProjectFile {
     ProjectFile::new(arranging::demo::demo_song())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kids_mode_offers_two_views_and_languages_change_labels() {
+        assert_eq!(View::allowed(true), vec![View::Perform, View::Arrange]);
+        assert_eq!(View::allowed(false).len(), 5);
+        let danish = crate::strings::Language::parse("da");
+        assert_eq!(crate::strings::text(danish, View::Score.key()), "Partitur");
+        assert_eq!(crate::strings::text(danish, View::Perform.key()), "Spil");
+    }
 }
