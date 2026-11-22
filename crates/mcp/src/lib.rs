@@ -372,3 +372,197 @@ mod tests {
         ));
     }
 }
+
+/// Handles one JSON-RPC message, returning the response for requests.
+///
+/// Supports `initialize`, `ping`, `tools/list` and `tools/call`. Notifications
+/// return `None`. Unknown methods return a JSON-RPC error object.
+pub fn handle_message(session: &mut EditSession, message: &Value) -> Option<Value> {
+    let id = message.get("id").cloned();
+    let method = message
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    id.as_ref()?;
+    let reply = |result: Value| json!({"jsonrpc": "2.0", "id": id.clone(), "result": result});
+    match method {
+        "initialize" => Some(reply(json!({
+            "protocolVersion": "2024-11-05",
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": "lazy-arranger-mcp", "version": env!("CARGO_PKG_VERSION")},
+        }))),
+        "ping" => Some(reply(json!({}))),
+        "tools/list" => Some(reply(json!({"tools": tool_list_json()}))),
+        "tools/call" => {
+            let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
+            let name = params
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let arguments = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            Some(reply(match call(session, name, &arguments) {
+                Ok(value) => json!({
+                    "content": [{"type": "text", "text": value.to_string()}],
+                    "isError": false,
+                }),
+                Err(error) => json!({
+                    "content": [{"type": "text", "text": error.to_string()}],
+                    "isError": true,
+                }),
+            }))
+        }
+        other => Some(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {"code": -32601, "message": format!("unknown method: {other}")},
+        })),
+    }
+}
+
+/// Serves newline-delimited JSON-RPC until the input ends.
+///
+/// # Errors
+///
+/// Returns an error when reading or writing fails. Malformed JSON gets a parse
+/// error reply and does not stop the loop.
+pub fn serve<R: std::io::BufRead, W: std::io::Write>(
+    session: &mut EditSession,
+    mut input: R,
+    mut output: W,
+) -> std::io::Result<()> {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if input.read_line(&mut line)? == 0 {
+            return Ok(());
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let response = match serde_json::from_str::<Value>(trimmed) {
+            Ok(message) => handle_message(session, &message),
+            Err(error) => Some(json!({
+                "jsonrpc": "2.0",
+                "id": Value::Null,
+                "error": {"code": -32700, "message": error.to_string()},
+            })),
+        };
+        if let Some(response) = response {
+            writeln!(output, "{response}")?;
+            output.flush()?;
+        }
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    use music_core::PPQ;
+    use std::io::Cursor;
+
+    fn session() -> EditSession {
+        let mut song = project::song::Song::new("Serve", 120.0);
+        song.tracks.push(project::song::Track::new(
+            TrackId::new(1).expect("valid"),
+            "Piano",
+        ));
+        EditSession::new(ProjectFile::new(song)).expect("valid")
+    }
+
+    #[test]
+    fn initialize_lists_tools_and_calls_them() {
+        let mut session = session();
+        let init = handle_message(
+            &mut session,
+            &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
+        )
+        .expect("reply");
+        assert_eq!(init["result"]["serverInfo"]["name"], "lazy-arranger-mcp");
+
+        let list = handle_message(
+            &mut session,
+            &json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+        )
+        .expect("reply");
+        assert!(list["result"]["tools"].as_array().expect("tools").len() >= 6);
+
+        let call = handle_message(
+            &mut session,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "add_notes",
+                    "arguments": {"track": 1, "notes": [{"start": 0, "duration": PPQ, "pitch": 64}]}
+                }
+            }),
+        )
+        .expect("reply");
+        assert_eq!(call["result"]["isError"], false);
+        assert_eq!(session.song().tracks[0].notes.len(), 1);
+    }
+
+    #[test]
+    fn unknown_methods_are_jsonrpc_errors_and_notifications_are_silent() {
+        let mut session = session();
+        let reply = handle_message(
+            &mut session,
+            &json!({"jsonrpc": "2.0", "id": 7, "method": "no/such"}),
+        )
+        .expect("reply");
+        assert_eq!(reply["error"]["code"], -32601);
+        assert!(
+            handle_message(
+                &mut session,
+                &json!({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn a_tool_error_is_reported_in_the_result() {
+        let mut session = session();
+        let reply = handle_message(
+            &mut session,
+            &json!({
+                "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                "params": {"name": "get_song", "arguments": {}}
+            }),
+        )
+        .expect("reply");
+        assert_eq!(reply["result"]["isError"], false);
+        let bad = handle_message(
+            &mut session,
+            &json!({
+                "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                "params": {"name": "add_notes", "arguments": {"track": 99, "notes": []}}
+            }),
+        )
+        .expect("reply");
+        assert_eq!(bad["result"]["isError"], true);
+    }
+
+    #[test]
+    fn the_server_reads_lines_and_writes_responses() {
+        let mut session = session();
+        let input = Cursor::new(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}\n\
+             not json\n\
+             {\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n",
+        );
+        let mut output = Vec::new();
+        serve(&mut session, input, &mut output).expect("serve");
+        let text = String::from_utf8(output).expect("utf8");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3, "initialize, parse error, tools/list");
+        assert!(lines[0].contains("\"result\""));
+        assert!(lines[1].contains("-32700"));
+        assert!(lines[2].contains("\"tools\""));
+    }
+}

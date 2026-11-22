@@ -522,3 +522,19 @@ and the vendor tail is preserved.
 which is the whole Yamaha container. `style-save` rewrote a real 15-section
 style and re-read it as SFF2. Voices and setup events are not written yet, and
 no Yamaha keyboard has accepted an output here.
+
+## 20. Assistant tools (MCP core)
+
+`crates/mcp` holds the tool registry, JSON schemas and dispatch onto
+`EditSession`. Six tools exist: `get_song`, `add_track`, `add_notes`,
+`set_chords`, `get_undo`, `undo`. `add_notes` writes a whole batch in one
+`ReplaceTrackNotes`, so it is one undo step.
+
+`handle_message` implements JSON-RPC for `initialize`, `ping`, `tools/list` and
+`tools/call`; notifications are silent and unknown methods return -32601.
+`serve` reads newline-delimited messages and reports parse errors as -32700
+without stopping. The `mcp-serve` CLI wraps it and saves the project after each
+successful call.
+
+Transport is stdio only here. The C++ app also offers a local socket with a
+secret regenerated at each start; that, and the remaining tools, are not built.

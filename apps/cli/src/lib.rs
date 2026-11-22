@@ -13,6 +13,7 @@
 
 use std::error::Error;
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -128,6 +129,11 @@ enum Commands {
     },
     /// Print the assistant tool list as JSON.
     McpTools {},
+    /// Serve assistant tools over newline-delimited JSON-RPC on stdin/stdout.
+    McpServe {
+        /// Project `.json` path; saved after every successful tool call.
+        project: PathBuf,
+    },
     /// Call one assistant tool on a project and print the JSON result.
     McpCall {
         /// Project `.json` path.
@@ -296,6 +302,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             println!("{}", serde_json::to_string_pretty(&mcp::tool_list_json())?);
             Ok(())
         }
+        Commands::McpServe { project } => mcp_serve(&project),
         Commands::McpCall {
             project,
             tool,
@@ -700,6 +707,49 @@ fn edit(
         session.undo_depth()
     );
     Ok(())
+}
+
+fn mcp_serve(project_path: &PathBuf) -> Result<(), Box<dyn Error>> {
+    let project = read_project(project_path)?;
+    let mut session = mcp::session(project)?;
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if std::io::BufRead::read_line(&mut stdin.lock(), &mut line)? == 0 {
+            return Ok(());
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let message: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(message) => message,
+            Err(error) => {
+                let reply = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": serde_json::Value::Null,
+                    "error": {"code": -32700, "message": error.to_string()},
+                });
+                writeln!(stdout, "{reply}")?;
+                stdout.flush()?;
+                continue;
+            }
+        };
+        let is_call =
+            message.get("method").and_then(|method| method.as_str()) == Some("tools/call");
+        if let Some(reply) = mcp::handle_message(&mut session, &message) {
+            writeln!(stdout, "{reply}")?;
+            stdout.flush()?;
+            if is_call && reply["result"]["isError"] == false {
+                let json = session.project().to_json_pretty()?;
+                fs::write(project_path, json).map_err(|error| {
+                    format!("could not save {}: {error}", project_path.display())
+                })?;
+            }
+        }
+    }
 }
 
 fn mcp_call(

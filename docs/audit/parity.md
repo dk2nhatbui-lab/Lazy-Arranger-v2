@@ -49,7 +49,8 @@ regressions. Status values: **verified** (tested here), **implemented**
 | Transitions: drum fill, lead-in, automatic | `arranging::forms::transition` | verified | 4 tests incl. apply/undo; T key |
 | Transitions: hold chord, break, straight cut presets | — | partial | straight cut is a no-op; hold/break missing |
 | Assistant tool registry and JSON dispatch | `crates/mcp` | verified (6 tools) | get_song/add_track/add_notes/set_chords/get_undo/undo; CLI mcp-tools and mcp-call |
-| MCP server transport (stdio/socket), ~90 tools | — | missing | registry only |
+| MCP stdio transport (initialize, ping, tools/list, tools/call, parse errors) | `mcp::serve`, `mcp-serve` CLI | verified | in-memory tests + real stdin/stdout run saved an added note |
+| MCP socket transport, per-start secret, ~84 more tools | — | missing | — |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | — | missing | ADR-010 (Stage 8) |
