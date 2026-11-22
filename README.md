@@ -27,7 +27,8 @@ decisions in [`docs/adr/`](docs/adr/).
 | Physical keyboard record/echo/play | manual only | needs a device |
 | Chord conversion for arranger styles | verified against the pinned oracle cases | `crates/arranger` |
 | Style sections, chord following, transitions | prototype | `crates/arranger/src/style.rs` |
-| Yamaha CASM import (real style files) | not started | `crates/style-formats` scans containers |
+| Yamaha CASM rule import (SFF1/SFF2) | verified on 16,189 real styles | `crates/style-formats/src/casm.rs` |
+| Style section tick positions and note extraction | not started | Stage 4 |
 | Golden parity, arranger playback in the app, UI, audio engine | not started / blocked | Stage 3 exit needs a C++ build and a CASM style |
 
 ## Quick start
@@ -61,7 +62,7 @@ crates/app-commands    typed commands, validation, undo/redo
 crates/sequencer       prepared patterns, sample-clock scheduler
 crates/smf             standard MIDI file encode/decode
 crates/midi-devices    ports, capture, record, echo, real-time dispatch
-crates/style-formats   Yamaha container scanning, native style model
+crates/style-formats   Yamaha containers, CASM rules, native style model
 crates/arranger        chord vocabulary, chord rules, conversion, sections
 apps/cli               headless binary
 ```

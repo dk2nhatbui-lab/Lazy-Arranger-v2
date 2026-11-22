@@ -151,6 +151,9 @@ pub struct ChordRule {
     pub low_range: TransposeRange,
     /// Rule for notes above `middle_high`.
     pub high_range: TransposeRange,
+    /// Bytes after the known fields, kept verbatim so a reader never drops
+    /// vendor data. Empty for rules this workspace builds itself.
+    pub special: Vec<u8>,
 }
 
 impl Default for ChordRule {
@@ -169,6 +172,7 @@ impl Default for ChordRule {
             middle_high: 127,
             low_range: TransposeRange::default(),
             high_range: TransposeRange::default(),
+            special: Vec::new(),
         }
     }
 }

@@ -45,10 +45,17 @@ MIDI import as Korg compatibility.
   chords, gates parts and cuts notes at chord changes and the section end;
 * `TransitionState` for the four transition modes.
 
-What is not implemented: SFF/CASM parsing into these rules, style writing,
-retrigger (`Rtr`) behaviour on section changes, and any real style fixture. The
-only style file in the repository has no CASM, so the chord-rule path is
-verified against the C++ unit-test cases, not against a real file.
+The rule half of CASM import now exists: `style-formats` decodes `Ctab`
+(SFF1) and `Ctb2` (SFF2) records into these rules, including the two different
+bass encodings, the three SFF2 ranges and the vendor tail. It was validated
+read-only against 16,189 styles from the owner's library (856,370 rules); no
+style file is copied into the repository, and the opt-in test reads the library
+through `ARRANGER_STYLE_LIBRARY`.
+
+What is not implemented: section tick positions (they live in the style's MIDI
+track), note extraction, style writing, retrigger (`Rtr`) behaviour on section
+changes, and golden parity. The repository fixture has no CASM, so conversion
+parity rests on the C++ unit-test cases plus the real-library parse.
 
 ## Consequences
 

@@ -18,6 +18,10 @@
 
 use thiserror::Error;
 
+pub mod casm;
+
+pub use casm::{CasmRules, CasmStats, SectionRules, SffVersion, read_rules};
+
 /// Errors raised while reading a style container.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum StyleError {
@@ -43,6 +47,16 @@ pub enum StyleError {
     /// The container declares a format this reader does not know.
     #[error("unsupported style container format {0:?}")]
     UnsupportedFormat(String),
+    /// A CASM rule record was shorter than its encoding requires.
+    #[error("CASM rule at byte {offset} is {len} bytes; {needed} are needed")]
+    CasmRule {
+        /// Offset of the record.
+        offset: usize,
+        /// Length found.
+        len: usize,
+        /// Length required by the encoding.
+        needed: usize,
+    },
 }
 
 /// One chunk in a style container.
@@ -90,6 +104,18 @@ pub fn scan_chunks(bytes: &[u8]) -> Result<Vec<Chunk>, StyleError> {
     let mut chunks = Vec::new();
     let mut offset = 0usize;
     while offset < bytes.len() {
+        // Some writers pad an odd-length chunk with one zero byte before the
+        // next identifier. Skip up to three such bytes; a real identifier is
+        // printable, so this cannot hide a corrupt chunk id.
+        let mut padding = 0;
+        while offset + 4 <= bytes.len()
+            && bytes[offset] == 0
+            && !bytes[offset..offset + 4].iter().all(u8::is_ascii_graphic)
+            && padding < 3
+        {
+            offset += 1;
+            padding += 1;
+        }
         let header = bytes.get(offset..offset + 8).ok_or(StyleError::Truncated {
             offset,
             detail: "chunk header",
@@ -301,11 +327,28 @@ mod tests {
         let mut bad = Vec::new();
         bad.extend_from_slice(b"MThd");
         bad.extend_from_slice(&0u32.to_be_bytes());
-        bad.extend_from_slice(&[0x00, 0x01, 0x02, 0x03, 0, 0, 0, 0]);
+        // A non-printable identifier that is not zero padding.
+        bad.extend_from_slice(&[0x01, 0x01, 0x02, 0x03, 0, 0, 0, 0]);
         assert!(matches!(
             scan_chunks(&bad),
             Err(StyleError::BadChunkId { .. })
         ));
+    }
+
+    #[test]
+    fn skips_zero_padding_before_a_chunk() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"MThd");
+        bytes.extend_from_slice(&6u32.to_be_bytes());
+        bytes.extend_from_slice(&[0, 1, 0, 1, 0x03, 0xC0]);
+        bytes.push(0); // one padding byte, as some writers emit after an odd chunk
+        bytes.extend_from_slice(b"CASM");
+        bytes.extend_from_slice(&4u32.to_be_bytes());
+        bytes.extend_from_slice(&[0, 0, 0, 0]);
+        let chunks = scan_chunks(&bytes).expect("padded container scans");
+        let ids: Vec<String> = chunks.iter().map(Chunk::id_str).collect();
+        assert_eq!(ids, vec![String::from("MThd"), String::from("CASM")]);
+        assert_eq!(chunks[1].offset, 15);
     }
 
     #[test]

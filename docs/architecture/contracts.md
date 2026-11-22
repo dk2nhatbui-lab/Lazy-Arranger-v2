@@ -269,14 +269,49 @@ names.
 
 ## 11. Style formats
 
-`style-formats` proves the Yamaha container layout only: four-byte chunk id
-plus big-endian 32-bit length, starting with `MThd`. It reports whether `CASM`
-and `CSEG` are present and warns when they are missing.
+`style-formats` proves the Yamaha container layout and now reads its chord
+rules:
 
-No CASM parsing, chord conversion, section timing or playback is implemented.
-`NativeStyle` exists so the eventual importer has a manufacturer-neutral shape
-that keeps the source chunks for lossy-conversion reports. See ADR-003 and
-`docs/audit/notes/cpp-style-arranger.md` for the conversion specification.
+* `scan_chunks` walks four-byte chunk ids with big-endian 32-bit lengths. It
+  skips up to three zero padding bytes before an identifier, because some
+  writers pad an odd-length chunk; 113 files in the owner's library need this.
+* `read_rules` decodes `CASM` → `CSEG` → `Sdec`/`Ctab`/`Ctb2` into
+  `arranger::ChordRule`.
+  - SFF1 `Ctab` records are 26 bytes; NTT value 3 means "melody, follow slash
+    bass".
+  - SFF2 `Ctb2` records are 40 bytes with three 6-byte ranges; the NTT byte's
+    high bit carries `bass`.
+  - Bytes after a record are kept verbatim in `ChordRule::special`.
+  - Out-of-range values are normalised the way the oracle behaves
+    (`ntr`→root fixed, `ntt`→melody, `rtr`→note generator, source chord type→
+    major) and every normalisation is counted in `CasmStats`.
+* `read_rules` never fails. Overlong chunk lengths are clamped (the oracle
+  clamps too), a trailing fragment is counted in `unparsed_tail_bytes`, and a
+  short rule is skipped and counted. Callers see what was recovered, never a
+  silent success.
+* Section boundaries are still missing: `Sdec` gives names, but the tick
+  positions of each section live in the style's MIDI track and are Stage 4 work.
+
+Validation against the owner's library, 2026-11-22 (read-only, no style file
+copied into this repository, run with
+`ARRANGER_STYLE_LIBRARY="…" cargo test -p style-formats --test local_library`):
+
+| Measure | Value |
+| --- | --- |
+| Style containers scanned | 16,219 |
+| With CASM and parsed rules | 16,189 |
+| Without a CASM chunk | 30 |
+| CASM but no rules parsed | 0 |
+| Rule records read | 856,370 |
+| Section groups | 101,433 |
+| Files needing recovery | 88 (80 clamped lengths, 26 short rules, 2,954 tail bytes) |
+| File versions | SFF1 10,360, SFF2 5,829 |
+| Field normalisations | `ntr` 8, `ntt` 8, `rtr` 16, source chord type 3 |
+
+The spot check on a real SFF2 file reproduces an independent byte dump exactly:
+`ch 11 Aco.Bass root=0 type=M7 ntr=RootTransposition ntt=Melody bass=true
+hk=3 limits=28..54 rtr=PitchShiftToRoot`, and drum rules at 9→10 / 10→9 with
+`ntt=Bypass`.
 
 ## 12. Test contract
 
@@ -296,7 +331,9 @@ exercises it headlessly.
 | schedule equals exported file | `sprint_exit::scheduled_events_match_the_exported_midi_file` |
 | command undo/redo and rollback | `app-commands` unit tests |
 | capture pairing | `capture::tests` |
-| container scanning | `style-formats` unit tests |
+| container scanning, padding | `style_formats::tests` |
+| CASM rule decoding (SFF1/SFF2, bass bit, tails) | `style_formats::casm::tests` |
+| real library coverage | `style-formats/tests/local_library.rs` (opt-in) |
 
 Hardware record and echo have no automated test. They keep the status
 `manual only` until a device-and-loopback run is recorded in
