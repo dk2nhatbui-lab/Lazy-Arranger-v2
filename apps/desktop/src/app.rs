@@ -2745,14 +2745,15 @@ impl ShellApp {
                                     });
                                     ui.horizontal(|ui| {
                                         ui.allocate_ui(egui::vec2(42.0, 88.0), |ui| {
-                                            if ui
-                                                .add(
-                                                    egui::Slider::new(&mut volume, 0.0..=127.0)
-                                                        .vertical()
-                                                        .show_value(false),
-                                                )
-                                                .changed()
-                                            {
+                                            if mixer_fader(
+                                                ui,
+                                                &mut volume,
+                                                0.0,
+                                                127.0,
+                                                88.0,
+                                                color,
+                                                "Volume",
+                                            ) {
                                                 edits.push((
                                                     track.id,
                                                     u8::try_from(volume.round() as i32)
@@ -7133,7 +7134,10 @@ impl ShellApp {
                         egui::FontId::proportional(11.0),
                         theme::text(),
                     );
-                    if audio_response.clicked() {
+                    if audio_response
+                        .on_hover_text("Audio and MIDI settings")
+                        .clicked()
+                    {
                         self.settings_open = true;
                     }
                     for (rect, glyph, direction) in
@@ -7162,7 +7166,14 @@ impl ShellApp {
                             egui::FontId::proportional(14.0),
                             theme::text(),
                         );
-                        if response.clicked() {
+                        if response
+                            .on_hover_text(if direction < 1.0 {
+                                "Zoom in"
+                            } else {
+                                "Zoom out"
+                            })
+                            .clicked()
+                        {
                             self.roll.ticks_per_point =
                                 (self.roll.ticks_per_point * direction).clamp(2.0, 64.0);
                         }
@@ -7195,7 +7206,10 @@ impl ShellApp {
                     egui::FontId::proportional(11.0),
                     theme::text(),
                 );
-                if mixer_response.clicked() {
+                if mixer_response
+                    .on_hover_text("Show or hide the mixer")
+                    .clicked()
+                {
                     self.mixer_visible = !self.mixer_visible;
                 }
                 let ai_response =
@@ -7212,7 +7226,7 @@ impl ShellApp {
                     egui::FontId::proportional(12.0),
                     egui::Color32::WHITE,
                 );
-                if ai_response.clicked() {
+                if ai_response.on_hover_text("Open the assistant").clicked() {
                     self.assistant_open = true;
                 }
                 let title = if self.song().name.is_empty() {
@@ -7840,7 +7854,9 @@ impl eframe::App for ShellApp {
         let _ = frame;
         // ADR-011: paint the first themed frame before the window becomes visible.
         let mut style = (*context.style()).clone();
-        if style.visuals.panel_fill != theme::panel() {
+        let delay_changed = (style.interaction.tooltip_delay - 0.6).abs() > 0.01;
+        style.interaction.tooltip_delay = 0.6;
+        if style.visuals.panel_fill != theme::panel() || delay_changed {
             style.visuals = theme::visuals();
             context.set_style(style);
         }
@@ -9023,6 +9039,45 @@ fn draw_track_icon(
     }
 }
 
+fn mixer_fader(
+    ui: &mut egui::Ui,
+    value: &mut f32,
+    min: f32,
+    max: f32,
+    height: f32,
+    color: egui::Color32,
+    label: &str,
+) -> bool {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(32.0, height), egui::Sense::click_and_drag());
+    let changed = response.dragged() && ui.input(|input| input.pointer.delta().y != 0.0);
+    if changed {
+        let delta = ui.input(|input| input.pointer.delta().y);
+        *value = (*value - delta / height * (max - min)).clamp(min, max);
+    }
+    let center_x = rect.center().x;
+    let track = egui::Rect::from_min_max(
+        egui::pos2(center_x - 2.0, rect.top() + 6.0),
+        egui::pos2(center_x + 2.0, rect.bottom() - 6.0),
+    );
+    ui.painter().rect_filled(track, 2.0, theme::raised());
+    let ratio = ((*value - min) / (max - min).max(0.0001)).clamp(0.0, 1.0);
+    let thumb_y = track.bottom() - ratio * track.height();
+    let filled = egui::Rect::from_min_max(
+        egui::pos2(center_x - 2.0, thumb_y),
+        egui::pos2(center_x + 2.0, track.bottom()),
+    );
+    ui.painter().rect_filled(filled, 2.0, color);
+    ui.painter()
+        .circle_filled(egui::pos2(center_x, thumb_y), 6.0, theme::raised());
+    ui.painter().circle_stroke(
+        egui::pos2(center_x, thumb_y),
+        6.0,
+        egui::Stroke::new(1.0_f32, theme::line()),
+    );
+    response.on_hover_text(label).clicked() || changed
+}
+
 fn painter_strip(ui: &mut egui::Ui, color: egui::Color32) {
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 3.0), egui::Sense::hover());
@@ -9150,7 +9205,7 @@ fn metronome_button(ui: &mut egui::Ui, rect: Rect, active: bool) -> bool {
             theme::text()
         },
     );
-    response.clicked()
+    response.on_hover_text("Metronome").clicked()
 }
 
 fn draw_transport_icon(painter: &egui::Painter, rect: Rect, glyph: &str, color: egui::Color32) {
@@ -9242,7 +9297,15 @@ fn transport_button(ui: &mut egui::Ui, rect: Rect, glyph: &str, active: bool) ->
             theme::text()
         },
     );
-    response.clicked()
+    let hint = match glyph {
+        "\u{25A0}" => "Stop",
+        "\u{25B6}" => "Play",
+        "\u{2016}" => "Pause",
+        "\u{25CF}" => "Record",
+        "\u{21B6}" => "Undo",
+        _ => "Transport",
+    };
+    response.on_hover_text(hint).clicked()
 }
 
 /// Minimal file dialog: the shell must not pull a dialog crate in prematurely.

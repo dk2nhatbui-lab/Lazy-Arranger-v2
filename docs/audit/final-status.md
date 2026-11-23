@@ -113,3 +113,4 @@ For the clef layout, choose either four measures per system without clefs
 - Metronome uses the C++-style vector icon and has an accent slider backed by `metronome::mix_accent` (`docs/audit/ui-metronome.png`).
 - Transport uses vector icons instead of glyph text (`docs/audit/ui-transport.png`).
 - Right inspector now spans the full height; mixer ends at its edge so the master fader no longer sits under the inspector; chat pinned to the panel bottom (`docs/audit/ui-chat-panel.png`).
+- Mixer faders use one fixed-height custom widget for tracks and master; tooltips delay 0.6 s (`docs/audit/ui-master-fader.png`).
