@@ -325,6 +325,21 @@ enum Commands {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Send a short note on one MIDI channel to locate its sound.
+    MidiChannelCheck {
+        /// Output port name, as `ports` reports it.
+        #[arg(long)]
+        output: String,
+        /// MIDI channel, 0..=15.
+        #[arg(long, default_value_t = 0)]
+        channel: u8,
+        /// Note number.
+        #[arg(long, default_value_t = 60)]
+        note: u8,
+        /// Note length in seconds.
+        #[arg(long, default_value_t = 1.0)]
+        seconds: f64,
+    },
     /// List installed VST3 and Audio Unit bundles, without hosting them.
     PluginScan {
         /// Extra folders to scan; omitted scans the standard plug-in folders.
@@ -1234,6 +1249,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 rendered.duration_seconds(),
                 audio::soundfont::describe(&font),
                 out.display()
+            );
+            Ok(())
+        }
+        Commands::MidiChannelCheck {
+            output,
+            channel,
+            note,
+            seconds,
+        } => {
+            let messages = midi_devices::devices::channel_check(&output, channel, note, seconds)?;
+            println!(
+                "sent {:?} then {:?} on {}",
+                messages[0], messages[1], output
             );
             Ok(())
         }

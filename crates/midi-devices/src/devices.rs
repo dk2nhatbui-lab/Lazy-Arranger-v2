@@ -171,6 +171,49 @@ impl LiveInput {
     }
 }
 
+/// Builds the note-on and note-off bytes for a channel check.
+///
+/// # Errors
+///
+/// Returns an error when the channel is above 15 or the note is above 127.
+pub fn channel_check_messages(channel: u8, note: u8) -> Result<[Vec<u8>; 2], DeviceError> {
+    if channel > 15 {
+        return Err(DeviceError::Init(String::from("channel must be 0..=15")));
+    }
+    if note > 127 {
+        return Err(DeviceError::Init(String::from("note must be 0..=127")));
+    }
+    Ok([
+        vec![0x90 | channel, note, 100],
+        vec![0x80 | channel, note, 0],
+    ])
+}
+
+/// Sends a short note on one channel so the player can find where it sounds.
+///
+/// # Errors
+///
+/// Returns [`DeviceError`] when the output port is missing or the send fails.
+pub fn channel_check(
+    output_name: &str,
+    channel: u8,
+    note: u8,
+    seconds: f64,
+) -> Result<[Vec<u8>; 2], DeviceError> {
+    let messages = channel_check_messages(channel, note)?;
+    let mut output = open_output(output_name)?;
+    output
+        .send(&messages[0])
+        .map_err(|err| DeviceError::Connect(err.to_string()))?;
+    std::thread::sleep(std::time::Duration::from_secs_f64(
+        seconds.clamp(0.05, 10.0),
+    ));
+    output
+        .send(&messages[1])
+        .map_err(|err| DeviceError::Connect(err.to_string()))?;
+    Ok(messages)
+}
+
 /// Opens a named output port.
 ///
 /// # Errors
@@ -386,5 +429,19 @@ mod tests {
             Err(error) if backend_unavailable(&error) => {}
             Err(other) => panic!("unexpected error: {other}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod channel_check_tests {
+    use super::*;
+
+    #[test]
+    fn channel_messages_encode_channel_and_note() {
+        let messages = channel_check_messages(3, 60).expect("messages");
+        assert_eq!(messages[0], vec![0x93, 60, 100]);
+        assert_eq!(messages[1], vec![0x83, 60, 0]);
+        assert!(channel_check_messages(16, 60).is_err());
+        assert!(channel_check_messages(0, 200).is_err());
     }
 }

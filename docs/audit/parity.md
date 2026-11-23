@@ -113,7 +113,7 @@ the wider ~90-tool MCP surface.
 | Settings file (language, grade, MIDI keyboard, metronome, reduced motion, Kids Mode) and shortcut list | `apps/desktop/src/settings.rs` | verified | round trip, clamping, missing file, unique keys |
 | English, Danish, French and Vietnamese strings; Kids Mode restricts tabs, enlarges controls and shows a synced chord lesson plus kids demo | `strings.rs`, `kids.rs`, `demo::kids_song`, Perform view | verified lesson | sync/step tests; kids demo validates; UI manual |
 | MIDI control map (notes/CC to actions) with text persistence and learn capture | `midi-devices::map`, CLI `midi-map-*` | verified | 6 tests + CLI bind/show run |
-| Live MIDI input, MIDI map window with Learn | `midi-devices` map/devices, shell | implemented | map/learn tests; compiles and runs with no device; hardware untested |
+| Live MIDI input, MIDI map window with Learn, channel-check messages | `midi-devices` map/devices, shell, CLI | implemented | map/learn/byte tests; no MIDI ports available, hardware untested |
 | Numbered style catalog, resolution and by-number rendering | `style-formats::catalog`, CLI `style-catalog`/`style-resolve`/`style-by-number` | verified | resolve test; real library matched 'ABBA Fernando'; number 2 rendered 124 notes |
 | MCP tools for automation, lyrics/marks, style catalog, theory, generation, plugins, L6max, Korg scan, quantise, velocity, tempo, SoundFonts, buses and routing, plus track/note/chord/marker/clip/scene reads and writes | `crates/mcp` | verified | tool tests and CLI calls; 46 tools total |
 | Local assistant panel (help/song/undo/tool commands over the registry) | `mcp::assistant`, shell window | verified core | parse and dispatch tests; UI manual |

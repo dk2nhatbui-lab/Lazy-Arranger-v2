@@ -352,3 +352,12 @@ feeds live messages to `Learn::capture` before action dispatch, binds the
 captured control, writes `lazy-arranger-midi-map.txt` and clears the session.
 Clear all replaces the map and rewrites the file. Channel check and controller
 pages are not implemented, and hardware capture is untested.
+
+### MIDI channel check
+
+`channel_check_messages(channel, note)` builds `90|channel note 100` and
+`80|channel note 0`, rejecting channels above 15 and notes above 127.
+`channel_check` opens the named output, sends, waits 0.05–10 s, sends note-off
+and returns the bytes; `midi-channel-check` exposes it. This machine reported no
+MIDI input or output ports, so the send path is byte-tested but unverified
+against hardware. Controller pages remain absent.
