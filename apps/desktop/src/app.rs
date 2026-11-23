@@ -13125,6 +13125,8 @@ mod tests {
         app.theory_open = true;
         app.style_clips_open = true;
         app.style_file_open = true;
+        app.style_link_open = true;
+        app.xg_open = true;
         let _ = context.run(egui::RawInput::default(), |context| {
             app.about_window(context);
             app.assistant_window(context);
@@ -13155,6 +13157,8 @@ mod tests {
             app.theory_window(context);
             app.style_clips_window(context);
             app.style_file_window(context);
+            app.style_link_window(context);
+            app.xg_window(context);
         });
     }
 
