@@ -116,3 +116,4 @@ For the clef layout, choose either four measures per system without clefs
 - Mixer faders use one fixed-height custom widget for tracks and master; tooltips delay 0.6 s (`docs/audit/ui-master-fader.png`).
 - Inspector channel picker moves all track notes to a channel as one undoable edit (`docs/audit/ui-channel.png`).
 - Timeline scrolls horizontally and header +/- zooms it (`docs/audit/ui-timeline-scroll.png`).
+- Mixer meters follow active notes at the playhead; master meter takes the loudest track (`docs/audit/ui-meters.png`).

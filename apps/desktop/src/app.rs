@@ -2773,7 +2773,7 @@ impl ShellApp {
                                             egui::Sense::hover(),
                                         );
                                         ui.painter().rect_filled(meter, 1.0, theme::raised());
-                                        let level = f32::from(track.volume) / 127.0;
+                                        let level = track_level(track, self.position);
                                         let fill = egui::Rect::from_min_max(
                                             egui::pos2(
                                                 meter.left(),
@@ -9066,6 +9066,16 @@ fn draw_track_icon(
     }
 }
 
+fn track_level(track: &project::song::Track, tick: Tick) -> f32 {
+    let level: f32 = track
+        .notes
+        .iter()
+        .filter(|note| note.start <= tick && tick < note.start.saturating_add(note.duration))
+        .map(|note| f32::from(note.velocity.as_u8()) / 127.0)
+        .sum();
+    level.clamp(0.0, 1.0)
+}
+
 fn mixer_fader(
     ui: &mut egui::Ui,
     value: &mut f32,
@@ -9616,6 +9626,23 @@ mod tests {
         let info = audio::wav::info(&bytes).expect("info");
         assert!(info.frames > 0);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn track_meters_follow_active_notes() {
+        let mut song = project::Song::new("Meter", 120.0);
+        let mut track = project::song::Track::new(project::TrackId::new(1).expect("track"), "Bass");
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("note"),
+            start: 0,
+            duration: music_core::PPQ,
+            pitch: music_core::Pitch::from_name("C2").expect("pitch"),
+            velocity: music_core::Velocity::new(100).expect("velocity"),
+            channel: music_core::Channel::first(),
+        });
+        song.tracks.push(track);
+        assert!(track_level(&song.tracks[0], 0) > 0.5);
+        assert_eq!(track_level(&song.tracks[0], music_core::PPQ), 0.0);
     }
 
     #[test]
