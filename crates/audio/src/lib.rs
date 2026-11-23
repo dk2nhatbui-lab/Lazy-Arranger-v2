@@ -1697,6 +1697,44 @@ mod tests {
     }
 
     #[test]
+    fn audio_reference_stretch_fills_the_clip() {
+        use project::song::{AudioRef, Track};
+        let mut song = Song::new("Audio", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Take");
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-audio-stretch-{}.wav",
+            std::process::id()
+        ));
+        let mut samples = Vec::with_capacity(SAMPLE_RATE as usize * 2);
+        for frame in 0..SAMPLE_RATE as usize {
+            let value = frame as f32 / SAMPLE_RATE as f32;
+            samples.extend_from_slice(&[value, value]);
+        }
+        let source = RenderedAudio {
+            samples,
+            sample_rate: SAMPLE_RATE,
+        };
+        std::fs::write(&path, source.to_wav32f()).expect("write wav");
+        track.audio = Some(AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: music_core::PPQ / 2,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: true,
+        });
+        song.tracks.push(track);
+        let rendered = render(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        let frame = (SAMPLE_RATE as f64 * 0.2).round() as usize;
+        assert!(
+            rendered.samples[frame * 2] > 0.6,
+            "the source ramp is stretched over the clip"
+        );
+    }
+
+    #[test]
     fn audio_reference_offset_skips_the_source_start() {
         use project::song::{AudioRef, Track};
         let mut song = Song::new("Audio", 120.0);

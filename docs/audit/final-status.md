@@ -185,3 +185,4 @@ For the clef layout, choose either four measures per system without clefs
 - Score note entry draws its cursor as a blue line (vector editor); a canvas-shape test checks the stroke (`docs/audit/score-entry-cursor.png`).
 - Mixer/bus meters use cached waveform peaks for audio tracks (approximate by clip fraction); waveform caching now runs in every view.
 - Audio-reference offset is render-tested against a half-silent source.
+- Audio-reference stretch is render-tested with a ramp source.
