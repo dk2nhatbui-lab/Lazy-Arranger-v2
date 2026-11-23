@@ -205,5 +205,6 @@ pointer when it is over the roll, otherwise the playhead.
 `score_view::hit_note` finds the notehead under a click (within 1.6 staff
 spaces) and the canvas returns either that note or an insertion position. The
 shell selects the matching project note, so the existing copy, cut, paste and
-delete keys work in the Score view. Chord-lane selection and a chord clipboard
-UI are still absent.
+delete keys work in the Score view. Clicking the chord lane selects the nearest chord and returns its tick; C/X/V
+copy the range from that chord to the next (or one bar), remove it, or paste
+chords at the hover/playhead tick. Multi-loop paste is still absent.
