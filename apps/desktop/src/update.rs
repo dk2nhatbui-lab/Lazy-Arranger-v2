@@ -39,6 +39,17 @@ pub struct Release {
     pub tag: String,
     /// Release page.
     pub url: String,
+    /// Downloadable assets.
+    pub assets: Vec<Asset>,
+}
+
+/// One downloadable release asset.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Asset {
+    /// Asset file name.
+    pub name: String,
+    /// Download URL.
+    pub url: String,
 }
 
 /// True when the release should be offered.
@@ -71,8 +82,7 @@ pub fn fetch_release() -> Result<Release, String> {
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
-    let (tag, url) = parse_release(&String::from_utf8_lossy(&output.stdout))?;
-    Ok(Release { tag, url })
+    parse_release(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// Opens an HTTP(S) release page in the browser.
@@ -104,7 +114,7 @@ pub fn describe_release(current: &str, tag: &str, url: &str) -> String {
 /// # Errors
 ///
 /// Returns a message when the response is not a release object.
-pub fn parse_release(body: &str) -> Result<(String, String), String> {
+pub fn parse_release(body: &str) -> Result<Release, String> {
     let value: Value =
         serde_json::from_str(body).map_err(|error| format!("release JSON: {error}"))?;
     if value.get("message").and_then(Value::as_str) == Some("Not Found") {
@@ -118,7 +128,78 @@ pub fn parse_release(body: &str) -> Result<(String, String), String> {
         .get("html_url")
         .and_then(Value::as_str)
         .unwrap_or(RELEASE_URL);
-    Ok((tag.to_string(), url.to_string()))
+    let assets = value
+        .get("assets")
+        .and_then(Value::as_array)
+        .map(|assets| {
+            assets
+                .iter()
+                .filter_map(|asset| {
+                    Some(Asset {
+                        name: asset.get("name")?.as_str()?.to_string(),
+                        url: asset.get("browser_download_url")?.as_str()?.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(Release {
+        tag: tag.to_string(),
+        url: url.to_string(),
+        assets,
+    })
+}
+
+/// Picks a disk image or archive asset, else the first asset.
+#[must_use]
+pub fn preferred_asset(release: &Release) -> Option<&Asset> {
+    release
+        .assets
+        .iter()
+        .find(|asset| {
+            let name = asset.name.to_ascii_lowercase();
+            name.ends_with(".dmg") || name.ends_with(".zip") || name.ends_with(".tar.gz")
+        })
+        .or_else(|| release.assets.first())
+}
+
+/// Downloads one asset into a directory and returns the written path.
+///
+/// # Errors
+///
+/// Returns a message when the directory or curl fails.
+pub fn download_asset(
+    asset: &Asset,
+    directory: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    let name = std::path::Path::new(&asset.name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| String::from("asset has no usable file name"))?;
+    let path = directory.join(name);
+    let output = std::process::Command::new("curl")
+        .args([
+            "--location",
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "300",
+            "--output",
+        ])
+        .arg(&path)
+        .arg(&asset.url)
+        .output()
+        .map_err(|error| format!("curl: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "download: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(path)
 }
 
 /// Fetches the latest release and formats one status line.
@@ -157,10 +238,11 @@ mod tests {
 
     #[test]
     fn release_json_parses() {
-        let body = r#"{"tag_name":"v1.1.0","html_url":"https://example.test/r"}"#;
-        let (tag, url) = parse_release(body).expect("release");
-        assert_eq!(tag, "v1.1.0");
-        assert_eq!(url, "https://example.test/r");
+        let body = r#"{"tag_name":"v1.1.0","html_url":"https://example.test/r","assets":[{"name":"app.dmg","browser_download_url":"https://example.test/app.dmg"}]}"#;
+        let release = parse_release(body).expect("release");
+        assert_eq!(release.tag, "v1.1.0");
+        assert_eq!(release.url, "https://example.test/r");
+        assert_eq!(release.assets[0].name, "app.dmg");
         assert!(parse_release(r#"{"message":"Not Found"}"#).is_err());
     }
 
@@ -196,8 +278,60 @@ mod tests {
             ])
             .output()
             .expect("curl");
-        let (tag, url) = parse_release(&String::from_utf8_lossy(&status.stdout)).expect("release");
-        assert_eq!(tag, "v9.9.9");
-        assert_eq!(url, "https://example.test");
+        let release = parse_release(&String::from_utf8_lossy(&status.stdout)).expect("release");
+        assert_eq!(release.tag, "v9.9.9");
+        assert_eq!(release.url, "https://example.test");
+    }
+
+    #[test]
+    fn a_disk_image_is_preferred_and_downloaded() {
+        let release = Release {
+            tag: String::from("v1"),
+            url: String::new(),
+            assets: vec![
+                Asset {
+                    name: String::from("notes.txt"),
+                    url: String::new(),
+                },
+                Asset {
+                    name: String::from("App.dmg"),
+                    url: String::from("http://example.test/app.dmg"),
+                },
+            ],
+        };
+        assert_eq!(preferred_asset(&release).expect("asset").name, "App.dmg");
+        if std::process::Command::new("curl")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("address");
+        std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buffer = [0_u8; 4096];
+            let _ = stream.read(&mut buffer);
+            let body = b"fake disk image";
+            let response = format!(
+                "HTTP/1.1 200 OK
+Content-Length: {}\r
+Connection: close\r\n\r\n",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).expect("headers");
+            stream.write_all(body).expect("body");
+        });
+        let asset = Asset {
+            name: String::from("App.dmg"),
+            url: format!("http://{address}/app.dmg"),
+        };
+        let directory = std::env::temp_dir().join("lazy-arranger-download-test");
+        let _ = std::fs::remove_dir_all(&directory);
+        let path = download_asset(&asset, &directory).expect("download");
+        assert_eq!(std::fs::read(&path).expect("file"), b"fake disk image");
+        let _ = std::fs::remove_dir_all(&directory);
     }
 }

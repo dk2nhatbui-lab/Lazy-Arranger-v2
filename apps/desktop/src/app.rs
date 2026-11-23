@@ -734,6 +734,7 @@ pub struct ShellApp {
     ai_pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     assistant_proposal: Option<AssistantProposal>,
     available_update: Option<crate::update::Release>,
+    update_download: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>>,
     waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
     audio_inputs: Option<Vec<String>>,
@@ -1021,6 +1022,7 @@ impl ShellApp {
             ai_pending: None,
             assistant_proposal: None,
             available_update: None,
+            update_download: None,
             waveform: None,
             midi_ports: None,
             audio_inputs: None,
@@ -6515,6 +6517,23 @@ impl ShellApp {
                             if ui.button("Open release page").clicked() {
                                 crate::update::open_url(&release.url);
                             }
+                            if let Some(asset) = crate::update::preferred_asset(&release)
+                                && ui.button(format!("Download {}", asset.name)).clicked()
+                            {
+                                let asset = asset.clone();
+                                let directory = std::env::var_os("HOME")
+                                    .map(std::path::PathBuf::from)
+                                    .unwrap_or_else(std::env::temp_dir)
+                                    .join("Downloads");
+                                let (sender, receiver) = std::sync::mpsc::channel();
+                                self.update_download = Some(receiver);
+                                self.status = Some(format!("downloading {}", asset.name));
+                                std::thread::spawn(move || {
+                                    let _ = sender.send(crate::update::download_asset(
+                                        &asset, &directory,
+                                    ));
+                                });
+                            }
                             if ui.button("Skip this version").clicked() {
                                 self.settings.skipped_update = release.tag.clone();
                                 let _ = self.settings.save(&crate::settings::Settings::path());
@@ -9046,6 +9065,22 @@ impl eframe::App for ShellApp {
         }
         self.poll_midi();
         self.poll_ai();
+        if let Some(receiver) = &self.update_download {
+            match receiver.try_recv() {
+                Ok(Ok(path)) => {
+                    self.status = Some(format!("downloaded {}", path.display()));
+                    self.update_download = None;
+                }
+                Ok(Err(error)) => {
+                    self.status = Some(format!("download failed: {error}"));
+                    self.update_download = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.update_download = None;
+                }
+            }
+        }
         if let Some(edit) = self.pending_clip_edit.take() {
             let result = match edit.kind {
                 crate::timeline::ClipEditKind::Move => {
