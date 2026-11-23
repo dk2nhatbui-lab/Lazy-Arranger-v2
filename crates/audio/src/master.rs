@@ -143,6 +143,29 @@ fn reverb(rendered: &mut RenderedAudio, amount: f32) {
     }
 }
 
+/// Measures a stereo window at `start` sample, for live meters.
+#[must_use]
+pub fn meter_at(samples: &[f32], start: usize, frames: usize) -> Meter {
+    let start = start.min(samples.len());
+    let length = frames
+        .saturating_mul(2)
+        .min(samples.len().saturating_sub(start));
+    if length == 0 {
+        return Meter::default();
+    }
+    let window = &samples[start..start + length];
+    let peak = window
+        .iter()
+        .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+    let rms = (window
+        .iter()
+        .map(|sample| f64::from(*sample) * f64::from(*sample))
+        .sum::<f64>()
+        / length as f64)
+        .sqrt() as f32;
+    Meter { peak, rms }
+}
+
 /// Measures a buffer.
 #[must_use]
 pub fn meter(rendered: &RenderedAudio) -> Meter {
@@ -242,6 +265,14 @@ mod tests {
                 .zip(dry.samples.iter())
                 .any(|(left, right)| (left - right).abs() > 1.0e-6)
         );
+    }
+
+    #[test]
+    fn a_window_meter_reports_only_its_slice() {
+        let samples = [0.5, -0.5, 1.0, -1.0, 0.0, 0.0];
+        let meter = meter_at(&samples, 2, 1);
+        assert!((meter.peak - 1.0).abs() < 1.0e-6);
+        assert_eq!(meter_at(&samples, 6, 1), Meter::default());
     }
 
     #[test]

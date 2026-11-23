@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::RenderedAudio;
-use crate::master::Meter;
+use crate::master::{Meter, meter_at};
 
 /// Playback position and buffer, shared with the audio callback.
 #[derive(Debug)]
@@ -71,24 +71,7 @@ impl Playback {
     /// Peak/RMS over the next `frames` stereo frames, for a meter.
     #[must_use]
     pub fn meter(&self, frames: usize) -> Meter {
-        let start = self.position.min(self.samples.len());
-        let length = frames
-            .saturating_mul(2)
-            .min(self.samples.len().saturating_sub(start));
-        if length == 0 {
-            return Meter::default();
-        }
-        let window = &self.samples[start..start + length];
-        let peak = window
-            .iter()
-            .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
-        let rms = (window
-            .iter()
-            .map(|sample| f64::from(*sample) * f64::from(*sample))
-            .sum::<f64>()
-            / length as f64)
-            .sqrt() as f32;
-        Meter { peak, rms }
+        meter_at(&self.samples, self.position, frames)
     }
 
     /// True while samples are being produced.

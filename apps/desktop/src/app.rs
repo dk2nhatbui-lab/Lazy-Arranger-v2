@@ -303,6 +303,7 @@ pub struct ShellApp {
     print_copies: u32,
     print_pages: String,
     monitor: Option<audio::monitor::Monitor>,
+    stem_levels: Vec<(TrackId, Vec<f32>)>,
     marker_text: String,
     marker_selected: Option<Tick>,
     form_dialog: bool,
@@ -467,6 +468,7 @@ impl ShellApp {
             print_copies: 1,
             print_pages: String::new(),
             monitor: None,
+            stem_levels: Vec::new(),
             marker_text: String::new(),
             marker_selected: None,
             form_dialog: false,
@@ -1787,6 +1789,7 @@ impl ShellApp {
                 self.selected_clip = None;
                 self.selected_clips.clear();
                 self.selected_chord = None;
+                self.stem_levels.clear();
                 self.position = 0;
                 self.song_name_input = self.song().name.clone();
                 self.status = Some(format!("loaded {label}"));
@@ -2872,6 +2875,17 @@ impl ShellApp {
     /// Mixer strips: one per track with a fader, pan and mute/solo.
     fn mixer_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Mixer");
+        if self.stem_levels.is_empty()
+            && self
+                .player
+                .as_ref()
+                .is_some_and(audio::player::Player::is_playing)
+        {
+            self.stem_levels = audio::render_stems(self.song(), audio::SAMPLE_RATE)
+                .into_iter()
+                .map(|stem| (stem.track, stem.audio.samples))
+                .collect();
+        }
         ui.horizontal(|ui| {
             ui.label("Master");
             ui.add(
@@ -3253,10 +3267,30 @@ impl ShellApp {
             });
         }
         for (id, name, volume, pan, muted, soloed) in strips {
+            let meter = if self
+                .player
+                .as_ref()
+                .is_some_and(audio::player::Player::is_playing)
+            {
+                let position = self.player.as_ref().map_or(0, |player| player.frame() * 2);
+                self.stem_levels
+                    .iter()
+                    .find(|(track, _)| *track == id)
+                    .map_or_else(audio::master::Meter::default, |(_, samples)| {
+                        audio::master::meter_at(samples, position, audio::SAMPLE_RATE as usize / 20)
+                    })
+            } else {
+                audio::master::Meter::default()
+            };
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(if name.is_empty() { "untitled" } else { &name })
                         .size(11.0),
+                );
+                ui.add(
+                    egui::ProgressBar::new(meter.peak.clamp(0.0, 1.0))
+                        .desired_width(54.0)
+                        .text(format!("{:.0}", meter.peak * 100.0)),
                 );
                 let mut level = i32::from(volume);
                 let response = ui.add(
@@ -3951,6 +3985,7 @@ impl ShellApp {
             match audio::player::Player::new(sliced) {
                 Ok(player) => {
                     self.position = start;
+                    self.stem_levels.clear();
                     self.player = Some(player);
                     self.playing = true;
                     if let Some(player) = &self.player {
@@ -3964,9 +3999,18 @@ impl ShellApp {
                 }
             }
         }
+        let stems = if self.view == View::Mix {
+            audio::render_stems(self.song(), audio::SAMPLE_RATE)
+                .into_iter()
+                .map(|stem| (stem.track, stem.audio.samples))
+                .collect()
+        } else {
+            Vec::new()
+        };
         match audio::player::Player::new(audio) {
             Ok(player) => {
                 player.play();
+                self.stem_levels = stems;
                 self.player = Some(player);
                 self.playing = true;
             }
