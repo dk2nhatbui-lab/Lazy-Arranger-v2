@@ -635,3 +635,11 @@ from seconds and the tempo at `start`, and inserts one audio track with an
 `AudioRef`, as one undoable edit. The sidebar's Import audio button opens the
 file window in WAV mode; the test writes a one-second WAV and checks the track,
 length and undo.
+
+### Recording from the shell
+
+Rec audio records `audio_record_seconds` on a background thread through
+`audio::record::record_seconds`, writes a process-tagged temp WAV and sends the
+path back; `advance` imports it with `Editor::import_audio` at the tick that was
+current when recording started. Capture and microphone permission remain
+unverified here; there is no monitoring.

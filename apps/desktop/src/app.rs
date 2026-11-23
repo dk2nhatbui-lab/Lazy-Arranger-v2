@@ -111,6 +111,9 @@ pub struct ShellApp {
     audition_player: Option<audio::player::Player>,
     file_mode: Option<FileMode>,
     file_path_input: String,
+    audio_recording: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
+    audio_record_seconds: f64,
+    audio_record_start: Tick,
     form_dialog: bool,
     beat_dialog: bool,
     beat_track: Option<TrackId>,
@@ -240,6 +243,9 @@ impl ShellApp {
             audition_player: None,
             file_mode: None,
             file_path_input: String::new(),
+            audio_recording: None,
+            audio_record_seconds: 3.0,
+            audio_record_start: 0,
             form_dialog: false,
             beat_dialog: false,
             beat_track: None,
@@ -804,6 +810,23 @@ impl ShellApp {
     }
 
     fn advance(&mut self, context: &Context) {
+        if let Some(receiver) = self.audio_recording.take() {
+            match receiver.try_recv() {
+                Ok(Ok(path)) => match self.editor.import_audio(&path, self.audio_record_start) {
+                    Ok(track) => {
+                        self.status = Some(format!("recorded audio as track {}", track.get()));
+                    }
+                    Err(error) => self.status = Some(error),
+                },
+                Ok(Err(error)) => self.status = Some(error),
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    self.audio_recording = Some(receiver);
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.status = Some(String::from("audio recording thread stopped"));
+                }
+            }
+        }
         let finished = self
             .recording
             .as_ref()
@@ -3124,6 +3147,47 @@ impl ShellApp {
                             }
                             ui.add(
                                 egui::DragValue::new(&mut self.record_seconds)
+                                    .range(1.0..=60.0)
+                                    .suffix(" s"),
+                            );
+                            let audio_label = if self.audio_recording.is_some() {
+                                "Recording audio…"
+                            } else {
+                                "Rec audio"
+                            };
+                            if ui
+                                .add_enabled(
+                                    self.audio_recording.is_none(),
+                                    egui::Button::new(audio_label),
+                                )
+                                .clicked()
+                            {
+                                let path = std::env::temp_dir().join(format!(
+                                    "lazy-arranger-input-{}.wav",
+                                    std::process::id()
+                                ));
+                                let seconds = self.audio_record_seconds;
+                                let start = self.position.max(0);
+                                let (sender, receiver) = std::sync::mpsc::channel();
+                                std::thread::spawn(move || {
+                                    let result = audio::record::record_seconds(seconds)
+                                        .and_then(|rendered| {
+                                            std::fs::write(&path, rendered.to_wav()).map_err(
+                                                |error| format!("{}: {error}", path.display()),
+                                            )
+                                        })
+                                        .map(|()| path);
+                                    let _ = sender.send(result);
+                                });
+                                self.audio_recording = Some(receiver);
+                                self.audio_record_start = start;
+                                self.status = Some(format!(
+                                    "recording {:.1} s of audio",
+                                    self.audio_record_seconds
+                                ));
+                            }
+                            ui.add(
+                                egui::DragValue::new(&mut self.audio_record_seconds)
                                     .range(1.0..=60.0)
                                     .suffix(" s"),
                             );
