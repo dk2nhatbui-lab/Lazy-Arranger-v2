@@ -10947,6 +10947,13 @@ impl eframe::App for ShellApp {
                                     ));
                                 }
                                 if ui
+                                    .button(format!("Takes ({})", project.song.tracks.iter().find(|track| track.id == *track_id).map_or(0, |track| track.takes.len())))
+                                    .on_hover_text("Store, use or remove audio takes")
+                                    .clicked()
+                                {
+                                    self.takes_open = true;
+                                }
+                                if ui
                                     .button("End at playhead")
                                     .on_hover_text("Trim the audio end to the playhead")
                                     .clicked()
