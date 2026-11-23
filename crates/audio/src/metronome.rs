@@ -39,12 +39,21 @@ pub fn clicks(song: &Song) -> Vec<Click> {
 
 /// Mixes short clicks into a rendered buffer.
 pub fn mix(rendered: &mut RenderedAudio, song: &Song, gain: f32) {
+    mix_accent(rendered, song, gain, 1.0);
+}
+
+/// Mixes clicks with a separate downbeat accent amount, 0..=1.
+pub fn mix_accent(rendered: &mut RenderedAudio, song: &Song, gain: f32, accent: f32) {
     let rate = rendered.sample_rate;
     for click in clicks(song) {
         let start = (song.tempo_map.seconds_at(click.tick) * f64::from(rate)).round() as usize;
         let length = (f64::from(rate) * 0.03) as usize;
         let frequency = if click.accent { 1500.0 } else { 1000.0 };
-        let amplitude = if click.accent { 0.22 } else { 0.12 } * gain;
+        let amplitude = if click.accent {
+            0.22 * gain * accent.clamp(0.0, 1.0)
+        } else {
+            0.12 * gain
+        };
         for frame in 0..length {
             let index = (start + frame) * 2;
             if index + 1 >= rendered.samples.len() {
@@ -71,6 +80,36 @@ mod tests {
         let mut song = Song::new("Metronome", 120.0);
         song.time_signature = TimeSignature::new(4, 4).expect("valid");
         song
+    }
+
+    #[test]
+    fn an_accent_scale_reduces_the_downbeat_only() {
+        let mut song = project::Song::new("Clicks", 120.0);
+        let mut track =
+            project::song::Track::new(project::TrackId::new(1).expect("track"), "Click");
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("note"),
+            start: 0,
+            duration: music_core::PPQ * 4,
+            pitch: music_core::Pitch::from_name("C4").expect("pitch"),
+            velocity: music_core::Velocity::new(100).expect("velocity"),
+            channel: music_core::Channel::first(),
+        });
+        song.tracks.push(track);
+        let mut full = RenderedAudio {
+            samples: vec![0.0; 96_000 * 2],
+            sample_rate: 48_000,
+        };
+        let mut muted = full.clone();
+        mix_accent(&mut full, &song, 1.0, 1.0);
+        mix_accent(&mut muted, &song, 1.0, 0.0);
+        let difference: f32 = full
+            .samples
+            .iter()
+            .zip(&muted.samples)
+            .map(|(left, right)| (left - right).abs())
+            .sum();
+        assert!(difference > 0.0);
     }
 
     #[test]

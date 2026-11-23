@@ -4220,6 +4220,10 @@ impl ShellApp {
                                     .color(theme::text_dim()),
                             );
                             ui.checkbox(&mut self.settings.metronome, "Click on");
+                            ui.add(
+                                egui::Slider::new(&mut self.settings.metronome_accent, 0.0..=1.0)
+                                    .text("Accent"),
+                            );
                             ui.separator();
                             ui.label(
                                 egui::RichText::new("AUDIO OUTPUT")
@@ -6840,7 +6844,12 @@ impl ShellApp {
         let mut audio = audio::render(self.song(), audio::SAMPLE_RATE);
         let problems = audio::mix::mix_audio_references(&mut audio, self.song(), 0.9);
         if self.settings.metronome {
-            audio::metronome::mix(&mut audio, self.song(), 1.0);
+            audio::metronome::mix_accent(
+                &mut audio,
+                self.song(),
+                1.0,
+                self.settings.metronome_accent,
+            );
         }
         audio::master::apply(
             &mut audio,
@@ -7010,7 +7019,7 @@ impl ShellApp {
                     egui::pos2(x + 16.0, buttons_rect.center().y),
                     egui::vec2(32.0, 32.0),
                 );
-                if transport_button(ui, metronome, "M", self.settings.metronome) {
+                if metronome_button(ui, metronome, self.settings.metronome) {
                     self.settings.metronome = !self.settings.metronome;
                 }
                 // LCD, 320 x 52, then the view tabs on the right.
@@ -9087,6 +9096,61 @@ fn mixer_knob(
     };
     let _ = response;
     changed
+}
+
+fn draw_metronome_icon(painter: &egui::Painter, rect: Rect, color: egui::Color32) {
+    let c = rect.center();
+    let s = rect.width().min(rect.height());
+    let stroke = egui::Stroke::new((s * 0.07).max(1.0), color);
+    let body = vec![
+        egui::pos2(c.x - s * 0.08, c.y - s * 0.38),
+        egui::pos2(c.x + s * 0.08, c.y - s * 0.38),
+        egui::pos2(c.x + s * 0.30, c.y + s * 0.36),
+        egui::pos2(c.x - s * 0.30, c.y + s * 0.36),
+    ];
+    painter.add(egui::Shape::closed_line(body, stroke));
+    painter.line_segment(
+        [
+            egui::pos2(c.x, c.y + s * 0.20),
+            egui::pos2(c.x + s * 0.22, c.y - s * 0.30),
+        ],
+        stroke,
+    );
+}
+
+fn metronome_button(ui: &mut egui::Ui, rect: Rect, active: bool) -> bool {
+    let response = ui.interact(rect, ui.id().with("metronome-button"), egui::Sense::click());
+    let fill = if active {
+        theme::accent().gamma_multiply(0.25)
+    } else if response.hovered() {
+        theme::line()
+    } else {
+        theme::raised()
+    };
+    ui.painter().rect_filled(rect, 4.0, fill);
+    ui.painter().rect_stroke(
+        rect,
+        4.0,
+        egui::Stroke::new(
+            1.0_f32,
+            if active {
+                theme::accent()
+            } else {
+                theme::line()
+            },
+        ),
+        egui::StrokeKind::Inside,
+    );
+    draw_metronome_icon(
+        ui.painter(),
+        rect.shrink(6.0),
+        if active {
+            theme::accent()
+        } else {
+            theme::text()
+        },
+    );
+    response.clicked()
 }
 
 fn transport_button(ui: &mut egui::Ui, rect: Rect, glyph: &str, active: bool) -> bool {

@@ -185,6 +185,8 @@ pub struct Settings {
     pub device_profile: Option<String>,
     /// Start the metronome with playback.
     pub metronome: bool,
+    /// Downbeat accent, 0..=1.
+    pub metronome_accent: f32,
     /// Avoid animation.
     pub reduced_motion: bool,
     /// Large text and a simpler header.
@@ -237,6 +239,7 @@ impl Default for Settings {
             midi_output: None,
             device_profile: None,
             metronome: false,
+            metronome_accent: 1.0,
             reduced_motion: false,
             kids_mode: false,
             light_theme: false,
@@ -321,6 +324,9 @@ impl Settings {
                     };
                 }
                 "metronome" => settings.metronome = value == "true",
+                "metronome_accent" => {
+                    settings.metronome_accent = value.parse::<f32>().unwrap_or(1.0).clamp(0.0, 1.0);
+                }
                 "reduced_motion" => settings.reduced_motion = value == "true",
                 "kids_mode" => settings.kids_mode = value == "true",
                 "light_theme" => settings.light_theme = value == "true",
@@ -382,6 +388,10 @@ impl Settings {
             text.push_str(&format!("device_profile = {profile}\n"));
         }
         text.push_str(&format!("metronome = {}\n", self.metronome));
+        text.push_str(&format!(
+            "metronome_accent = {:.3}\n",
+            self.metronome_accent
+        ));
         text.push_str(&format!("reduced_motion = {}\n", self.reduced_motion));
         text.push_str(&format!("kids_mode = {}\n", self.kids_mode));
         text.push_str(&format!("light_theme = {}\n", self.light_theme));

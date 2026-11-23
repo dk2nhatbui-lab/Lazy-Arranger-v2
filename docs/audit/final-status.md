@@ -110,3 +110,4 @@ For the clef layout, choose either four measures per system without clefs
 - Wider default window reveals the CoreAudio/zoom cluster; inspector program picker and Audio/MIDI settings button; `docs/audit/ui-wide.png`.
 - UI pass: wider default window, editable inspector track name, patch text in track rows, Chords-on line (`docs/audit/ui-wide.png`).
 - Added Drums and Map tabs; right inspector keeps an inline assistant chat at the bottom (`docs/audit/ui-chat-panel.png`).
+- Metronome uses the C++-style vector icon and has an accent slider backed by `metronome::mix_accent` (`docs/audit/ui-metronome.png`).
