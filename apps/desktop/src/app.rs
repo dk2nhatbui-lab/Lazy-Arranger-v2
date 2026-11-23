@@ -7887,12 +7887,18 @@ impl ShellApp {
                         armed: track.armed,
                     })
                     .collect();
-                for row in rows {
-                    self.track_row(ui, &row);
-                }
-                if self.song().tracks.is_empty() {
-                    ui.label(egui::RichText::new("no tracks").color(theme::text_dim()));
-                }
+                egui::ScrollArea::vertical()
+                    .id_salt("track-list")
+                    .auto_shrink([false, false])
+                    .max_height((ui.available_height() - 110.0).max(120.0))
+                    .show(ui, |ui| {
+                        for row in rows {
+                            self.track_row(ui, &row);
+                        }
+                        if self.song().tracks.is_empty() {
+                            ui.label(egui::RichText::new("no tracks").color(theme::text_dim()));
+                        }
+                    });
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     if self.settings.kids_mode {
                         ui.horizontal(|ui| {

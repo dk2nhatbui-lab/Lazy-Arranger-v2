@@ -128,3 +128,4 @@ For the clef layout, choose either four measures per system without clefs
 - Track rows use the taller C++ spacing (`docs/audit/ui-track-rows.png`).
 - PSR panel has eight persisted registration slots; hardware unverified.
 - XioSynth and D-05 profile files seed the profiles folder and expose CC controls in the Device editor; hardware unverified.
+- Track list scrolls vertically when the sidebar is full.
