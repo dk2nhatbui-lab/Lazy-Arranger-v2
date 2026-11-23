@@ -765,3 +765,11 @@ The advanced window openers and import/export actions live in one Windows menu
 at the bottom of the sidebar, so the wrapped button rows no longer clip against
 the status bar. The light-theme capture `docs/audit/light-theme.png` shows the
 fixed header and the menu layout.
+
+### Rhythmic measure widths
+
+`required_measure_width` finds the smallest gap between distinct note starts in
+a measure and widens that measure to at least `staff_space * 1.15` per slot
+(never below the base quarter width). Systems pack measures by their actual
+widths. A sixteenth-note bar is wider than a quarter-note bar in the test; other
+layout tests are unchanged. Vertical rest/dot collisions are still not resolved.

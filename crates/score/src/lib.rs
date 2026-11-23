@@ -698,10 +698,6 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
     let measure_count = usize::try_from((end + bar - 1) / bar).unwrap_or(1);
     let content_width = (settings.page_width - 2.0 * settings.margin).max(1.0);
     let content_height = (settings.page_height - 2.0 * settings.margin).max(settings.system_gap);
-    let per_system = ((content_width + settings.measure_gap)
-        / (measure_width(&settings, bar) + settings.measure_gap))
-        .floor()
-        .max(1.0) as usize;
     let per_page = (content_height / settings.system_gap).floor().max(1.0) as usize;
 
     let key = spelling::detect_key(song);
@@ -719,6 +715,9 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
                 .iter()
                 .all(|note| note.channel.zero_based() == 9)
     });
+    let widths: Vec<f32> = (0..measure_count)
+        .map(|index| required_measure_width(source, index as Tick * bar, bar, &settings))
+        .collect();
     let mut measure_index = 0;
     while measure_index < measure_count {
         let mut page = Page {
@@ -732,12 +731,12 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
             let mut measures = Vec::new();
             let start_x = settings.margin;
             let mut x = start_x;
-            for _ in 0..per_system {
-                if measure_index >= measure_count {
+            while measure_index < measure_count {
+                let width = widths[measure_index];
+                if !measures.is_empty() && x + width > settings.margin + content_width + 0.01 {
                     break;
                 }
                 let start = (measure_index as Tick) * bar;
-                let width = measure_width(&settings, bar);
                 let measure = Measure {
                     start,
                     length: bar,
@@ -924,6 +923,34 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         frames,
         chord_symbols,
     }
+}
+
+fn required_measure_width(
+    source: Option<&project::song::Track>,
+    start: Tick,
+    bar: Tick,
+    settings: &Settings,
+) -> f32 {
+    let base = measure_width(settings, bar);
+    let Some(track) = source else {
+        return base;
+    };
+    let mut starts: Vec<Tick> = track
+        .notes
+        .iter()
+        .filter(|note| note.start >= start && note.start < start + bar)
+        .map(|note| note.start)
+        .collect();
+    starts.sort_unstable();
+    starts.dedup();
+    let Some(min_gap) = starts.windows(2).map(|pair| pair[1] - pair[0]).min() else {
+        return base;
+    };
+    if min_gap <= 0 {
+        return base;
+    }
+    let slots = (bar as f32 / min_gap as f32).max(1.0);
+    base.max(slots * settings.staff_space * 1.15)
 }
 
 fn measure_width(settings: &Settings, bar: Tick) -> f32 {
@@ -1510,6 +1537,34 @@ mod lyric_spacing_tests {
     use music_core::{Channel, PPQ, Pitch, Velocity};
     use project::TrackId;
     use project::song::{LyricEvent, Note, Song, Track};
+
+    #[test]
+    fn dense_rhythms_widen_their_measure() {
+        let mut song = Song::new("Dense", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for index in 0..16_u32 {
+            track.notes.push(Note {
+                id: project::NoteId::new(index + 1).expect("valid"),
+                start: Tick::from(index) * 240,
+                duration: 240,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        let base = Settings::default().quarter_width * 4.0;
+        let width = engraved.pages[0].systems[0].measures[0].x_end
+            - engraved.pages[0].systems[0].measures[0].x;
+        assert!(width > base, "sixteenths need more than quarter spacing");
+        assert!(
+            engraved
+                .notes
+                .iter()
+                .all(|note| note.x >= engraved.pages[0].systems[0].measures[0].x)
+        );
+    }
 
     #[test]
     fn crowded_accidentals_shift_left() {

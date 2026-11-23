@@ -137,7 +137,7 @@ plurals, a real AI model and speech input.
 | MCP tools (song, score, audio, arranging, files) | `crates/mcp` | verified | 93 tools; per-tool tests and CLI calls |
 | Setup events, voices, CSEG children | `style-formats` | partial | SFF write verified; voices/setup events not written |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
-| Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/slur/percussion/lyric/accidental-spacing/frame/chord-symbol/PDF tests; slurs round-trip; Save PDF, Print via lp (unverified) and score drag-move |
+| Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/slur/percussion/lyric/accidental/rhythmic-spacing/frame/chord-symbol/PDF tests; slurs round-trip; Save PDF, Print via lp (unverified), score drag-move |
 | UI shell (Perform/Arrange/Mix) with dark/light palettes | `apps/desktop` | implemented | palette test; light screenshot `docs/audit/light-theme.png`; header overlap fixed; sidebar menu |
 | Audio playback | `audio` | implemented | cpal; audible check pending |
 | WAV/offline render | `audio` | verified | 5.36 s real-style render |
