@@ -656,3 +656,10 @@ field and Rename button call `Editor::rename_song`, and MCP exposes
 state; `Player::seek_seconds` locks and delegates. A ruler click converts the
 tick through `TempoMap::seconds_at` and seeks the live player instead of
 stopping playback. A unit test checks both play states and clamping.
+
+### Marker editor
+
+`Editor::add_marker` replaces by tick and sorts, `remove_marker` filters and
+`set_markers` writes once; the Markers window adds at the playhead, loads a row
+for editing and removes rows, each as one `SetMarkers`. Tests cover add, replace,
+remove and undo.

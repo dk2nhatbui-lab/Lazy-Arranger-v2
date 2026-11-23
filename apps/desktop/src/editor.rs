@@ -673,6 +673,56 @@ impl Editor {
         Ok(())
     }
 
+    /// Replaces every marker in one edit.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_markers(&mut self, mut markers: Vec<project::Marker>) -> Result<(), String> {
+        markers.sort_by_key(|marker| marker.tick);
+        self.session
+            .apply(app_commands::Command::SetMarkers { markers })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Adds or replaces the marker at a tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn add_marker(&mut self, tick: Tick, name: &str) -> Result<(), String> {
+        let mut markers: Vec<project::Marker> = self
+            .song()
+            .markers
+            .iter()
+            .filter(|marker| marker.tick != tick)
+            .cloned()
+            .collect();
+        markers.push(project::Marker {
+            tick,
+            name: name.to_string(),
+        });
+        self.set_markers(markers)
+    }
+
+    /// Removes the marker at a tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn remove_marker(&mut self, tick: Tick) -> Result<(), String> {
+        let markers: Vec<project::Marker> = self
+            .song()
+            .markers
+            .iter()
+            .filter(|marker| marker.tick != tick)
+            .cloned()
+            .collect();
+        self.set_markers(markers)
+    }
+
     /// Replaces all lyric syllables in one edit.
     ///
     /// # Errors
@@ -1795,6 +1845,21 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn markers_add_replace_remove_and_undo() {
+        let mut editor = editor();
+        editor.add_marker(0, "Intro").expect("add");
+        editor.add_marker(3840, "Verse").expect("add");
+        assert_eq!(editor.song().markers.len(), 2);
+        editor.add_marker(0, "Start").expect("replace");
+        assert_eq!(editor.song().markers.len(), 2);
+        assert_eq!(editor.song().markers[0].name, "Start");
+        editor.remove_marker(3840).expect("remove");
+        assert_eq!(editor.song().markers.len(), 1);
+        assert!(editor.undo());
+        assert_eq!(editor.song().markers.len(), 2);
     }
 
     #[test]

@@ -115,6 +115,9 @@ pub struct ShellApp {
     audio_record_seconds: f64,
     audio_record_start: Tick,
     song_name_input: String,
+    markers_open: bool,
+    marker_text: String,
+    marker_selected: Option<Tick>,
     form_dialog: bool,
     beat_dialog: bool,
     beat_track: Option<TrackId>,
@@ -249,6 +252,9 @@ impl ShellApp {
             audio_record_seconds: 3.0,
             audio_record_start: 0,
             song_name_input,
+            markers_open: false,
+            marker_text: String::new(),
+            marker_selected: None,
             form_dialog: false,
             beat_dialog: false,
             beat_track: None,
@@ -1425,6 +1431,80 @@ impl ShellApp {
     }
 
     /// Settings and shortcut windows.
+    fn markers_window(&mut self, context: &egui::Context) {
+        if !self.markers_open {
+            return;
+        }
+        let rows: Vec<(Tick, String)> = self
+            .song()
+            .markers
+            .iter()
+            .map(|marker| (marker.tick, marker.name.clone()))
+            .collect();
+        let position = self.position.max(0);
+        let mut open = self.markers_open;
+        let mut add = false;
+        let mut remove = None;
+        let mut save = false;
+        egui::Window::new("Markers")
+            .open(&mut open)
+            .default_width(300.0)
+            .show(context, |ui| {
+                ui.label(
+                    egui::RichText::new(format!("playhead at tick {position}"))
+                        .size(10.0)
+                        .color(theme::TEXT_DIM),
+                );
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.marker_text);
+                    if ui.button("Add at playhead").clicked() {
+                        add = true;
+                    }
+                });
+                ui.separator();
+                for (tick, name) in &rows {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{tick}: {name}"));
+                        if ui.small_button("Edit").clicked() {
+                            self.marker_selected = Some(*tick);
+                            self.marker_text = name.clone();
+                        }
+                        if ui.small_button("Remove").clicked() {
+                            remove = Some(*tick);
+                        }
+                    });
+                }
+                if let Some(tick) = self.marker_selected {
+                    ui.separator();
+                    ui.label(format!("editing tick {tick}"));
+                    if ui.button("Save marker").clicked() {
+                        save = true;
+                    }
+                }
+            });
+        self.markers_open = open;
+        if add {
+            match self.editor.add_marker(position, self.marker_text.trim()) {
+                Ok(()) => self.marker_selected = Some(position),
+                Err(error) => self.status = Some(error),
+            }
+        }
+        if let Some(tick) = remove {
+            if let Err(error) = self.editor.remove_marker(tick) {
+                self.status = Some(error);
+            }
+            if self.marker_selected == Some(tick) {
+                self.marker_selected = None;
+            }
+        }
+        if save
+            && let Some(tick) = self.marker_selected
+            && let Err(error) = self.editor.add_marker(tick, self.marker_text.trim())
+        {
+            self.status = Some(error);
+        }
+    }
+
     fn lyrics_window(&mut self, context: &egui::Context) {
         if !self.lyrics_open {
             return;
@@ -3234,6 +3314,9 @@ impl ShellApp {
                             if ui.small_button("Lyrics").clicked() {
                                 self.lyrics_open = true;
                             }
+                            if ui.small_button("Markers").clicked() {
+                                self.markers_open = true;
+                            }
                             if ui.small_button("Import audio").clicked() {
                                 self.file_path_input.clear();
                                 self.file_mode = Some(FileMode::ImportAudio);
@@ -3449,6 +3532,7 @@ impl eframe::App for ShellApp {
         self.inspector_window(context);
         self.controller_window(context);
         self.lyrics_window(context);
+        self.markers_window(context);
         self.file_window(context);
         self.midi_map_window(context);
         self.assistant_window(context);
