@@ -240,6 +240,20 @@ impl Editor {
         Ok(())
     }
 
+    /// Replaces the song chords with the given events.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the command is rejected.
+    pub fn set_chords(&mut self, mut chords: Vec<project::song::ChordEvent>) -> Result<(), String> {
+        chords.sort_by_key(|event| event.tick);
+        self.session
+            .apply(app_commands::Command::SetChords { chords })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Writes one parsed chord at a tick.
     ///
     /// # Errors
@@ -2223,6 +2237,26 @@ mod tests {
         assert!(editor.set_note_duration(track, note, 0).is_err());
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].notes[0].duration, PPQ);
+    }
+
+    #[test]
+    fn replacing_all_chords_is_undoable() {
+        let mut editor = editor();
+        let chords = vec![
+            project::song::ChordEvent {
+                tick: 0,
+                chord: Chord::parse("C").expect("valid"),
+            },
+            project::song::ChordEvent {
+                tick: 960,
+                chord: Chord::parse("G").expect("valid"),
+            },
+        ];
+        let before = editor.song().chords.len();
+        editor.set_chords(chords).expect("chords");
+        assert_eq!(editor.song().chords.len(), 2);
+        editor.undo();
+        assert_eq!(editor.song().chords.len(), before);
     }
 
     #[test]

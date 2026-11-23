@@ -831,6 +831,9 @@ pub struct ShellApp {
     style_draft: Option<arranger::style::Style>,
     style_rules_open: bool,
     style_preview: Option<audio::player::Player>,
+    audio_chords_open: bool,
+    audio_chords_path: String,
+    audio_chords: Vec<audio::chords::AudioChord>,
     style_file_open: bool,
     style_file_path: String,
     style_import: Option<style_formats::ImportedStyle>,
@@ -1127,6 +1130,9 @@ impl ShellApp {
             style_draft: None,
             style_rules_open: false,
             style_preview: None,
+            audio_chords_open: false,
+            audio_chords_path: String::new(),
+            audio_chords: Vec::new(),
             style_file_open: std::env::var("ARRANGER_STYLE").is_ok(),
             style_file_path: std::env::var("ARRANGER_STYLE_FILE").unwrap_or_default(),
             style_import: None,
@@ -4490,6 +4496,93 @@ impl ShellApp {
             }
             Err(error) => self.status = Some(error),
         }
+    }
+
+    fn audio_chords_window(&mut self, context: &Context) {
+        if !self.audio_chords_open {
+            return;
+        }
+        let mut open = self.audio_chords_open;
+        egui::Window::new("Chords from audio")
+            .open(&mut open)
+            .resizable(false)
+            .default_width(360.0)
+            .show(context, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Audio");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.audio_chords_path)
+                            .desired_width(220.0),
+                    );
+                    if ui.button("Analyze").clicked() {
+                        let path = std::path::PathBuf::from(&self.audio_chords_path);
+                        let decoded = std::fs::read(&path)
+                            .map_err(|error| error.to_string())
+                            .and_then(|bytes| {
+                                if bytes.starts_with(b"RIFF") {
+                                    audio::wav::decode_mono(&bytes)
+                                        .map_err(|error| error.to_string())
+                                } else {
+                                    audio::decode::decode_mono(&path)
+                                        .map_err(|error| error.to_string())
+                                }
+                            });
+                        match decoded {
+                            Ok(decoded) => {
+                                let bpm = self.song().tempo_map.bpm_at(0);
+                                let bar_seconds = self.song().time_signature.bar_ticks() as f64
+                                    * 60.0
+                                    / (bpm.max(1.0) * music_core::PPQ as f64);
+                                self.audio_chords = audio::chords::recognize(
+                                    &decoded.samples,
+                                    decoded.sample_rate,
+                                    bar_seconds,
+                                );
+                                self.status = Some(format!(
+                                    "recognised {} chord(s)",
+                                    self.audio_chords.len()
+                                ));
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                });
+                egui::ScrollArea::vertical()
+                    .max_height(240.0)
+                    .show(ui, |ui| {
+                        for chord in &self.audio_chords {
+                            ui.label(format!(
+                                "{:>7.2}s  {}  ({:.0}%)",
+                                chord.start,
+                                chord.chord.format(music_core::Spelling::Sharp),
+                                chord.score * 100.0
+                            ));
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    if ui.button("Write to song").clicked() {
+                        let bpm = self.song().tempo_map.bpm_at(0);
+                        let events: Vec<project::song::ChordEvent> = self
+                            .audio_chords
+                            .iter()
+                            .map(|chord| project::song::ChordEvent {
+                                tick: audio::chords::to_ticks(chord.start, bpm),
+                                chord: chord.chord,
+                            })
+                            .collect();
+                        match self.editor.set_chords(events) {
+                            Ok(()) => {
+                                self.status = Some(String::from("wrote audio chords to the song"));
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                    if ui.button("Clear").clicked() {
+                        self.audio_chords.clear();
+                    }
+                });
+            });
+        self.audio_chords_open = open;
     }
 
     fn style_file_window(&mut self, context: &Context) {
@@ -9076,6 +9169,10 @@ impl ShellApp {
                                 self.audio_style_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Chords from audio").clicked() {
+                                self.audio_chords_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Style file player").clicked() {
                                 self.style_file_open = true;
                                 ui.close_menu();
@@ -9588,6 +9685,7 @@ impl eframe::App for ShellApp {
         self.patch_window(context);
         self.style_clips_window(context);
         self.style_file_window(context);
+        self.audio_chords_window(context);
         self.audio_style_window(context);
         self.style_rules_window(context);
         self.master_fx_window(context);
