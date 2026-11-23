@@ -585,6 +585,9 @@ enum Commands {
         /// Bit depth: 16 or 24 (default 16).
         #[arg(long, default_value_t = 16)]
         bits: u16,
+        /// Mix a metronome click track.
+        #[arg(long)]
+        metronome: bool,
     },
     /// Record a style performance as linked intent and rendered tracks.
     Perform {
@@ -1627,7 +1630,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             out,
             sample_rate,
             bits,
-        } => export_audio(&project, &out, sample_rate, bits),
+            metronome,
+        } => export_audio(&project, &out, sample_rate, bits, metronome),
         Commands::Perform {
             style,
             out,
@@ -2229,6 +2233,7 @@ fn export_audio(
     out: &PathBuf,
     sample_rate: u32,
     bits: u16,
+    metronome: bool,
 ) -> Result<(), Box<dyn Error>> {
     if !matches!(bits, 16 | 24) {
         return Err(format!("--bits must be 16 or 24, found {bits}").into());
@@ -2245,6 +2250,9 @@ fn export_audio(
             "audio {} on track {}: {}",
             problem.path, problem.track, problem.reason
         );
+    }
+    if metronome {
+        audio::metronome::mix(&mut rendered, &project.song, 1.0);
     }
     let wav = if bits == 24 {
         rendered.to_wav24()

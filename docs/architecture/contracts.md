@@ -159,5 +159,6 @@ demo. Learned preferences are not implemented.
 The header adds Loop (on/off) and From bar (set the region to the bar under the
 playhead). With Loop on, playback renders the loop window from the full mix with
 `RenderedAudio::slice`, and when the playhead reaches the end the player restarts
-from the loop start; `transport::wrap` covers the arithmetic. Record arm,
-metronome and ruler editing are still absent.
+from the loop start; `transport::wrap` covers the arithmetic. The metronome mixes short clicks on every beat (downbeats accented) into
+playback and `export-audio --metronome`. Record arm and ruler editing are still
+absent.

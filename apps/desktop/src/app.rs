@@ -1649,6 +1649,9 @@ impl ShellApp {
         }
         let mut audio = audio::render(self.song(), audio::SAMPLE_RATE);
         let problems = audio::mix::mix_audio_references(&mut audio, self.song(), 0.9);
+        if self.settings.metronome {
+            audio::metronome::mix(&mut audio, self.song(), 1.0);
+        }
         if let Some(problem) = problems.first() {
             self.status = Some(format!("audio {}: {}", problem.path, problem.reason));
         }
