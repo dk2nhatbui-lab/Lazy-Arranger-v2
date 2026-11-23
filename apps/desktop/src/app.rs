@@ -2780,32 +2780,34 @@ impl ShellApp {
                                 });
                             });
                         }
-                        ui.allocate_ui(egui::vec2(110.0, 220.0), |ui| {
-                            ui.vertical(|ui| {
-                                painter_strip(ui, theme::text_muted());
-                                ui.label(egui::RichText::new("Master").size(11.0).strong());
-                                ui.label(
-                                    egui::RichText::new(if self.player.is_some() {
-                                        "cpal"
-                                    } else {
-                                        "offline"
-                                    })
-                                    .size(9.0)
-                                    .color(theme::text_dim()),
-                                );
-                                ui.add_space(62.0);
-                                ui.allocate_ui(egui::vec2(48.0, 92.0), |ui| {
-                                    ui.add(
-                                        egui::Slider::new(&mut master_gain, -24.0..=12.0)
-                                            .vertical()
-                                            .show_value(false),
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.allocate_ui(egui::vec2(110.0, 220.0), |ui| {
+                                ui.vertical(|ui| {
+                                    painter_strip(ui, theme::text_muted());
+                                    ui.label(egui::RichText::new("Master").size(11.0).strong());
+                                    ui.label(
+                                        egui::RichText::new(if self.player.is_some() {
+                                            "cpal"
+                                        } else {
+                                            "offline"
+                                        })
+                                        .size(9.0)
+                                        .color(theme::text_dim()),
+                                    );
+                                    ui.add_space(62.0);
+                                    ui.allocate_ui(egui::vec2(48.0, 92.0), |ui| {
+                                        ui.add(
+                                            egui::Slider::new(&mut master_gain, -24.0..=12.0)
+                                                .vertical()
+                                                .show_value(false),
+                                        );
+                                    });
+                                    ui.label(
+                                        egui::RichText::new(format!("{master_gain:.1} dB"))
+                                            .size(9.0)
+                                            .color(theme::text_muted()),
                                     );
                                 });
-                                ui.label(
-                                    egui::RichText::new(format!("{master_gain:.1} dB"))
-                                        .size(9.0)
-                                        .color(theme::text_muted()),
-                                );
                             });
                         });
                     });
@@ -6775,7 +6777,7 @@ impl ShellApp {
                 );
                 let mut area = rect.shrink2(egui::vec2(16.0, 0.0));
                 // Title area: badge, title, subtitle (HeaderBar::paint).
-                let title_area = Rect::from_min_size(area.min, egui::vec2(250.0, area.height()));
+                let title_area = Rect::from_min_size(area.min, egui::vec2(200.0, area.height()));
                 area = Rect::from_min_max(egui::pos2(title_area.right(), area.top()), area.max);
                 let badge = Rect::from_center_size(
                     egui::pos2(title_area.left() + 18.0, title_area.center().y),
@@ -6878,14 +6880,41 @@ impl ShellApp {
                     self.song().tempo_map.bpm_at(self.position),
                     self.song().time_signature,
                 );
+                let wide = rect.width() >= 1380.0;
                 let ai_rect = Rect::from_center_size(
-                    egui::pos2(rect.right() - 16.0 - 48.0, rect.center().y),
-                    egui::vec2(80.0, 34.0),
+                    egui::pos2(rect.right() - 16.0 - 38.0, rect.center().y),
+                    egui::vec2(76.0, 34.0),
                 );
-                let mixer_rect = Rect::from_center_size(
-                    egui::pos2(ai_rect.left() - 8.0 - 28.0, rect.center().y),
-                    egui::vec2(56.0, 34.0),
-                );
+                let (mixer_rect, audio_rect, minus_rect, plus_rect) = if wide {
+                    let plus_rect = Rect::from_center_size(
+                        egui::pos2(ai_rect.left() - 6.0 - 12.0, rect.center().y),
+                        egui::vec2(24.0, 28.0),
+                    );
+                    let minus_rect = Rect::from_center_size(
+                        egui::pos2(plus_rect.left() - 4.0 - 12.0, rect.center().y),
+                        egui::vec2(24.0, 28.0),
+                    );
+                    let audio_rect = Rect::from_center_size(
+                        egui::pos2(minus_rect.left() - 8.0 - 40.0, rect.center().y),
+                        egui::vec2(80.0, 32.0),
+                    );
+                    let mixer_rect = Rect::from_center_size(
+                        egui::pos2(audio_rect.left() - 8.0 - 27.0, rect.center().y),
+                        egui::vec2(54.0, 34.0),
+                    );
+                    (
+                        mixer_rect,
+                        Some(audio_rect),
+                        Some(minus_rect),
+                        Some(plus_rect),
+                    )
+                } else {
+                    let mixer_rect = Rect::from_center_size(
+                        egui::pos2(ai_rect.left() - 8.0 - 27.0, rect.center().y),
+                        egui::vec2(54.0, 34.0),
+                    );
+                    (mixer_rect, None, None, None)
+                };
                 let tabs_rect = Rect::from_center_size(
                     egui::pos2(
                         mixer_rect.left() - 8.0 - widgets::TABS_SIZE.x * 0.5,
@@ -6915,6 +6944,98 @@ impl ShellApp {
                 {
                     self.view = *view;
                 }
+                if let (Some(audio_rect), Some(minus_rect), Some(plus_rect)) =
+                    (audio_rect, minus_rect, plus_rect)
+                {
+                    let audio_response = ui.interact(
+                        audio_rect,
+                        ui.id().with("audio-settings"),
+                        egui::Sense::click(),
+                    );
+                    ui.painter().rect_filled(audio_rect, 4.0, theme::raised());
+                    ui.painter().rect_stroke(
+                        audio_rect,
+                        4.0,
+                        egui::Stroke::new(1.0_f32, theme::line()),
+                        egui::StrokeKind::Inside,
+                    );
+                    ui.painter().circle_filled(
+                        egui::pos2(audio_rect.left() + 10.0, audio_rect.center().y),
+                        3.5,
+                        egui::Color32::from_rgb(0x4c, 0xaf, 0x50),
+                    );
+                    ui.painter().text(
+                        egui::pos2(audio_rect.left() + 20.0, audio_rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        "CoreAudio",
+                        egui::FontId::proportional(11.0),
+                        theme::text(),
+                    );
+                    if audio_response.clicked() {
+                        self.settings_open = true;
+                    }
+                    for (rect, glyph, direction) in
+                        [(minus_rect, "-", 1.25_f32), (plus_rect, "+", 0.8_f32)]
+                    {
+                        let response = ui.interact(rect, ui.id().with(glyph), egui::Sense::click());
+                        ui.painter().rect_filled(
+                            rect,
+                            4.0,
+                            if response.hovered() {
+                                theme::line()
+                            } else {
+                                theme::raised()
+                            },
+                        );
+                        ui.painter().rect_stroke(
+                            rect,
+                            4.0,
+                            egui::Stroke::new(1.0_f32, theme::line()),
+                            egui::StrokeKind::Inside,
+                        );
+                        ui.painter().text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            glyph,
+                            egui::FontId::proportional(14.0),
+                            theme::text(),
+                        );
+                        if response.clicked() {
+                            self.roll.ticks_per_point =
+                                (self.roll.ticks_per_point * direction).clamp(2.0, 64.0);
+                        }
+                    }
+                }
+                let mixer_response = ui.interact(
+                    mixer_rect,
+                    ui.id().with("mixer-toggle"),
+                    egui::Sense::click(),
+                );
+                ui.painter().rect_filled(
+                    mixer_rect,
+                    4.0,
+                    if self.mixer_visible {
+                        theme::accent().gamma_multiply(0.18)
+                    } else {
+                        theme::raised()
+                    },
+                );
+                ui.painter().rect_stroke(
+                    mixer_rect,
+                    4.0,
+                    egui::Stroke::new(1.0_f32, theme::line()),
+                    egui::StrokeKind::Inside,
+                );
+                ui.painter().text(
+                    mixer_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Mixer",
+                    egui::FontId::proportional(11.0),
+                    theme::text(),
+                );
+                if mixer_response.clicked() {
+                    self.mixer_visible = !self.mixer_visible;
+                }
                 let ai_response =
                     ui.interact(ai_rect, ui.id().with("ask-ai"), egui::Sense::click());
                 ui.painter().rect_filled(
@@ -6932,6 +7053,12 @@ impl ShellApp {
                 if ai_response.clicked() {
                     self.assistant_open = true;
                 }
+                let title = if self.song().name.is_empty() {
+                    String::from("Lazy Arranger")
+                } else {
+                    format!("{} — Lazy Arranger", self.song().name)
+                };
+                context.send_viewport_cmd(egui::ViewportCommand::Title(title));
             });
     }
 
@@ -7337,57 +7464,75 @@ impl ShellApp {
     fn track_row(&mut self, ui: &mut egui::Ui, row: &Row) {
         let selected = self.roll.selected == Some(row.id);
         let colour = theme::track_colour(row.index);
-        let response = ui
-            .horizontal(|ui| {
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 28.0), egui::Sense::hover());
-                ui.painter().rect_filled(rect, 0.0, colour);
-                if ui
-                    .selectable_label(row.muted, "M")
-                    .on_hover_text("Mute")
-                    .clicked()
-                {
-                    let _ = self
-                        .editor
-                        .set_track_flags(row.id, !row.muted, row.soloed, false);
-                }
-                if ui
-                    .selectable_label(row.soloed, "S")
-                    .on_hover_text("Solo")
-                    .clicked()
-                {
-                    let _ = self
-                        .editor
-                        .set_track_flags(row.id, row.muted, !row.soloed, false);
-                }
-                if ui
-                    .selectable_label(row.armed, "R")
-                    .on_hover_text("Record-arm this track")
-                    .clicked()
-                {
-                    let _ = self
-                        .editor
-                        .set_track_flags(row.id, row.muted, row.soloed, !row.armed);
-                }
-                ui.vertical(|ui| {
-                    let name = if row.name.is_empty() {
-                        "untitled"
-                    } else {
-                        row.name.as_str()
-                    };
-                    ui.label(egui::RichText::new(name).size(12.0).color(if selected {
-                        theme::text()
-                    } else {
-                        theme::text_muted()
-                    }));
-                    let detail = match row.program {
-                        Some(program) => format!("{} notes · prog {program}", row.notes),
-                        None => format!("{} notes", row.notes),
-                    };
-                    ui.label(
-                        egui::RichText::new(detail)
-                            .size(9.0)
-                            .color(theme::text_dim()),
+        let response = egui::Frame::new()
+            .fill(if selected {
+                theme::raised()
+            } else {
+                egui::Color32::TRANSPARENT
+            })
+            .inner_margin(egui::Margin::symmetric(2, 2))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(6.0, 28.0), egui::Sense::hover());
+                    ui.painter().rect_filled(rect, 0.0, colour);
+                    let (icon_rect, _) =
+                        ui.allocate_exact_size(egui::vec2(22.0, 24.0), egui::Sense::hover());
+                    draw_track_icon(ui, icon_rect, &row.name, colour);
+                    ui.allocate_ui_with_layout(
+                        egui::vec2((ui.available_width() - 62.0).max(40.0), 30.0),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            let name = if row.name.is_empty() {
+                                "untitled"
+                            } else {
+                                row.name.as_str()
+                            };
+                            ui.label(egui::RichText::new(name).size(12.0).color(if selected {
+                                theme::text()
+                            } else {
+                                theme::text_muted()
+                            }));
+                            let detail = match row.program {
+                                Some(program) => format!("{} notes · prog {program}", row.notes),
+                                None => format!("{} notes", row.notes),
+                            };
+                            ui.label(
+                                egui::RichText::new(detail)
+                                    .size(9.0)
+                                    .color(theme::text_dim()),
+                            );
+                        },
                     );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .selectable_label(row.armed, "R")
+                            .on_hover_text("Record-arm this track")
+                            .clicked()
+                        {
+                            let _ = self
+                                .editor
+                                .set_track_flags(row.id, row.muted, row.soloed, !row.armed);
+                        }
+                        if ui
+                            .selectable_label(row.soloed, "S")
+                            .on_hover_text("Solo")
+                            .clicked()
+                        {
+                            let _ =
+                                self.editor
+                                    .set_track_flags(row.id, row.muted, !row.soloed, false);
+                        }
+                        if ui
+                            .selectable_label(row.muted, "M")
+                            .on_hover_text("Mute")
+                            .clicked()
+                        {
+                            let _ = self
+                                .editor
+                                .set_track_flags(row.id, !row.muted, row.soloed, false);
+                        }
+                    });
                 });
             })
             .response;
@@ -8379,6 +8524,81 @@ impl eframe::App for ShellApp {
 }
 
 /// A round transport button drawn like v1's `RoundButton`.
+fn draw_track_icon(ui: &egui::Ui, rect: Rect, name: &str, color: egui::Color32) {
+    let lower = name.to_ascii_lowercase();
+    let painter = ui.painter();
+    let center = rect.center();
+    let stroke = egui::Stroke::new(1.3_f32, theme::text_muted());
+    if lower.contains("drum") || lower.contains("perc") {
+        painter.circle_stroke(center, 7.0, stroke);
+        painter.circle_filled(center, 2.0, color);
+        painter.line_segment(
+            [
+                egui::pos2(center.x - 9.0, center.y + 8.0),
+                egui::pos2(center.x + 9.0, center.y + 8.0),
+            ],
+            stroke,
+        );
+    } else if lower.contains("bass") {
+        painter.line_segment(
+            [
+                egui::pos2(center.x - 8.0, center.y - 2.0),
+                egui::pos2(center.x + 6.0, center.y - 2.0),
+            ],
+            stroke,
+        );
+        painter.circle_stroke(egui::pos2(center.x + 6.0, center.y - 2.0), 3.0, stroke);
+        painter.line_segment(
+            [
+                egui::pos2(center.x - 8.0, center.y + 4.0),
+                egui::pos2(center.x + 2.0, center.y + 4.0),
+            ],
+            stroke,
+        );
+    } else if lower.contains("pad") || lower.contains("string") {
+        for offset in [-5.0_f32, 0.0, 5.0] {
+            painter.line_segment(
+                [
+                    egui::pos2(center.x - 8.0, center.y + offset),
+                    egui::pos2(center.x + 8.0, center.y + offset),
+                ],
+                stroke,
+            );
+        }
+    } else if lower.contains("piano") || lower.contains("key") || lower.contains("organ") {
+        let keys = Rect::from_center_size(center, egui::vec2(18.0, 12.0));
+        painter.rect_stroke(keys, 1.0, stroke, egui::StrokeKind::Inside);
+        for offset in [-6.0_f32, 0.0, 6.0] {
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + offset, keys.top()),
+                    egui::pos2(center.x + offset, keys.bottom()),
+                ],
+                stroke,
+            );
+        }
+    } else if lower.contains("guitar") {
+        painter.line_segment(
+            [
+                egui::pos2(center.x - 7.0, center.y - 7.0),
+                egui::pos2(center.x + 5.0, center.y + 5.0),
+            ],
+            stroke,
+        );
+        painter.circle_stroke(egui::pos2(center.x + 5.0, center.y + 6.0), 3.5, stroke);
+    } else {
+        let points: Vec<egui::Pos2> = (0..9)
+            .map(|index| {
+                egui::pos2(
+                    center.x - 8.0 + index as f32 * 2.0,
+                    center.y + (index as f32 * 1.7).sin() * 4.0,
+                )
+            })
+            .collect();
+        painter.add(egui::Shape::line(points, stroke));
+    }
+}
+
 fn painter_strip(ui: &mut egui::Ui, color: egui::Color32) {
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 3.0), egui::Sense::hover());

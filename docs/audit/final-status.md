@@ -105,3 +105,4 @@ For the clef layout, choose either four measures per system without clefs
 - UI pass started: C++-style square transport, light tabs, Mixer toggle, Ask AI and resizable left/right/mixer panels.
 - Timeline lane view added as the Arrange default, with a Piano roll toggle (`docs/audit/ui-timeline.png`).
 - UI pass: Tracks header with add, C++-style mixer strips with knobs/faders, resizable panels, song rename in the inspector (`docs/audit/ui-mixer.png`).
+- UI pass: instrument icons in track rows, right-aligned track flags, master fader pinned to the mixer's far right, song title in the window bar (`docs/audit/ui-master.png`).

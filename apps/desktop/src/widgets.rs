@@ -10,11 +10,11 @@ use music_core::{PPQ, Tick, TimeSignature};
 use crate::theme;
 
 /// LCD panel size, from `HeaderBar::resized`: 350 x 52.
-pub const LCD_SIZE: Vec2 = Vec2::new(340.0, 48.0);
+pub const LCD_SIZE: Vec2 = Vec2::new(330.0, 48.0);
 /// Cell widths, from `LcdDisplay::cell`.
 const CELLS: [f32; 3] = [142.0, 116.0, 92.0];
 /// View tab strip size, from `HeaderBar::resized`.
-pub const TABS_SIZE: Vec2 = Vec2::new(320.0, 38.0);
+pub const TABS_SIZE: Vec2 = Vec2::new(280.0, 38.0);
 
 /// Bar, beat and sixteenth, one-based, as the LCD shows them.
 #[must_use]
