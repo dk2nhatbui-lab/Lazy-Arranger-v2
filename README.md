@@ -49,13 +49,13 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections at round 452: 0 fully verified beyond their Rust subset, 39 partial,
+39 sections at round 453: 0 fully verified beyond their Rust subset, 39 partial,
 0 missing. No section is missing at row level, but several rows are partial
 because they need hardware, proprietary formats, plugin editors or a model.
 The deepest partials are styles, full score, plugin editors, L6max device pages,
 Korg PCG, built-in speech/model services and hardware acceptance.
 
-## State at round 452
+## State at round 453
 
 `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (**774 tests**) and
 rustdoc pass. A macOS bundle script creates an ad-hoc-signed
@@ -72,9 +72,13 @@ cpal input/output, controllers and printing.
 ## Build and bundle
 
 ```sh
+./scripts/check.sh
 ./scripts/rust.sh build --release -p lazy-arranger-desktop
 ./scripts/bundle-macos.sh
 open "dist/Lazy Arranger Midi DAW.app"
 ```
+
+`scripts/check.sh` runs fmt, clippy, the workspace tests and rustdoc with
+warnings denied.
 
 The bundle includes `AppIcon.icns`, is ad-hoc signed (`codesign --sign -`) and is not notarized.
