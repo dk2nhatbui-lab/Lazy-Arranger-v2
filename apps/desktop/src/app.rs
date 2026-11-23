@@ -535,6 +535,10 @@ fn entry_length(base: music_core::Tick, dotted: bool) -> music_core::Tick {
     }
 }
 
+fn score_typing(view: View, entry: bool, wants_keyboard: bool) -> bool {
+    view == View::Score && entry && !wants_keyboard
+}
+
 fn score_key_pitch(key: egui::Key, octave: i32) -> Option<u8> {
     let semitone = match key {
         egui::Key::A => 0,
@@ -1451,7 +1455,7 @@ impl ShellApp {
             input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace)
         });
         let score_typing =
-            self.view == View::Score && self.score_entry && !context.wants_keyboard_input();
+            score_typing(self.view, self.score_entry, context.wants_keyboard_input());
         if context.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::F1)) {
             self.shortcuts_open = true;
         }
@@ -13077,6 +13081,14 @@ mod tests {
     fn dotted_entry_lengths_are_three_halves() {
         assert_eq!(entry_length(music_core::PPQ, false), music_core::PPQ);
         assert_eq!(entry_length(music_core::PPQ, true), music_core::PPQ * 3 / 2);
+    }
+
+    #[test]
+    fn score_typing_needs_the_score_view_and_focus() {
+        assert!(score_typing(View::Score, true, false));
+        assert!(!score_typing(View::Score, true, true));
+        assert!(!score_typing(View::Score, false, false));
+        assert!(!score_typing(View::Arrange, true, false));
     }
 
     #[test]
