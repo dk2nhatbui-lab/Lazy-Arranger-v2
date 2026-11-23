@@ -72,6 +72,15 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
     let mut track_ids: HashSet<u32> = HashSet::new();
     for (track_index, track) in song.tracks.iter().enumerate() {
         let track_path = format!("song.tracks[{track_index}]");
+        if let Some(font) = &track.soundfont
+            && font.path.trim().is_empty()
+        {
+            issues.push(issue(
+                Severity::Error,
+                format!("{track_path}.soundfont.path"),
+                String::from("soundfont path is empty"),
+            ));
+        }
         if !track_ids.insert(track.id.get()) {
             issues.push(issue(
                 Severity::Error,

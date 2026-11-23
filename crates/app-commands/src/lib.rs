@@ -94,6 +94,13 @@ pub enum Command {
         /// New slots in signal order.
         plugins: Vec<project::song::PluginSlot>,
     },
+    /// Set or clear a track's SoundFont preset.
+    SetSoundFont {
+        /// The track.
+        track: TrackId,
+        /// Preset, or none to use the built-in timbre.
+        soundfont: Option<project::song::SoundFontRef>,
+    },
     /// Set a track's synth patch, or clear it.
     SetTrackPatch {
         /// The track.
@@ -243,6 +250,7 @@ impl Command {
             Self::SetBuses { .. } => "set buses",
             Self::SetTrackPatch { .. } => "set track patch",
             Self::SetPlugins { .. } => "set plugins",
+            Self::SetSoundFont { .. } => "set soundfont",
             Self::SetTrackRouting { .. } => "set track routing",
             Self::SetMarkers { .. } => "set markers",
             Self::SetSceneNames { .. } => "set scene names",
@@ -733,6 +741,15 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::SetSoundFont { track, .. } => Command::SetSoundFont {
+                track: *track,
+                soundfont: self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == *track)
+                    .and_then(|entry| entry.soundfont.clone()),
+            },
             Command::SetPlugins { track, .. } => Command::SetPlugins {
                 track: *track,
                 plugins: self.track(*track)?.plugins.clone(),
@@ -972,6 +989,17 @@ impl EditSession {
             Command::SetTrackPatch { track, patch } => {
                 self.track_mut(*track)?.patch = patch.as_deref().copied();
             }
+            Command::SetSoundFont { track, soundfont } => {
+                if let Some(entry) = self
+                    .project
+                    .song
+                    .tracks
+                    .iter_mut()
+                    .find(|entry| entry.id == *track)
+                {
+                    entry.soundfont = soundfont.clone();
+                }
+            }
             Command::SetPlugins { track, plugins } => {
                 self.track_mut(*track)?.plugins = plugins.clone();
             }
@@ -1071,6 +1099,13 @@ fn describe(command: &Command) -> String {
         Command::SetPlugins { track, plugins } => {
             format!("track {track}: {} plugin slot(s)", plugins.len())
         }
+        Command::SetSoundFont { track, soundfont } => match soundfont {
+            Some(font) => format!(
+                "track {track}: soundfont {}:{} {}",
+                font.bank, font.program, font.path
+            ),
+            None => format!("track {track}: clear soundfont"),
+        },
         Command::SetTrackPatch { track, patch } => match patch {
             Some(patch) => format!("track {track}: {:?} patch", patch.waveform),
             None => format!("track {track}: clear patch"),
@@ -1697,6 +1732,42 @@ mod tests {
         assert!(edit.song().marks.is_empty());
         edit.undo().expect("undo lyrics");
         assert!(edit.song().lyrics.is_empty());
+    }
+
+    #[test]
+    fn a_soundfont_reference_is_one_edit_and_validated() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.apply(Command::SetSoundFont {
+            track,
+            soundfont: Some(project::song::SoundFontRef {
+                path: String::from("/tmp/bank.sf2"),
+                bank: 0,
+                program: 4,
+            }),
+        })
+        .expect("set");
+        assert_eq!(
+            edit.song().tracks[0]
+                .soundfont
+                .as_ref()
+                .map(|font| font.program),
+            Some(4)
+        );
+        edit.undo().expect("undo");
+        assert!(edit.song().tracks[0].soundfont.is_none());
+        assert!(
+            edit.apply(Command::SetSoundFont {
+                track,
+                soundfont: Some(project::song::SoundFontRef {
+                    path: String::new(),
+                    bank: 0,
+                    program: 0,
+                }),
+            })
+            .is_err(),
+            "an empty path is rejected"
+        );
     }
 
     #[test]

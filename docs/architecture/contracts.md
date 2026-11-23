@@ -280,3 +280,13 @@ bank parsed in a test gated on `ARRANGER_SF2`. `render_note` plays one note mono
 with linear interpolation, a pitch ratio from key/root/coarse/fine tuning and
 loop mode 1; `sf2-render` writes it to WAV. Envelopes, filters, modulators,
 stereo samples, sampler integration and SF3 are not implemented.
+
+### Track SoundFonts
+
+Schema v16 adds `Track.soundfont: Option<SoundFontRef { path, bank, program }>`.
+`SetSoundFont` is the one undoable edit, validation rejects an empty path, and
+`render_with_soundfont` loads each referenced bank once per track and renders
+notes through `soundfont::render_note`, applying the track's fader, pan, buses
+and send. A missing or malformed file falls back to the built-in timbre with no
+error surfaced; `sf2-use` validates the bank and assigns it. There is no preset
+picker UI, envelope/filter handling or SF3 decoding.

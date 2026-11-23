@@ -398,6 +398,19 @@ fn is_zero_tick(tick: &Tick) -> bool {
     *tick == 0
 }
 
+/// A SoundFont preset used to voice a track.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SoundFontRef {
+    /// Path to the SF2 file.
+    pub path: String,
+    /// Bank number.
+    #[serde(default)]
+    pub bank: u16,
+    /// Program number.
+    #[serde(default)]
+    pub program: u16,
+}
+
 /// A named region of a track's timeline.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Clip {
@@ -470,6 +483,9 @@ pub struct Track {
     /// Reference to an audio file, for audio tracks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<AudioRef>,
+    /// SoundFont preset used instead of the built-in timbre.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub soundfont: Option<SoundFontRef>,
     /// Plugin slots in signal order. Carried and saved, not hosted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plugins: Vec<PluginSlot>,
@@ -547,6 +563,7 @@ impl Track {
             volume: 100,
             pan: 64,
             audio: None,
+            soundfont: None,
             program: None,
             provenance: None,
             extra: BTreeMap::new(),
@@ -888,6 +905,11 @@ impl ProjectFile {
                     // Version 15 adds plugin slots; none is the version 14
                     // behaviour, since no plugin is hosted either way.
                     self.version = 15;
+                }
+                15 => {
+                    // Version 16 adds an optional SoundFont preset; none keeps
+                    // the built-in timbre, as in version 15.
+                    self.version = 16;
                 }
                 from => {
                     return Err(ProjectError::Migration {

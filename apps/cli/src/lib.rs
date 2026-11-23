@@ -286,6 +286,26 @@ enum Commands {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Assign an SF2 preset to a track.
+    Sf2Use {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Track id.
+        #[arg(long)]
+        track: u32,
+        /// SF2 file.
+        #[arg(long)]
+        file: PathBuf,
+        /// Bank number.
+        #[arg(long, default_value_t = 0)]
+        bank: u16,
+        /// Program number.
+        #[arg(long, default_value_t = 0)]
+        program: u16,
+        /// Output project `.json`.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Render one note from an SF2 preset to a WAV file.
     Sf2Render {
         /// SF2 file.
@@ -1126,6 +1146,35 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                     .map_err(|error| format!("could not write {}: {error}", out.display()))?;
                 println!("wrote {}", out.display());
             }
+            Ok(())
+        }
+        Commands::Sf2Use {
+            project,
+            track,
+            file,
+            bank,
+            program,
+            out,
+        } => {
+            let bytes = fs::read(&file).map_err(|error| format!("{}: {error}", file.display()))?;
+            let font = audio::soundfont::parse(&bytes)
+                .map_err(|error| format!("{}: {error}", file.display()))?;
+            println!("{}", audio::soundfont::describe(&font));
+            let project = read_project(&project)?;
+            let track = TrackId::new(track)?;
+            let mut session = EditSession::new(project)?;
+            session.apply(Command::SetSoundFont {
+                track,
+                soundfont: Some(project::song::SoundFontRef {
+                    path: file.display().to_string(),
+                    bank,
+                    program,
+                }),
+            })?;
+            let json = session.project().to_json_pretty()?;
+            fs::write(&out, json)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!("track {track} -> SF2 {bank}:{program} {}", file.display());
             Ok(())
         }
         Commands::Sf2Render {

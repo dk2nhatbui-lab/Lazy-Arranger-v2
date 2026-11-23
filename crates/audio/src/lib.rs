@@ -146,9 +146,23 @@ pub fn render_stems(song: &Song, sample_rate: u32) -> Vec<Stem> {
         .collect()
 }
 
-/// Renders every track of a song with a simple additive voice.
+/// Renders every track, using SoundFont presets where a track names one.
 #[must_use]
 pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
+    render_with_soundfont(song, sample_rate, &mut |path| {
+        std::fs::read(path)
+            .ok()
+            .and_then(|bytes| soundfont::parse(&bytes).ok())
+    })
+}
+
+/// Renders every track, loading SoundFonts through `load`.
+#[must_use]
+pub fn render_with_soundfont(
+    song: &Song,
+    sample_rate: u32,
+    load: &mut dyn FnMut(&str) -> Option<soundfont::SoundFont>,
+) -> RenderedAudio {
     let mut end_tick = song.end_tick();
     for track in &song.tracks {
         if let Some(reference) = &track.audio {
@@ -166,6 +180,9 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
 
     for track in song.tracks.iter().filter(|track| song.is_audible(track)) {
         let timbre = timbre_for(track);
+        let sampled = track.soundfont.as_ref().and_then(|reference| {
+            load(&reference.path).map(|font| (font, reference.bank, reference.program))
+        });
         for note in &track.notes {
             let (left_gain, right_gain) = gains_at(track, note.start);
             let patch = track.patch.map(|mut patch| {
@@ -185,6 +202,44 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
             let amplitude = f64::from(note.velocity.as_u8()) / 127.0 * 0.18;
             let release = (0.08 * f64::from(sample_rate)) as usize;
             let note_seconds = (stop - start) as f64 / f64::from(sample_rate);
+            if let Some((font, bank, program)) = &sampled
+                && let Some(mono) = soundfont::render_note(
+                    font,
+                    *bank,
+                    *program,
+                    note.pitch.as_u8(),
+                    note.velocity.as_u8(),
+                    note_seconds as f32,
+                    sample_rate,
+                )
+            {
+                for (offset, value) in mono.iter().enumerate() {
+                    let frame = start + offset;
+                    if frame >= frames {
+                        break;
+                    }
+                    let left = value * left_gain;
+                    let right = value * right_gain;
+                    if let Some(index) = track
+                        .bus
+                        .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
+                    {
+                        bus_buffers[index][frame * 2] += left;
+                        bus_buffers[index][frame * 2 + 1] += right;
+                    } else {
+                        samples[frame * 2] += left;
+                        samples[frame * 2 + 1] += right;
+                    }
+                    if let Some(index) = track
+                        .send
+                        .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
+                    {
+                        bus_buffers[index][frame * 2] += left * send_level;
+                        bus_buffers[index][frame * 2 + 1] += right * send_level;
+                    }
+                }
+                continue;
+            }
             for frame in start..stop.min(frames) {
                 let t = (frame - start) as f64 / f64::from(sample_rate);
                 let remaining = stop.saturating_sub(frame);
@@ -490,6 +545,61 @@ mod tests {
         song.tracks[1].muted = true;
         let silent = render(&song, SAMPLE_RATE);
         assert!(silent.samples.iter().all(|sample| sample.abs() < 1.0e-6));
+    }
+
+    #[test]
+    fn a_track_soundfont_replaces_the_builtin_timbre() {
+        let mut song = song_with_note();
+        song.tracks[0].soundfont = Some(project::song::SoundFontRef {
+            path: String::from("/missing/bank.sf2"),
+            bank: 0,
+            program: 0,
+        });
+        let font = soundfont::SoundFont {
+            name: String::from("Test"),
+            presets: vec![soundfont::Preset {
+                name: String::from("Test"),
+                bank: 0,
+                program: 0,
+                zones: vec![soundfont::PresetZone {
+                    instrument: Some(0),
+                    key_low: 0,
+                    key_high: 127,
+                    vel_low: 0,
+                    vel_high: 127,
+                }],
+            }],
+            instruments: vec![soundfont::Instrument {
+                name: String::from("Test"),
+                zones: vec![soundfont::InstrumentZone {
+                    sample: Some(0),
+                    key_low: 0,
+                    key_high: 127,
+                    vel_low: 0,
+                    vel_high: 127,
+                    root_override: Some(69),
+                    coarse_tune: 0,
+                    fine_tune: 0,
+                    sample_modes: 0,
+                }],
+            }],
+            samples: vec![soundfont::Sample {
+                name: String::from("Ramp"),
+                start: 0,
+                end: 64,
+                loop_start: 0,
+                loop_end: 64,
+                rate: 44_100,
+                root: 69,
+                correction: 0,
+                kind: 1,
+            }],
+            pcm: (0..64).map(|index| index * 400).collect(),
+        };
+        let sampled = render_with_soundfont(&song, SAMPLE_RATE, &mut |_| Some(font.clone()));
+        let builtin = render(&song, SAMPLE_RATE);
+        assert_ne!(sampled.samples, builtin.samples);
+        assert!(sampled.samples.iter().any(|value| value.abs() > 0.01));
     }
 
     #[test]
