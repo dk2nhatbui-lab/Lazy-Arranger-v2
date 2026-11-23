@@ -49,3 +49,35 @@ does not exist yet.
 - XioSynth and X-TOUCH MINI messages
 - any print job
 - AU/VST3 instantiation, processing or editor windows
+
+## Final-round checklist
+
+The instruments can stay powered off until the final round. Run
+`./scripts/hardware-smoke.sh` first; it reads ports, plugins and printers without
+sending MIDI or printing.
+
+When the instruments are powered on, verify in this order:
+
+1. **MIDI input**: open Windows > MIDI monitor; a key press, pitch bend and one
+   knob should appear. Check the held-chord label and Kids key audition.
+2. **Launchkey mixer**: Controllers > Load Launchkey mixer preset; CC 21-28
+   should move track faders 1-8.
+3. **PSR-S970 remote**: select the PSR output; send voice, volume and one chord
+   audition; listen to the keyboard.
+4. **PSR song export**: export a song for the PSR and play it from USB.
+5. **XioSynth/D-05 editor**: send one CC control and one `.syx` dump; check the
+   synth changed or accepted the dump.
+6. **Audio output**: Settings > Find audio outputs; play; confirm the inspector
+   shows the device, buffer and latency, and audio is audible.
+7. **Audio input**: record a short take; repeat with CH1 and Mix; monitor with
+   headphones at low gain.
+8. **Print**: print one score page to a real printer.
+9. **Plug-ins**: instantiate R0Verb on a track, capture its state, reopen the
+   project and confirm the state returns. Native plugin editor windows are not
+   implemented.
+10. **L6max**: import a take folder; master/mix take muted; mixer scene A saves
+    and recalls. Device EQ/MONO/USB/transport need a device project file that is
+    not implemented.
+
+Record each result in this file with date, device, command/UI step and the
+observed outcome. Do not mark an item verified from a successful send alone.
