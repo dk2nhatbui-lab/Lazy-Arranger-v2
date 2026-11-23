@@ -69,3 +69,4 @@ For the clef layout, choose either four measures per system without clefs
 - AU parameter enumeration and setting work in `plugin-host` (Apple AU readback test); no parameter UI or project persistence yet.
 - AU parameters can be edited in a generic window, applied with Defaults, and saved as `id=value;` slot state that the render restores; VST3 parameter automation is absent.
 - VST3 state can be captured from the Mixer into base64 slot state and restored during render; AU parameters have a generic editor and persisted state.
+- VST3 class scans run in an isolated helper with a five-second timeout; the in-process path remains as a fallback when the helper is not packaged.

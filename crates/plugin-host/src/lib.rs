@@ -17,7 +17,7 @@ pub use au::AuEffect;
 use std::path::{Path, PathBuf};
 
 /// One VST3 audio-module class read from a bundle.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Vst3Class {
     /// Class id as 32 uppercase hex digits.
     pub cid: String,

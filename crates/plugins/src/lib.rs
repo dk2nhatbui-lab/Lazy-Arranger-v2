@@ -257,7 +257,86 @@ fn au_plugins(path: &Path) -> Vec<FoundPlugin> {
         .collect()
 }
 
+#[derive(serde::Deserialize)]
+struct ScannedClass {
+    cid: String,
+    name: String,
+    vendor: String,
+    version: String,
+    subcategories: String,
+}
+
+fn scanner_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("ARRANGER_PLUGIN_SCANNER") {
+        let path = PathBuf::from(path);
+        return path.is_file().then_some(path);
+    }
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let names = ["lazy-arranger-plugin-scan", "plugin-scan"];
+    for base in [dir, dir.parent()?] {
+        for name in names {
+            let candidate = base.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+            if candidate.is_file() && candidate != exe {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn scan_vst3_isolated(path: &Path) -> Option<Vec<ScannedClass>> {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    let helper = scanner_path()?;
+    let mut child = Command::new(helper)
+        .arg(path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(_) => {
+                let _ = child.kill();
+                return None;
+            }
+        }
+    }
+    let output = child.wait_with_output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    serde_json::from_slice(&output.stdout).ok()
+}
+
 fn vst3_plugins(path: &Path) -> Vec<FoundPlugin> {
+    if let Some(classes) = scan_vst3_isolated(path)
+        && !classes.is_empty()
+    {
+        return classes
+            .into_iter()
+            .map(|class| FoundPlugin {
+                name: class.name,
+                vendor: class.vendor,
+                version: class.version,
+                identifier: class.cid,
+                role: role_from_text(&class.subcategories),
+                path: path.to_path_buf(),
+                format: Format::Vst3,
+            })
+            .collect();
+    }
     if let Ok(classes) = plugin_host::scan_vst3(path)
         && !classes.is_empty()
     {
@@ -427,6 +506,17 @@ mod tests {
         assert_eq!(found[1].vendor, "Example");
         assert_eq!(found[1].role, Role::Instrument);
         let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn scanner_json_shape_parses() {
+        let text = br#"[{"cid":"0123456789ABCDEF0123456789ABCDEF",
+            "name":"Synth","vendor":"Example","version":"1.0",
+            "subcategories":"Instrument|Synth"}]"#;
+        let classes: Vec<ScannedClass> = serde_json::from_slice(text).expect("json");
+        assert_eq!(classes.len(), 1);
+        assert_eq!(classes[0].name, "Synth");
+        assert_eq!(role_from_text(&classes[0].subcategories), Role::Instrument);
     }
 
     #[test]
