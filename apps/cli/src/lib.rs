@@ -221,6 +221,11 @@ enum Commands {
         /// Action, e.g. `play`, `stop`, `scene 1`, `fader track-2`.
         action: String,
     },
+    /// Export a project to MusicXML, re-import it and report losses.
+    MusicXmlAudit {
+        /// Project `.json` path.
+        project: PathBuf,
+    },
     /// Render the mix to a WAV and insert it as an audio track.
     Bounce {
         /// Project `.json` path.
@@ -786,6 +791,35 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 entry.path.display()
             );
             style_command(&entry.path, section.as_deref(), out.as_ref(), &[], false)
+        }
+        Commands::MusicXmlAudit { project } => {
+            let project = read_project(&project)?;
+            let xml = musicxml::export(&project.song, &project.song.name);
+            let imported = musicxml::import::import(&xml)?;
+            let delta = musicxml::audit::audit(&project.song, &imported);
+            println!(
+                "tracks {}->{}, notes {}->{}, chords {}->{}, lyrics {}->{}, marks {}->{}",
+                delta.tracks.0,
+                delta.tracks.1,
+                delta.notes.0,
+                delta.notes.1,
+                delta.chords.0,
+                delta.chords.1,
+                delta.lyrics.0,
+                delta.lyrics.1,
+                delta.marks.0,
+                delta.marks.1
+            );
+            for note in &delta.info {
+                println!("  {note}");
+            }
+            for change in &delta.changes {
+                println!("  {change}");
+            }
+            if delta.is_clean() {
+                println!("round trip preserves the audited fields");
+            }
+            Ok(())
         }
         Commands::Bounce {
             project,

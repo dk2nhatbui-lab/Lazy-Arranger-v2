@@ -825,3 +825,11 @@ chunks, program changes, channel volumes and pans, chord markers, lyric events
 and note-ons (drum note-ons on channel 10). `export-keyboard` prints the summary;
 the demo produced 5 tracks, 4 programs/volumes/pans, 16 chord markers and 128
 drum notes. Acceptance by a real PSR-S970 remains unverified.
+
+### MusicXML round-trip audit
+
+`musicxml::audit` compares a song with its re-imported copy: track, note, chord,
+lyric and mark counts, naming every loss and classifying note reductions that
+tie merging explains. `music-xml-audit` prints it. The demo round trip keeps
+chords (16), lyrics (2) and marks (2), with 16 of 22 expected tie merges; drum
+pitch and velocity are still lost by export.

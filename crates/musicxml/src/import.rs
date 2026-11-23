@@ -21,6 +21,31 @@ pub enum ImportError {
     NoParts,
 }
 
+fn read_harmony(harmony: roxmltree::Node<'_, '_>) -> Option<music_core::Chord> {
+    let root = harmony.children().find(|node| node.has_tag_name("root"))?;
+    let step = text_of(root, "root-step")?;
+    let alter = text_of(root, "root-alter")
+        .and_then(|text| text.parse::<i32>().ok())
+        .unwrap_or(0);
+    let kind = text_of(harmony, "kind").unwrap_or_else(|| String::from("major"));
+    let suffix = match kind.as_str() {
+        "minor" => "m",
+        "dominant" => "7",
+        "major-seventh" => "maj7",
+        "minor-seventh" => "m7",
+        "diminished" => "dim",
+        "half-diminished" => "m7b5",
+        "augmented" => "aug",
+        _ => "",
+    };
+    let accidental = match alter {
+        1 => "#",
+        -1 => "b",
+        _ => "",
+    };
+    music_core::Chord::parse(&format!("{step}{accidental}{suffix}")).ok()
+}
+
 fn read_mark(direction: roxmltree::Node<'_, '_>, tick: Tick) -> Option<project::song::Mark> {
     use project::song::{Articulation, Dynamic, Mark, MarkKind};
     let body = direction
@@ -163,6 +188,17 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
             {
                 if let Some(mark) = read_mark(direction, measure_start) {
                     song.marks.push(mark);
+                }
+            }
+            for harmony in measure
+                .children()
+                .filter(|node| node.has_tag_name("harmony"))
+            {
+                if let Some(chord) = read_harmony(harmony) {
+                    song.chords.push(project::song::ChordEvent {
+                        tick: measure_start,
+                        chord,
+                    });
                 }
             }
             let mut cursor = measure_start;

@@ -5,6 +5,7 @@
 //! match a plain note value are written without a `<type>`, which is valid
 //! MusicXML; tuplets and ties are not notated yet.
 
+pub mod audit;
 pub mod import;
 
 #[cfg(test)]
@@ -78,6 +79,7 @@ pub fn export(song: &Song, title: &str) -> String {
             .notes
             .iter()
             .any(|note| note.channel.zero_based() == 9);
+        let mut lyric_written: std::collections::HashSet<Tick> = std::collections::HashSet::new();
         for bar_index in 0..bars {
             let start = bar_index * bar;
             let stop = start + bar;
@@ -100,12 +102,21 @@ pub fn export(song: &Song, title: &str) -> String {
                 });
                 out.push_str("      </attributes>\n");
             }
-            for mark in song
-                .marks
-                .iter()
-                .filter(|mark| mark.tick >= start && mark.tick < stop)
-            {
-                write_direction(&mut out, mark.kind);
+            if index == 0 {
+                for mark in song
+                    .marks
+                    .iter()
+                    .filter(|mark| mark.tick >= start && mark.tick < stop)
+                {
+                    write_direction(&mut out, mark.kind);
+                }
+                for chord in song
+                    .chords
+                    .iter()
+                    .filter(|event| event.tick >= start && event.tick < stop)
+                {
+                    write_harmony(&mut out, chord.chord);
+                }
             }
             let ties = tie_flags(track);
             let mut notes: Vec<&Note> = track
@@ -120,11 +131,14 @@ pub fn export(song: &Song, title: &str) -> String {
                     write_rest(&mut out, note.start - cursor);
                 }
                 let duration = note.duration.min(stop - note.start).max(1);
-                let lyric = song
-                    .lyrics
-                    .iter()
-                    .find(|event| event.tick == note.start)
-                    .map(|event| event.text.as_str());
+                let lyric = if index == 0 && lyric_written.insert(note.start) {
+                    song.lyrics
+                        .iter()
+                        .find(|event| event.tick == note.start)
+                        .map(|event| event.text.as_str())
+                } else {
+                    None
+                };
                 let (tie_start, tie_stop) =
                     ties.get(&note.id.get()).copied().unwrap_or((false, false));
                 write_note(&mut out, note, duration, drums, lyric, tie_start, tie_stop);
@@ -158,6 +172,43 @@ fn tie_flags(track: &project::song::Track) -> std::collections::BTreeMap<u32, (b
         open.insert(pitch, (note.id.get(), note.start + note.duration.max(1)));
     }
     flags
+}
+
+fn write_harmony(out: &mut String, chord: music_core::Chord) {
+    let pc = chord.root.as_u8();
+    let letter = match pc {
+        0 | 1 => "C",
+        2 | 3 => "D",
+        4 => "E",
+        5 => "F",
+        6 | 7 => "G",
+        8 | 9 => "A",
+        _ => "B",
+    };
+    let alter = match pc {
+        1 | 3 | 6 | 8 | 10 => 1,
+        _ => 0,
+    };
+    let kind = match chord.quality {
+        music_core::ChordQuality::Minor => "minor",
+        music_core::ChordQuality::Dominant7 => "dominant",
+        music_core::ChordQuality::Major7 => "major-seventh",
+        music_core::ChordQuality::Minor7 => "minor-seventh",
+        music_core::ChordQuality::Diminished | music_core::ChordQuality::Diminished7 => {
+            "diminished"
+        }
+        music_core::ChordQuality::HalfDiminished7 => "half-diminished",
+        music_core::ChordQuality::Augmented => "augmented",
+        _ => "major",
+    };
+    out.push_str(&format!(
+        "      <harmony><root><root-step>{letter}</root-step>{alter_xml}</root><kind>{kind}</kind></harmony>\n",
+        alter_xml = if alter == 1 {
+            "<root-alter>1</root-alter>"
+        } else {
+            ""
+        }
+    ));
 }
 
 fn write_direction(out: &mut String, kind: project::song::MarkKind) {
