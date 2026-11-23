@@ -50,7 +50,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 ## Scorecard
 
 39 sections at round 216: 0 fully verified beyond their Rust subset, 39 partial,
-0 missing; 659 tests pass. No section is missing at row level; partials need hardware,
+0 missing; 660 tests pass. No section is missing at row level; partials need hardware,
 proprietary formats, plugin hosting or a model. See
 `docs/audit/cpp-features-crosscheck.md` for row evidence.
 
@@ -1033,18 +1033,14 @@ keeps it inside the decoded loop; the Drum pads window shows start/end/length an
 four ±10 ms buttons, re-auditioning after a change. A unit test covers clamping
 and the missing-pad case. There is no waveform dragging or drum-slice stretch.
 
-### Clef/key-signature layout limitation (scoped, not implemented)
+### Clefs and key-signature limitation
 
-The engraver deliberately fits four 4/4 measures on a 595 pt-wide page with
-48 pt margins: four required widths of about 112 pt plus three 16 pt gaps use
-496 of 499 pt of content. A standard clef + key-signature gutter needs roughly
-30 pt before the first note; reserving it leaves 469 pt and forces three
-measures per system, changing every page/system count and capture. Drawing a
-key signature inside the existing 16 pt margin before the time signature is not
-musically legible. Clefs and key signatures are therefore a **scoped
-limitation** pending a page-size or system-density decision (for example an
-opt-in three-measure layout), not a hidden bug. Time signatures and measure
-numbers are drawn; accidentals are spelled from the detected key.
+G and F clefs are drawn from bundled public-domain PNG glyphs on canvas and in
+the PDF. A single staff selects treble or bass from the average pitch; a grand
+staff draws treble and bass. They fit in the existing left margin without
+changing four-measures-per-system. Key signatures are still absent: the margin
+is already used by clef and time signature, and a key gutter would force three
+measures per system. Key spelling and accidentals are still applied.
 
 ### Recorded-note quantise
 
@@ -1088,3 +1084,7 @@ Audio capture currently inserts one audio track per take. A real take list needs
 persistent per-track take/comp model (schema migration) and a comp-region UI;
 neither is implemented, and it is not represented as finished. The current
 workflow is to record takes as separate tracks and mute/unmute or trim them.
+
+Clef images live in `crates/score/assets/` with `ATTRIBUTION.md`; they are
+public-domain Wikimedia files with staff lines removed. Canvas textures and PDF
+image XObjects use the same bytes.

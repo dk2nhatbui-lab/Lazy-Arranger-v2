@@ -46,10 +46,10 @@ decision that is absent here.
 5. **Hardware acceptance** — no MIDI keyboard, PSR-S970, printer or audio device
    was available, so MIDI sends, keyboard record/echo, cpal audibility,
    monitoring latency and print jobs remain hardware-unverified.
-6. **Clef/key-signature layout** — needs a product decision: reserving a
-   clef/key gutter forces three measures per system on the current 595 pt page
-   (four measures use 496 of 499 pt). This is documented as a scoped limitation,
-   not silently degraded.
+6. **Key-signature layout** — G/F clefs are now drawn on canvas and PDF without
+   changing the four-measure system. A key-signature gutter still needs a
+   product decision: it would force three measures per system on the current
+   595 pt page (four measures use 496 of 499 pt).
 
 ## Scoped limitations that remain implementable
 

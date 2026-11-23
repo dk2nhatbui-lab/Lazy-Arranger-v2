@@ -6,6 +6,7 @@
 //! fixed measure widths; spelling, beams, ties, collisions, lyrics and marks
 //! come later.
 
+pub mod clef;
 pub mod guitar;
 pub mod pdf;
 pub mod spelling;

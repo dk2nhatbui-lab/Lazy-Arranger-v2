@@ -7,12 +7,28 @@
 
 use std::fmt::Write as _;
 
+use crate::clef::{self, ClefImage};
 use crate::{Engraved, Settings};
 
 /// Writes the engraved document as PDF bytes.
 #[must_use]
 pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
     let page_count = engraved.pages.len().max(1);
+    let treble_id = 4 + page_count * 2;
+    let treble_mask = treble_id + 1;
+    let bass_id = treble_id + 2;
+    let bass_mask = bass_id + 1;
+    let average_pitch = if engraved.notes.is_empty() {
+        60.0
+    } else {
+        engraved
+            .notes
+            .iter()
+            .map(|note| f32::from(note.pitch.as_u8()))
+            .sum::<f32>()
+            / engraved.notes.len() as f32
+    };
+    let single_bass = average_pitch < 52.0;
     let mut objects: Vec<Vec<u8>> = Vec::new();
     objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
     let kids: Vec<String> = (0..page_count)
@@ -80,7 +96,49 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                         y
                     );
                 }
-                let signature_x = settings.margin - 16.0;
+                if !engraved.percussion {
+                    let treble = if engraved.staves == 2 {
+                        true
+                    } else {
+                        !single_bass
+                    };
+                    let bass = if engraved.staves == 2 {
+                        true
+                    } else {
+                        single_bass
+                    };
+                    let space = settings.staff_space;
+                    if treble {
+                        let image = clef::treble();
+                        draw_image(
+                            &mut content,
+                            "ClefTreble",
+                            settings.margin - 42.0,
+                            system.y - 2.0 * space,
+                            7.0 * space,
+                            image,
+                            settings.page_height,
+                        );
+                    }
+                    if bass {
+                        let image = clef::bass();
+                        let offset = if engraved.staves == 2 {
+                            6.0 * space
+                        } else {
+                            0.0
+                        };
+                        draw_image(
+                            &mut content,
+                            "ClefBass",
+                            settings.margin - 48.0,
+                            system.y + offset - 0.3 * space,
+                            3.2 * space,
+                            image,
+                            settings.page_height,
+                        );
+                    }
+                }
+                let signature_x = settings.margin - 4.0;
                 let numerator_y = settings.page_height - (top + settings.staff_space);
                 let denominator_y = settings.page_height - (top + 3.0 * settings.staff_space);
                 let _ = writeln!(
@@ -316,7 +374,7 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
         }
         objects.push(
             format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Resources << /Font << /F1 3 0 R >> >> /Contents {contents} 0 R >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Resources << /Font << /F1 3 0 R >> /XObject << /ClefTreble {treble_id} 0 R /ClefBass {bass_id} 0 R >> >> /Contents {contents} 0 R >>",
                 w = settings.page_width,
                 h = settings.page_height,
                 contents = 5 + index * 2
@@ -330,6 +388,13 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
         stream.extend_from_slice(b"endstream");
         objects.push(stream);
     }
+
+    let treble = clef::treble();
+    objects.push(image_stream(treble, treble_mask));
+    objects.push(alpha_stream(treble));
+    let bass = clef::bass();
+    objects.push(image_stream(bass, bass_mask));
+    objects.push(alpha_stream(bass));
 
     let mut out = Vec::new();
     out.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
@@ -354,6 +419,59 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
         .as_bytes(),
     );
     out
+}
+
+fn draw_image(
+    content: &mut String,
+    name: &str,
+    x: f32,
+    top: f32,
+    height: f32,
+    image: &ClefImage,
+    page_height: f32,
+) {
+    let width = height * image.width as f32 / image.height as f32;
+    let lower = page_height - (top + height);
+    let _ = writeln!(
+        content,
+        "q {width:.2} 0 0 {height:.2} {x:.2} {lower:.2} cm /{name} Do Q"
+    );
+}
+
+fn image_stream(image: &ClefImage, mask: usize) -> Vec<u8> {
+    let mut rgb = Vec::with_capacity(image.rgba.len() / 4 * 3);
+    for pixel in image.rgba.as_chunks::<4>().0 {
+        rgb.extend_from_slice(&pixel[..3]);
+    }
+    let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&rgb, 6);
+    let mut stream = format!(
+        "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask {mask} 0 R /Filter /FlateDecode /Length {} >>\nstream\n",
+        image.width,
+        image.height,
+        compressed.len()
+    )
+    .into_bytes();
+    stream.extend_from_slice(&compressed);
+    stream.extend_from_slice(b"\nendstream");
+    stream
+}
+
+fn alpha_stream(image: &ClefImage) -> Vec<u8> {
+    let mut alpha = Vec::with_capacity(image.rgba.len() / 4);
+    for pixel in image.rgba.as_chunks::<4>().0 {
+        alpha.push(pixel[3]);
+    }
+    let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&alpha, 6);
+    let mut stream = format!(
+        "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length {} >>\nstream\n",
+        image.width,
+        image.height,
+        compressed.len()
+    )
+    .into_bytes();
+    stream.extend_from_slice(&compressed);
+    stream.extend_from_slice(b"\nendstream");
+    stream
 }
 
 fn accidental(content: &mut String, alter: i8, x: f32, y: f32, radius: f32) {
@@ -534,6 +652,8 @@ mod tests {
         assert!(text.contains("(Test score) Tj"));
         assert!(text.contains("(4) Tj"), "time signature digits");
         assert!(text.contains("(1) Tj"), "measure number");
+        assert!(text.contains("/ClefTreble"), "treble clef image object");
+        assert!(text.contains("/ClefBass"), "bass clef image object");
         assert!(!text.contains(" C? "), "no music glyphs from base fonts");
     }
 

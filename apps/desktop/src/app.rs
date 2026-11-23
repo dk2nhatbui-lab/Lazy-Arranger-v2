@@ -476,6 +476,13 @@ impl ShellApp {
             Err(_) => Editor::new(demo_project()).expect("the demo project is valid"),
         };
         let song_name_input = editor.song().name.clone();
+        let initial_track = std::env::var("ARRANGER_TRACK")
+            .ok()
+            .and_then(|value| value.trim().parse::<u32>().ok())
+            .and_then(|value| TrackId::new(value).ok())
+            .filter(|id| editor.song().tracks.iter().any(|track| track.id == *id));
+        let mut roll = RollState::default();
+        roll.selected = initial_track;
         Self {
             editor,
             icon,
@@ -574,7 +581,7 @@ impl ShellApp {
             score_entry: false,
             score_page: 0,
             score_zoom: 1.0,
-            score_grand: false,
+            score_grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
             score_pdf_path: String::from("score.pdf"),
             score_state: crate::score_view::ScoreState::default(),
             lyrics_open: initial_window == "lyrics",
@@ -608,7 +615,7 @@ impl ShellApp {
             synth: arranging::SynthSpec::default(),
             project_path,
             view: initial_view,
-            roll: RollState::default(),
+            roll,
             playing: false,
             position: 0,
             shown: false,

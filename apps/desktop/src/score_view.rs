@@ -59,9 +59,22 @@ pub struct ScoreDrag {
 }
 
 /// Persistent score canvas state.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct ScoreState {
     drag: Option<(Tick, u8, Tick, bool)>,
+    clef_treble: Option<egui::TextureHandle>,
+    clef_bass: Option<egui::TextureHandle>,
+}
+
+impl std::fmt::Debug for ScoreState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ScoreState")
+            .field("dragging", &self.drag.is_some())
+            .field("treble_loaded", &self.clef_treble.is_some())
+            .field("bass_loaded", &self.clef_bass.is_some())
+            .finish()
+    }
 }
 
 /// Tick and pitch under a page position.
@@ -134,6 +147,39 @@ pub fn show(
 ) -> ScoreOutcome {
     let settings = Settings::default();
     let page_index = clamp_page(engraved, page);
+    if state.clef_treble.is_none() {
+        let image = score::clef::treble();
+        state.clef_treble = Some(ui.ctx().load_texture(
+            "score-treble-clef",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [image.width as usize, image.height as usize],
+                &image.rgba,
+            ),
+            egui::TextureOptions::LINEAR,
+        ));
+    }
+    if state.clef_bass.is_none() {
+        let image = score::clef::bass();
+        state.clef_bass = Some(ui.ctx().load_texture(
+            "score-bass-clef",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [image.width as usize, image.height as usize],
+                &image.rgba,
+            ),
+            egui::TextureOptions::LINEAR,
+        ));
+    }
+    let average_pitch = if engraved.notes.is_empty() {
+        60.0
+    } else {
+        engraved
+            .notes
+            .iter()
+            .map(|note| f32::from(note.pitch.as_u8()))
+            .sum::<f32>()
+            / engraved.notes.len() as f32
+    };
+    let single_bass = average_pitch < 52.0;
     let (response, painter) =
         ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
     let centre = response.rect.center();
@@ -196,7 +242,56 @@ pub fn show(
                     Stroke::new(1.6_f32, Color32::from_rgb(0x14, 0x14, 0x14)),
                 );
             }
-            let signature_x = origin.x + (settings.margin - 16.0) * zoom;
+            if !engraved.percussion {
+                let space = settings.staff_space;
+                let (treble, bass) = if engraved.staves == 2 {
+                    (true, true)
+                } else {
+                    (!single_bass, single_bass)
+                };
+                if treble && let Some(texture) = &state.clef_treble {
+                    let image = score::clef::treble();
+                    let height = 7.0 * space;
+                    let width = height * image.width as f32 / image.height as f32;
+                    let rect = egui::Rect::from_min_size(
+                        egui::Pos2::new(
+                            origin.x + (settings.margin - 42.0) * zoom,
+                            origin.y + (system.y - 2.0 * space) * zoom,
+                        ),
+                        egui::Vec2::new(width * zoom, height * zoom),
+                    );
+                    painter.image(
+                        texture.id(),
+                        rect,
+                        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
+                        Color32::from_rgb(0x14, 0x14, 0x14),
+                    );
+                }
+                if bass && let Some(texture) = &state.clef_bass {
+                    let image = score::clef::bass();
+                    let height = 3.2 * space;
+                    let width = height * image.width as f32 / image.height as f32;
+                    let offset = if engraved.staves == 2 {
+                        6.0 * space
+                    } else {
+                        0.0
+                    };
+                    let rect = egui::Rect::from_min_size(
+                        egui::Pos2::new(
+                            origin.x + (settings.margin - 48.0) * zoom,
+                            origin.y + (system.y + offset - 0.3 * space) * zoom,
+                        ),
+                        egui::Vec2::new(width * zoom, height * zoom),
+                    );
+                    painter.image(
+                        texture.id(),
+                        rect,
+                        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
+                        Color32::from_rgb(0x14, 0x14, 0x14),
+                    );
+                }
+            }
+            let signature_x = origin.x + (settings.margin - 4.0) * zoom;
             let numerator_y = origin.y + staff_line_y(system.y, 1, settings, zoom);
             let denominator_y = origin.y + staff_line_y(system.y, 3, settings, zoom);
             painter.text(
