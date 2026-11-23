@@ -58,6 +58,38 @@ impl Pads {
         })
     }
 
+    /// Slice start in milliseconds.
+    #[must_use]
+    pub fn start_ms(&self, pad: Pad) -> u64 {
+        ((pad.slice.start as f64 / f64::from(self.sample_rate.max(1))) * 1000.0).round() as u64
+    }
+
+    /// Slice end in milliseconds.
+    #[must_use]
+    pub fn end_ms(&self, pad: Pad) -> u64 {
+        ((pad.slice.end as f64 / f64::from(self.sample_rate.max(1))) * 1000.0).round() as u64
+    }
+
+    /// Nudges one slice's start/end by milliseconds, keeping a 64-sample minimum.
+    pub fn adjust(&mut self, note: u8, start_delta_ms: i32, end_delta_ms: i32) -> bool {
+        let Some(pad) = self.kit.pads.iter_mut().find(|pad| pad.note == note) else {
+            return false;
+        };
+        let rate = self.sample_rate.max(1) as f64;
+        let start_delta = (f64::from(start_delta_ms) / 1000.0 * rate).round() as isize;
+        let end_delta = (f64::from(end_delta_ms) / 1000.0 * rate).round() as isize;
+        let old = pad.slice;
+        let minimum = 64_usize.min(self.samples.len().max(1));
+        let maximum = self.samples.len().max(minimum);
+        let start = (pad.slice.start as isize + start_delta)
+            .clamp(0, maximum.saturating_sub(minimum) as isize) as usize;
+        let end = (pad.slice.end as isize + end_delta)
+            .clamp((start + minimum) as isize, maximum as isize) as usize;
+        pad.slice.start = start.min(end.saturating_sub(minimum));
+        pad.slice.end = end;
+        pad.slice != old
+    }
+
     /// Pad length in milliseconds.
     #[must_use]
     pub fn millis(&self, pad: Pad) -> u64 {
@@ -152,6 +184,36 @@ mod tests {
         assert_eq!(label(38), "Snare");
         assert_eq!(label(99), "Pad");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn slice_boundaries_nudge_and_stay_valid() {
+        let mut pads = Pads {
+            kit: Kit {
+                pads: vec![Pad {
+                    note: 36,
+                    slice: audio::drums::Slice {
+                        start: 100,
+                        end: 1000,
+                    },
+                }],
+            },
+            samples: vec![0.5; 2000],
+            sample_rate: 48_000,
+        };
+        assert!(pads.adjust(36, 10, 0));
+        assert!(pads.kit.pads[0].slice.start > 100);
+        assert!(pads.adjust(36, -10_000, 0));
+        assert_eq!(pads.kit.pads[0].slice.start, 0);
+        assert!(pads.adjust(36, 10_000, 0));
+        assert!(pads.kit.pads[0].slice.len() >= 64);
+        pads.kit.pads[0].slice = audio::drums::Slice {
+            start: 100,
+            end: 1000,
+        };
+        assert!(pads.adjust(36, 0, -10_000));
+        assert!(pads.kit.pads[0].slice.len() >= 64);
+        assert!(!pads.adjust(99, 10, 0));
     }
 
     #[test]

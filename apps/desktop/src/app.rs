@@ -334,6 +334,7 @@ pub struct ShellApp {
     pad_state: Option<crate::pads::Pads>,
     pad_path: String,
     pad_player: Option<audio::player::Player>,
+    pad_selected: Option<u8>,
     assistant_open: bool,
     assistant_input: String,
     assistant_log: Vec<String>,
@@ -498,6 +499,7 @@ impl ShellApp {
             pad_state: None,
             pad_path: String::new(),
             pad_player: None,
+            pad_selected: None,
             assistant_open: initial_window == "assistant",
             assistant_input: String::new(),
             assistant_log: Vec::new(),
@@ -1687,6 +1689,7 @@ impl ShellApp {
                 });
                 if let Some(pads) = &self.pad_state {
                     if let Some(pad) = crate::pads::show(ui, pads) {
+                        self.pad_selected = Some(pad.note);
                         match audio::player::Player::new(pads.audio(pad)) {
                             Ok(player) => self.pad_player = Some(player),
                             Err(error) => self.status = Some(error),
@@ -1698,6 +1701,47 @@ impl ShellApp {
                             .size(10.0)
                             .color(theme::text_dim()),
                     );
+                }
+                if let Some(note) = self.pad_selected
+                    && let Some(pads) = &mut self.pad_state
+                    && let Some(pad) = pads.kit.pads.iter().find(|pad| pad.note == note).copied()
+                {
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Pad {note} · start {} ms · end {} ms · {} ms",
+                            pads.start_ms(pad),
+                            pads.end_ms(pad),
+                            pads.millis(pad)
+                        ))
+                        .size(10.0)
+                        .color(theme::text_dim()),
+                    );
+                    let mut change = None;
+                    ui.horizontal(|ui| {
+                        if ui.small_button("Start -10").clicked() {
+                            change = Some((-10, 0));
+                        }
+                        if ui.small_button("Start +10").clicked() {
+                            change = Some((10, 0));
+                        }
+                        if ui.small_button("End -10").clicked() {
+                            change = Some((0, -10));
+                        }
+                        if ui.small_button("End +10").clicked() {
+                            change = Some((0, 10));
+                        }
+                    });
+                    if let Some((start, end)) = change
+                        && pads.adjust(note, start, end)
+                        && let Some(pad) =
+                            pads.kit.pads.iter().find(|pad| pad.note == note).copied()
+                    {
+                        match audio::player::Player::new(pads.audio(pad)) {
+                            Ok(player) => self.pad_player = Some(player),
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
                 }
             });
         if !open {

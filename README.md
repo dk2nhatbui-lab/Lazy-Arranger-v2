@@ -32,6 +32,7 @@ blockers are listed at the end.
 | Mixer: buses, sends, pan, automation, master gain/limiter/reverb/chorus, peak/RMS and per-track meters | verified render tests | `audio`, Mix view |
 | Stems, freeze, 16/24/32-bit float WAV, gain/normalize | verified | `audio`, CLI |
 | Audio references: trim, fades, resample-to-fit, waveform zoom, normalize | verified helpers | `audio`, Editor |
+| Drum pads: onset slicing, pad audition, ±10 ms boundary nudge | verified model; player unverified | `audio::drums`, Drum pads window |
 | Audio analysis: monophonic pitch, chroma chords, link-to-MIDI | monophonic verified | `audio::analysis`, `link` |
 | MIDI profiles, maps, learn, channel check, panic | verified builders; hardware unverified | `crates/midi-devices` |
 | L6max take scan/import; Korg recognition | synthetic and real-file scans | `audio::l6max`, `style-formats::korg` |
