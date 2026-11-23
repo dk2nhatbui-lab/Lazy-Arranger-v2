@@ -73,3 +73,6 @@ on `d3b0199` (slice nudging) passed ubuntu 1m16s, macos 1m18s, windows 2m37s.
 
 Run [45166193525](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45166193525)
 on `752b1ca` (recorded-note quantise) passed windows 1m55s, macos 1m8s, ubuntu 1m11s.
+
+Run [45167024039](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45167024039)
+on `467e0c7` (dot placement) passed ubuntu 1m14s, windows 1m53s, macos 1m5s.

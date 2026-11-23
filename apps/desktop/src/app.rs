@@ -2774,7 +2774,7 @@ impl ShellApp {
                         egui::ComboBox::from_id_salt("settings-language")
                             .selected_text(&self.settings.language)
                             .show_ui(ui, |ui| {
-                                for tag in ["en", "da", "fr", "vi", "de", "es"] {
+                                for tag in ["en", "da", "fr", "vi", "de", "es", "it", "pt"] {
                                     ui.selectable_value(
                                         &mut self.settings.language,
                                         tag.to_string(),

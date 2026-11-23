@@ -42,7 +42,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 33 | Groove | partial | Timing offset and velocity level per 1/16 slot, extract/apply with timing and accent amounts, feel-match score, G applies the selected track's groove to the others. Grooves save to and load from `.groove` files (`groove-library save/list/apply`; the demo's drums saved and applied to bass). No audio-derived grooves, word descriptions or Play Before/After |
 | 34 | Song Forms | partial | Sections from markers, Short/Gig/Long-intro/Instrumental presets, plan and apply to timeline with chords and markers, undo. Drum-fill and lead-in transitions with automatic choice (T), plus Hold (sustains the last chord for a bar) and Break (silences the bar before the join) through `form-transition`; on the demo hold added 3 notes and break removed 21. Join loops repeat a marker section in place and shift later notes, chords, lyrics, marks, markers, clips, automation and audio references (`join-loop A --times 2` added 168 notes and 8 chords). No learned preferences |
 | 35 | Kids Mode | partial | Settings switch restricts tabs to Perform and Arrange, forces a simple view, enlarges header controls and shows a translated banner. Perform shows Now/Next chords and full-width chord pads; Kids Mode shows a chord step-through that follows song edits (position kept when possible) with Next chord, Start over and a Load kids demo button (four slow chords), above 16 big chord pads that audition. In Arrange the sidebar swaps to large Undo/Redo/Play/Stop/Settings plus Lessons and Theory and hides the record row and advanced window buttons; there is no separate simplified workflow beyond this |
-| 36 | Languages (EN/DA/FR/VI/DE/ES) | partial | Six string tables (English, Danish, French, Vietnamese, German, Spanish) with a runtime switch and per-language completeness tests. No plural rules, localized help or other locales |
+| 36 | Languages (EN/DA/FR/VI/DE/ES/IT/PT) | partial | Eight string tables (English, Danish, French, Vietnamese, German, Spanish, Italian, Portuguese) with a runtime switch and per-language completeness tests; the Help window has three sections translated into all eight (`docs/audit/help.png`, Italian sample `docs/audit/help-it.png`) and the Inspector count label follows each language's plural rule (French singular at 0/1, Vietnamese invariant, the others singular at 1). No other locales |
 | 37 | Settings, shortcut editor, updates | partial | Settings file, settings window, shortcut list, MIDI port picker, and an update answer that states no channel is configured. Six bindings (undo/redo/save/save-as/open/play) are editable in the Shortcuts window and used by the keyboard handler, reachable from Windows and F1; no updater or telemetry controls |
 | 38 | Performance and safety: native, idle CPU, plugin scan, damaged-file tolerance | partial | Native Rust, audio thread separate, damaged styles counted; idle CPU and plugin scan unmeasured/absent |
 | 39 | Demo content (2 songs + 540 styles) | partial | Sixteen-bar built-in demo (drums, bass, piano, pad, chords, marks, lyrics) on first run and via `demo-project`; the short MIDI `demo` remains. Named songs (arranger demo, kids demo, empty) load from the Songs & tutorial window (`docs/audit/songs.png`) with a four-step tutorial; no style pack or broader tutorial |
@@ -461,7 +461,7 @@ Current button (loads the playhead tempo) and Set at playhead
 
 ### Languages
 
-`Language` covers English, Danish, French, Vietnamese, German and Spanish; every
+`Language` covers English, Danish, French, Vietnamese, German, Spanish, Italian and Portuguese; every
 key has an entry for each, and a missing one still falls back to English. The
 Settings language list offers all six tags. Help text and plural rules remain
 English-only.
@@ -1068,3 +1068,9 @@ six noun tables. Other locales are not shipped.
 so grand-staff and ledger-line notes share the phase. A unit test covers line,
 space, ledger and zero-space cases. Other vertical rest collisions are not
 handled. The refreshed PDF capture is `docs/audit/score-page.png`.
+
+### Additional locales
+
+Italian and Portuguese join the six original locales: full 19-key string
+tables, Help sections, plural nouns/rules and Settings tags. The Italian Help
+capture is `docs/audit/help-it.png`. Other locales are still absent.

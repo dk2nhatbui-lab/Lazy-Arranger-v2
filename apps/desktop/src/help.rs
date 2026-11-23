@@ -167,6 +167,58 @@ const ES: &[Section] = &[
     },
 ];
 
+const IT: &[Section] = &[
+    Section {
+        title: "Per iniziare",
+        lines: &[
+            "Scegli un brano in Windows > Brani e tutorial.",
+            "Premi Riproduci, Spazio o Cmd/Ctrl+P.",
+            "Clicca sul righello per spostarti durante la riproduzione.",
+        ],
+    },
+    Section {
+        title: "Arrangiamento",
+        lines: &[
+            "Trascina una nota per spostarla; trascina il bordo destro per cambiarne la durata.",
+            "Maiusc-clic sui clip per selezionarne più di uno; le frecce spostano, Maiusc+frecce ridimensionano.",
+            "Snap 1/16 attiva o disattiva l'aggancio.",
+        ],
+    },
+    Section {
+        title: "Strumenti",
+        lines: &[
+            "Windows apre Mixer, Partitura, Lezioni, Teoria e altro.",
+            "Cmd/Ctrl+Z annulla una modifica; Cmd/Ctrl+Shift+Z la ripristina.",
+        ],
+    },
+];
+
+const PT: &[Section] = &[
+    Section {
+        title: "Primeiros passos",
+        lines: &[
+            "Escolha uma música em Windows > Músicas e tutorial.",
+            "Pressione Reproduzir, Espaço ou Cmd/Ctrl+P.",
+            "Clique na régua para saltar durante a reprodução.",
+        ],
+    },
+    Section {
+        title: "Arranjo",
+        lines: &[
+            "Arraste uma nota para movê-la; arraste a borda direita para redimensionar.",
+            "Shift-clique nos clipes para selecionar vários; as setas movem, Shift+setas redimensionam.",
+            "Snap 1/16 ativa ou desativa o encaixe.",
+        ],
+    },
+    Section {
+        title: "Ferramentas",
+        lines: &[
+            "Windows abre Mixer, Partitura, Lições, Teoria e mais.",
+            "Cmd/Ctrl+Z desfaz uma alteração; Cmd/Ctrl+Shift+Z refaz.",
+        ],
+    },
+];
+
 /// Help for one language.
 #[must_use]
 pub fn sections(language: Language) -> &'static [Section] {
@@ -177,6 +229,8 @@ pub fn sections(language: Language) -> &'static [Section] {
         Language::Vi => VI,
         Language::De => DE,
         Language::Es => ES,
+        Language::It => IT,
+        Language::Pt => PT,
     }
 }
 
@@ -193,6 +247,8 @@ mod tests {
             Language::Vi,
             Language::De,
             Language::Es,
+            Language::It,
+            Language::Pt,
         ] {
             let sections = sections(language);
             assert_eq!(sections.len(), 3);
@@ -204,5 +260,7 @@ mod tests {
         }
         assert_eq!(sections(Language::Fr)[0].title, "Pour commencer");
         assert_eq!(sections(Language::Es)[0].title, "Primeros pasos");
+        assert_eq!(sections(Language::It)[0].title, "Per iniziare");
+        assert_eq!(sections(Language::Pt)[0].title, "Primeiros passos");
     }
 }

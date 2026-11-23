@@ -23,7 +23,7 @@ accidental spacing, canvas and PDF/MusicXML round trip; audio render with six
 timbres and SF2, references with fades/stretch/waveform zoom, mixing, buses, master reverb/chorus/peak-RMS/per-track meters,
 automation, stems/freeze, float WAV and input capture (capture unverified);
 MIDI map with learn and a Launchkey pad preset, style catalog, theory helpers,
-settings with editable shortcuts, six languages with a translated Help window and localized plural rules, named demos and the
+settings with editable shortcuts, eight languages with a translated Help window and localized plural rules, named demos and the
 **93-tool** MCP server; marquee and Shift-click multi-clip selection, lyric Go, meter/measure numbers,
 printer choice and the Songs & tutorial window.
 

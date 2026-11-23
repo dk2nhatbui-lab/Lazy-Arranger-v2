@@ -1,6 +1,7 @@
 //! User-facing strings in the shipped languages.
 //!
-//! Six languages ship: English, Danish, French, Vietnamese, German and Spanish.
+//! Eight languages ship: English, Danish, French, Vietnamese, German, Spanish,
+//! Italian and Portuguese.
 //! Every key must have a non-empty entry in every table; a missing language
 //! falls back to English.
 
@@ -19,6 +20,10 @@ pub enum Language {
     De,
     /// Spanish.
     Es,
+    /// Italian.
+    It,
+    /// Portuguese.
+    Pt,
 }
 
 /// Noun pairs used by count labels.
@@ -66,6 +71,16 @@ pub fn nouns(language: Language) -> Nouns {
             clip: ("clip", "clips"),
             lane: ("pista de automatización", "pistas de automatización"),
         },
+        Language::It => Nouns {
+            note: ("nota", "note"),
+            clip: ("clip", "clip"),
+            lane: ("traccia di automazione", "tracce di automazione"),
+        },
+        Language::Pt => Nouns {
+            note: ("nota", "notas"),
+            clip: ("clipe", "clipes"),
+            lane: ("pista de automação", "pistas de automação"),
+        },
     }
 }
 
@@ -75,7 +90,9 @@ pub fn count(language: Language, count: usize, one: &str, many: &str) -> String 
     let plural = match language {
         Language::Fr => count > 1,
         Language::Vi => false,
-        Language::En | Language::Da | Language::De | Language::Es => count != 1,
+        Language::En | Language::Da | Language::De | Language::Es | Language::It | Language::Pt => {
+            count != 1
+        }
     };
     format!("{count} {}", if plural { many } else { one })
 }
@@ -90,6 +107,8 @@ impl Language {
             "vi" | "vietnamese" => Self::Vi,
             "de" | "german" => Self::De,
             "es" | "spanish" => Self::Es,
+            "it" | "italian" => Self::It,
+            "pt" | "portuguese" => Self::Pt,
             _ => Self::En,
         }
     }
@@ -104,6 +123,8 @@ impl Language {
             Self::Vi => "vi",
             Self::De => "de",
             Self::Es => "es",
+            Self::It => "it",
+            Self::Pt => "pt",
         }
     }
 }
@@ -261,6 +282,50 @@ const ES: &[(&str, &str)] = &[
     ("Stopped", "detenido"),
 ];
 
+const IT: &[(&str, &str)] = &[
+    ("Perform", "Esegui"),
+    ("Arrange", "Arrangiamento"),
+    ("Mix", "Mix"),
+    ("Loops", "Loop"),
+    ("Score", "Partitura"),
+    ("Save", "Salva"),
+    ("Undo", "Annulla"),
+    ("Redo", "Ripeti"),
+    ("Play", "Riproduci"),
+    ("Stop", "Ferma"),
+    ("Settings", "Impostazioni"),
+    ("Shortcuts", "Scorciatoie"),
+    ("Recent", "Recenti"),
+    ("Tracks", "Tracce"),
+    ("Kids Mode", "MODALITÀ BAMBINI"),
+    ("Open demo", "Apri demo"),
+    ("No project", "Nessun progetto caricato"),
+    ("Saved", "salvato"),
+    ("Stopped", "fermato"),
+];
+
+const PT: &[(&str, &str)] = &[
+    ("Perform", "Executar"),
+    ("Arrange", "Arranjo"),
+    ("Mix", "Mixagem"),
+    ("Loops", "Loops"),
+    ("Score", "Partitura"),
+    ("Save", "Salvar"),
+    ("Undo", "Desfazer"),
+    ("Redo", "Refazer"),
+    ("Play", "Reproduzir"),
+    ("Stop", "Parar"),
+    ("Settings", "Configurações"),
+    ("Shortcuts", "Atalhos"),
+    ("Recent", "Recentes"),
+    ("Tracks", "Faixas"),
+    ("Kids Mode", "MODO CRIANÇA"),
+    ("Open demo", "Abrir demo"),
+    ("No project", "Nenhum projeto carregado"),
+    ("Saved", "salvo"),
+    ("Stopped", "parado"),
+];
+
 const DA: &[(&str, &str)] = &[
     ("Perform", "Spil"),
     ("Arrange", "Arranger"),
@@ -316,6 +381,8 @@ fn table(language: Language) -> &'static [(&'static str, &'static str)] {
         Language::Vi => VI,
         Language::De => DE,
         Language::Es => ES,
+        Language::It => IT,
+        Language::Pt => PT,
     }
 }
 
@@ -371,13 +438,19 @@ mod tests {
             assert!(!text(Language::Vi, key).is_empty(), "{key:?} in Vietnamese");
             assert!(!text(Language::De, key).is_empty(), "{key:?} in German");
             assert!(!text(Language::Es, key).is_empty(), "{key:?} in Spanish");
+            assert!(!text(Language::It, key).is_empty(), "{key:?} in Italian");
+            assert!(!text(Language::Pt, key).is_empty(), "{key:?} in Portuguese");
         }
         assert_eq!(text(Language::Da, Key::Save), "Gem");
         assert_eq!(text(Language::Da, Key::Score), "Partitur");
         assert_eq!(text(Language::De, Key::Save), "Speichern");
         assert_eq!(text(Language::Es, Key::Save), "Guardar");
+        assert_eq!(text(Language::It, Key::Save), "Salva");
+        assert_eq!(text(Language::Pt, Key::Save), "Salvar");
         assert_eq!(Language::parse("de"), Language::De);
         assert_eq!(Language::parse("es"), Language::Es);
+        assert_eq!(Language::parse("it"), Language::It);
+        assert_eq!(Language::parse("pt"), Language::Pt);
         assert_ne!(
             text(Language::Da, Key::Arrange),
             text(Language::En, Key::Arrange)
@@ -393,6 +466,8 @@ mod tests {
         assert_eq!(count(Language::Vi, 3, "nốt", "nốt"), "3 nốt");
         assert_eq!(count(Language::De, 1, "Note", "Noten"), "1 Note");
         assert_eq!(count(Language::Es, 2, "nota", "notas"), "2 notas");
+        assert_eq!(count(Language::It, 1, "nota", "note"), "1 nota");
+        assert_eq!(count(Language::Pt, 2, "nota", "notas"), "2 notas");
         for language in [
             Language::En,
             Language::Da,
@@ -400,6 +475,8 @@ mod tests {
             Language::Vi,
             Language::De,
             Language::Es,
+            Language::It,
+            Language::Pt,
         ] {
             let nouns = nouns(language);
             assert!(!nouns.note.0.is_empty() && !nouns.note.1.is_empty());

@@ -39,7 +39,7 @@ blockers are listed at the end.
 | Library: JSON/CSV/TSV/MFD, playlists, browser | verified real MFD (1,653 rows) | `crates/library` |
 | MCP stdio/socket server, 93 tools | tool/reference tests and CLI runs | `crates/mcp` |
 | Desktop shell: Perform, Arrange, Mix, Loops, Score | runs; captures in `docs/audit/` | `apps/desktop` |
-| Light/dark palettes, six languages with plural rules, Kids Mode, lessons | verified tests; light capture | `theme`, `strings`, `lesson` |
+| Light/dark palettes, eight languages with plural rules, Kids Mode, lessons | verified tests; light capture | `theme`, `strings`, `lesson` |
 | Plugin discovery (VST3/AU) | scan only; no hosting | `crates/plugins` |
 | Real MIDI keyboard, PSR-S970, cpal audibility, print, microphone | **unverified** | no hardware here |
 
