@@ -600,3 +600,11 @@ one track's clip list through `SetClips`. The registry holds 90 tools.
 `get_plugin_slots` manage per-track slots, `get_scene_name`/`set_scene_name`
 handle one scene, and `get_marker_at` reads an exact marker. The registry holds
 90 tools.
+
+### Kids Arrange
+
+With `kids_mode` on, the track sidebar hides the recording row and the
+Inspector/Library/Pads/Assistant/MIDI/Controllers/Lyrics buttons and shows large
+Undo, Redo, Play/Pause, Stop and Settings buttons instead. The piano roll,
+mixer and windows that were already open keep working; there is no separate
+simplified song flow.

@@ -2963,64 +2963,87 @@ impl ShellApp {
                     ui.label(egui::RichText::new("no tracks").color(theme::TEXT_DIM));
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    ui.horizontal(|ui| {
-                        let label = if self.recording.is_some() {
-                            "Recording…"
-                        } else {
-                            "Record"
-                        };
-                        if ui.small_button(label).clicked() && self.recording.is_none() {
-                            let Some(keyboard) = self.settings.keyboard.clone() else {
-                                self.status =
-                                    Some(String::from("choose a MIDI keyboard in Settings first"));
-                                return;
-                            };
-                            let tempo = self.song().tempo_map.clone();
-                            let seconds = self.record_seconds;
-                            let (sender, receiver) = std::sync::mpsc::channel();
-                            std::thread::spawn(move || {
-                                let result = midi_devices::devices::record_to_song(
-                                    &keyboard, seconds, &tempo, "Recorded",
-                                )
-                                .map(|(song, _, _)| song)
-                                .map_err(|error| error.to_string());
-                                let _ = sender.send(result);
-                            });
-                            self.recording = Some(receiver);
-                            self.status = Some(format!("recording {seconds} s"));
-                        }
-                        ui.add(
-                            egui::DragValue::new(&mut self.record_seconds)
-                                .range(1.0..=60.0)
-                                .suffix(" s"),
-                        );
-                    });
-                    ui.horizontal_wrapped(|ui| {
-                        if ui.small_button("Inspector").clicked() {
-                            self.inspector_open = true;
-                        }
-                        if ui.small_button("Library").clicked() {
-                            self.library_open = true;
-                        }
-                        if ui.small_button("Pads").clicked() {
-                            self.pads_open = true;
-                        }
-                        if ui.small_button("Assistant").clicked() {
-                            self.assistant_open = true;
-                        }
-                        if ui.small_button("Settings").clicked() {
+                    if self.settings.kids_mode {
+                        ui.horizontal(|ui| {
+                            let size = egui::Vec2::new(74.0, 30.0);
+                            if ui.add_sized(size, egui::Button::new("Undo")).clicked() {
+                                let _ = self.editor.undo();
+                            }
+                            if ui.add_sized(size, egui::Button::new("Redo")).clicked() {
+                                let _ = self.editor.redo();
+                            }
+                            let play = if self.playing { "Pause" } else { "Play" };
+                            if ui.add_sized(size, egui::Button::new(play)).clicked() {
+                                self.toggle_playback();
+                            }
+                            if ui.add_sized(size, egui::Button::new("Stop")).clicked() {
+                                self.stop_playback();
+                            }
+                        });
+                        if ui.button("Settings").clicked() {
                             self.settings_open = true;
                         }
-                        if ui.small_button("MIDI map").clicked() {
-                            self.midi_map_open = true;
-                        }
-                        if ui.small_button("Controllers").clicked() {
-                            self.controller_open = true;
-                        }
-                        if ui.small_button("Lyrics").clicked() {
-                            self.lyrics_open = true;
-                        }
-                    });
+                    } else {
+                        ui.horizontal(|ui| {
+                            let label = if self.recording.is_some() {
+                                "Recording…"
+                            } else {
+                                "Record"
+                            };
+                            if ui.small_button(label).clicked() && self.recording.is_none() {
+                                let Some(keyboard) = self.settings.keyboard.clone() else {
+                                    self.status = Some(String::from(
+                                        "choose a MIDI keyboard in Settings first",
+                                    ));
+                                    return;
+                                };
+                                let tempo = self.song().tempo_map.clone();
+                                let seconds = self.record_seconds;
+                                let (sender, receiver) = std::sync::mpsc::channel();
+                                std::thread::spawn(move || {
+                                    let result = midi_devices::devices::record_to_song(
+                                        &keyboard, seconds, &tempo, "Recorded",
+                                    )
+                                    .map(|(song, _, _)| song)
+                                    .map_err(|error| error.to_string());
+                                    let _ = sender.send(result);
+                                });
+                                self.recording = Some(receiver);
+                                self.status = Some(format!("recording {seconds} s"));
+                            }
+                            ui.add(
+                                egui::DragValue::new(&mut self.record_seconds)
+                                    .range(1.0..=60.0)
+                                    .suffix(" s"),
+                            );
+                        });
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.small_button("Inspector").clicked() {
+                                self.inspector_open = true;
+                            }
+                            if ui.small_button("Library").clicked() {
+                                self.library_open = true;
+                            }
+                            if ui.small_button("Pads").clicked() {
+                                self.pads_open = true;
+                            }
+                            if ui.small_button("Assistant").clicked() {
+                                self.assistant_open = true;
+                            }
+                            if ui.small_button("Settings").clicked() {
+                                self.settings_open = true;
+                            }
+                            if ui.small_button("MIDI map").clicked() {
+                                self.midi_map_open = true;
+                            }
+                            if ui.small_button("Controllers").clicked() {
+                                self.controller_open = true;
+                            }
+                            if ui.small_button("Lyrics").clicked() {
+                                self.lyrics_open = true;
+                            }
+                        });
+                    }
                     if !self.recent.is_empty() {
                         ui.label(
                             egui::RichText::new("RECENT")
