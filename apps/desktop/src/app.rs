@@ -3355,6 +3355,27 @@ impl ShellApp {
         let buses = self.song().buses.clone();
         let mut edits: Vec<(TrackId, u8, u8, bool, bool, u8, bool)> = Vec::new();
         let mut bus_edits: Vec<(u8, u8, u8, bool, bool)> = Vec::new();
+        let bus_levels: Vec<f32> = buses
+            .iter()
+            .map(|bus| {
+                if !self.playing {
+                    return 0.0;
+                }
+                tracks
+                    .iter()
+                    .filter(|track| track.bus == Some(bus.id) || track.send == Some(bus.id))
+                    .map(|track| {
+                        let level = track_level(track, self.position);
+                        if track.bus == Some(bus.id) {
+                            level
+                        } else {
+                            level * f32::from(track.send_level) / 127.0
+                        }
+                    })
+                    .sum::<f32>()
+                    .clamp(0.0, 1.0)
+            })
+            .collect();
         let mut master_gain = self.settings.master_gain_db;
         egui::TopBottomPanel::bottom("bottom-mixer")
             .resizable(true)
@@ -3525,7 +3546,7 @@ impl ShellApp {
                                 });
                             });
                         }
-                        for bus in &buses {
+                        for (bus_index, bus) in buses.iter().enumerate() {
                             let mut volume = f32::from(bus.volume);
                             let mut pan = f32::from(bus.pan);
                             let mut bus_volume = bus.volume;
@@ -3572,6 +3593,21 @@ impl ShellApp {
                                                 ));
                                             }
                                         });
+                                        let (meter, _) = ui.allocate_exact_size(
+                                            egui::vec2(5.0, 82.0),
+                                            egui::Sense::hover(),
+                                        );
+                                        ui.painter().rect_filled(meter, 1.0, theme::raised());
+                                        let level =
+                                            bus_levels.get(bus_index).copied().unwrap_or_default();
+                                        let fill = egui::Rect::from_min_max(
+                                            egui::pos2(
+                                                meter.left(),
+                                                meter.bottom() - meter.height() * level,
+                                            ),
+                                            meter.max,
+                                        );
+                                        ui.painter().rect_filled(fill, 1.0, theme::accent());
                                     });
                                     ui.horizontal(|ui| {
                                         if ui.small_button("M").clicked() {
