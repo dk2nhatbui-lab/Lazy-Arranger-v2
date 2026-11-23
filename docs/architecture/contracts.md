@@ -9,7 +9,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | --- | --- | --- | --- |
 | 1 | Projects and files | partial | `.arranger` open/save, autosave/recovery, SMF in/out, WAV export in 16 and 24 bit, MusicXML export/import, style save, PSR-S970 song export. Recent list and audio-reference import (WAV). No editing of audio, PDF, Korg, L6max, SysEx |
 | 2 | Window: header, views, inspector, mixer panel, AI panel, light theme, zoom | partial | Header, LCD, five views, track list, Mix strips, volume automation lane, dark theme, square corners, wheel and slider zoom. No inspector, AI panel or light theme |
-| 3 | Tracks | partial | MIDI tracks with program, volume, pan, mute/solo/arm and audio references (schema v11); track list, mixer strips and keyboard export honour them. No per-track input routing, outputs, SoundFont or waveform audio tracks |
+| 3 | Tracks | partial | MIDI tracks with program, volume, pan, mute/solo/arm and audio references (schema v11); track list, mixer strips and keyboard export honour them; tracks carry SoundFont and audio references. No per-track input routing or multiple outputs |
 | 4 | Transport: play/stop, start, record, loop, metronome, ruler, tempo/meter edit, MIDI record, all-notes-off, auto inputs | partial | Audio play/pause/stop with silence on stop; CLI MIDI record/echo and clip-grid take recording. No transport record arm, loop, metronome, ruler, tempo edit, quantise or auto inputs |
 | 5 | Timeline clips | partial | Clip and chord lanes: click select, arrow move, shift+arrow resize, J join, N add, Delete remove; clip commands are undoable with overlap rejection. No snap, timeline lyrics or multi-clip editing |
 | 6 | Note editor: add/select/move/resize/delete, arrows, velocity lane, grid, quantise, piano keys, select all | partial | Click insert, select, delete, undo/redo, save, scroll/zoom. No drag-move, resize, velocity lane, quantise, piano keys, select all or copy/paste |
@@ -33,7 +33,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 24 | PSR-S990 tools | partial | Song export with setup bar, program, volume, pan, chord markers, lyrics and drums on channel 10, plus a byte-level audit that re-parses the file; the demo exported 5 tracks, 4 programs/volumes/pans, 16 chord markers and 128 drum notes. Numbered style catalog and `style-by-number` rendering. No remote panel, audition queue or hardware verification |
 | 25 | Music Finder and Playlists | partial | JSON, CSV, TSV and MFD import (1,653-record real file), CLI, and an L-key Library window that loads any of those, searches title/detail, applies an entry's tempo and imports the row's style through the catalog (setting or ARRANGER_STYLE_LIBRARY), inserting its tracks with fresh ids and a prefix. Playlist rows are listed but not opened; no AI tools or CSV→playlist writer. A real import was run through `library-import`: 1 track and 1,926 notes from ABBA Fernando; the ignored integration test passes when ARRANGER_STYLE_LIBRARY is set |
 | 26 | Zoom L6max mixer page and import | partial | `audio::l6max` scans a folder of takes, reads headers, flags the L6max's 32-bit float recordings, reports problems and imports each take as an audio track at a start tick; `l6max-import` did so for two synthetic takes (3.20 s, one float). No device project-file parsing, mixer page or transport control |
-| 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | partial | A local assistant panel and command layer (`mcp::assistant`) parses help/song/undo and `tool <name> {json}`, runs the existing 22 tools, logs replies and marks the project dirty only for changing calls; each tool call is one undo step. No model, network, subscriptions or keys, no proposal cards |
+| 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | partial | A local assistant panel and command layer (`mcp::assistant`) parses help/song/undo and `tool <name> {json}`, reaches any of the current 90 tools through `tool`, logs replies and marks the project dirty only for changing calls; each tool call is one undo step. No model, network, subscriptions or keys, no proposal cards |
 | 28 | MCP server, ~90 tools | partial | Stdio JSON-RPC server with 26 tools (song, tracks, notes, chords, undo, doctor, grooves, forms, reharmonise, clip grid, slots, programs, automation, lyrics/marks, style catalog, theory, generation, plugins, L6max scan) and save-after-call; `mcp-tools`/`mcp-call`. Loopback TCP transport with a per-start 32-hex token required on every line and save-after-call; a real client was accepted with the token and rejected without it. No TLS, multi-client concurrency or most of the ~90 target tools |
 | 29 | Speech in/out (Whisper, Kitten, Kokoro) | partial | Assistant replies can be spoken through the macOS `say` command (cleaned, length-bounded, optional voice) behind a settings toggle; other hosts fall back silently. No speech input, Whisper/Kitten/Kokoro models or waveform narration |
 | 30 | AI music tools (humanize, drumify, continue, write part, melody) | partial | Rule-based, seeded generators: humanise, drumify, bass/pad/arp parts, continue the last bars and a chord-following melody, each one undoable edit. Exposed by the `generate` CLI and MCP tool. No learned or model-based generation, UI or chat-driven tool use |
@@ -49,39 +49,36 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections at round 71: 0 fully verified beyond their Rust subset, 39 partial, 0 missing.
-The partials with the most depth are styles (open, import, compile, SFF1/SFF2 write), project files, the score layout/PDF path, audio references, the MIDI map and the MCP surface.
+39 sections at round 169: 0 fully verified beyond their Rust subset, 39 partial,
+0 missing. No section is missing at row level; partials need hardware,
+proprietary formats, plugin hosting or a model. See
+`docs/audit/cpp-features-crosscheck.md` for row evidence.
 
-## State at round 60
+## State at round 169
 
-`cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (438 tests) and
-`cargo doc` pass. No section is missing at the row level, but §19 is only a state model: no plugin
-is hosted, scanned or processed. Row-level completeness is not parity.
-Korg import, PSR style import, SoundFont loading, the L6max page (its 32-bit float audio
-recordings already decode), waveform audio editing,
-grand-staff/beam engraving, note entry, socket transport and a 90-tool MCP
-surface are also absent.
-
-Parity is **not** achieved. Hardware-dependent claims (real MIDI keyboards,
-PSR-S970 acceptance, cpal output on every host, YouTube download) remain
-unverified; CI builds and tests are the only continuous evidence.
+`cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (605 tests) and
+rustdoc pass. The deeper implemented areas are styles, project files, score
+engraving/PDF/MusicXML, audio references and mix, arranging help and the 90-tool
+MCP surface. Plugin hosting, SF3, Korg program/combi decoding, L6max project
+parsing, audio monitoring/takes/waveform editing, light theme, localized help
+and a real AI model/speech input remain absent or unverified. Parity is not
+achieved.
 
 ## Next blocks, in dependency order
 
-1. Clipboard in the other views (§7), then a drum pad UI and slice editing (§10).
-2. Waveform audio editing and recording takes (§8), then buses/sends/effects (§17).
-3. Korg import, PSR style import and SoundFont loading (§14, §20, §24).
-4. Grand staff, beams, tuplets and note entry in the score (§16).
-5. Speech input and the socket transport (§29, §27).
-6. Plugin hosting/scanning (§19), a synth editor UI and sysex (§22), an L6max
-   mixer page and project-file parsing (§26).
+1. Score general collision avoidance and drag-resize; then a real print dialog.
+2. Audio takes and monitoring; destructive waveform and slice editing.
+3. Plugin hosting/load validation and editor windows; SF3 and modulators.
+4. Korg PCG program/combi decoding; L6max project/mixer-page parsing.
+5. Light theme, localized help/plural rules.
+6. A real AI model/speech input; hardware acceptance runs.
 
 ### Playlist conversion and languages
 
 `library::List::from_book` turns a Music Finder book into playlist items, using
 the style name against a folder, the entry number as REGIST and the viewer flag
 off; `playlist-from-csv` writes the Yamaha TSV. Strings now ship in English,
-Danish, French and Vietnamese: every key has text in all four tables, and the
+Danish, French, Vietnamese, German and Spanish: every key has text in all six tables, and the
 language setting switches them at once. Plural rules and localized help do not
 exist.
 
@@ -91,7 +88,7 @@ Kids Mode keeps two tabs and builds a `kids::Lesson` from the song's chords; the
 Perform view shows the current chord large, progress, Next chord and Start
 over, plus 16 big chord pads that audition through the cpal player. `Lesson::sync` rebuilds it when the chord list changes while keeping the step
 when possible, and the Perform view can load `demo::kids_song` (four slow
-chords). There is no simplified editor.
+chords). In Arrange the sidebar swaps to large Undo/Redo/Play/Stop/Settings and hides the advanced window buttons; there is no separate simplified song flow.
 
 ### Device profiles
 

@@ -26,35 +26,39 @@ The target is behavioural parity: same features, same observable results, no
 regressions. Status values: **verified** (tested here), **implemented**
 (builds and runs, needs comparison), **missing**, **not planned**.
 
-## State at round 60
+## State at round 169
 
-This table grew over sixty rounds and some middle rows describe earlier
-states. The reconciled view is
-[`cpp-features-crosscheck.md`](cpp-features-crosscheck.md): 39 sections, **31
-partial and 8 missing**, no section fully verified. `cargo test --workspace`
-passes **438 tests**; fmt, clippy with `-D warnings` and rustdoc pass.
+This table grew over many rounds and some middle rows describe earlier states.
+The reconciled view is
+[`cpp-features-crosscheck.md`](cpp-features-crosscheck.md): 39 sections, **39
+partial and 0 missing at row level**, no section fully verified. `cargo test
+--workspace` passes **605 tests**; fmt, clippy with `-D warnings` and rustdoc
+pass.
 
-Verified by tests or offline evidence: project schema v11 with migrations,
+Verified by tests or offline evidence: project schema v19 with migrations,
 undo/inverses and validation; legacy import; Yamaha style parse/import/compile
 and SFF1/SFF2 writing; clip model, slots, launcher and take recording; chord
-parsing, roman numerals, reharmonisation and find-chords; doctor, fit, groove,
-forms and transitions; score layout, spelling, accidentals, ties, lyrics,
-marks, canvas, PDF, MusicXML import/export; audio render with six timbres,
-audio references and mixing, monophonic audio→MIDI and chroma chords; mixer,
-automation, MIDI map with learn, style catalog, theory helpers, settings,
-strings, the sixteen-bar demo and the 22-tool MCP server.
+parsing, roman numerals, reharmonisation and find-chords; doctor/fit with A/B,
+groove files, forms and transitions; score layout with ties, beams, tuplets,
+rests, lyrics (spaced), slurs, percussion, chord symbols, guitar frames,
+accidental spacing, canvas and PDF/MusicXML round trip; audio render with six
+timbres and SF2, references with fades/stretch/waveform zoom, mixing, buses,
+automation, stems/freeze, float WAV and input capture (capture unverified);
+MIDI map with learn, style catalog, theory helpers, settings, six languages,
+the sixteen-bar demo and the **90-tool** MCP server.
 
 Unverified: real MIDI hardware, PSR-S970 acceptance, audible cpal output on
-every host, YouTube download, and visual comparison with the C++ app.
+every host, microphone capture, printing, YouTube download, and visual
+comparison with the C++ app.
 
-Still missing: clipboard outside Arrange, a drum pad UI, plugin hosting, synth editors and
-sysex, L6max, AI chat/speech/music tools, Korg and PSR style import, SoundFont
-loading, waveform audio editing, score note entry with grand staff/beams, and
-the wider ~90-tool MCP surface.
+Still missing: plugin hosting/processing/editors, SF3 and modulators, Korg
+program/combi decoding, L6max project/mixer-page parsing, audio monitoring,
+takes and destructive waveform/slice editing, light theme, localized help and
+plurals, a real AI model and speech input.
 
 | C++ capability | Rust module | Status | Evidence |
 | --- | --- | --- | --- |
-| Song/project model, undo, validation | `project`, `app-commands` | verified | schema v11 with tested migrations, inverses and validation |
+| Song/project model, undo, validation | `project`, `app-commands` | verified | schema v19 with tested migrations, inverses and validation |
 | Legacy C++ project import (v1..v4) | `project::legacy` | verified | fixtures `legacy-cpp-v3/v4` |
 | Style parser (SFF1/SFF2, CASM) | `style-formats` | verified | 16,219 containers, 856,370 rules |
 | Style section import to playable style | `style-formats::import` | verified | 16,158 styles, 48.8M notes |
@@ -67,8 +71,8 @@ the wider ~90-tool MCP surface.
 | Music Finder/playlist browser UI, tempo apply and style import | `library_view`, `app_commands::style_import`, Library window, CLI `library-import` | verified | filter/copy tests; real import 1 track/1,926 notes; ignored env test passes |
 | Audio-to-MIDI, monophonic | `audio::analysis` | implemented | `a_440_hz_tone_is_found`, `audio_to_midi_finds_an_a4_note` |
 | Audio chord recognition (chroma + recogniser) | `audio::chords` | verified | 4 tests; 4 s C triad WAV found C twice and wrote ticks 0/3840 |
-| Audio-to-MIDI, polyphonic/models (Basic Pitch) | — | missing | C++ runs it as an external helper |
-| Stem separation (Demucs), instrument tags (PANNs), lyrics (Whisper) | — | missing | external helpers in C++ |
+| Audio-to-MIDI, polyphonic/models (Basic Pitch) | `arranging::audio` monophonic | partial | monophonic/chroma only; no model or polyphony |
+| Stem separation (Demucs), instrument tags (PANNs), lyrics (Whisper) | `audio::render_stems`, lyrics model | partial | offline stems and lyric events exist; no Demucs/PANNs/Whisper |
 | Link audio (yt-dlp arguments, download parsing) | `audio::link` | verified offline | link/args/parse tests; real download needs yt-dlp |
 | YouTube link to MIDI end to end | `link-to-midi` CLI | implemented, not run against YouTube | needs yt-dlp + ffmpeg |
 | WAV decoding | `audio::wav` | verified | 16-bit PCM, 24-bit PCM, 32-bit PCM and 32-bit float; L6max float file imported |
@@ -125,13 +129,12 @@ the wider ~90-tool MCP surface.
 | PSR-S970 keyboard song export (setup bar, voices, chords, drums ch10) | `smf::export_keyboard` | implemented | 3 tests; real project 94 notes, 5 tracks; programs from profile name matching |
 | Style Remote, style-by-number, keyboard acceptance | — | missing | no hardware test |
 | Transitions: drum fill, lead-in, automatic | `arranging::forms::transition` | verified | 4 tests incl. apply/undo; T key |
-| Transitions: hold chord, break, straight cut presets | — | partial | straight cut is a no-op; hold/break missing |
+| Transitions: hold chord, break, straight cut presets | `arranging::forms` | verified | hold/break command tests; straight cut is a no-op |
 | Assistant tool registry and JSON dispatch | `crates/mcp` | verified (6 tools) | get_song/add_track/add_notes/set_chords/get_undo/undo; CLI mcp-tools and mcp-call |
 | MCP stdio transport (initialize, ping, tools/list, tools/call, parse errors) | `mcp::serve`, `mcp-serve` CLI | verified | in-memory tests + real stdin/stdout run saved an added note |
 | MCP socket transport, per-start secret | `mcp::socket`, CLI `mcp-socket` | verified | loopback exchange: token accepted, wrong token rejected; token is 32 hex chars |
-| MCP tools over arranging engine (doctor, find chords, grooves, forms, reharmonize) | `crates/mcp` | verified | 12 tools total; tests per tool |
-| Remaining MCP tools (~80: styles, clips, MIDI, profiles, lyrics) | — | missing | — |
-| Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
+| MCP tools (song, score, audio, arranging, files) | `crates/mcp` | verified | 90 tools; per-tool tests and CLI calls |
+| Setup events, voices, CSEG children | `style-formats` | partial | SFF write verified; voices/setup events not written |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/slur/percussion/lyric/accidental-spacing/frame/chord-symbol/PDF tests; slurs round-trip; Save PDF, Print via lp (unverified) and score drag-move |
 | UI shell (Perform/Arrange/Mix) | `apps/desktop` | implemented | themed shell, editing, audio |
@@ -160,9 +163,9 @@ the wider ~90-tool MCP surface.
 | Loops view: scene rows, slots, launch/queue, record take | `apps/desktop` | implemented | UI manual; launcher/recorder tested |
 | Scene names (schema v6) and rename | `project`, `app-commands`, `apps/desktop` | verified | migration round trip, command undo, rename test |
 | Slot editing: set length, clear, copy to a tick | `arranging::grid`, MCP `edit_slot`, right-click Loops menu | verified | 4 grid tests + tool + editor wrapper test |
-| Device profiles: YAML loader, banks, drum kits, other devices, editors, mixer maps | — | missing | earlier claim of five typed profiles was wrong; corrected |
-| AI/MCP | `apps/mcp` | missing | Stage 8; `mcp` crate planned |
-| Korg Pa import | — | missing | Stage 8 extension |
+| Device profiles: YAML loader, banks, drum kits, other devices, editors, mixer maps | `midi-devices::profiles` | partial | loader/banks/kits tested; no other devices, editors or mixer maps |
+| AI/MCP | `mcp`, `assistant` | partial | local assistant + 90 tools; no model, network or keys |
+| Korg Pa import | `arranger` PCG scanner | partial | recognition only; no program/combi import |
 | Plugin hosting (VST3/CLAP) | — | missing | ADR-007, deferred |
 
 This table is the working checklist: each row moves only with evidence, never
