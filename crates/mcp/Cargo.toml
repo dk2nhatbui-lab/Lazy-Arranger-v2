@@ -10,6 +10,7 @@ license.workspace = true
 app-commands = { path = "../app-commands" }
 audio = { path = "../audio" }
 arranging = { path = "../arranging" }
+arranger = { path = "../arranger" }
 music-core = { path = "../music-core" }
 musicxml = { path = "../musicxml" }
 plugins = { path = "../plugins" }

@@ -862,6 +862,22 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "style_from_clips",
+            description: "Write a Yamaha SFF style from the project's tracks, optionally split at markers.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "out": {"type": "string"},
+                    "section": {"type": "string"},
+                    "chord": {"type": "string"},
+                    "length": {"type": "integer"},
+                    "from_markers": {"type": "boolean"},
+                    "version": {"type": "string"}
+                },
+                "required": ["out"]
+            }),
+        },
+        Tool {
             name: "theory",
             description: "Scale names, roman labels, cadence or voice-leading cost.",
             input_schema: json!({
@@ -2638,6 +2654,69 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 })).collect::<Vec<_>>()
             }))
         }
+        "style_from_clips" => {
+            let out = arguments
+                .get("out")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("out is required")))?;
+            let section = arguments
+                .get("section")
+                .and_then(Value::as_str)
+                .unwrap_or("Main A");
+            let chord = arguments
+                .get("chord")
+                .and_then(Value::as_str)
+                .unwrap_or("C");
+            let length = arguments
+                .get("length")
+                .and_then(Value::as_u64)
+                .unwrap_or(3840)
+                .max(1) as i64;
+            let from_markers = arguments
+                .get("from_markers")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let version = match arguments
+                .get("version")
+                .and_then(Value::as_str)
+                .unwrap_or("sff2")
+            {
+                "sff1" => style_formats::casm::SffVersion::Sff1,
+                "sff2" => style_formats::casm::SffVersion::Sff2,
+                other => {
+                    return Err(ToolError::Arguments(format!(
+                        "version must be sff1 or sff2, found {other:?}"
+                    )));
+                }
+            };
+            let parsed =
+                Chord::parse(chord).map_err(|error| ToolError::Arguments(error.to_string()))?;
+            let source = arranger::chord_type::ArrangerChord::try_from(&parsed)
+                .map_err(|_| ToolError::Arguments(format!("unsupported style chord {chord:?}")))?;
+            let mut style = if from_markers {
+                arranger::style::from_song_sections(session.song(), &session.song().name, source)
+            } else {
+                arranger::style::from_song(
+                    session.song(),
+                    &session.song().name,
+                    source,
+                    Tick::from(length),
+                )
+            };
+            if !from_markers && let Some(first) = style.sections.first_mut() {
+                first.name = section.to_string();
+            }
+            let bytes = style_formats::write_native_style(&style, version)
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            std::fs::write(out, &bytes)
+                .map_err(|error| ToolError::Arguments(format!("{out}: {error}")))?;
+            Ok(json!({
+                "out": out,
+                "bytes": bytes.len(),
+                "sections": style.sections.iter().map(|entry| entry.name.clone()).collect::<Vec<_>>(),
+                "parts": style.sections.first().map_or(0, |entry| entry.parts.len())
+            }))
+        }
         "theory" => {
             let op = arguments
                 .get("op")
@@ -3217,7 +3296,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 93);
+        assert_eq!(tools().len(), 94);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));

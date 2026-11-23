@@ -37,7 +37,7 @@ blockers are listed at the end.
 | MIDI profiles, maps, learn, channel check, panic | verified builders; hardware unverified | `crates/midi-devices` |
 | L6max take scan/import; Korg recognition | synthetic and real-file scans | `audio::l6max`, `style-formats::korg` |
 | Library: JSON/CSV/TSV/MFD, playlists, browser | verified real MFD (1,653 rows) | `crates/library` |
-| MCP stdio/socket server, 93 tools | tool/reference tests and CLI runs | `crates/mcp` |
+| MCP stdio/socket server, 94 tools | tool/reference tests and CLI runs | `crates/mcp` |
 | Desktop shell: Perform, Arrange, Mix, Loops, Score; persistent right inspector and bottom mixer | runs; C++ comparison capture `docs/audit/ui-cpp.png` | `apps/desktop` |
 | Light/dark palettes, eight languages with plural rules, Kids Mode, lessons | verified tests; light capture | `theme`, `strings`, `lesson` |
 | Plugin manager (VST3/AU metadata + catalog cache) | scan/list/filter/add slots; no binary loading/hosting yet | `crates/plugins`, My Plug-Ins window |
@@ -85,7 +85,7 @@ crates/library         Music Finder books, playlists
 crates/midi-devices    profiles, ports, maps, SysEx, dispatch
 crates/plugins         VST3/AU metadata, catalog cache and browser (no hosting)
 crates/plugin-host     isolated unsafe VST3/AU FFI: child-process class scan + stereo effects + AU/VST3 instrument tracks (slots applied in render; VST3 state capture; AU parameter window; VST3 params/editors pending)
-crates/mcp             stdio/socket MCP server, 93 tools, local assistant
+crates/mcp             stdio/socket MCP server, 94 tools, local assistant
 apps/cli               headless binary
 apps/desktop           egui 0.31 desktop app
 ```

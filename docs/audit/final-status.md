@@ -80,3 +80,4 @@ For the clef layout, choose either four measures per system without clefs
 - Input monitoring restarts when the preferred audio input changes; it uses the named device or the default.
 - `style-from-clips` writes a one-section SFF from project tracks; the demo produced 4 parts/21 notes and re-imported as Main A.
 - `style-from-clips --from-markers` splits the demo into A/B sections and writes a re-readable SFF; default channel rules only.
+- MCP `style_from_clips` writes the same multi-section SFF as the CLI; registry is 94 tools.

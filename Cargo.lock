@@ -1696,6 +1696,7 @@ name = "mcp"
 version = "0.1.0"
 dependencies = [
  "app-commands",
+ "arranger",
  "arranging",
  "audio",
  "music-core",
