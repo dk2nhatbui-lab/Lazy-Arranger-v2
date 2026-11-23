@@ -2891,6 +2891,28 @@ impl ShellApp {
                     .fixed_decimals(2),
             );
         });
+        let meter = self
+            .player
+            .as_ref()
+            .filter(|player| player.is_playing())
+            .map_or(
+                audio::master::Meter::default(),
+                audio::player::Player::meter,
+            );
+        ui.horizontal(|ui| {
+            ui.label("Peak");
+            ui.add(
+                egui::ProgressBar::new(meter.peak.clamp(0.0, 1.0))
+                    .desired_width(140.0)
+                    .text(format!("{:.0}%", meter.peak * 100.0)),
+            );
+            ui.label("RMS");
+            ui.add(
+                egui::ProgressBar::new(meter.rms.clamp(0.0, 1.0))
+                    .desired_width(140.0)
+                    .text(format!("{:.0}%", meter.rms * 100.0)),
+            );
+        });
         ui.separator();
         let mut buses = self.song().buses.clone();
         let mut buses_edited = false;

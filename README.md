@@ -29,7 +29,7 @@ blockers are listed at the end.
 | Score engraving: ties, beams, tuplets, rests, dots, slurs, percussion, lyrics, chord names, frames, spacing, drag/resize | verified tests; PDF/canvas checks | `crates/score`, `apps/desktop` |
 | Vector score PDF and print via `lp` (printer picker) | PDF verified; print unverified | `score::pdf`, Score view |
 | Offline audio render, SF2, cpal playback | rendered tests; audible cpal unverified | `crates/audio` |
-| Mixer: buses, sends, pan, automation, master gain/limiter/reverb/chorus | verified render tests | `audio`, Mix view |
+| Mixer: buses, sends, pan, automation, master gain/limiter/reverb/chorus, peak/RMS meter | verified render tests | `audio`, Mix view |
 | Stems, freeze, 16/24/32-bit float WAV, gain/normalize | verified | `audio`, CLI |
 | Audio references: trim, fades, resample-to-fit, waveform zoom, normalize | verified helpers | `audio`, Editor |
 | Audio analysis: monophonic pitch, chroma chords, link-to-MIDI | monophonic verified | `audio::analysis`, `link` |

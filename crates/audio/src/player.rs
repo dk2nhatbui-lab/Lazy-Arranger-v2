@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::RenderedAudio;
+use crate::master::Meter;
 
 /// Playback position and buffer, shared with the audio callback.
 #[derive(Debug)]
@@ -65,6 +66,29 @@ impl Playback {
     #[must_use]
     pub fn frame(&self) -> usize {
         self.position / 2
+    }
+
+    /// Peak/RMS over the next `frames` stereo frames, for a meter.
+    #[must_use]
+    pub fn meter(&self, frames: usize) -> Meter {
+        let start = self.position.min(self.samples.len());
+        let length = frames
+            .saturating_mul(2)
+            .min(self.samples.len().saturating_sub(start));
+        if length == 0 {
+            return Meter::default();
+        }
+        let window = &self.samples[start..start + length];
+        let peak = window
+            .iter()
+            .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+        let rms = (window
+            .iter()
+            .map(|sample| f64::from(*sample) * f64::from(*sample))
+            .sum::<f64>()
+            / length as f64)
+            .sqrt() as f32;
+        Meter { peak, rms }
     }
 
     /// True while samples are being produced.
@@ -205,6 +229,15 @@ impl Player {
             .unwrap_or(false)
     }
 
+    /// Master peak/RMS over a short window at the current position.
+    #[must_use]
+    pub fn meter(&self) -> Meter {
+        self.playback
+            .lock()
+            .map(|state| state.meter(state.sample_rate as usize / 20))
+            .unwrap_or_default()
+    }
+
     /// Drops the stream; the device is released.
     pub fn release(self) {
         drop(self.stream);
@@ -221,6 +254,21 @@ mod tests {
             samples,
             sample_rate: 48_000,
         })
+    }
+
+    #[test]
+    fn the_playback_meter_reports_the_current_window() {
+        let mut playback = Playback::new(RenderedAudio {
+            samples: vec![0.5, -0.5, 1.0, -1.0],
+            sample_rate: 48_000,
+        });
+        let meter = playback.meter(1);
+        assert!((meter.peak - 0.5).abs() < 1.0e-6);
+        assert!((meter.rms - 0.5).abs() < 1.0e-6);
+        playback.seek_frame(1);
+        assert!((playback.meter(1).peak - 1.0).abs() < 1.0e-6);
+        playback.seek_frame(2);
+        assert_eq!(playback.meter(1), Meter::default());
     }
 
     #[test]
