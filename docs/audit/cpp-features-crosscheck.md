@@ -45,7 +45,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 36 | Languages (EN/DA/FR/VI/DE/ES) | partial | Six string tables (English, Danish, French, Vietnamese, German, Spanish) with a runtime switch and per-language completeness tests. No plural rules, localized help or other locales |
 | 37 | Settings, shortcut editor, updates | partial | Settings file, settings window, shortcut list, MIDI port picker, and an update answer that states no channel is configured. No updater, editable shortcut bindings or telemetry controls |
 | 38 | Performance and safety: native, idle CPU, plugin scan, damaged-file tolerance | partial | Native Rust, audio thread separate, damaged styles counted; idle CPU and plugin scan unmeasured/absent |
-| 39 | Demo content (2 songs + 540 styles) | partial | Sixteen-bar built-in demo (drums, bass, piano, pad, chords, marks, lyrics) on first run and via `demo-project`; the short MIDI `demo` remains. No named song set, style pack or tutorial |
+| 39 | Demo content (2 songs + 540 styles) | partial | Sixteen-bar built-in demo (drums, bass, piano, pad, chords, marks, lyrics) on first run and via `demo-project`; the short MIDI `demo` remains. Named songs (arranger demo, kids demo, empty) load from the Songs & tutorial window with a four-step tutorial; no style pack or broader tutorial |
 
 ## Scorecard
 

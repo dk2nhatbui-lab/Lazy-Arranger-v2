@@ -894,3 +894,9 @@ refreshed light-theme capture is `docs/audit/light-theme.png`.
 numerator and denominator in the left margin at every system start; the canvas
 text test and PDF header test assert both digits. Clefs and key signatures are
 still absent.
+
+### Named songs and tutorial
+
+The Windows menu opens Songs & tutorial. It loads the arranger demo, kids demo
+or an empty song through `replace_project` (new Editor, untitled, position 0)
+and lists four tutorial steps. A test validates all three songs.

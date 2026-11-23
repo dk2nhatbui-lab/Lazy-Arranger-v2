@@ -217,6 +217,7 @@ pub struct ShellApp {
     song_name_input: String,
     markers_open: bool,
     theory_open: bool,
+    songs_open: bool,
     lessons_open: bool,
     lesson_kind: music_core::lesson::LessonKind,
     lesson_seed: u64,
@@ -370,6 +371,7 @@ impl ShellApp {
             song_name_input,
             markers_open: false,
             theory_open: false,
+            songs_open: false,
             lessons_open: false,
             lesson_kind: music_core::lesson::LessonKind::ChordQuality,
             lesson_seed: 1,
@@ -1633,6 +1635,98 @@ impl ShellApp {
     }
 
     /// Settings and shortcut windows.
+    fn replace_project(&mut self, project: ProjectFile, label: &str) {
+        match Editor::new(project) {
+            Ok(editor) => {
+                self.stop_playback();
+                self.player = None;
+                self.editor = editor;
+                self.project_path = None;
+                self.selected_note = None;
+                self.selected_clip = None;
+                self.selected_chord = None;
+                self.position = 0;
+                self.song_name_input = self.song().name.clone();
+                self.status = Some(format!("loaded {label}"));
+                self.load_error = None;
+            }
+            Err(error) => self.load_error = Some(error.to_string()),
+        }
+    }
+
+    fn songs_window(&mut self, context: &egui::Context) {
+        if !self.songs_open {
+            return;
+        }
+        enum Choice {
+            Arranger,
+            Kids,
+            Empty,
+        }
+        let mut open = self.songs_open;
+        let mut choice = None;
+        egui::Window::new("Songs & tutorial")
+            .open(&mut open)
+            .default_width(380.0)
+            .show(context, |ui| {
+                ui.label(egui::RichText::new("Named songs").strong());
+                if ui
+                    .add_sized([220.0, 30.0], egui::Button::new("Lazy Arranger demo"))
+                    .on_hover_text("Sixteen bars with drums, bass, piano and pad")
+                    .clicked()
+                {
+                    choice = Some(Choice::Arranger);
+                }
+                if ui
+                    .add_sized([220.0, 30.0], egui::Button::new("Kids demo"))
+                    .on_hover_text("Four slow chords for the chord lesson")
+                    .clicked()
+                {
+                    choice = Some(Choice::Kids);
+                }
+                if ui
+                    .add_sized([220.0, 30.0], egui::Button::new("Empty song"))
+                    .clicked()
+                {
+                    choice = Some(Choice::Empty);
+                }
+                ui.separator();
+                ui.label(egui::RichText::new("Tutorial").strong());
+                for step in [
+                    "1. Pick a named song or open a project with Cmd+O.",
+                    "2. Press Play; click the bar ruler to seek while playing.",
+                    "3. In Arrange, drag a note to move it or its right edge to resize; Snap 1/16 toggles snapping.",
+                    "4. Windows opens the Mixer, Score, Lessons, Theory and the other tools.",
+                ] {
+                    ui.label(step);
+                }
+                ui.label(
+                    egui::RichText::new("Loading a song replaces the current project.")
+                        .size(10.0)
+                        .color(theme::text_dim()),
+                );
+            });
+        self.songs_open = open;
+        match choice {
+            Some(Choice::Arranger) => {
+                self.replace_project(demo_project(), "the arranger demo");
+            }
+            Some(Choice::Kids) => {
+                self.replace_project(
+                    ProjectFile::new(arranging::demo::kids_song()),
+                    "the kids demo",
+                );
+            }
+            Some(Choice::Empty) => {
+                self.replace_project(
+                    ProjectFile::new(project::song::Song::new("Untitled", 120.0)),
+                    "an empty song",
+                );
+            }
+            None => {}
+        }
+    }
+
     fn lessons_window(&mut self, context: &egui::Context) {
         if !self.lessons_open {
             return;
@@ -3840,6 +3934,10 @@ impl ShellApp {
                                 self.lessons_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Songs & tutorial").clicked() {
+                                self.songs_open = true;
+                                ui.close_menu();
+                            }
                             ui.separator();
                             if ui.button("Import L6max").clicked() {
                                 self.file_path_input.clear();
@@ -4126,6 +4224,7 @@ impl eframe::App for ShellApp {
         self.markers_window(context);
         self.theory_window(context);
         self.lessons_window(context);
+        self.songs_window(context);
         self.file_window(context);
         self.midi_map_window(context);
         self.assistant_window(context);
@@ -5242,6 +5341,23 @@ mod tests {
         assert!(lines.iter().any(|line| line.starts_with("Cadence:")));
         let empty = project::song::Song::new("Empty", 120.0);
         assert_eq!(theory_summary(&empty)[2], "No chords yet");
+    }
+
+    #[test]
+    fn named_songs_validate() {
+        for song in [
+            arranging::demo::demo_song(),
+            arranging::demo::kids_song(),
+            project::song::Song::new("Untitled", 120.0),
+        ] {
+            let project = ProjectFile::new(song);
+            assert!(
+                project
+                    .validate()
+                    .iter()
+                    .all(|issue| issue.severity != project::Severity::Error)
+            );
+        }
     }
 
     #[test]
