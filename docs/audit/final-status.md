@@ -88,4 +88,4 @@ For the clef layout, choose either four measures per system without clefs
 - A basic Style rules window edits destination channel, written root/type, NTR/NTT, held-note RTR, bass and note limits in the export draft.
 - Track/bus plug-in chains apply reported latency compensation; the local test VST3 gain fixture reports 32 samples and the delayed/dry track alignment test passes.
 - VST3 parameter changes use an `IParameterChanges` queue; a generic window edits them and saves state, but no installed VST3 exposes parameters, so it is unverified.
-- Windows > MIDI out sends program changes, test notes and panic to a selected output (capture `docs/audit/midi-out.png`); send itself is hardware-unverified here.
+- Windows > MIDI out sends program changes, test notes, chords and panic to a selected output, persists the output choice (capture `docs/audit/midi-out.png`); sends remain hardware-unverified.

@@ -582,6 +582,7 @@ impl ShellApp {
     #[must_use]
     pub fn new(context: &Context, project: ProjectFile, project_path: Option<PathBuf>) -> Self {
         let settings = crate::settings::Settings::load(&crate::settings::Settings::path());
+        let midi_output_pref = settings.midi_output.clone();
         let initial_window = std::env::var("ARRANGER_WINDOW")
             .unwrap_or_default()
             .trim()
@@ -733,7 +734,7 @@ impl ShellApp {
             bus_fx_choice: 0,
             bus_fx_plugin_choice: 0,
             midi_out_open: std::env::var("ARRANGER_MIDI_OUT").is_ok(),
-            midi_out_port: None,
+            midi_out_port: midi_output_pref,
             midi_out_channel: 1,
             midi_out_program: 0,
             midi_out_note: 60,
@@ -2659,6 +2660,39 @@ impl ShellApp {
                                     music_core::Velocity::new(0).unwrap_or(velocity),
                                 );
                                 let _ = connection.send(&bytes.to_bytes()[..3]);
+                            }
+                        });
+                    }
+                    if ui.button("Send chord").clicked()
+                        && let Some(chord) = self.song().chord_at(self.position)
+                        && let Ok(channel) =
+                            music_core::Channel::from_one_based(self.midi_out_channel)
+                        && let Some(port) = self.midi_out_port.clone()
+                    {
+                        let root = 60 + i32::from(chord.root.as_u8());
+                        let mut pitches = Vec::new();
+                        for interval in chord.quality.intervals() {
+                            if let Ok(pitch) = music_core::Pitch::new(
+                                u8::try_from(root + i32::from(*interval)).unwrap_or(60),
+                            ) && let Ok(velocity) =
+                                music_core::Velocity::new(self.midi_out_velocity)
+                            {
+                                self.send_midi(music_core::MidiMessage::note_on(
+                                    channel, pitch, velocity,
+                                ));
+                                pitches.push(pitch);
+                            }
+                        }
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                            if let Ok(mut connection) = midi_devices::devices::open_output(&port)
+                                && let Ok(release) = music_core::Velocity::new(0)
+                            {
+                                for pitch in pitches {
+                                    let bytes =
+                                        music_core::MidiMessage::note_off(channel, pitch, release);
+                                    let _ = connection.send(&bytes.to_bytes()[..3]);
+                                }
                             }
                         });
                     }
