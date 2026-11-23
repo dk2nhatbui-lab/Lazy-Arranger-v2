@@ -655,6 +655,74 @@ impl Editor {
         Ok(())
     }
 
+    /// Snaps every note start in every track to a grid.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when a track edit is rejected.
+    pub fn quantize(&mut self, grid: Tick) -> Result<usize, String> {
+        let grid = grid.max(1);
+        let tracks: Vec<(TrackId, Vec<project::song::Note>)> = self
+            .song()
+            .tracks
+            .iter()
+            .map(|track| {
+                let mut notes = track.notes.clone();
+                for note in &mut notes {
+                    note.start = (note.start + grid / 2) / grid * grid;
+                }
+                notes.sort_by_key(|note| note.start);
+                (track.id, notes)
+            })
+            .collect();
+        let mut changed = 0;
+        for (track, notes) in tracks {
+            if notes
+                != self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == track)
+                    .map(|entry| entry.notes.clone())
+                    .unwrap_or_default()
+            {
+                self.session
+                    .apply(app_commands::Command::ReplaceTrackNotes { track, notes })
+                    .map_err(|error| error.to_string())?;
+                changed += 1;
+            }
+        }
+        self.dirty |= changed > 0;
+        Ok(changed)
+    }
+
+    /// Sets one note's velocity.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_velocity(
+        &mut self,
+        track: TrackId,
+        note: project::NoteId,
+        velocity: u8,
+    ) -> Result<(), String> {
+        let Some(entry) = self.song().tracks.iter().find(|entry| entry.id == track) else {
+            return Err(String::from("unknown track"));
+        };
+        let mut notes = entry.notes.clone();
+        let Some(target) = notes.iter_mut().find(|candidate| candidate.id == note) else {
+            return Err(String::from("unknown note"));
+        };
+        target.velocity =
+            music_core::Velocity::new(velocity.clamp(1, 127)).map_err(|error| error.to_string())?;
+        self.session
+            .apply(app_commands::Command::ReplaceTrackNotes { track, notes })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Removes one slot's clip.
     ///
     /// # Errors
@@ -1162,6 +1230,31 @@ mod tests {
         assert_eq!(grid.rows[0].scene.name, "Verse");
         assert!(editor.undo());
         assert!(editor.song().scene_names.is_empty());
+    }
+
+    #[test]
+    fn quantise_snaps_starts_and_sets_velocity() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let note = editor.song().tracks[0].notes[0].id;
+        editor.set_velocity(track, note, 70).expect("velocity");
+        assert_eq!(editor.song().tracks[0].notes[0].velocity.as_u8(), 70);
+        editor
+            .insert(
+                track,
+                125,
+                music_core::Pitch::from_name("E4").expect("valid"),
+            )
+            .expect("insert");
+        let changed = editor.quantize(music_core::PPQ / 4).expect("quantise");
+        assert!(changed >= 1);
+        assert!(
+            editor.song().tracks[0]
+                .notes
+                .iter()
+                .all(|note| note.start % (music_core::PPQ / 4) == 0)
+        );
+        assert!(editor.undo());
     }
 
     #[test]

@@ -162,3 +162,10 @@ playhead). With Loop on, playback renders the loop window from the full mix with
 from the loop start; `transport::wrap` covers the arithmetic. The metronome mixes short clicks on every beat (downbeats accented) into
 playback and `export-audio --metronome`. Record arm and ruler editing are still
 absent.
+
+### Quantise and velocity
+
+`Editor::quantize` rounds every note start in every track to a grid with
+half-step rounding, one ReplaceTrackNotes edit per changed track; Arrange has
+1/16 and 1/8 buttons. `Editor::set_velocity` sets one note's velocity but has no
+lane UI yet. Drag-move, resize, piano keys and select-all are still absent.
