@@ -517,6 +517,10 @@ pub struct ShellApp {
     midi_out_program: u8,
     midi_out_note: u8,
     midi_out_velocity: u8,
+    midi_out_cc: u8,
+    midi_out_cc_value: u8,
+    midi_out_bank_msb: u8,
+    midi_out_bank_lsb: u8,
     au_editor_open: bool,
     au_editor_track: Option<TrackId>,
     au_editor_slot: Option<u32>,
@@ -739,6 +743,10 @@ impl ShellApp {
             midi_out_program: 0,
             midi_out_note: 60,
             midi_out_velocity: 100,
+            midi_out_cc: 7,
+            midi_out_cc_value: 100,
+            midi_out_bank_msb: 0,
+            midi_out_bank_lsb: 0,
             au_editor_open: false,
             au_editor_track: None,
             au_editor_slot: None,
@@ -2665,6 +2673,47 @@ impl ShellApp {
                         self.send_midi(music_core::MidiMessage::ProgramChange {
                             channel,
                             program: self.midi_out_program,
+                        });
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("bank");
+                    ui.add(egui::DragValue::new(&mut self.midi_out_bank_msb).range(0..=127));
+                    ui.label("/");
+                    ui.add(egui::DragValue::new(&mut self.midi_out_bank_lsb).range(0..=127));
+                    if ui.button("Send bank").clicked()
+                        && let (Ok(channel), Ok(msb), Ok(lsb)) = (
+                            music_core::Channel::from_one_based(self.midi_out_channel),
+                            music_core::ControlNumber::new(0),
+                            music_core::ControlNumber::new(32),
+                        )
+                    {
+                        self.send_midi(music_core::MidiMessage::ControlChange {
+                            channel,
+                            controller: msb,
+                            value: self.midi_out_bank_msb,
+                        });
+                        self.send_midi(music_core::MidiMessage::ControlChange {
+                            channel,
+                            controller: lsb,
+                            value: self.midi_out_bank_lsb,
+                        });
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("CC");
+                    ui.add(egui::DragValue::new(&mut self.midi_out_cc).range(0..=127));
+                    ui.add(egui::DragValue::new(&mut self.midi_out_cc_value).range(0..=127));
+                    if ui.button("Send CC").clicked()
+                        && let (Ok(channel), Ok(controller)) = (
+                            music_core::Channel::from_one_based(self.midi_out_channel),
+                            music_core::ControlNumber::new(self.midi_out_cc),
+                        )
+                    {
+                        self.send_midi(music_core::MidiMessage::ControlChange {
+                            channel,
+                            controller,
+                            value: self.midi_out_cc_value,
                         });
                     }
                 });
