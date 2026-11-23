@@ -138,3 +138,4 @@ For the clef layout, choose either four measures per system without clefs
 - Style file player loads a Yamaha style and auditions selected sections at an entered chord with optional loop; new section selections and chord pads queue at the next bar; held MIDI notes are recognised as chord changes; fills return to the main section and endings stop looping (`docs/audit/style-file.png`).
 - Window title and About use the C++ app name "Lazy Arranger Midi DAW".
 - Timeline draws labelled audio-reference blocks with cached waveform peaks (`docs/audit/ui-timeline-waveform.png`); the lane peak map covers the whole file, not the trimmed offset.
+- Master strip uses the same custom fader height and a live player meter (`docs/audit/ui-master-meter.png`).

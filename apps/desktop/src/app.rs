@@ -3250,6 +3250,16 @@ impl ShellApp {
                                 });
                             });
                         }
+                        let master_level = self.player.as_ref().map_or_else(
+                            || {
+                                self.song()
+                                    .tracks
+                                    .iter()
+                                    .map(|track| track_level(track, self.position))
+                                    .fold(0.0_f32, f32::max)
+                            },
+                            |player| player.meter().peak.clamp(0.0, 1.0),
+                        );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.allocate_ui(egui::vec2(110.0, 220.0), |ui| {
                                 ui.vertical(|ui| {
@@ -3265,12 +3275,31 @@ impl ShellApp {
                                         .color(theme::text_dim()),
                                     );
                                     ui.add_space(62.0);
-                                    ui.allocate_ui(egui::vec2(48.0, 92.0), |ui| {
-                                        ui.add(
-                                            egui::Slider::new(&mut master_gain, -24.0..=12.0)
-                                                .vertical()
-                                                .show_value(false),
+                                    ui.horizontal(|ui| {
+                                        ui.allocate_ui(egui::vec2(42.0, 88.0), |ui| {
+                                            mixer_fader(
+                                                ui,
+                                                &mut master_gain,
+                                                -24.0,
+                                                12.0,
+                                                88.0,
+                                                theme::accent(),
+                                                "Master",
+                                            );
+                                        });
+                                        let (meter, _) = ui.allocate_exact_size(
+                                            egui::vec2(5.0, 82.0),
+                                            egui::Sense::hover(),
                                         );
+                                        ui.painter().rect_filled(meter, 1.0, theme::raised());
+                                        let fill = egui::Rect::from_min_max(
+                                            egui::pos2(
+                                                meter.left(),
+                                                meter.bottom() - meter.height() * master_level,
+                                            ),
+                                            meter.max,
+                                        );
+                                        ui.painter().rect_filled(fill, 1.0, theme::accent());
                                     });
                                     ui.label(
                                         egui::RichText::new(format!("{master_gain:.1} dB"))
