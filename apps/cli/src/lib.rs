@@ -588,6 +588,12 @@ enum Commands {
         /// Mix a metronome click track.
         #[arg(long)]
         metronome: bool,
+        /// Master gain in decibels.
+        #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        gain_db: f32,
+        /// Turn the master limiter off.
+        #[arg(long)]
+        no_limiter: bool,
     },
     /// Record a style performance as linked intent and rendered tracks.
     Perform {
@@ -1631,7 +1637,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             sample_rate,
             bits,
             metronome,
-        } => export_audio(&project, &out, sample_rate, bits, metronome),
+            gain_db,
+            no_limiter,
+        } => export_audio(
+            &project,
+            &out,
+            sample_rate,
+            bits,
+            metronome,
+            audio::master::Master {
+                gain_db,
+                limiter: !no_limiter,
+            },
+        ),
         Commands::Perform {
             style,
             out,
@@ -2234,6 +2252,7 @@ fn export_audio(
     sample_rate: u32,
     bits: u16,
     metronome: bool,
+    master: audio::master::Master,
 ) -> Result<(), Box<dyn Error>> {
     if !matches!(bits, 16 | 24) {
         return Err(format!("--bits must be 16 or 24, found {bits}").into());
@@ -2254,6 +2273,8 @@ fn export_audio(
     if metronome {
         audio::metronome::mix(&mut rendered, &project.song, 1.0);
     }
+    audio::master::apply(&mut rendered, master);
+    let levels = audio::master::meter(&rendered);
     let wav = if bits == 24 {
         rendered.to_wav24()
     } else {
@@ -2268,6 +2289,7 @@ fn export_audio(
         wav.len(),
         out.display()
     );
+    println!("master: peak {:.3}, rms {:.3}", levels.peak, levels.rms);
     Ok(())
 }
 

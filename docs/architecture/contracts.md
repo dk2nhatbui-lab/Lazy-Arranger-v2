@@ -234,3 +234,12 @@ pitch, and the canvas and PDF stroke a shallow curve for each. The canvas draws
 articulation glyphs (staccato dot, accent, tenuto, marcato, fermata) and
 dynamics at their placed positions; the PDF keeps text abbreviations. Phrase
 slurs, which are not derived from ties, are not implemented.
+
+### Master bus
+
+`audio::master::apply` scales by `gain_db` and, when enabled, passes samples
+through `tanh` before a final -1..1 clamp; `meter` reports peak and RMS. Settings
+persist `master_gain_db` and `master_limiter`; the Mixer has a master gain slider
+and limiter toggle, playback applies them, and `export-audio` takes `--gain-db`
+and `--no-limiter` then prints peak/RMS. Reverb/chorus and drawn meters are not
+implemented.

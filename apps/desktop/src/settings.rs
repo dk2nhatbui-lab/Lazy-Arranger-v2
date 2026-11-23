@@ -124,6 +124,10 @@ pub struct Settings {
     pub speech: bool,
     /// Folder holding the style library, empty when not configured.
     pub style_library: String,
+    /// Master gain in decibels.
+    pub master_gain_db: f32,
+    /// Whether the master limiter is on.
+    pub master_limiter: bool,
     /// Fields this build does not understand.
     pub extra: BTreeMap<String, String>,
 }
@@ -139,6 +143,8 @@ impl Default for Settings {
             kids_mode: false,
             speech: false,
             style_library: String::new(),
+            master_gain_db: 0.0,
+            master_limiter: true,
             extra: BTreeMap::new(),
         }
     }
@@ -187,6 +193,12 @@ impl Settings {
                 "kids_mode" => settings.kids_mode = value == "true",
                 "speech" => settings.speech = value == "true",
                 "style_library" => settings.style_library = value.to_string(),
+                "master_gain_db" => {
+                    if let Ok(gain) = value.parse::<f32>() {
+                        settings.master_gain_db = gain.clamp(-24.0, 12.0);
+                    }
+                }
+                "master_limiter" => settings.master_limiter = value == "true",
                 _ => {
                     settings.extra.insert(key.to_string(), value.to_string());
                 }
@@ -214,6 +226,8 @@ impl Settings {
         if !self.style_library.is_empty() {
             text.push_str(&format!("style_library = {}\n", self.style_library));
         }
+        text.push_str(&format!("master_gain_db = {}\n", self.master_gain_db));
+        text.push_str(&format!("master_limiter = {}\n", self.master_limiter));
         for (key, value) in &self.extra {
             text.push_str(&format!("{key} = {value}\n"));
         }

@@ -9,6 +9,7 @@ pub mod chords;
 pub mod drums;
 pub mod l6max;
 pub mod link;
+pub mod master;
 pub mod metronome;
 pub mod mix;
 pub mod player;

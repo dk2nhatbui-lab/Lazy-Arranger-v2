@@ -1278,6 +1278,15 @@ impl ShellApp {
     /// Mixer strips: one per track with a fader, pan and mute/solo.
     fn mixer_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Mixer");
+        ui.horizontal(|ui| {
+            ui.label("Master");
+            ui.add(
+                egui::Slider::new(&mut self.settings.master_gain_db, -24.0..=12.0)
+                    .suffix(" dB")
+                    .fixed_decimals(1),
+            );
+            ui.checkbox(&mut self.settings.master_limiter, "Limiter");
+        });
         let strips: Vec<(TrackId, String, u8, u8, bool, bool)> = self
             .song()
             .tracks
@@ -1779,6 +1788,13 @@ impl ShellApp {
         if self.settings.metronome {
             audio::metronome::mix(&mut audio, self.song(), 1.0);
         }
+        audio::master::apply(
+            &mut audio,
+            audio::master::Master {
+                gain_db: self.settings.master_gain_db,
+                limiter: self.settings.master_limiter,
+            },
+        );
         if let Some(problem) = problems.first() {
             self.status = Some(format!("audio {}: {}", problem.path, problem.reason));
         }
