@@ -86,6 +86,10 @@ pub enum FileMode {
     SaveAs,
     /// Import a WAV as an audio track.
     ImportAudio,
+    /// Export the song as a MIDI file.
+    ExportMidi,
+    /// Export the song as MusicXML.
+    ExportMusicXml,
 }
 
 pub struct ShellApp {
@@ -767,6 +771,8 @@ impl ShellApp {
             FileMode::Open => "Open project",
             FileMode::SaveAs => "Save as",
             FileMode::ImportAudio => "Import audio",
+            FileMode::ExportMidi => "Export MIDI",
+            FileMode::ExportMusicXml => "Export MusicXML",
         })
         .collapsible(false)
         .open(&mut open)
@@ -774,6 +780,8 @@ impl ShellApp {
         .show(context, |ui| {
             ui.label(match mode {
                 FileMode::ImportAudio => "Path (.wav)",
+                FileMode::ExportMidi => "Path (.mid)",
+                FileMode::ExportMusicXml => "Path (.musicxml)",
                 _ => "Path (.arranger JSON, .mid, .midi or .musicxml)",
             });
             ui.add(egui::TextEdit::singleline(&mut self.file_path_input).desired_width(400.0));
@@ -782,6 +790,7 @@ impl ShellApp {
                     FileMode::Open => "Open",
                     FileMode::SaveAs => "Save",
                     FileMode::ImportAudio => "Import",
+                    FileMode::ExportMidi | FileMode::ExportMusicXml => "Export",
                 };
                 if ui.button(label).clicked() {
                     action = true;
@@ -804,6 +813,32 @@ impl ShellApp {
                 match self.editor.import_audio(&path, self.position.max(0)) {
                     Ok(track) => {
                         self.status = Some(format!("imported audio as track {}", track.get()));
+                        self.file_mode = None;
+                    }
+                    Err(error) => self.load_error = Some(error),
+                }
+            } else if mode == FileMode::ExportMidi {
+                let song = self.song().clone();
+                match export_midi_file(&song, &path) {
+                    Ok(tracks) => {
+                        self.status = Some(format!(
+                            "exported {tracks} MIDI track(s) to {}",
+                            path.display()
+                        ));
+                        self.file_mode = None;
+                    }
+                    Err(error) => self.load_error = Some(error),
+                }
+            } else if mode == FileMode::ExportMusicXml {
+                let song = self.song().clone();
+                let title = if song.name.is_empty() {
+                    "Lazy Arranger score"
+                } else {
+                    &song.name
+                };
+                match export_musicxml_file(&song, &path, title) {
+                    Ok(()) => {
+                        self.status = Some(format!("exported MusicXML to {}", path.display()));
                         self.file_mode = None;
                     }
                     Err(error) => self.load_error = Some(error),
@@ -3359,6 +3394,24 @@ impl ShellApp {
                                 self.file_path_input.clear();
                                 self.file_mode = Some(FileMode::ImportAudio);
                             }
+                            if ui.small_button("Export MIDI").clicked() {
+                                self.file_path_input = self
+                                    .project_path
+                                    .as_ref()
+                                    .map(|path| path.with_extension("mid").display().to_string())
+                                    .unwrap_or_else(|| String::from("project.mid"));
+                                self.file_mode = Some(FileMode::ExportMidi);
+                            }
+                            if ui.small_button("Export XML").clicked() {
+                                self.file_path_input = self
+                                    .project_path
+                                    .as_ref()
+                                    .map(|path| {
+                                        path.with_extension("musicxml").display().to_string()
+                                    })
+                                    .unwrap_or_else(|| String::from("project.musicxml"));
+                                self.file_mode = Some(FileMode::ExportMusicXml);
+                            }
                         });
                     }
                     if !self.recent.is_empty() {
@@ -4285,6 +4338,56 @@ pub fn is_midi_path(path: &std::path::Path) -> bool {
     project_kind(path) == ProjectKind::Midi
 }
 
+/// Writes a keyboard MIDI export and returns its track count.
+///
+/// # Errors
+///
+/// Returns a message when the file cannot be written.
+pub fn export_midi_file(
+    song: &project::song::Song,
+    path: &std::path::Path,
+) -> Result<usize, String> {
+    let voices: Vec<smf::KeyboardVoice> = song
+        .tracks
+        .iter()
+        .enumerate()
+        .map(|(index, track)| {
+            let drums = track
+                .notes
+                .iter()
+                .any(|note| note.channel.zero_based() == 9);
+            smf::KeyboardVoice {
+                channel: if drums {
+                    9
+                } else {
+                    u8::try_from(index).unwrap_or(0) & 0x0f
+                },
+                program: track.program.unwrap_or(0),
+                volume: track.volume.min(127),
+                pan: track.pan.min(127),
+                bank: None,
+            }
+        })
+        .collect();
+    let (bytes, report) = smf::keyboard::export(song, &voices, &[]);
+    std::fs::write(path, bytes).map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(report.tracks)
+}
+
+/// Writes a MusicXML export.
+///
+/// # Errors
+///
+/// Returns a message when the file cannot be written.
+pub fn export_musicxml_file(
+    song: &project::song::Song,
+    path: &std::path::Path,
+    title: &str,
+) -> Result<(), String> {
+    let xml = musicxml::export(song, title);
+    std::fs::write(path, xml).map_err(|error| format!("{}: {error}", path.display()))
+}
+
 pub fn load_project(path: &PathBuf) -> Result<ProjectFile, ProjectError> {
     let bytes = std::fs::read(path)
         .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
@@ -4317,6 +4420,25 @@ pub fn demo_project() -> ProjectFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn midi_and_musicxml_exports_write_reloadable_files() {
+        let song = arranging::demo::demo_song();
+        let midi = std::env::temp_dir().join("lazy-arranger-export-shell.mid");
+        let tracks = export_midi_file(&song, &midi).expect("midi");
+        assert!(tracks > 0);
+        let bytes = std::fs::read(&midi).expect("read midi");
+        assert_eq!(&bytes[0..4], b"MThd");
+        let audit = smf::keyboard::audit(&bytes).expect("audit");
+        assert!(audit.tracks > 0);
+        let xml = std::env::temp_dir().join("lazy-arranger-export-shell.musicxml");
+        export_musicxml_file(&song, &xml, "Shell").expect("xml");
+        let text = std::fs::read_to_string(&xml).expect("read xml");
+        let imported = musicxml::import::import(&text).expect("import xml");
+        assert_eq!(imported.tracks.len(), song.tracks.len());
+        let _ = std::fs::remove_file(midi);
+        let _ = std::fs::remove_file(xml);
+    }
 
     #[test]
     fn a_musicxml_file_loads_as_a_project() {

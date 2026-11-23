@@ -694,3 +694,11 @@ the visuals. The Settings window has a Light theme checkbox that applies
 immediately and persists as `light_theme`. Track colours switch to a deeper
 seven-colour set for contrast. The dark palette values are unchanged, and a test
 covers both palettes, track cycling and font binding.
+
+### Export from the shell
+
+`export_midi_file` builds per-track keyboard voices (program, volume, pan and
+channel 10 for drums) and writes `smf::keyboard::export`; `export_musicxml_file`
+writes `musicxml::export`. The sidebar Export MIDI / Export XML buttons open the
+file window in export mode. A test writes both, audits the MIDI header and
+re-imports the MusicXML with matching track count.
