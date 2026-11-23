@@ -504,6 +504,8 @@ pub struct ShellApp {
     style_from_markers: bool,
     style_path: String,
     style_sff1: bool,
+    master_fx_open: bool,
+    master_fx_choice: usize,
     au_editor_open: bool,
     au_editor_track: Option<TrackId>,
     au_editor_slot: Option<u32>,
@@ -707,6 +709,8 @@ impl ShellApp {
             style_from_markers: true,
             style_path: String::from("clips.sty"),
             style_sff1: false,
+            master_fx_open: std::env::var("ARRANGER_MASTER_FX").is_ok(),
+            master_fx_choice: 0,
             au_editor_open: false,
             au_editor_track: None,
             au_editor_slot: None,
@@ -2537,6 +2541,96 @@ impl ShellApp {
             let _ = self.editor.set_track_gain(id, volume, pan);
             let _ = self.editor.set_track_flags(id, muted, soloed, false);
         }
+    }
+
+    fn master_fx_window(&mut self, context: &Context) {
+        if !self.master_fx_open {
+            return;
+        }
+        let mut open = self.master_fx_open;
+        let mut changed = false;
+        let mut plugins = self.song().master_plugins.clone();
+        let catalog = self
+            .plugin_scan
+            .clone()
+            .or_else(|| plugins::load_catalog(std::path::Path::new(plugins::CATALOG_FILE)))
+            .unwrap_or_default();
+        egui::Window::new("Master effects")
+            .open(&mut open)
+            .resizable(false)
+            .default_width(420.0)
+            .show(context, |ui| {
+                if plugins.is_empty() {
+                    ui.label("No master effects.");
+                }
+                let mut remove = None;
+                let mut move_up = None;
+                for (index, slot) in plugins.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut slot.bypassed, "").changed() {
+                            changed = true;
+                        }
+                        ui.label(&slot.name);
+                        if index > 0 && ui.small_button("↑").clicked() {
+                            move_up = Some(index);
+                        }
+                        if ui.small_button("Remove").clicked() {
+                            remove = Some(index);
+                        }
+                    });
+                }
+                if let Some(index) = move_up {
+                    plugins.swap(index, index - 1);
+                    changed = true;
+                }
+                if let Some(index) = remove {
+                    plugins.remove(index);
+                    changed = true;
+                }
+                egui::ComboBox::from_id_salt("master-fx-plugin")
+                    .selected_text(
+                        catalog
+                            .get(self.master_fx_choice)
+                            .map_or("No cached plug-ins", |plugin| plugin.name.as_str()),
+                    )
+                    .show_ui(ui, |ui| {
+                        for (index, plugin) in catalog.iter().enumerate().take(20) {
+                            ui.selectable_value(&mut self.master_fx_choice, index, &plugin.name);
+                        }
+                    });
+                if ui.button("Add plug-in").clicked()
+                    && let Some(plugin) = catalog.get(self.master_fx_choice)
+                {
+                    let id = plugins.iter().map(|slot| slot.id).max().unwrap_or(0) + 1;
+                    plugins.push(project::song::PluginSlot {
+                        id,
+                        name: plugin.name.clone(),
+                        format: match plugin.format {
+                            plugins::Format::Vst3 => project::song::PluginFormat::Vst3,
+                            plugins::Format::AudioUnit => project::song::PluginFormat::AudioUnit,
+                        },
+                        path: plugin.path.display().to_string(),
+                        identifier: plugin.identifier.clone(),
+                        bypassed: false,
+                        state: String::new(),
+                    });
+                    changed = true;
+                }
+                ui.label(
+                    egui::RichText::new(
+                        "Master effects run after the bus sum and before the master limiter.",
+                    )
+                    .size(9.0)
+                    .color(theme::text_dim()),
+                );
+            });
+        if changed {
+            match self.editor.set_master_plugins(plugins) {
+                Ok(()) => self.status = Some(String::from("master effects updated")),
+                Err(error) => self.status = Some(error),
+            }
+        }
+        self.master_fx_open = open;
     }
 
     fn style_clips_window(&mut self, context: &Context) {
@@ -5696,6 +5790,10 @@ impl ShellApp {
                                 self.style_clips_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Master effects").clicked() {
+                                self.master_fx_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Shortcuts").clicked() {
                                 self.shortcuts_open = true;
                                 ui.close_menu();
@@ -6014,6 +6112,7 @@ impl eframe::App for ShellApp {
         self.plugins_window(context);
         self.patch_window(context);
         self.style_clips_window(context);
+        self.master_fx_window(context);
         self.au_parameters_window(context);
         self.print_window(context);
         self.file_window(context);

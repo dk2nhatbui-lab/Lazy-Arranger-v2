@@ -407,6 +407,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
     let song = Song {
         scene_names: Vec::new(),
         buses: Vec::new(),
+        master_plugins: Vec::new(),
         marks: Vec::new(),
         lyrics: Vec::new(),
         name: String::new(),

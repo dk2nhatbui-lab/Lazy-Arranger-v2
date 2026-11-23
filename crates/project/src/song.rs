@@ -693,6 +693,9 @@ pub struct Song {
     /// Mix buses.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub buses: Vec<Bus>,
+    /// Master-bus plug-in slots, applied after the bus sum.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub master_plugins: Vec<PluginSlot>,
     /// Score marks: dynamics and articulations.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub marks: Vec<Mark>,

@@ -153,6 +153,7 @@ pub fn import_cpp_project(text: &str) -> Result<ImportedProject, ProjectError> {
         arranger: Vec::new(),
         scene_names: Vec::new(),
         buses: Vec::new(),
+        master_plugins: Vec::new(),
         marks: Vec::new(),
         lyrics: Vec::new(),
         markers: Vec::new(),

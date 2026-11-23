@@ -139,6 +139,11 @@ pub enum Command {
         /// New buses.
         buses: Vec<project::song::Bus>,
     },
+    /// Replace the master-bus plug-in chain.
+    SetMasterPlugins {
+        /// New master slots.
+        plugins: Vec<project::song::PluginSlot>,
+    },
     /// Set a track's bus routing and send.
     SetTrackRouting {
         /// The track.
@@ -285,6 +290,7 @@ impl Command {
             Self::FreezeTrack { .. } => "freeze track",
             Self::RestoreTrack { .. } => "restore track",
             Self::SetBuses { .. } => "set buses",
+            Self::SetMasterPlugins { .. } => "set master plug-ins",
             Self::SetTrackPatch { .. } => "set track patch",
             Self::SetPlugins { .. } => "set plugins",
             Self::SetSoundFont { .. } => "set soundfont",
@@ -823,6 +829,9 @@ impl EditSession {
             Command::SetBuses { .. } => Command::SetBuses {
                 buses: self.song().buses.clone(),
             },
+            Command::SetMasterPlugins { .. } => Command::SetMasterPlugins {
+                plugins: self.song().master_plugins.clone(),
+            },
             Command::SetTrackRouting { track, .. } => {
                 let found = self.track(*track)?;
                 Command::SetTrackRouting {
@@ -1107,6 +1116,9 @@ impl EditSession {
             Command::SetPlugins { track, plugins } => {
                 self.track_mut(*track)?.plugins = plugins.clone();
             }
+            Command::SetMasterPlugins { plugins } => {
+                self.project.song.master_plugins = plugins.clone();
+            }
             Command::SetTrackRouting {
                 track,
                 bus,
@@ -1224,6 +1236,9 @@ fn describe(command: &Command) -> String {
             format!("track {track}: {} automation lane(s)", lanes.len())
         }
         Command::SetBuses { buses } => format!("set {} bus(es)", buses.len()),
+        Command::SetMasterPlugins { plugins } => {
+            format!("set {} master plug-in(s)", plugins.len())
+        }
         Command::SetPlugins { track, plugins } => {
             format!("track {track}: {} plugin slot(s)", plugins.len())
         }
@@ -2058,6 +2073,27 @@ mod tests {
         assert_eq!(edit.song().tracks[0].notes[0].start, 1920);
         edit.undo().expect("undo");
         assert_eq!(edit.song().tracks[0].notes[0].start, 0);
+    }
+
+    #[test]
+    fn master_plugin_chain_is_undoable() {
+        let mut edit = session();
+        let slot = project::song::PluginSlot {
+            id: 1,
+            name: String::from("Master Limiter"),
+            format: project::song::PluginFormat::Vst3,
+            path: String::new(),
+            identifier: String::new(),
+            bypassed: false,
+            state: String::new(),
+        };
+        edit.apply(Command::SetMasterPlugins {
+            plugins: vec![slot.clone()],
+        })
+        .expect("set");
+        assert_eq!(edit.song().master_plugins, vec![slot]);
+        edit.undo().expect("undo");
+        assert!(edit.song().master_plugins.is_empty());
     }
 
     #[test]

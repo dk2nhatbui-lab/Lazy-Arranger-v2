@@ -629,6 +629,22 @@ impl Editor {
         Ok(())
     }
 
+    /// Replaces the master-bus plug-in chain.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_master_plugins(
+        &mut self,
+        plugins: Vec<project::song::PluginSlot>,
+    ) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::SetMasterPlugins { plugins })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Moves a plug-in slot earlier or later on its track.
     ///
     /// # Errors

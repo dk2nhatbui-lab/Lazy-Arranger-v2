@@ -83,3 +83,4 @@ For the clef layout, choose either four measures per system without clefs
 - MCP `style_from_clips` writes the same multi-section SFF as the CLI; registry is 94 tools.
 - Windows > Style from clips exposes the writer in the desktop app (`docs/audit/style-clips.png`).
 - Plugin slots can be reordered up/down through one undoable command.
+- Master effect slots run after the bus sum (capture `docs/audit/master-effects.png`); bus effect chains are still absent.

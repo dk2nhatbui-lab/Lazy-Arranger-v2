@@ -333,6 +333,7 @@ pub fn render_with_soundfont(
             }
         }
     }
+    apply_plugins(&song.master_plugins, &mut samples, sample_rate);
     for sample in &mut samples {
         *sample = sample.clamp(-1.0, 1.0);
     }
@@ -482,7 +483,11 @@ fn render_instrument(
 }
 
 fn apply_track_plugins(track: &project::song::Track, buffer: &mut [f32], sample_rate: u32) {
-    for slot in &track.plugins {
+    apply_plugins(&track.plugins, buffer, sample_rate);
+}
+
+fn apply_plugins(slots: &[project::song::PluginSlot], buffer: &mut [f32], sample_rate: u32) {
+    for slot in slots {
         if slot.bypassed || slot.identifier.is_empty() {
             continue;
         }
@@ -751,6 +756,32 @@ mod tests {
             .map(|(wet, dry)| (wet - dry).abs())
             .sum();
         assert!(difference > 0.01, "plugin made no audible change");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "loads the Apple dynamics Audio Unit"]
+    fn a_master_au_processes_the_final_mix() {
+        use project::song::{PluginFormat, PluginSlot};
+        let mut song = song_with_note();
+        let dry = render(&song, SAMPLE_RATE);
+        song.master_plugins.push(PluginSlot {
+            id: 1,
+            name: String::from("AUDynamicsProcessor"),
+            format: PluginFormat::AudioUnit,
+            path: String::new(),
+            identifier: String::from("appl:dcmp"),
+            bypassed: false,
+            state: String::new(),
+        });
+        let wet = render(&song, SAMPLE_RATE);
+        let difference: f32 = wet
+            .samples
+            .iter()
+            .zip(&dry.samples)
+            .map(|(wet, dry)| (wet - dry).abs())
+            .sum();
+        assert!(difference > 0.01, "master AU made no change");
     }
 
     #[test]
