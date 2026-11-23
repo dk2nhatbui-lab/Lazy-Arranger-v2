@@ -1735,8 +1735,14 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     .and_then(Value::as_u64)
                     .unwrap_or(64)
                     .clamp(0, 127) as u8,
-                muted: false,
-                soloed: false,
+                muted: arguments
+                    .get("muted")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                soloed: arguments
+                    .get("soloed")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
                 plugins: Vec::new(),
             });
             session.apply(Command::SetBuses { buses })?;
@@ -2420,7 +2426,9 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     "id": bus.id,
                     "name": bus.name,
                     "volume": bus.volume,
-                    "pan": bus.pan
+                    "pan": bus.pan,
+                    "muted": bus.muted,
+                    "soloed": bus.soloed
                 }))
                 .collect::<Vec<_>>()
         })),
@@ -2447,8 +2455,8 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     name: name.to_string(),
                     volume: bus.get("volume").and_then(Value::as_u64).unwrap_or(100) as u8,
                     pan: bus.get("pan").and_then(Value::as_u64).unwrap_or(64) as u8,
-                    muted: false,
-                    soloed: false,
+                    muted: bus.get("muted").and_then(Value::as_bool).unwrap_or(false),
+                    soloed: bus.get("soloed").and_then(Value::as_bool).unwrap_or(false),
                     plugins: Vec::new(),
                 });
             }
@@ -4061,11 +4069,13 @@ mod tests {
         call(
             &mut session,
             "set_buses",
-            &json!({"buses": [{"id": 1, "name": "Reverb", "volume": 90, "pan": 64}]}),
+            &json!({"buses": [{"id": 1, "name": "Reverb", "volume": 90, "pan": 64, "muted": true, "soloed": true}]}),
         )
         .expect("buses");
         let buses = call(&mut session, "get_buses", &json!({})).expect("get buses");
         assert_eq!(buses["buses"][0]["name"], "Reverb");
+        assert_eq!(buses["buses"][0]["muted"], true);
+        assert_eq!(buses["buses"][0]["soloed"], true);
         call(
             &mut session,
             "set_track_routing",
