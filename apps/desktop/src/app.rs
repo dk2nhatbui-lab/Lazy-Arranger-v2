@@ -114,6 +114,12 @@ impl AuEditorUnit {
 }
 
 /// One row of the track list, snapshotted before drawing so the borrow ends.
+#[derive(Clone, Debug)]
+struct AssistantProposal {
+    command: String,
+    label: String,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct PsrRegistration {
     channel: u8,
@@ -646,6 +652,7 @@ pub struct ShellApp {
     assistant_input: String,
     assistant_log: Vec<String>,
     ai_pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
+    assistant_proposal: Option<AssistantProposal>,
     waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
     audio_inputs: Option<Vec<String>>,
@@ -917,6 +924,7 @@ impl ShellApp {
             assistant_input: String::new(),
             assistant_log: Vec::new(),
             ai_pending: None,
+            assistant_proposal: None,
             waveform: None,
             midi_ports: None,
             audio_inputs: None,
@@ -2368,12 +2376,21 @@ impl ShellApp {
     fn finish_ai_reply(&mut self, reply: String) {
         let mut text = reply.clone();
         if let Some(command) = crate::ai::tool_command(&reply) {
-            self.selected_note = None;
-            self.selected_clip = None;
-            self.selected_clips.clear();
-            let result = self.editor.assistant(command);
-            text.push('\n');
-            text.push_str(&result.text);
+            let label = crate::ai::tool_name(command).unwrap_or("tool").to_string();
+            if crate::ai::changes_project(command) {
+                self.assistant_proposal = Some(AssistantProposal {
+                    command: command.to_string(),
+                    label: label.clone(),
+                });
+                text = format!("Proposed: {label}. Apply or cancel below.");
+            } else {
+                self.selected_note = None;
+                self.selected_clip = None;
+                self.selected_clips.clear();
+                let result = self.editor.assistant(command);
+                text.push('\n');
+                text.push_str(&result.text);
+            }
         }
         if self.settings.speech
             && let Err(error) = crate::speech::speak(&text)
@@ -2389,6 +2406,8 @@ impl ShellApp {
             return;
         }
         let mut open = self.assistant_open;
+        let mut apply_proposal = false;
+        let mut cancel_proposal = false;
         egui::Window::new("Assistant")
             .open(&mut open)
             .default_width(420.0)
@@ -2449,6 +2468,29 @@ impl ShellApp {
                         }
                     }
                 });
+                if let Some(proposal) = self.assistant_proposal.clone() {
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(format!("Proposed change: {}", proposal.label))
+                                .size(11.0)
+                                .strong(),
+                        );
+                        ui.label(
+                            egui::RichText::new(&proposal.command)
+                                .monospace()
+                                .size(9.0)
+                                .color(theme::text_dim()),
+                        );
+                        ui.horizontal(|ui| {
+                            if ui.button("Apply").clicked() {
+                                apply_proposal = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                cancel_proposal = true;
+                            }
+                        });
+                    });
+                }
                 if self.ai_pending.is_some() {
                     ui.label(
                         egui::RichText::new("Waiting for the AI endpoint…")
@@ -2471,6 +2513,17 @@ impl ShellApp {
                     .color(theme::text_dim()),
                 );
             });
+        if apply_proposal && let Some(proposal) = self.assistant_proposal.take() {
+            self.selected_note = None;
+            self.selected_clip = None;
+            self.selected_clips.clear();
+            let result = self.editor.assistant(&proposal.command);
+            self.assistant_log.push(result.text);
+        }
+        if cancel_proposal && self.assistant_proposal.take().is_some() {
+            self.assistant_log
+                .push(String::from("proposal cancelled; no change"));
+        }
         if !open {
             self.assistant_open = false;
         }

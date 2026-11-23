@@ -96,6 +96,22 @@ pub fn tool_command(reply: &str) -> Option<&str> {
     (line.starts_with("tool ") && !line.contains('\n')).then_some(line)
 }
 
+/// Tool name from a `tool <name> ...` command.
+#[must_use]
+pub fn tool_name(command: &str) -> Option<&str> {
+    command
+        .trim()
+        .strip_prefix("tool ")?
+        .split_whitespace()
+        .next()
+}
+
+/// True when a tool command can change the project (anything not `get_*`).
+#[must_use]
+pub fn changes_project(command: &str) -> bool {
+    tool_name(command).is_some_and(|name| !name.starts_with("get_"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,6 +129,13 @@ mod tests {
         assert!(tool_command("tool add_track {\"name\":\"Bass\"}").is_some());
         assert!(tool_command("tool add_track\nmore").is_none());
         assert!(tool_command("plain answer").is_none());
+        assert_eq!(
+            tool_name("tool add_track {\"name\":\"Bass\"}"),
+            Some("add_track")
+        );
+        assert!(changes_project("tool add_track {}"));
+        assert!(!changes_project("tool get_song {}"));
+        assert!(!changes_project("not a tool"));
     }
 
     #[test]
