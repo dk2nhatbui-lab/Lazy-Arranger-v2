@@ -558,3 +558,11 @@ The Arrangement Doctor window has low/high/polyphony fields and a drum-kit
 checkbox; Compute fit calls `fit_to_synth` and shows its proposals with a Use
 button that applies through `Editor::apply_proposal`. The CLI path remains
 `fit-project`. A/B audition is implemented: each fit card has A and B buttons; B applies the proposal to a cloned session, renders both versions with audio references, and plays through a separate audition player so transport state is untouched.
+
+### Chord symbols in the score
+
+`placed_chord_symbols` writes one symbol per chord event at its measure x,
+shifting right by 34 units when crowded. The baseline sits above a guitar frame
+when the shape table has one, otherwise just above the staff; canvas and PDF
+draw the sharp-spelled name. Tests cover names, the above-frame offset and
+symbols without a frame.

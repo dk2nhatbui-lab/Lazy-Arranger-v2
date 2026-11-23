@@ -128,6 +128,19 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     text = escape(&lyric.text)
                 );
             }
+            for symbol in engraved
+                .chord_symbols
+                .iter()
+                .filter(|symbol| symbol.page == index)
+            {
+                let _ = writeln!(
+                    content,
+                    "BT /F1 10 Tf {:.1} {:.1} Td ({}) Tj ET",
+                    symbol.x,
+                    settings.page_height - symbol.y,
+                    escape(&symbol.name)
+                );
+            }
             for frame in engraved.frames.iter().filter(|frame| frame.page == index) {
                 let width = 3.2 * settings.staff_space;
                 let height = 3.6 * settings.staff_space;

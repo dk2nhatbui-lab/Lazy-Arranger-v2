@@ -92,6 +92,19 @@ pub struct Beam {
     pub sixteenth: bool,
 }
 
+/// A chord symbol above the staff.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChordSymbol {
+    /// Page holding the symbol.
+    pub page: usize,
+    /// Left edge.
+    pub x: f32,
+    /// Baseline y.
+    pub y: f32,
+    /// Written chord name.
+    pub name: String,
+}
+
 /// A guitar chord frame above the staff.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChordFrame {
@@ -310,6 +323,8 @@ pub struct Engraved {
     pub percussion: bool,
     /// Guitar chord frames.
     pub frames: Vec<ChordFrame>,
+    /// Chord symbols above the staff.
+    pub chord_symbols: Vec<ChordSymbol>,
 }
 
 impl Engraved {
@@ -324,6 +339,52 @@ impl Engraved {
 #[must_use]
 pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
     engrave_with(song, track, settings, &[])
+}
+
+fn placed_chord_symbols(song: &Song, pages: &[Page], settings: Settings) -> Vec<ChordSymbol> {
+    use music_core::Spelling;
+    let mut symbols = Vec::new();
+    let mut last: std::collections::BTreeMap<(usize, i32), f32> = std::collections::BTreeMap::new();
+    for event in &song.chords {
+        let frame = guitar::shape(&event.chord).is_some();
+        for (page_index, page) in pages.iter().enumerate() {
+            let mut placed = None;
+            for system in &page.systems {
+                for measure in &system.measures {
+                    if event.tick >= measure.start && event.tick < measure.start + measure.length {
+                        let fraction = (event.tick - measure.start) as f32 / measure.length as f32;
+                        let mut x = measure.x + fraction * (measure.x_end - measure.x);
+                        let key = (page_index, (system.y * 10.0) as i32);
+                        if let Some(previous) = last.get(&key)
+                            && x < previous + 34.0
+                        {
+                            x = previous + 34.0;
+                        }
+                        last.insert(key, x);
+                        placed = Some(ChordSymbol {
+                            page: page_index,
+                            x,
+                            y: if frame {
+                                system.y - 10.0 * settings.staff_space
+                            } else {
+                                system.y - 2.4 * settings.staff_space
+                            },
+                            name: event.chord.format(Spelling::Sharp),
+                        });
+                        break;
+                    }
+                }
+                if placed.is_some() {
+                    break;
+                }
+            }
+            if let Some(symbol) = placed {
+                symbols.push(symbol);
+                break;
+            }
+        }
+    }
+    symbols
 }
 
 fn placed_frames(song: &Song, pages: &[Page], settings: Settings) -> Vec<ChordFrame> {
@@ -807,6 +868,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         source.map_or(&[][..], |track| track.slurs.as_slice()),
     );
     let frames = placed_frames(song, &pages, settings);
+    let chord_symbols = placed_chord_symbols(song, &pages, settings);
     Engraved {
         pages,
         notes,
@@ -823,6 +885,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         slurs,
         percussion,
         frames,
+        chord_symbols,
     }
 }
 
@@ -1473,6 +1536,12 @@ mod frame_tests {
         }
         let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
         assert_eq!(engraved.frames.len(), 2);
+        assert_eq!(engraved.chord_symbols.len(), 2);
+        assert_eq!(engraved.chord_symbols[0].name, "C");
+        assert!(
+            engraved.chord_symbols[0].y < engraved.frames[0].y,
+            "name above frame"
+        );
         assert_eq!(engraved.frames[0].name, "C");
         assert!(engraved.frames[1].x >= engraved.frames[0].x + 50.0);
         assert!(engraved.frames[0].y < 200.0, "frames sit above the staff");
