@@ -2537,6 +2537,41 @@ impl ShellApp {
         }
     }
 
+    fn assistant_history(&self) -> Vec<(String, String)> {
+        self.assistant_log
+            .iter()
+            .filter_map(|line| {
+                line.strip_prefix("> ").map_or_else(
+                    || (!line.is_empty()).then(|| (String::from("assistant"), line.clone())),
+                    |user| Some((String::from("user"), user.to_string())),
+                )
+            })
+            .collect()
+    }
+
+    fn request_assistant(&mut self, prompt: String) {
+        let config = crate::ai::Config {
+            url: self.settings.ai_url.clone(),
+            model: self.settings.ai_model.clone(),
+            api_key: self.settings.ai_api_key.clone(),
+        };
+        let command = self.settings.assistant_command.clone();
+        if !config.is_ready() && command.trim().is_empty() {
+            return;
+        }
+        let history = self.assistant_history();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.ai_pending = Some(receiver);
+        std::thread::spawn(move || {
+            let result = if config.is_ready() {
+                crate::ai::chat_with_history(&config, &history, &prompt)
+            } else {
+                crate::ai::local_chat(&command, &prompt)
+            };
+            let _ = sender.send(result);
+        });
+    }
+
     fn poll_ai(&mut self) {
         let Some(receiver) = &self.ai_pending else {
             return;
@@ -2649,19 +2684,6 @@ impl ShellApp {
                     }
                     if (ui.button("Send").clicked() || enter) && !self.assistant_input.is_empty() {
                         let input = self.assistant_input.trim().to_string();
-                        let history: Vec<(String, String)> = self
-                            .assistant_log
-                            .iter()
-                            .filter_map(|line| {
-                                line.strip_prefix("> ").map_or_else(
-                                    || {
-                                        (!line.is_empty())
-                                            .then(|| (String::from("assistant"), line.clone()))
-                                    },
-                                    |user| Some((String::from("user"), user.to_string())),
-                                )
-                            })
-                            .collect();
                         self.assistant_log.push(format!("> {input}"));
                         self.assistant_input.clear();
                         let config = crate::ai::Config {
@@ -2669,19 +2691,10 @@ impl ShellApp {
                             model: self.settings.ai_model.clone(),
                             api_key: self.settings.ai_api_key.clone(),
                         };
-                        if config.is_ready() {
-                            let (sender, receiver) = std::sync::mpsc::channel();
-                            self.ai_pending = Some(receiver);
-                            std::thread::spawn(move || {
-                                let _ = sender.send(crate::ai::chat_with_history(&config, &history, &input));
-                            });
-                        } else if !self.settings.assistant_command.trim().is_empty() {
-                            let command = self.settings.assistant_command.clone();
-                            let (sender, receiver) = std::sync::mpsc::channel();
-                            self.ai_pending = Some(receiver);
-                            std::thread::spawn(move || {
-                                let _ = sender.send(crate::ai::local_chat(&command, &input));
-                            });
+                        if config.is_ready()
+                            || !self.settings.assistant_command.trim().is_empty()
+                        {
+                            self.request_assistant(input);
                         } else {
                             if input == "undo" || input.starts_with("tool ") {
                                 self.selected_note = None;
