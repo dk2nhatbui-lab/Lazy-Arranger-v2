@@ -159,6 +159,12 @@ pub fn theory_summary(song: &project::song::Song) -> Vec<String> {
     lines
 }
 
+/// Formats a count with a regular plural.
+#[must_use]
+pub fn plural(count: usize, singular: &str) -> String {
+    format!("{count} {singular}{}", if count == 1 { "" } else { "s" })
+}
+
 /// Label for the built-in audio engine.
 #[must_use]
 pub fn audio_engine_label() -> String {
@@ -2245,7 +2251,10 @@ impl ShellApp {
                 }
                 ui.label(
                     egui::RichText::new(format!(
-                        "{notes} note(s) · {clips} clip(s) · {automation} automation lane(s)"
+                        "{} · {} · {}",
+                        plural(notes, "note"),
+                        plural(clips, "clip"),
+                        plural(automation, "automation lane")
                     ))
                     .size(10.0)
                     .color(theme::text_dim()),
@@ -2379,7 +2388,7 @@ impl ShellApp {
                     );
                 }
                 ui.label(
-                    egui::RichText::new(format!("{plugins} plug-in slot(s)"))
+                    egui::RichText::new(plural(plugins, "plug-in slot"))
                         .size(10.0)
                         .color(theme::text_muted()),
                 );
@@ -5345,6 +5354,14 @@ mod tests {
         assert!(lines.iter().any(|line| line.starts_with("Cadence:")));
         let empty = project::song::Song::new("Empty", 120.0);
         assert_eq!(theory_summary(&empty)[2], "No chords yet");
+    }
+
+    #[test]
+    fn plurals_read_naturally() {
+        assert_eq!(plural(0, "note"), "0 notes");
+        assert_eq!(plural(1, "note"), "1 note");
+        assert_eq!(plural(2, "clip"), "2 clips");
+        assert_eq!(plural(1, "automation lane"), "1 automation lane");
     }
 
     #[test]

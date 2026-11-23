@@ -906,3 +906,6 @@ and lists four tutorial steps. A test validates all three songs.
 `ARRANGER_WINDOW=settings|inspector|library|pads|assistant|midi-map|controllers|
 lyrics|markers|theory|lessons|songs` opens that window at startup. The Settings
 capture is `docs/audit/settings.png`; the same override is used for visual QA.
+
+The Inspector capture is `docs/audit/inspector.png`; count labels now use a
+regular plural helper (`1 note`, `2 clips`) instead of `note(s)`.
