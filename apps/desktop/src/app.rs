@@ -3982,6 +3982,36 @@ impl ShellApp {
                         if ui.small_button("Remove").clicked() {
                             remove = Some(index);
                         }
+                        if slot.format == project::song::PluginFormat::Vst3
+                            && !slot.identifier.is_empty()
+                        {
+                            if ui
+                                .small_button("Capture")
+                                .on_hover_text("Save the plug-in's current state")
+                                .clicked()
+                            {
+                                match plugin_host::Vst3Effect::new(
+                                    std::path::Path::new(&slot.path),
+                                    &slot.identifier,
+                                    48_000.0,
+                                    512,
+                                )
+                                .and_then(|effect| effect.save_state_base64())
+                                {
+                                    Ok(state) => {
+                                        slot.state = state;
+                                        changed = true;
+                                        self.status =
+                                            Some(String::from("master plug-in state captured"));
+                                    }
+                                    Err(error) => self.status = Some(error),
+                                }
+                            }
+                            if !slot.state.is_empty() && ui.small_button("Clear").clicked() {
+                                slot.state.clear();
+                                changed = true;
+                            }
+                        }
                     });
                 }
                 if let Some(index) = move_up {
@@ -4068,6 +4098,36 @@ impl ShellApp {
                         }
                         if ui.small_button("Remove").clicked() {
                             remove = Some(index);
+                        }
+                        if slot.format == project::song::PluginFormat::Vst3
+                            && !slot.identifier.is_empty()
+                        {
+                            if ui
+                                .small_button("Capture")
+                                .on_hover_text("Save the plug-in's current state")
+                                .clicked()
+                            {
+                                match plugin_host::Vst3Effect::new(
+                                    std::path::Path::new(&slot.path),
+                                    &slot.identifier,
+                                    48_000.0,
+                                    512,
+                                )
+                                .and_then(|effect| effect.save_state_base64())
+                                {
+                                    Ok(state) => {
+                                        slot.state = state;
+                                        changed = true;
+                                        self.status =
+                                            Some(String::from("bus plug-in state captured"));
+                                    }
+                                    Err(error) => self.status = Some(error),
+                                }
+                            }
+                            if !slot.state.is_empty() && ui.small_button("Clear").clicked() {
+                                slot.state.clear();
+                                changed = true;
+                            }
                         }
                     });
                 }

@@ -153,3 +153,4 @@ For the clef layout, choose either four measures per system without clefs
 - Score view draws an accent playback cursor at the transport position (`docs/audit/score-cursor.png`).
 - Video import extracts a mono 48 kHz WAV with FFmpeg; extraction test creates a 1 s MP4.
 - Audio input can record one of eight channels or a mono mix (`docs/audit/audio-settings.png`); hardware unverified.
+- Bus/master VST3 slots capture/clear state; no capture hardware fixture.
