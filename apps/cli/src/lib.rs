@@ -286,6 +286,20 @@ enum Commands {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Add a tempo change and print the map.
+    TempoSet {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Tick for the change.
+        #[arg(long)]
+        tick: i64,
+        /// Beats per minute.
+        #[arg(long)]
+        bpm: f64,
+        /// Output project `.json`.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Save, list or apply groove files.
     GrooveLibrary {
         /// `save`, `list` or `apply`.
@@ -1072,6 +1086,24 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                     .map_err(|error| format!("could not write {}: {error}", out.display()))?;
                 println!("wrote {}", out.display());
             }
+            Ok(())
+        }
+        Commands::TempoSet {
+            project,
+            tick,
+            bpm,
+            out,
+        } => {
+            let project = read_project(&project)?;
+            let mut session = EditSession::new(project)?;
+            session.apply(Command::SetTempo { tick, bpm })?;
+            let json = session.project().to_json_pretty()?;
+            fs::write(&out, json)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            for change in session.song().tempo_map.changes() {
+                println!("{} bpm at tick {}", change.bpm, change.tick);
+            }
+            println!("wrote {}", out.display());
             Ok(())
         }
         Commands::GrooveLibrary {

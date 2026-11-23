@@ -671,6 +671,19 @@ impl Editor {
     /// # Errors
     ///
     /// Returns a message when the command is rejected.
+    /// Sets a tempo change at a tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_tempo_at(&mut self, tick: Tick, bpm: f64) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::SetTempo { tick, bpm })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     pub fn set_tempo(&mut self, bpm: f64) -> Result<(), String> {
         self.session
             .apply(Command::SetTempo { tick: 0, bpm })
@@ -1367,6 +1380,18 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn tempo_changes_accumulate_on_the_map() {
+        let mut editor = editor();
+        editor.set_tempo_at(0, 100.0).expect("first");
+        editor.set_tempo_at(3840, 140.0).expect("second");
+        assert_eq!(editor.song().tempo_map.changes().len(), 2);
+        assert!((editor.song().tempo_map.bpm_at(0) - 100.0).abs() < 0.01);
+        assert!((editor.song().tempo_map.bpm_at(3840) - 140.0).abs() < 0.01);
+        assert!(editor.undo());
+        assert_eq!(editor.song().tempo_map.changes().len(), 1);
     }
 
     #[test]

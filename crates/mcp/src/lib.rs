@@ -126,6 +126,23 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "set_tempo",
+            description: "Set a tempo change at a tick.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "tick": {"type": "integer"},
+                    "bpm": {"type": "number"}
+                },
+                "required": ["tick", "bpm"]
+            }),
+        },
+        Tool {
+            name: "get_tempo",
+            description: "List the tempo map changes.",
+            input_schema: json!({"type": "object"}),
+        },
+        Tool {
             name: "quantize",
             description: "Snap every note start to a grid, one edit per changed track.",
             input_schema: json!({
@@ -424,6 +441,27 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "scenes": scenes,
             }))
         }
+        "set_tempo" => {
+            let tick = arguments
+                .get("tick")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+            let bpm = arguments
+                .get("bpm")
+                .and_then(Value::as_f64)
+                .ok_or_else(|| ToolError::Arguments(String::from("bpm is required")))?;
+            session.apply(Command::SetTempo { tick, bpm })?;
+            Ok(json!({"tick": tick, "bpm": bpm}))
+        }
+        "get_tempo" => Ok(json!({
+            "changes": session
+                .song()
+                .tempo_map
+                .changes()
+                .iter()
+                .map(|change| json!({"tick": change.tick, "bpm": change.bpm}))
+                .collect::<Vec<_>>()
+        })),
         "quantize" => {
             let grid = arguments
                 .get("grid")
@@ -1106,6 +1144,16 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn tempo_tools_work() {
+        let mut session = session_with_track();
+        call(&mut session, "set_tempo", &json!({"tick": 0, "bpm": 90.0})).expect("tempo");
+        let changes = call(&mut session, "get_tempo", &json!({})).expect("tempo map");
+        assert_eq!(changes["changes"].as_array().expect("array").len(), 1);
+        assert!((session.song().tempo_map.bpm_at(0) - 90.0).abs() < 0.01);
+        assert!(call(&mut session, "set_tempo", &json!({"tick": 0})).is_err());
     }
 
     #[test]
