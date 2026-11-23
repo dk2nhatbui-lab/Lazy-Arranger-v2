@@ -4103,17 +4103,27 @@ impl ShellApp {
                                 Err(error) => self.status = Some(error),
                             }
                         }
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "ch {}",
-                                track
-                                    .notes
-                                    .first()
-                                    .map_or(1, |note| note.channel.one_based())
-                            ))
-                            .size(9.0)
-                            .color(theme::text_dim()),
-                        );
+                        let channel = track
+                            .notes
+                            .first()
+                            .map_or(1, |note| note.channel.one_based());
+                        egui::ComboBox::from_id_salt("track-channel")
+                            .selected_text(format!("Ch {channel}"))
+                            .width(64.0)
+                            .show_ui(ui, |ui| {
+                                for value in 1..=16 {
+                                    if ui
+                                        .selectable_label(channel == value, format!("Ch {value}"))
+                                        .clicked()
+                                        && let Ok(channel) =
+                                            music_core::Channel::from_one_based(value)
+                                        && let Err(error) =
+                                            self.editor.set_track_channel(track.id, channel)
+                                    {
+                                        self.status = Some(error);
+                                    }
+                                }
+                            });
                     });
                     let instrument = track.soundfont.as_ref().map_or_else(
                         || {
@@ -4155,6 +4165,13 @@ impl ShellApp {
                                     }
                                 }
                             });
+                    }
+                    if track.soundfont.is_none() {
+                        ui.label(
+                            egui::RichText::new("General MIDI · 128 sounds")
+                                .size(9.0)
+                                .color(theme::text_dim()),
+                        );
                     }
                     ui.horizontal(|ui| {
                         let mut muted = track.muted;
@@ -4242,9 +4259,11 @@ impl ShellApp {
                         .unwrap_or_default();
                     if inputs.is_empty() {
                         ui.label(
-                            egui::RichText::new("No MIDI inputs found")
-                                .size(10.0)
-                                .color(theme::text_dim()),
+                            egui::RichText::new(
+                                "No MIDI inputs found. Plug in a keyboard, then open Audio and MIDI settings.",
+                            )
+                            .size(10.0)
+                            .color(theme::text_dim()),
                         );
                     }
                     for input in inputs.iter().take(4) {

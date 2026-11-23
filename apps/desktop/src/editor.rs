@@ -1177,6 +1177,35 @@ impl Editor {
     /// # Errors
     ///
     /// Returns a message when the command is rejected.
+    /// Moves every note on a track to one MIDI channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track edit is rejected.
+    pub fn set_track_channel(
+        &mut self,
+        track: TrackId,
+        channel: music_core::Channel,
+    ) -> Result<(), String> {
+        let Some(entry) = self.song().tracks.iter().find(|entry| entry.id == track) else {
+            return Err(String::from("track not found"));
+        };
+        let notes: Vec<project::song::Note> = entry
+            .notes
+            .iter()
+            .cloned()
+            .map(|mut note| {
+                note.channel = channel;
+                note
+            })
+            .collect();
+        self.session
+            .apply(app_commands::Command::ReplaceTrackNotes { track, notes })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Adds an empty MIDI track.
     ///
     /// # Errors
@@ -2287,7 +2316,7 @@ mod tests {
         );
         editor.set_track_bank(track, None).expect("clear bank");
         assert!(editor.song().tracks[0].bank.is_none());
-        editor.undo();
+        assert!(editor.undo());
         assert_eq!(
             editor.song().tracks[0].bank,
             Some(project::song::BankSelect { msb: 63, lsb: 1 })
@@ -2296,6 +2325,21 @@ mod tests {
         assert_eq!(editor.song().tracks[0].program, None);
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].program, Some(48));
+    }
+
+    #[test]
+    fn moving_a_track_to_a_channel_is_undoable() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let channel = music_core::Channel::from_one_based(10).expect("channel");
+        editor.set_track_channel(track, channel).expect("channel");
+        assert!(
+            editor.song().tracks[0]
+                .notes
+                .iter()
+                .all(|note| note.channel == channel)
+        );
+        assert!(editor.undo());
     }
 
     #[test]
