@@ -1156,7 +1156,7 @@ impl ShellApp {
             marker_text: String::new(),
             marker_selected: None,
             form_dialog: false,
-            beat_dialog: false,
+            beat_dialog: initial_window == "beat",
             beat_track: None,
             beat_start: 0,
             beat_bar: 3840,
@@ -8860,39 +8860,11 @@ impl ShellApp {
 
     /// The Beat view: four drum rows of sixteen steps for one bar.
     fn load_beat(&mut self) {
-        let audio_tracks: Vec<(TrackId, String)> = self
-            .song()
-            .tracks
-            .iter()
-            .filter_map(|track| {
-                track
-                    .audio
-                    .as_ref()
-                    .map(|reference| (track.id, reference.path.clone()))
-            })
-            .collect();
-        for (id, path) in audio_tracks {
-            if self
-                .timeline_waveforms
-                .get(&id)
-                .is_some_and(|(cached, _)| *cached == path)
-            {
-                continue;
-            }
-            let source = std::path::Path::new(&path);
-            let peaks = std::fs::read(source)
-                .ok()
-                .and_then(|bytes| {
-                    if bytes.starts_with(b"RIFF") {
-                        audio::wav::decode_mono(&bytes).ok()
-                    } else {
-                        audio::decode::decode_mono(source).ok()
-                    }
-                })
-                .map(|decoded| audio::waveform::peaks(&decoded.samples, 240))
-                .unwrap_or_default();
-            self.timeline_waveforms.insert(id, (path, peaks));
-        }
+        let bar = self.song().time_signature.bar_ticks().max(1);
+        self.load_beat_from(snap(self.position, bar));
+    }
+
+    fn load_beat_from(&mut self, start: Tick) {
         let Some(track) = self
             .roll
             .selected
@@ -8900,8 +8872,6 @@ impl ShellApp {
         else {
             return;
         };
-        let bar = self.song().time_signature.bar_ticks().max(1);
-        let start = snap(self.position, bar);
         if let Some((bar, pattern)) = self.editor.beat_pattern(track, start) {
             self.beat_track = Some(track);
             self.beat_start = start;
@@ -8915,6 +8885,8 @@ impl ShellApp {
             return;
         }
         let mut open = self.beat_dialog;
+        let bar = self.song().time_signature.bar_ticks().max(1);
+        let mut nav = 0_i32;
         egui::Window::new("Beat")
             .collapsible(false)
             .open(&mut open)
@@ -8927,6 +8899,12 @@ impl ShellApp {
                 ));
                 let mut reload_bars = None;
                 ui.horizontal(|ui| {
+                    if ui.small_button("◀").on_hover_text("Previous bar").clicked() {
+                        nav = -1;
+                    }
+                    if ui.small_button("▶").on_hover_text("Next bar").clicked() {
+                        nav = 1;
+                    }
                     for bars in [1_usize, 2, 4] {
                         if ui
                             .selectable_label(self.beat_bars == bars, format!("{bars} bar"))
@@ -9024,6 +9002,9 @@ impl ShellApp {
                 });
             });
         self.beat_dialog = open && self.beat_dialog;
+        if nav != 0 {
+            self.load_beat_from((self.beat_start + Tick::from(nav) * bar).max(0));
+        }
     }
 
     /// Song Forms: four preset forms built from the song's markers.
