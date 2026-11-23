@@ -126,5 +126,5 @@ For the clef layout, choose either four measures per system without clefs
 - Audio output device can be selected and is used by the playback player.
 - Audio settings choose output device and fixed buffer; inspector shows sample rate/frames/latency when playing (`docs/audit/audio-settings.png`).
 - Track rows use the taller C++ spacing (`docs/audit/ui-track-rows.png`).
-- PSR panel has eight in-memory registration slots (right-click stores); hardware unverified.
+- PSR panel has eight persisted registration slots; hardware unverified.
 - XioSynth and D-05 profile files seed the profiles folder and expose CC controls in the Device editor; hardware unverified.

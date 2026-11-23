@@ -114,7 +114,7 @@ impl AuEditorUnit {
 }
 
 /// One row of the track list, snapshotted before drawing so the borrow ends.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct PsrRegistration {
     channel: u8,
     bank_msb: u8,
@@ -124,6 +124,69 @@ struct PsrRegistration {
     pan: u8,
     reverb: u8,
     chorus: u8,
+}
+
+impl PsrRegistration {
+    fn encode(self) -> String {
+        format!(
+            "{},{},{},{},{},{},{},{}",
+            self.channel,
+            self.bank_msb,
+            self.bank_lsb,
+            self.program,
+            self.volume,
+            self.pan,
+            self.reverb,
+            self.chorus
+        )
+    }
+
+    fn decode(line: &str) -> Option<Self> {
+        let mut parts = line.trim().split(',');
+        let mut next = || parts.next()?.trim().parse::<u8>().ok();
+        let registration = Self {
+            channel: next()?,
+            bank_msb: next()?,
+            bank_lsb: next()?,
+            program: next()?,
+            volume: next()?,
+            pan: next()?,
+            reverb: next()?,
+            chorus: next()?,
+        };
+        (parts.next().is_none()).then_some(registration)
+    }
+}
+
+fn psr_regs_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("lazy-arranger-psr.txt")
+}
+
+fn load_psr_regs() -> [PsrRegistration; 8] {
+    let mut regs = [PsrRegistration::default(); 8];
+    let Ok(text) = std::fs::read_to_string(psr_regs_path()) else {
+        return regs;
+    };
+    for (index, line) in text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .take(8)
+        .enumerate()
+    {
+        if let Some(reg) = PsrRegistration::decode(line) {
+            regs[index] = reg;
+        }
+    }
+    regs
+}
+
+fn save_psr_regs(regs: &[PsrRegistration; 8]) {
+    let text: String = regs
+        .iter()
+        .map(|reg| reg.encode())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let _ = std::fs::write(psr_regs_path(), format!("{text}\n"));
 }
 
 struct Row {
@@ -932,7 +995,7 @@ impl ShellApp {
             psr_pan: 64,
             psr_reverb: 40,
             psr_chorus: 0,
-            psr_regs: [PsrRegistration::default(); 8],
+            psr_regs: load_psr_regs(),
             midi_out_cc_value: 100,
             midi_out_bank_msb: 0,
             midi_out_bank_lsb: 0,
@@ -3010,6 +3073,7 @@ impl ShellApp {
             reverb: self.psr_reverb,
             chorus: self.psr_chorus,
         };
+        save_psr_regs(&self.psr_regs);
         self.status = Some(format!("PSR registration {}", index + 1));
     }
 
@@ -10183,6 +10247,25 @@ mod tests {
         let info = audio::wav::info(&bytes).expect("info");
         assert!(info.frames > 0);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn psr_registrations_round_trip_as_lines() {
+        let registration = PsrRegistration {
+            channel: 3,
+            bank_msb: 63,
+            bank_lsb: 1,
+            program: 42,
+            volume: 99,
+            pan: 64,
+            reverb: 55,
+            chorus: 12,
+        };
+        assert_eq!(
+            PsrRegistration::decode(&registration.encode()),
+            Some(registration)
+        );
+        assert!(PsrRegistration::decode("1,2,3").is_none());
     }
 
     #[test]
