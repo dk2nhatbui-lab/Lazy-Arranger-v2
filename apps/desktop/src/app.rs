@@ -92,6 +92,11 @@ pub struct ShellApp {
     status: Option<String>,
     doctor_dialog: bool,
     doctor_proposals: Vec<arranging::Proposal>,
+    fit_proposals: Vec<arranging::Proposal>,
+    fit_low: u8,
+    fit_high: u8,
+    fit_polyphony: usize,
+    fit_drum_kit: bool,
     form_dialog: bool,
     beat_dialog: bool,
     beat_track: Option<TrackId>,
@@ -213,6 +218,11 @@ impl ShellApp {
             status: None,
             doctor_dialog: false,
             doctor_proposals: Vec::new(),
+            fit_proposals: Vec::new(),
+            fit_low: 21,
+            fit_high: 108,
+            fit_polyphony: 16,
+            fit_drum_kit: true,
             form_dialog: false,
             beat_dialog: false,
             beat_track: None,
@@ -2521,6 +2531,46 @@ impl ShellApp {
                         Ok(changed) => {
                             self.status = Some(format!("applied: {changed} note(s) changed"));
                             self.doctor_proposals.remove(index);
+                        }
+                        Err(error) => self.load_error = Some(error),
+                    }
+                }
+                ui.separator();
+                ui.label(egui::RichText::new("Fit to My Synths").strong());
+                ui.horizontal(|ui| {
+                    ui.label("low");
+                    ui.add(egui::DragValue::new(&mut self.fit_low).range(0..=127));
+                    ui.label("high");
+                    ui.add(egui::DragValue::new(&mut self.fit_high).range(0..=127));
+                    ui.label("voices");
+                    ui.add(egui::DragValue::new(&mut self.fit_polyphony).range(1..=64));
+                    ui.checkbox(&mut self.fit_drum_kit, "drum kit");
+                });
+                if ui.button("Compute fit").clicked() {
+                    let spec = arranging::SynthSpec {
+                        low: self.fit_low,
+                        high: self.fit_high,
+                        polyphony: self.fit_polyphony,
+                        has_drum_kit: self.fit_drum_kit,
+                    };
+                    self.fit_proposals = arranging::fit_to_synth(self.song(), spec);
+                }
+                let mut use_fit = None;
+                for (index, proposal) in self.fit_proposals.iter().enumerate() {
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new(&proposal.title).strong());
+                        ui.label(&proposal.detail);
+                        if ui.button("Use").clicked() {
+                            use_fit = Some(index);
+                        }
+                    });
+                }
+                if let Some(index) = use_fit {
+                    let proposal = self.fit_proposals[index].clone();
+                    match self.editor.apply_proposal(&proposal) {
+                        Ok(changed) => {
+                            self.status = Some(format!("fit: {changed} note(s) changed"));
+                            self.fit_proposals.remove(index);
                         }
                         Err(error) => self.load_error = Some(error),
                     }

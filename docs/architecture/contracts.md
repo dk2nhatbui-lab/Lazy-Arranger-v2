@@ -551,3 +551,10 @@ applies. The registry holds 70 tools.
 repeatedly by its span and applies one `ReplaceTrackNotes`. The Beat window's
 Put in 4 bars button calls it with four bars; a test checks the four starts and
 undo.
+
+### Fit in the Doctor
+
+The Arrangement Doctor window has low/high/polyphony fields and a drum-kit
+checkbox; Compute fit calls `fit_to_synth` and shows its proposals with a Use
+button that applies through `Editor::apply_proposal`. The CLI path remains
+`fit-project`. A/B audition is not implemented.
