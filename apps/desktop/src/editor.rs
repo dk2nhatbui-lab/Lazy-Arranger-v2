@@ -598,6 +598,26 @@ impl Editor {
         Ok(())
     }
 
+    /// Sets or clears a track's synth patch.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the edit is rejected.
+    pub fn set_track_patch(
+        &mut self,
+        track: TrackId,
+        patch: Option<project::song::Patch>,
+    ) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::SetTrackPatch {
+                track,
+                patch: patch.map(Box::new),
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Adds a plug-in slot to a track and returns its id.
     ///
     /// # Errors
@@ -2104,6 +2124,31 @@ mod tests {
         assert_eq!(editor.song().tracks[0].plugins.len(), 1);
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].plugins.len(), 2);
+    }
+
+    #[test]
+    fn a_synth_patch_is_undoable() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let patch = project::song::Patch {
+            waveform: project::song::Waveform::Saw,
+            attack: 0.02,
+            decay: 0.3,
+            sustain: 0.5,
+            release: 0.4,
+            brightness: 0.8,
+        };
+        editor
+            .set_track_patch(track, Some(patch))
+            .expect("set patch");
+        assert_eq!(editor.song().tracks[0].patch, Some(patch));
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].patch, None);
+        editor
+            .set_track_patch(track, Some(patch))
+            .expect("set patch");
+        editor.set_track_patch(track, None).expect("clear patch");
+        assert_eq!(editor.song().tracks[0].patch, None);
     }
 
     #[test]

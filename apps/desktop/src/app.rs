@@ -437,6 +437,9 @@ pub struct ShellApp {
     score_zoom: f32,
     score_grand: bool,
     score_preview: bool,
+    patch_open: bool,
+    patch_track: Option<TrackId>,
+    patch_draft: Option<project::song::Patch>,
     score_pdf_path: String,
     score_track: Option<TrackId>,
     score_state: crate::score_view::ScoreState,
@@ -619,6 +622,9 @@ impl ShellApp {
             score_zoom: 1.0,
             score_grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
             score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err(),
+            patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
+            patch_track: None,
+            patch_draft: None,
             score_pdf_path: String::from("score.pdf"),
             score_track: None,
             score_state: crate::score_view::ScoreState::default(),
@@ -2380,6 +2386,90 @@ impl ShellApp {
             let _ = self.editor.set_track_gain(id, volume, pan);
             let _ = self.editor.set_track_flags(id, muted, soloed, false);
         }
+    }
+
+    fn patch_window(&mut self, context: &Context) {
+        let mut open = self.patch_open;
+        egui::Window::new("Synth patch")
+            .open(&mut open)
+            .resizable(false)
+            .show(context, |ui| {
+                let track = self
+                    .roll
+                    .selected
+                    .or_else(|| self.song().tracks.first().map(|track| track.id));
+                let Some(track) = track else {
+                    ui.label("Add a track first.");
+                    return;
+                };
+                if self.patch_track != Some(track) || self.patch_draft.is_none() {
+                    self.patch_track = Some(track);
+                    self.patch_draft = Some(
+                        self.song()
+                            .tracks
+                            .iter()
+                            .find(|entry| entry.id == track)
+                            .and_then(|entry| entry.patch)
+                            .unwrap_or_default(),
+                    );
+                }
+                let Some(mut patch) = self.patch_draft else {
+                    return;
+                };
+                let waveform_name = |waveform: project::song::Waveform| match waveform {
+                    project::song::Waveform::Sine => "Sine",
+                    project::song::Waveform::Saw => "Saw",
+                    project::song::Waveform::Square => "Square",
+                    project::song::Waveform::Triangle => "Triangle",
+                };
+                egui::ComboBox::from_id_salt("patch-waveform")
+                    .selected_text(waveform_name(patch.waveform))
+                    .show_ui(ui, |ui| {
+                        for waveform in [
+                            project::song::Waveform::Sine,
+                            project::song::Waveform::Saw,
+                            project::song::Waveform::Square,
+                            project::song::Waveform::Triangle,
+                        ] {
+                            ui.selectable_value(
+                                &mut patch.waveform,
+                                waveform,
+                                waveform_name(waveform),
+                            );
+                        }
+                    });
+                ui.add(
+                    egui::Slider::new(&mut patch.attack, 0.001..=2.0)
+                        .text("Attack")
+                        .logarithmic(true),
+                );
+                ui.add(egui::Slider::new(&mut patch.decay, 0.01..=3.0).text("Decay"));
+                ui.add(egui::Slider::new(&mut patch.sustain, 0.0..=1.0).text("Sustain"));
+                ui.add(egui::Slider::new(&mut patch.release, 0.0..=3.0).text("Release"));
+                ui.add(egui::Slider::new(&mut patch.brightness, 0.0..=1.0).text("Brightness"));
+                self.patch_draft = Some(patch);
+                ui.horizontal(|ui| {
+                    if ui.button("Apply").clicked() {
+                        match self.editor.set_track_patch(track, Some(patch)) {
+                            Ok(()) => self.status = Some(String::from("synth patch applied")),
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                    if ui.button("Default").clicked() {
+                        self.patch_draft = Some(project::song::Patch::default());
+                    }
+                    if ui.button("Clear").clicked() {
+                        match self.editor.set_track_patch(track, None) {
+                            Ok(()) => {
+                                self.patch_draft = Some(project::song::Patch::default());
+                                self.status = Some(String::from("synth patch cleared"));
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                });
+            });
+        self.patch_open = open;
     }
 
     fn right_inspector(&mut self, context: &egui::Context) {
@@ -5078,6 +5168,11 @@ impl ShellApp {
                                 self.plugins_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Synth patch").clicked() {
+                                self.patch_open = true;
+                                self.patch_draft = None;
+                                ui.close_menu();
+                            }
                             if ui.button("Shortcuts").clicked() {
                                 self.shortcuts_open = true;
                                 ui.close_menu();
@@ -5385,6 +5480,7 @@ impl eframe::App for ShellApp {
         self.songs_window(context);
         self.help_window(context);
         self.plugins_window(context);
+        self.patch_window(context);
         self.print_window(context);
         self.file_window(context);
         self.midi_map_window(context);

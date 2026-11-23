@@ -65,3 +65,4 @@ For the clef layout, choose either four measures per system without clefs
 (current) or three measures per system with a clef/key gutter.
 
 - Audio decode now covers WAV and symphonia formats (FLAC/MP3/M4A/AIFF/OGG); compressed references mix and draw peaks.
+- A generic Synth patch window edits waveform, ADSR and brightness as one undoable command (`docs/audit/synth-patch.png`); device-specific D-05/XioSynth/S970 panels remain absent.
