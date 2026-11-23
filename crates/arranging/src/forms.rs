@@ -769,6 +769,10 @@ pub struct LoopOutcome {
     pub lyrics: usize,
     /// Marks added.
     pub marks: usize,
+    /// Clips copied.
+    pub clips: usize,
+    /// Audio references moved.
+    pub audio: usize,
 }
 
 /// Repeats a section in place, shifting later material.
@@ -847,6 +851,75 @@ pub fn join_loop(
                 track: track.id,
                 notes,
             })?;
+        }
+
+        if !track.clips.is_empty() {
+            let mut clips = Vec::new();
+            for clip in &track.clips {
+                let mut kept = clip.clone();
+                if clip.start >= end {
+                    kept.start += shift;
+                }
+                clips.push(kept);
+                if clip.start >= start && clip.end() <= end {
+                    for copy in 0..copies {
+                        let mut added = clip.clone();
+                        added.start =
+                            clip.start + end + section.length * Tick::try_from(copy).unwrap_or(0)
+                                - start;
+                        added.id = project::ClipId::new(
+                            track
+                                .clips
+                                .iter()
+                                .map(|clip| clip.id.get())
+                                .max()
+                                .unwrap_or(0)
+                                + 1
+                                + outcome.copies as u32,
+                        )
+                        .unwrap_or(clip.id);
+                        clips.push(added);
+                        outcome.clips += 1;
+                    }
+                }
+            }
+            clips.sort_by_key(|clip| clip.start);
+            if clips != track.clips {
+                session.apply(Command::SetClips {
+                    track: track.id,
+                    clips,
+                })?;
+            }
+        }
+
+        if !track.automation.is_empty() {
+            let mut lanes = track.automation.clone();
+            for lane in &mut lanes {
+                for point in &mut lane.points {
+                    if point.tick >= end {
+                        point.tick += shift;
+                    }
+                }
+                lane.points.sort_by_key(|point| point.tick);
+            }
+            if lanes != track.automation {
+                session.apply(Command::SetAutomation {
+                    track: track.id,
+                    lanes,
+                })?;
+            }
+        }
+
+        if let Some(reference) = &track.audio
+            && reference.start >= end
+        {
+            let mut moved = reference.clone();
+            moved.start += shift;
+            session.apply(Command::SetAudioRef {
+                track: track.id,
+                reference: Some(moved),
+            })?;
+            outcome.audio = outcome.audio.saturating_add(1);
         }
     }
 
@@ -960,6 +1033,31 @@ mod join_loop_tests {
             tick: 3840,
             chord: Chord::parse("G").expect("valid"),
         });
+        song.tracks[0].clips.push(project::song::Clip {
+            id: project::ClipId::new(1).expect("valid"),
+            name: String::from("A"),
+            start: 0,
+            length: 3840,
+        });
+        song.tracks[0].clips.push(project::song::Clip {
+            id: project::ClipId::new(2).expect("valid"),
+            name: String::from("B"),
+            start: 3840,
+            length: 3840,
+        });
+        song.tracks[0].automation.push(project::song::Automation {
+            target: project::song::AutomationTarget::Volume,
+            points: vec![project::song::AutomationPoint {
+                tick: 3840,
+                value: 80.0,
+            }],
+        });
+        song.tracks[0].audio = Some(project::song::AudioRef {
+            path: String::from("/tmp/take.wav"),
+            start: 3840,
+            length: 960,
+            offset: 0,
+        });
         song.lyrics.push(LyricEvent {
             tick: 0,
             text: String::from("la"),
@@ -994,6 +1092,9 @@ mod join_loop_tests {
         assert_eq!(song.markers[1].tick, 7680, "the B marker moved");
         assert_eq!(song.lyrics.len(), 2);
         assert_eq!(song.marks.len(), 2);
+        assert_eq!(song.tracks[0].clips.len(), 3, "A copied, B moved");
+        assert_eq!(song.tracks[0].automation[0].points[0].tick, 7680);
+        assert_eq!(song.tracks[0].audio.as_ref().expect("audio").start, 7680);
         session.undo().expect("undo marks");
         session.undo().expect("undo lyrics");
         session.undo().expect("undo chords");
