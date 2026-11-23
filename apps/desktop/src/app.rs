@@ -244,7 +244,27 @@ fn count_in_audio(bpm: f64, bars: u8) -> audio::RenderedAudio {
     }
 }
 
-pub fn load_device_profiles() -> Vec<midi_devices::profiles::LoadedProfile> {
+pub fn parse_sysex(text: &str) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    for token in text.split_whitespace() {
+        let token = token.trim_start_matches("0x").trim_start_matches("0X");
+        let byte =
+            u8::from_str_radix(token, 16).map_err(|_| format!("not a hex byte: {token:?}"))?;
+        bytes.push(byte);
+    }
+    if bytes.is_empty() {
+        return Err(String::from("enter at least one byte"));
+    }
+    if bytes.first() != Some(&0xF0) {
+        bytes.insert(0, 0xF0);
+    }
+    if bytes.last() != Some(&0xF7) {
+        bytes.push(0xF7);
+    }
+    Ok(bytes)
+}
+
+fn load_device_profiles() -> Vec<midi_devices::profiles::LoadedProfile> {
     let folder = crate::settings::Settings::path()
         .parent()
         .map(|path| path.join("profiles"))
@@ -533,6 +553,7 @@ pub struct ShellApp {
     device_editor_open: bool,
     device_editor_profile: usize,
     device_editor_values: Vec<u8>,
+    device_sysex: String,
     groove_open: bool,
     groove_entries: Vec<(String, std::path::PathBuf)>,
     groove_selected: usize,
@@ -785,6 +806,7 @@ impl ShellApp {
             device_editor_open: initial_window == "device",
             device_editor_profile: 0,
             device_editor_values: Vec::new(),
+            device_sysex: String::new(),
             groove_open: initial_window == "groove",
             groove_entries: Vec::new(),
             groove_selected: 0,
@@ -2715,6 +2737,20 @@ impl ShellApp {
         }
     }
 
+    fn send_raw(&mut self, bytes: &[u8]) {
+        let Some(port) = self.midi_out_port.clone() else {
+            self.status = Some(String::from("choose a MIDI output first"));
+            return;
+        };
+        match midi_devices::devices::open_output(&port) {
+            Ok(mut connection) => match connection.send(bytes) {
+                Ok(()) => self.status = Some(format!("sent {} byte(s) to {port}", bytes.len())),
+                Err(error) => self.status = Some(format!("{port}: {error}")),
+            },
+            Err(error) => self.status = Some(error.to_string()),
+        }
+    }
+
     fn send_midi(&mut self, message: music_core::MidiMessage) {
         let Some(port) = self.midi_out_port.clone() else {
             self.status = Some(String::from("choose a MIDI output first"));
@@ -2883,6 +2919,15 @@ impl ShellApp {
                             Ok(sent) => self.status = Some(format!("panic sent {sent}")),
                             Err(error) => self.status = Some(error.to_string()),
                         }
+                    }
+                    if ui.button("Start").clicked() {
+                        self.send_raw(&[0xFA]);
+                    }
+                    if ui.button("Continue").clicked() {
+                        self.send_raw(&[0xFB]);
+                    }
+                    if ui.button("Stop").clicked() {
+                        self.send_raw(&[0xFC]);
                     }
                 });
                 if self.midi_out_port.is_none() {
@@ -4972,6 +5017,19 @@ impl ShellApp {
                 }
                 if controls.is_empty() {
                     ui.label("This profile has no controls.");
+                }
+                ui.separator();
+                ui.label("System exclusive (hex)");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.device_sysex)
+                        .hint_text("F0 7E ... F7")
+                        .desired_width(280.0),
+                );
+                if ui.button("Send SysEx").clicked() {
+                    match parse_sysex(&self.device_sysex) {
+                        Ok(bytes) => self.send_raw(&bytes),
+                        Err(error) => self.status = Some(error),
+                    }
                 }
             });
         self.device_editor_open = open;
@@ -8472,6 +8530,17 @@ mod tests {
         let info = audio::wav::info(&bytes).expect("info");
         assert!(info.frames > 0);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn sysex_text_is_wrapped_and_parsed() {
+        assert_eq!(
+            parse_sysex("7E 7F 09 01").expect("sysex"),
+            vec![0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7]
+        );
+        assert!(parse_sysex("F0 F7").is_ok());
+        assert!(parse_sysex("F0 nope").is_err());
+        assert!(parse_sysex("   ").is_err());
     }
 
     #[test]
