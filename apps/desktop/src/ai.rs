@@ -28,6 +28,26 @@ const SYSTEM: &str = "You are the assistant inside the Lazy Arranger music app. 
 Answer briefly. When the user asks for a change, reply with exactly one line \
 `tool <tool_name> {json}` using a tool from the app, otherwise answer normally.";
 
+/// Builds the chat-completions message list: system, history, then the prompt.
+#[must_use]
+pub fn messages(history: &[(String, String)], prompt: &str) -> Value {
+    let mut messages = vec![json!({"role": "system", "content": SYSTEM})];
+    for (role, content) in history
+        .iter()
+        .rev()
+        .take(12)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+    {
+        if role == "user" || role == "assistant" {
+            messages.push(json!({"role": role, "content": content}));
+        }
+    }
+    messages.push(json!({"role": "user", "content": prompt}));
+    Value::Array(messages)
+}
+
 /// Sends one user message and returns the assistant text.
 ///
 /// # Errors
@@ -35,16 +55,27 @@ Answer briefly. When the user asks for a change, reply with exactly one line \
 /// Returns a message when `curl` is missing, the request fails, or the reply has
 /// no text content.
 pub fn chat(config: &Config, prompt: &str) -> Result<String, String> {
+    chat_with_history(config, &[], prompt)
+}
+
+/// Sends a prompt with earlier user/assistant turns.
+///
+/// # Errors
+///
+/// Returns a message when `curl` is missing, the request fails, or the reply has
+/// no text content.
+pub fn chat_with_history(
+    config: &Config,
+    history: &[(String, String)],
+    prompt: &str,
+) -> Result<String, String> {
     if !config.is_ready() {
         return Err(String::from("set an AI endpoint and model in Settings"));
     }
     let body = json!({
         "model": config.model.trim(),
         "temperature": 0.2,
-        "messages": [
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": prompt}
-        ]
+        "messages": messages(history, prompt),
     });
     let mut command = std::process::Command::new("curl");
     command.args([
@@ -136,6 +167,21 @@ mod tests {
         assert!(changes_project("tool add_track {}"));
         assert!(!changes_project("tool get_song {}"));
         assert!(!changes_project("not a tool"));
+    }
+
+    #[test]
+    fn history_precedes_the_new_prompt() {
+        let history = vec![
+            (String::from("user"), String::from("earlier question")),
+            (String::from("assistant"), String::from("earlier answer")),
+        ];
+        let messages = messages(&history, "now");
+        let array = messages.as_array().expect("array");
+        assert_eq!(array.len(), 4);
+        assert_eq!(array[0]["role"], "system");
+        assert_eq!(array[1]["content"], "earlier question");
+        assert_eq!(array[2]["content"], "earlier answer");
+        assert_eq!(array[3]["content"], "now");
     }
 
     #[test]

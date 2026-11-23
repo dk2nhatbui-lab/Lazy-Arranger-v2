@@ -2439,6 +2439,19 @@ impl ShellApp {
                         && ui.input(|input| input.key_pressed(egui::Key::Enter));
                     if (ui.button("Send").clicked() || enter) && !self.assistant_input.is_empty() {
                         let input = self.assistant_input.trim().to_string();
+                        let history: Vec<(String, String)> = self
+                            .assistant_log
+                            .iter()
+                            .filter_map(|line| {
+                                line.strip_prefix("> ").map_or_else(
+                                    || {
+                                        (!line.is_empty())
+                                            .then(|| (String::from("assistant"), line.clone()))
+                                    },
+                                    |user| Some((String::from("user"), user.to_string())),
+                                )
+                            })
+                            .collect();
                         self.assistant_log.push(format!("> {input}"));
                         self.assistant_input.clear();
                         let config = crate::ai::Config {
@@ -2450,7 +2463,7 @@ impl ShellApp {
                             let (sender, receiver) = std::sync::mpsc::channel();
                             self.ai_pending = Some(receiver);
                             std::thread::spawn(move || {
-                                let _ = sender.send(crate::ai::chat(&config, &input));
+                                let _ = sender.send(crate::ai::chat_with_history(&config, &history, &input));
                             });
                         } else {
                             if input == "undo" || input.starts_with("tool ") {

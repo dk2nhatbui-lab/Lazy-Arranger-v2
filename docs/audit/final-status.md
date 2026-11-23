@@ -130,5 +130,5 @@ For the clef layout, choose either four measures per system without clefs
 - XioSynth and D-05 profile files seed the profiles folder and expose CC controls in the Device editor; hardware unverified.
 - Track list scrolls vertically when the sidebar is full.
 - Timeline view has no extra toolbar; the Piano roll switch sits in the status bar (`docs/audit/ui-no-toolbar.png`).
-- Assistant supports an optional OpenAI-compatible endpoint with background request, one `tool` reply and Apply/Cancel proposal cards for changes; local fallback kept (`docs/audit/ai-settings.png`); external endpoint unverified.
+- Assistant supports an optional OpenAI-compatible endpoint with background request with chat history, one `tool` reply and Apply/Cancel proposal cards for changes; local fallback kept (`docs/audit/ai-settings.png`); external endpoint unverified.
 - Timeline lanes fill the panel; track names live only in the sidebar (`docs/audit/ui-no-labels.png`).
