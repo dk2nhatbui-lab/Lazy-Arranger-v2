@@ -4046,6 +4046,30 @@ impl ShellApp {
                             ui.selectable_value(&mut self.midi_out_port, Some(name.clone()), name);
                         }
                     });
+                if ui
+                    .button("Channel check")
+                    .on_hover_text("Play a short note on each of the 16 channels")
+                    .clicked()
+                {
+                    if let Some(port) = self.midi_out_port.clone() {
+                        self.status = Some(format!("channel check on {port}"));
+                        std::thread::spawn(move || {
+                            if let Ok(mut connection) = midi_devices::devices::open_output(&port) {
+                                for channel in 0..16 {
+                                    if let Ok(messages) =
+                                        midi_devices::devices::channel_check_messages(channel, 60)
+                                    {
+                                        for bytes in messages {
+                                            let _ = connection.send(&bytes);
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    } else {
+                        self.status = Some(String::from("choose a MIDI output first"));
+                    }
+                }
                 ui.horizontal(|ui| {
                     ui.label("channel");
                     ui.add(egui::DragValue::new(&mut self.midi_out_channel).range(1..=16));
