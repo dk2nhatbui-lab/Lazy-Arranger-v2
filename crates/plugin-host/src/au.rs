@@ -48,6 +48,19 @@ struct AudioBufferList2 {
 }
 
 #[repr(C)]
+struct AudioUnitParameterInfo {
+    name: [std::ffi::c_char; 52],
+    unit_name: *const c_void,
+    clump_id: u32,
+    cf_name: *const c_void,
+    unit: u32,
+    min: f32,
+    max: f32,
+    default: f32,
+    flags: u32,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Default)]
 struct AudioTimeStamp {
     sample_time: f64,
@@ -75,6 +88,29 @@ unsafe extern "C" {
         data: *const c_void,
         size: u32,
     ) -> OsStatus;
+    fn AudioUnitGetProperty(
+        unit: AudioUnit,
+        property: u32,
+        scope: u32,
+        element: u32,
+        data: *mut c_void,
+        size: *mut u32,
+    ) -> OsStatus;
+    fn AudioUnitGetParameter(
+        unit: AudioUnit,
+        id: u32,
+        scope: u32,
+        element: u32,
+        value: *mut f32,
+    ) -> OsStatus;
+    fn AudioUnitSetParameter(
+        unit: AudioUnit,
+        id: u32,
+        scope: u32,
+        element: u32,
+        value: f32,
+        offset: u32,
+    ) -> OsStatus;
     fn AudioUnitInitialize(unit: AudioUnit) -> OsStatus;
     fn AudioUnitUninitialize(unit: AudioUnit) -> OsStatus;
     fn AudioUnitProcess(
@@ -88,6 +124,9 @@ unsafe extern "C" {
 
 const AU_EFFECT: u32 = 0x6175_6678; // 'aufx'
 const STREAM_FORMAT: u32 = 8;
+const PARAMETER_LIST: u32 = 3;
+const PARAMETER_INFO: u32 = 4;
+const SCOPE_GLOBAL: u32 = 0;
 const MAX_FRAMES: u32 = 14;
 const SCOPE_INPUT: u32 = 1;
 const SCOPE_OUTPUT: u32 = 2;
@@ -193,6 +232,90 @@ impl AuEffect {
         Ok(())
     }
 
+    /// Parameters exposed by this unit: id, name, current, min, max, default.
+    #[must_use]
+    pub fn parameters(&self) -> Vec<(u32, String, f32, f32, f32, f32)> {
+        let mut size = 0_u32;
+        let result = unsafe {
+            AudioUnitGetProperty(
+                self.unit,
+                PARAMETER_LIST,
+                SCOPE_GLOBAL,
+                0,
+                std::ptr::null_mut(),
+                &mut size,
+            )
+        };
+        if result != 0 || size == 0 {
+            return Vec::new();
+        }
+        let count = size as usize / std::mem::size_of::<u32>();
+        let mut ids = vec![0_u32; count];
+        let result = unsafe {
+            AudioUnitGetProperty(
+                self.unit,
+                PARAMETER_LIST,
+                SCOPE_GLOBAL,
+                0,
+                ids.as_mut_ptr().cast(),
+                &mut size,
+            )
+        };
+        if result != 0 {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for id in ids {
+            let mut info: AudioUnitParameterInfo = unsafe { std::mem::zeroed() };
+            let mut info_size =
+                u32::try_from(std::mem::size_of::<AudioUnitParameterInfo>()).unwrap_or(0);
+            let result = unsafe {
+                AudioUnitGetProperty(
+                    self.unit,
+                    PARAMETER_INFO,
+                    SCOPE_GLOBAL,
+                    id,
+                    (&raw mut info).cast(),
+                    &mut info_size,
+                )
+            };
+            if result != 0 {
+                continue;
+            }
+            let mut current = info.default;
+            let _ = unsafe { AudioUnitGetParameter(self.unit, id, SCOPE_GLOBAL, 0, &mut current) };
+            let name: Vec<u8> = info
+                .name
+                .iter()
+                .take_while(|value| **value != 0)
+                .map(|value| *value as u8)
+                .collect();
+            out.push((
+                id,
+                String::from_utf8_lossy(&name).into_owned(),
+                current,
+                info.min,
+                info.max,
+                info.default,
+            ));
+        }
+        out
+    }
+
+    /// Sets one parameter by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the unit rejects the value.
+    pub fn set_parameter(&self, id: u32, value: f32) -> Result<(), String> {
+        let result = unsafe { AudioUnitSetParameter(self.unit, id, SCOPE_GLOBAL, 0, value, 0) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(format!("AudioUnitSetParameter returned {result}"))
+        }
+    }
+
     /// Processes interleaved stereo samples in place.
     ///
     /// # Errors
@@ -276,6 +399,29 @@ mod tests {
     fn four_character_codes_are_big_endian() {
         assert_eq!(fourcc("aufx"), AU_EFFECT);
         assert_eq!(fourcc("rvrb"), 0x7276_7262);
+    }
+
+    #[test]
+    #[ignore = "loads the Apple dynamics Audio Unit"]
+    fn apple_dynamics_exposes_parameters() {
+        let effect = AuEffect::new("appl:dcmp", 48_000.0).expect("au");
+        let parameters = effect.parameters();
+        assert!(!parameters.is_empty(), "no parameters");
+        let (id, _, current, min, max, _) = parameters[0];
+        if min < max {
+            let target = (min + max) / 2.0;
+            effect.set_parameter(id, target).expect("set");
+            let readback = effect
+                .parameters()
+                .into_iter()
+                .find(|parameter| parameter.0 == id)
+                .map(|parameter| parameter.2)
+                .unwrap_or(current);
+            assert!(
+                (readback - target).abs() < 1.0e-3,
+                "parameter did not retain the value: {readback} vs {target}"
+            );
+        }
     }
 
     #[test]
