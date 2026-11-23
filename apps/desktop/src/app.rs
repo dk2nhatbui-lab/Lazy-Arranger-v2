@@ -416,14 +416,25 @@ fn style_preview_song(style: &arranger::style::Style) -> Result<project::Song, S
 fn style_section_song(
     imported: &style_formats::ImportedStyle,
     section: usize,
+    chord_name: &str,
 ) -> Result<project::Song, String> {
     let names = imported.section_names();
     let name = names
         .get(section)
         .ok_or_else(|| String::from("no section selected"))?;
+    let chord = music_core::Chord::parse(chord_name).map_err(|error| error.to_string())?;
+    let arranger_chord =
+        arranger::ArrangerChord::try_from(&chord).map_err(|error| error.to_string())?;
     let compiled = imported
         .native
-        .compile(name, 0, &[])
+        .compile(
+            name,
+            0,
+            &[arranger::ChordAt {
+                tick: 0,
+                chord: arranger_chord,
+            }],
+        )
         .map_err(|error| error.to_string())?;
     let mut song = project::Song::new("Style audition", imported.tempo_bpm.max(30.0));
     let mut track = project::song::Track::new(
@@ -4148,8 +4159,14 @@ impl ShellApp {
                             ui.selectable_value(&mut self.style_section, index, *name);
                         }
                     });
+                ui.horizontal(|ui| {
+                    ui.label("Chord");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.style_chord).desired_width(70.0),
+                    );
+                });
                 ui.label(format!(
-                    "source chord {} · {:.1} BPM · {} ticks",
+                    "style written in {} · {:.1} BPM · {} ticks",
                     imported.native.source_chord.name(),
                     imported.tempo_bpm,
                     imported.native.sections[self.style_section].length_ticks
@@ -4193,7 +4210,7 @@ impl ShellApp {
             .style_import
             .as_ref()
             .ok_or_else(|| String::from("load a style first"))?;
-        style_section_song(imported, self.style_section)
+        style_section_song(imported, self.style_section, &self.style_chord)
     }
 
     fn style_clips_window(&mut self, context: &Context) {
@@ -10833,7 +10850,7 @@ mod tests {
             sections: Vec::new(),
             stats: style_formats::ImportStats::default(),
         };
-        let preview = style_section_song(&imported, 0).expect("section");
+        let preview = style_section_song(&imported, 0, "C").expect("section");
         assert_eq!(preview.tracks.len(), 1);
         assert!(!preview.tracks[0].notes.is_empty());
     }
