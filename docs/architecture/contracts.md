@@ -110,3 +110,11 @@ CC 32 before the program when present, and the audit records both. With
 `--profile`, non-drum tracks take the profile's nearest voice and its first
 bank; drum tracks take the first kit's program and bank. A run on the demo
 produced msb [63, 0, 0, 0] and lsb [0, 1, 1, 1].
+
+### SysEx
+
+`midi_devices::sysex` builds Yamaha-style parameter changes (`F0 43 1n 4C
+address data checksum F7`) with the 7-bit checksum, rejecting device numbers
+above 15 or bytes above 127. `xg_on` is the only named message; `sysex-xg-on`
+wrote its 10 bytes for device 2. Device-specific editor panels and patch dumps
+are not implemented.

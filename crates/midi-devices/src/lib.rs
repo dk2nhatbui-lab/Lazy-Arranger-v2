@@ -19,6 +19,7 @@ pub mod devices;
 pub mod dispatch;
 pub mod map;
 pub mod profiles;
+pub mod sysex;
 
 pub use capture::{CaptureStats, CapturedNote, NoteCapture};
 pub use devices::{DeviceError, EchoReport, PortNames, echo, list_ports, record_to_song};

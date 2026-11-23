@@ -246,6 +246,15 @@ enum Commands {
         #[arg(long, default_value_t = 48_000)]
         sample_rate: u32,
     },
+    /// Write an XG System On SysEx dump.
+    SysexXgOn {
+        /// Output `.syx` file.
+        #[arg(long)]
+        out: PathBuf,
+        /// Device number, 0..=15.
+        #[arg(long, default_value_t = 0)]
+        device: u8,
+    },
     /// Load a device profile and optionally resolve a track name.
     DeviceProfile {
         /// YAML profile file.
@@ -896,6 +905,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 bounce.length,
                 bounce.path.display(),
                 bounce.track,
+                out.display()
+            );
+            Ok(())
+        }
+        Commands::SysexXgOn { out, device } => {
+            let bytes = midi_devices::sysex::xg_on(device);
+            fs::write(&out, &bytes)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!(
+                "wrote {} byte(s) of XG System On for device {device} -> {}",
+                bytes.len(),
                 out.display()
             );
             Ok(())

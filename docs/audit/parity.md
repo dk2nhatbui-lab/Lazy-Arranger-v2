@@ -142,6 +142,7 @@ the wider ~90-tool MCP surface.
 | Mixer panel (per-track fader, pan, mute, solo, bus routing) | `apps/desktop` | implemented | bus strip and routing tests; UI manual |
 | Buses and sends (schema v13) | `project::song::Bus`, `audio` render, `app-commands` | verified | route/send/pan render tests; command undo; JSON round trip |
 | Per-track synth patch (schema v14, waveform + ADSR + brightness) | `project::song::Patch`, `audio` render, `app-commands` | verified | square-vs-sine, slow-attack, command and round-trip tests |
+| SysEx parameter-change builder, checksum and XG System On dump | `midi-devices::sysex`, CLI `sysex-xg-on` | verified | checksum/end-byte tests; 10-byte dump written |
 | Plugin slots (schema v15; state only, no hosting) | `project::song::PluginSlot`, `app-commands`, validation | verified model | round trip, duplicate-id validation, command undo |
 | L6max take scan and import (32-bit float aware) | `audio::l6max`, CLI `l6max-import` | verified | scan test; two synthetic takes imported at computed lengths |
 | Volume and pan automation lanes (schema v9) | `project`, `audio`, `app-commands` | verified | interpolation/hold, per-note render, command undo |
