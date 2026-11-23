@@ -46,10 +46,12 @@ The crate has no lints inheritance by design; all other crates still forbid
 **Stereo effect processing now works** in `plugin-host`: component + optional
 controller, a minimal `IHostApplication`, main-bus activation, `setupProcessing`,
 `setActive`, `setProcessing` and a block `ProcessData` loop. Verified by an
-ignored test that runs R0Verb over an impulse: output is non-silent. Remaining:
+ignored test that runs R0Verb over an impulse: output is non-silent. **Track effect slots are now applied**: an offline track render sends the track
+buffer through each non-bypassed VST3 slot, before the bus/主 mix; an ignored
+R0Verb integration test asserts the wet and dry renders differ. Remaining:
 parameters/automation, state, offline/realtime modes, AU v2 (AudioToolbox C
-API) and editors (main-thread event loop); production scanning should move to a
-subprocess, as both references do.
+API), instrument plugins, sandbox and editors; production scanning should move to
+a subprocess, as both references do.
 
 ## MIDI engine
 

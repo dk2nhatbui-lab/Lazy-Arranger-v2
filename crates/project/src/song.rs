@@ -251,6 +251,9 @@ pub struct PluginSlot {
     /// Path recorded when the slot was created.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub path: String,
+    /// VST3 class id or AU manufacturer:subtype, when known.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub identifier: String,
     /// Bypassed slot.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bypassed: bool,
@@ -1233,6 +1236,7 @@ mod tests {
             name: String::from("Limiter"),
             format: PluginFormat::Vst3,
             path: String::new(),
+            identifier: String::new(),
             bypassed: true,
             state: String::from("opaque"),
         });
@@ -1247,6 +1251,7 @@ mod tests {
             name: String::from("Other"),
             format: PluginFormat::AudioUnit,
             path: String::new(),
+            identifier: String::new(),
             bypassed: false,
             state: String::new(),
         });

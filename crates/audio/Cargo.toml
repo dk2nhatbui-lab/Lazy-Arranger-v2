@@ -10,6 +10,7 @@ license.workspace = true
 arranger = { path = "../arranger" }
 cpal = "0.16"
 music-core = { path = "../music-core" }
+plugin-host = { path = "../plugin-host" }
 project = { path = "../project" }
 
 [lints]

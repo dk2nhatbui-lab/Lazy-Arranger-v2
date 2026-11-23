@@ -85,6 +85,7 @@ crates/library         Music Finder books, playlists
 crates/midi-devices    profiles, ports, maps, SysEx, dispatch
 crates/plugins         VST3/AU metadata, catalog cache and browser (no hosting)
 crates/plugin-host     isolated unsafe VST3 FFI: class scan + stereo effect processing
+(plugin slots are applied during offline track render; AU/params/editors pending)
 crates/mcp             stdio/socket MCP server, 93 tools, local assistant
 apps/cli               headless binary
 apps/desktop           egui 0.31 desktop app

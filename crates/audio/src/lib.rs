@@ -209,6 +209,7 @@ pub fn render_with_soundfont(
         let sampled = track.soundfont.as_ref().and_then(|reference| {
             load(&reference.path).map(|font| (font, reference.bank, reference.program))
         });
+        let mut track_buffer = vec![0.0_f32; frames * usize::from(CHANNELS)];
         for note in &track.notes {
             let (left_gain, right_gain) = gains_at(track, note.start);
             let patch = track.patch.map(|mut patch| {
@@ -258,16 +259,8 @@ pub fn render_with_soundfont(
                         }
                         let left = left_audio[offset] * left_gain;
                         let right = right_audio[offset] * right_gain;
-                        if let Some(index) = track
-                            .bus
-                            .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
-                        {
-                            bus_buffers[index][frame * 2] += left;
-                            bus_buffers[index][frame * 2 + 1] += right;
-                        } else {
-                            samples[frame * 2] += left;
-                            samples[frame * 2 + 1] += right;
-                        }
+                        track_buffer[frame * 2] += left;
+                        track_buffer[frame * 2 + 1] += right;
                         if let Some(index) = track
                             .send
                             .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
@@ -294,16 +287,8 @@ pub fn render_with_soundfont(
                 let value = (voice * amplitude * envelope) as f32;
                 let left = value * left_gain;
                 let right = value * right_gain;
-                if let Some(index) = track
-                    .bus
-                    .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
-                {
-                    bus_buffers[index][frame * 2] += left;
-                    bus_buffers[index][frame * 2 + 1] += right;
-                } else {
-                    samples[frame * 2] += left;
-                    samples[frame * 2 + 1] += right;
-                }
+                track_buffer[frame * 2] += left;
+                track_buffer[frame * 2 + 1] += right;
                 if let Some(index) = track
                     .send
                     .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
@@ -311,6 +296,19 @@ pub fn render_with_soundfont(
                     bus_buffers[index][frame * 2] += left * send_level;
                     bus_buffers[index][frame * 2 + 1] += right * send_level;
                 }
+            }
+        }
+        apply_track_plugins(track, &mut track_buffer, sample_rate);
+        if let Some(index) = track
+            .bus
+            .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
+        {
+            for (target, value) in bus_buffers[index].iter_mut().zip(&track_buffer) {
+                *target += *value;
+            }
+        } else {
+            for (target, value) in samples.iter_mut().zip(&track_buffer) {
+                *target += *value;
             }
         }
     }
@@ -329,6 +327,26 @@ pub fn render_with_soundfont(
     RenderedAudio {
         samples,
         sample_rate,
+    }
+}
+
+fn apply_track_plugins(track: &project::song::Track, buffer: &mut [f32], sample_rate: u32) {
+    for slot in &track.plugins {
+        if slot.bypassed
+            || slot.format != project::song::PluginFormat::Vst3
+            || slot.identifier.is_empty()
+        {
+            continue;
+        }
+        let path = std::path::Path::new(&slot.path);
+        let Ok(mut effect) =
+            plugin_host::Vst3Effect::new(path, &slot.identifier, f64::from(sample_rate), 512)
+        else {
+            continue;
+        };
+        if effect.channels() == 2 {
+            let _ = effect.process_stereo(buffer);
+        }
     }
 }
 
@@ -534,6 +552,37 @@ mod tests {
         // One beat at 120 bpm is 0.5 s, plus the release tail.
         assert!(rendered.duration_seconds() > 0.5);
         assert!(rendered.duration_seconds() < 2.0);
+    }
+
+    #[test]
+    #[ignore = "loads an installed VST3 plug-in"]
+    fn a_vst3_slot_changes_the_track_render() {
+        use project::song::{PluginFormat, PluginSlot};
+        let bundle = std::path::Path::new("/Library/Audio/Plug-Ins/VST3/R0Verb.vst3");
+        let Ok(classes) = plugin_host::scan_vst3(bundle) else {
+            return;
+        };
+        let mut song = song_with_note();
+        song.tracks[0].plugins.push(PluginSlot {
+            id: 1,
+            name: String::from("R0Verb"),
+            format: PluginFormat::Vst3,
+            path: bundle.display().to_string(),
+            identifier: classes[0].cid.clone(),
+            bypassed: false,
+            state: String::new(),
+        });
+        let wet = render(&song, SAMPLE_RATE);
+        song.tracks[0].plugins.clear();
+        let dry = render(&song, SAMPLE_RATE);
+        assert_eq!(wet.samples.len(), dry.samples.len());
+        let difference: f32 = wet
+            .samples
+            .iter()
+            .zip(&dry.samples)
+            .map(|(wet, dry)| (wet - dry).abs())
+            .sum();
+        assert!(difference > 0.01, "plugin made no audible change");
     }
 
     #[test]

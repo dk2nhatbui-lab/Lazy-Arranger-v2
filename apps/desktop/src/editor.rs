@@ -609,6 +609,7 @@ impl Editor {
         name: &str,
         format: project::song::PluginFormat,
         path: &str,
+        identifier: &str,
     ) -> Result<u32, String> {
         let Some(entry) = self.song().tracks.iter().find(|entry| entry.id == track) else {
             return Err(String::from("unknown track"));
@@ -620,6 +621,7 @@ impl Editor {
             name: name.to_string(),
             format,
             path: path.to_string(),
+            identifier: identifier.to_string(),
             bypassed: false,
             state: String::new(),
         });
@@ -2077,6 +2079,7 @@ mod tests {
                 "Reverb",
                 project::song::PluginFormat::Vst3,
                 "/p/Reverb.vst3",
+                "",
             )
             .expect("add");
         let second = editor
@@ -2085,6 +2088,7 @@ mod tests {
                 "Comp",
                 project::song::PluginFormat::AudioUnit,
                 "/p/Comp.component",
+                "",
             )
             .expect("add");
         assert_ne!(first, second);

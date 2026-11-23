@@ -234,6 +234,7 @@ dependencies = [
  "arranger",
  "cpal",
  "music-core",
+ "plugin-host",
  "project",
 ]
 

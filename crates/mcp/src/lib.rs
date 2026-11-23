@@ -1724,6 +1724,11 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string(),
+                identifier: arguments
+                    .get("identifier")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
                 bypassed: false,
                 state: String::new(),
             });
@@ -2468,6 +2473,11 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     format,
                     path: plugin
                         .get("path")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    identifier: plugin
+                        .get("identifier")
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string(),

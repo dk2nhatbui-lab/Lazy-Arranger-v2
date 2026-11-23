@@ -2228,6 +2228,7 @@ impl ShellApp {
                     &plugin.name,
                     format,
                     &plugin.path.display().to_string(),
+                    &plugin.identifier,
                 ) {
                     Ok(id) => {
                         self.status = Some(format!(
@@ -3783,10 +3784,13 @@ impl ShellApp {
                                     }
                                 };
                                 let path = plugin.path.display().to_string();
-                                match self
-                                    .editor
-                                    .add_plugin(track_id, &plugin.name, format, &path)
-                                {
+                                match self.editor.add_plugin(
+                                    track_id,
+                                    &plugin.name,
+                                    format,
+                                    &path,
+                                    &plugin.identifier,
+                                ) {
                                     Ok(id) => {
                                         self.status =
                                             Some(format!("added {} (slot {id})", plugin.name));

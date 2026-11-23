@@ -1685,6 +1685,7 @@ mod tests {
                 name: String::from("Limiter"),
                 format: PluginFormat::Vst3,
                 path: String::from("/Library/Audio/Plug-Ins/VST3/Limiter.vst3"),
+                identifier: String::new(),
                 bypassed: false,
                 state: String::from("state"),
             }],
