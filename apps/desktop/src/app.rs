@@ -3181,6 +3181,7 @@ impl ShellApp {
     }
 
     fn open(&mut self, path: &PathBuf) {
+        let midi = is_midi_path(path);
         match load_project(path) {
             Ok(project) => {
                 match Editor::new(project) {
@@ -3191,7 +3192,14 @@ impl ShellApp {
                     }
                 }
                 self.selected_note = None;
-                self.project_path = Some(path.clone());
+                self.project_path = if midi { None } else { Some(path.clone()) };
+                self.status = if midi {
+                    Some(String::from(
+                        "imported MIDI; saving writes an untitled project",
+                    ))
+                } else {
+                    None
+                };
                 self.recent = project::recent::record(&self.recent_file, path)
                     .unwrap_or_else(|_| self.recent.clone());
                 self.position = 0;
@@ -3893,8 +3901,23 @@ fn rfd_pick() -> Option<PathBuf> {
     None
 }
 
+/// True for `.mid` or `.midi`, case-insensitive.
+#[must_use]
+pub fn is_midi_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "mid" | "midi"))
+}
+
 pub fn load_project(path: &PathBuf) -> Result<ProjectFile, ProjectError> {
-    let text = std::fs::read_to_string(path)
+    let bytes = std::fs::read(path)
+        .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
+    if is_midi_path(path) {
+        let (song, _) = smf::decode(&bytes)
+            .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
+        return Ok(ProjectFile::new(song));
+    }
+    let text = String::from_utf8(bytes)
         .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
     ProjectFile::from_json(&text)
 }
@@ -3908,6 +3931,25 @@ pub fn demo_project() -> ProjectFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_midi_file_loads_as_an_untitled_project() {
+        let song = arranging::demo::demo_song();
+        let bytes = smf::encode(&song).expect("encode");
+        let path = std::env::temp_dir().join("lazy-arranger-desktop-import.mid");
+        std::fs::write(&path, bytes).expect("write");
+        assert!(is_midi_path(&path));
+        let loaded = load_project(&path).expect("load");
+        assert_eq!(loaded.song.tracks.len(), song.tracks.len());
+        assert!(
+            loaded
+                .song
+                .tracks
+                .iter()
+                .any(|track| !track.notes.is_empty())
+        );
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn kids_mode_offers_two_views_and_languages_change_labels() {

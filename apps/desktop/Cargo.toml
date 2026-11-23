@@ -22,6 +22,7 @@ music-core = { path = "../../crates/music-core" }
 project = { path = "../../crates/project" }
 plugins = { path = "../../crates/plugins" }
 score = { path = "../../crates/score" }
+smf = { path = "../../crates/smf" }
 style-formats = { path = "../../crates/style-formats" }
 eframe = { version = "0.31", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11"] }
 egui = "0.31"

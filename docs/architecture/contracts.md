@@ -612,3 +612,10 @@ simplified song flow.
 `smf::decode`, wraps the song in a schema-19 `ProjectFile` and writes pretty
 JSON, printing source track/note counts and decoder warnings. The demo round
 trip imported 5 source tracks and 336 notes into 4 project tracks.
+
+### MIDI open in the desktop
+
+`load_project` reads bytes, detects `.mid`/`.midi` case-insensitively and decodes
+through `smf::decode` into a schema-19 project. `ShellApp::open` marks such an
+import untitled (`project_path = None`) and says so, so Save cannot overwrite the
+MIDI with JSON. A test encodes the demo, writes a temp file and reloads it.
