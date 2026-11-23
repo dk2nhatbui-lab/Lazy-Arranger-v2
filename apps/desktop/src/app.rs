@@ -167,6 +167,19 @@ fn consume_binding(context: &Context, text: &str, fallback: &str) -> bool {
     })
 }
 
+/// Rounds recorded note starts to the nearest grid step and re-sorts them.
+pub fn quantise_recorded(notes: &mut [project::song::Note], grid: Tick) {
+    if grid <= 0 {
+        return;
+    }
+    for note in notes.iter_mut() {
+        note.start = ((note.start.max(0) + grid / 2) / grid) * grid;
+    }
+    notes.sort_by(|left, right| {
+        (left.start, left.pitch.as_u8()).cmp(&(right.start, right.pitch.as_u8()))
+    });
+}
+
 /// Builds `lp` arguments for the print dialog.
 #[must_use]
 pub fn print_arguments(
@@ -1187,11 +1200,14 @@ impl ShellApp {
             self.recording = None;
             match result {
                 Ok(song) => {
-                    let notes = song
+                    let mut notes = song
                         .tracks
                         .first()
                         .map(|track| track.notes.clone())
                         .unwrap_or_default();
+                    if self.settings.record_quantise {
+                        quantise_recorded(&mut notes, music_core::PPQ / 4);
+                    }
                     match self.editor.insert_recorded("Recorded", &notes) {
                         Ok(track) => {
                             self.roll.selected = Some(track);
@@ -2824,6 +2840,10 @@ impl ShellApp {
                     ui.checkbox(
                         &mut self.settings.monitor,
                         "monitor input through output (feedback risk)",
+                    );
+                    ui.checkbox(
+                        &mut self.settings.record_quantise,
+                        "quantise recorded notes to 1/16",
                     );
                     ui.checkbox(&mut self.settings.reduced_motion, "reduced motion");
                     ui.checkbox(&mut self.settings.kids_mode, "Kids Mode");
@@ -5829,6 +5849,33 @@ mod tests {
         assert!(lines.iter().any(|line| line.starts_with("Cadence:")));
         let empty = project::song::Song::new("Empty", 120.0);
         assert_eq!(theory_summary(&empty)[2], "No chords yet");
+    }
+
+    #[test]
+    fn recorded_starts_snap_to_the_grid() {
+        use music_core::{Channel, Pitch, Velocity};
+        use project::NoteId;
+        let mut notes = vec![
+            project::song::Note {
+                id: NoteId::new(1).expect("valid"),
+                start: 100,
+                duration: 120,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            },
+            project::song::Note {
+                id: NoteId::new(2).expect("valid"),
+                start: 940,
+                duration: 120,
+                pitch: Pitch::from_name("E4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            },
+        ];
+        quantise_recorded(&mut notes, music_core::PPQ / 4);
+        assert_eq!(notes[0].start, 0);
+        assert_eq!(notes[1].start, 960);
     }
 
     #[test]
