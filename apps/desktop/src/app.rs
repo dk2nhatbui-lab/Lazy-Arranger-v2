@@ -214,8 +214,35 @@ pub fn needs_grand_staff(track: &project::song::Track) -> bool {
     (low && high) || track.name.to_ascii_lowercase().contains("piano")
 }
 
-/// Filters the installed plug-in list by search text and format.
-#[must_use]
+/// Builds a short stereo metronome count-in at 48 kHz.
+fn count_in_audio(bpm: f64, bars: u8) -> audio::RenderedAudio {
+    let sample_rate = 48_000_u32;
+    let beats = usize::from(bars) * 4;
+    let seconds = beats as f64 * 60.0 / bpm.max(1.0);
+    let frames = (seconds * f64::from(sample_rate)).round() as usize;
+    let mut samples = vec![0.0_f32; frames * 2];
+    let click_frames = (0.035 * f64::from(sample_rate)) as usize;
+    for beat in 0..beats {
+        let start = (beat as f64 * 60.0 / bpm.max(1.0) * f64::from(sample_rate)).round() as usize;
+        let amplitude = if beat.is_multiple_of(4) { 0.5 } else { 0.3 };
+        for offset in 0..click_frames {
+            let frame = start + offset;
+            if frame >= frames {
+                break;
+            }
+            let time = offset as f32 / sample_rate as f32;
+            let envelope = 1.0 - offset as f32 / click_frames as f32;
+            let value = (std::f32::consts::TAU * 1_000.0 * time).sin() * envelope * amplitude;
+            samples[frame * 2] += value;
+            samples[frame * 2 + 1] += value;
+        }
+    }
+    audio::RenderedAudio {
+        samples,
+        sample_rate,
+    }
+}
+
 pub fn plugin_matches(
     plugin: &plugins::FoundPlugin,
     search: &str,
@@ -5239,14 +5266,24 @@ impl ShellApp {
                                 let tempo = self.song().tempo_map.clone();
                                 let seconds = self.record_seconds;
                                 let count_in = self.settings.record_count_in;
-                                let delay =
-                                    f64::from(count_in) * 4.0 * 60.0 / tempo.bpm_at(0).max(1.0);
+                                let bpm = tempo.bpm_at(0).max(1.0);
+                                let delay = f64::from(count_in) * 4.0 * 60.0 / bpm;
                                 let (sender, receiver) = std::sync::mpsc::channel();
                                 std::thread::spawn(move || {
                                     if delay > 0.0 {
-                                        std::thread::sleep(std::time::Duration::from_secs_f64(
-                                            delay,
-                                        ));
+                                        if let Ok(player) = audio::player::Player::new(
+                                            count_in_audio(bpm, count_in),
+                                        ) {
+                                            player.play();
+                                            std::thread::sleep(std::time::Duration::from_secs_f64(
+                                                delay,
+                                            ));
+                                            player.release();
+                                        } else {
+                                            std::thread::sleep(std::time::Duration::from_secs_f64(
+                                                delay,
+                                            ));
+                                        }
                                     }
                                     let result = midi_devices::devices::record_to_song(
                                         &keyboard, seconds, &tempo, "Recorded",
@@ -6858,6 +6895,23 @@ mod tests {
         quantise_recorded(&mut notes, music_core::PPQ / 4);
         assert_eq!(notes[0].start, 0);
         assert_eq!(notes[1].start, 960);
+    }
+
+    #[test]
+    fn count_in_audio_has_one_accented_click_per_bar() {
+        let audio = count_in_audio(120.0, 1);
+        assert_eq!(audio.sample_rate, 48_000);
+        assert_eq!(audio.samples.len(), 96_000 * 2);
+        let frames: Vec<f32> = audio.samples.chunks(2).map(|frame| frame[0]).collect();
+        let peaks: Vec<usize> = frames
+            .windows(480)
+            .enumerate()
+            .filter(|(_, window)| window.iter().any(|sample| sample.abs() > 0.25))
+            .map(|(index, _)| index)
+            .take(8)
+            .collect();
+        assert!(!peaks.is_empty());
+        assert!(peaks[0] < 480, "the first click starts the count-in");
     }
 
     #[test]
