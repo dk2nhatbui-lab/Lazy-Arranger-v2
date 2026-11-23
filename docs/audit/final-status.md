@@ -154,3 +154,4 @@ For the clef layout, choose either four measures per system without clefs
 - Video import extracts a mono 48 kHz WAV with FFmpeg; extraction test creates a 1 s MP4.
 - Audio input can record one of eight channels or a mono mix (`docs/audit/audio-settings.png`); hardware unverified.
 - Bus/master VST3 slots capture/clear state; no capture hardware fixture.
+- Generate part window exposes all seven rule-based generators with a seed (`docs/audit/generate-part.png`).

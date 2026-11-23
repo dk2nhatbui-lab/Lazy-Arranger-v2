@@ -240,6 +240,27 @@ impl Editor {
         Ok(())
     }
 
+    /// Runs a rule-based generator on one track through the generate tool.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the generator or edit is rejected.
+    pub fn generate_part(
+        &mut self,
+        track: project::TrackId,
+        op: &str,
+        seed: u64,
+    ) -> Result<String, String> {
+        let result = mcp::call(
+            &mut self.session,
+            "generate",
+            &serde_json::json!({"track": track.get(), "op": op, "bars": 4, "seed": seed}),
+        )
+        .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(result.to_string())
+    }
+
     /// Replaces the song chords with the given events.
     ///
     /// # Errors
@@ -2237,6 +2258,17 @@ mod tests {
         assert!(editor.set_note_duration(track, note, 0).is_err());
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].notes[0].duration, PPQ);
+    }
+
+    #[test]
+    fn generating_a_part_is_one_undo_step() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("track");
+        editor
+            .generate_part(track, "humanize", 7)
+            .expect("generate");
+        editor.undo();
+        assert!(!editor.song().tracks.is_empty());
     }
 
     #[test]

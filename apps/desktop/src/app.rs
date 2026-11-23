@@ -831,6 +831,8 @@ pub struct ShellApp {
     style_draft: Option<arranger::style::Style>,
     style_rules_open: bool,
     style_preview: Option<audio::player::Player>,
+    generate_open: bool,
+    generate_seed: u64,
     audio_chords_open: bool,
     audio_chords_path: String,
     audio_chords: Vec<audio::chords::AudioChord>,
@@ -1133,6 +1135,8 @@ impl ShellApp {
             style_draft: None,
             style_rules_open: false,
             style_preview: None,
+            generate_open: std::env::var("ARRANGER_GENERATE").is_ok(),
+            generate_seed: 1,
             audio_chords_open: std::env::var("ARRANGER_CHORDS").is_ok(),
             audio_chords_path: std::env::var("ARRANGER_CHORDS_FILE").unwrap_or_default(),
             audio_chords: Vec::new(),
@@ -4605,6 +4609,69 @@ impl ShellApp {
                 });
             let _ = sender.send(result);
         });
+    }
+
+    fn generate_window(&mut self, context: &Context) {
+        if !self.generate_open {
+            return;
+        }
+        let mut open = self.generate_open;
+        egui::Window::new("Generate part")
+            .open(&mut open)
+            .resizable(false)
+            .default_width(360.0)
+            .show(context, |ui| {
+                let tracks: Vec<(TrackId, String)> = self
+                    .song()
+                    .tracks
+                    .iter()
+                    .map(|track| (track.id, track.name.clone()))
+                    .collect();
+                let selected = self
+                    .roll
+                    .selected
+                    .filter(|id| tracks.iter().any(|(track, _)| track == id))
+                    .or_else(|| tracks.first().map(|(id, _)| *id));
+                let Some(track) = selected else {
+                    ui.label("Add a track first.");
+                    return;
+                };
+                ui.label(format!(
+                    "Track: {}",
+                    tracks
+                        .iter()
+                        .find(|(id, _)| *id == track)
+                        .map_or("selected", |(_, name)| name.as_str())
+                ));
+                ui.horizontal(|ui| {
+                    ui.label("Seed");
+                    ui.add(egui::DragValue::new(&mut self.generate_seed));
+                });
+                ui.label(
+                    egui::RichText::new(
+                        "Each button writes one undoable edit from the song's own chords and notes.",
+                    )
+                    .size(9.0)
+                    .color(theme::text_dim()),
+                );
+                for (label, op) in [
+                    ("Humanise", "humanize"),
+                    ("Drumify", "drumify"),
+                    ("Bass", "bass"),
+                    ("Pad", "pad"),
+                    ("Arpeggio", "arp"),
+                    ("Continue 4 bars", "continue"),
+                    ("Melody", "melody"),
+                ] {
+                    if ui.button(label).clicked() {
+                        match self.editor.generate_part(track, op, self.generate_seed) {
+                            Ok(_) => self.status = Some(format!("generated {op}")),
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                }
+            });
+        self.generate_open = open;
     }
 
     fn audio_chords_window(&mut self, context: &Context) {
@@ -9284,6 +9351,10 @@ impl ShellApp {
                                 self.audio_style_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Generate part").clicked() {
+                                self.generate_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Chords from audio").clicked() {
                                 self.audio_chords_open = true;
                                 ui.close_menu();
@@ -9818,6 +9889,7 @@ impl eframe::App for ShellApp {
         self.style_clips_window(context);
         self.style_file_window(context);
         self.audio_chords_window(context);
+        self.generate_window(context);
         self.audio_style_window(context);
         self.style_rules_window(context);
         self.master_fx_window(context);
