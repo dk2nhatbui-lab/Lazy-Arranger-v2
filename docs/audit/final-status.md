@@ -86,3 +86,4 @@ For the clef layout, choose either four measures per system without clefs
 - Master effect slots run after the bus sum (capture `docs/audit/master-effects.png`); bus effect chains are still absent.
 - Buses carry effect chains (`Bus.plugins`), applied to the bus sum; the Bus effects window edits them.
 - A basic Style rules window edits destination channel, written root/type, NTR/NTT, held-note RTR, bass and note limits in the export draft.
+- Track/bus plug-in chains apply reported latency compensation; no nonzero-latency plug-in fixture exists, so only the delay helper is verified.

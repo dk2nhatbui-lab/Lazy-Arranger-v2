@@ -205,7 +205,24 @@ pub fn render_with_soundfont(
         .map(|_| vec![0.0_f32; frames * usize::from(CHANNELS)])
         .collect();
 
-    for track in song.tracks.iter().filter(|track| song.is_audible(track)) {
+    let track_latencies: Vec<usize> = song
+        .tracks
+        .iter()
+        .map(|track| {
+            if song.is_audible(track) {
+                chain_latency(&track.plugins, sample_rate)
+            } else {
+                0
+            }
+        })
+        .collect();
+    let max_track_latency = track_latencies.iter().copied().max().unwrap_or(0);
+    for (track_index, track) in song
+        .tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, track)| song.is_audible(track))
+    {
         let timbre = timbre_for(track);
         let sampled = track.soundfont.as_ref().and_then(|reference| {
             load(&reference.path).map(|font| (font, reference.bank, reference.program))
@@ -311,6 +328,10 @@ pub fn render_with_soundfont(
             }
         }
         apply_track_plugins(track, &mut track_buffer, sample_rate);
+        delay_buffer(
+            &mut track_buffer,
+            max_track_latency.saturating_sub(track_latencies[track_index]),
+        );
         if let Some(index) = track
             .bus
             .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
@@ -324,10 +345,17 @@ pub fn render_with_soundfont(
             }
         }
     }
+    let bus_latencies: Vec<usize> = song
+        .buses
+        .iter()
+        .map(|bus| chain_latency(&bus.plugins, sample_rate))
+        .collect();
+    let max_bus_latency = bus_latencies.iter().copied().max().unwrap_or(0);
     for (index, bus) in song.buses.iter().enumerate() {
         let (left_gain, right_gain) = gains(f32::from(bus.volume), bus.pan);
         if let Some(buffer) = bus_buffers.get_mut(index) {
             apply_plugins(&bus.plugins, buffer, sample_rate);
+            delay_buffer(buffer, max_bus_latency.saturating_sub(bus_latencies[index]));
             for (frame, pair) in buffer.chunks(2).enumerate() {
                 samples[frame * 2] += pair[0] * left_gain;
                 samples[frame * 2 + 1] += pair[1] * right_gain;
@@ -481,6 +509,51 @@ fn render_instrument(
     for note in &track.notes {
         instrument.note_off_at(note.pitch.as_u8(), 0);
     }
+}
+
+fn chain_latency(slots: &[project::song::PluginSlot], sample_rate: u32) -> usize {
+    let mut latency = 0_usize;
+    for slot in slots {
+        if slot.bypassed || slot.identifier.is_empty() {
+            continue;
+        }
+        match slot.format {
+            project::song::PluginFormat::Vst3 => {
+                if let Ok(effect) = plugin_host::Vst3Effect::new(
+                    std::path::Path::new(&slot.path),
+                    &slot.identifier,
+                    f64::from(sample_rate),
+                    512,
+                ) {
+                    latency = latency.saturating_add(effect.latency_samples());
+                }
+            }
+            #[cfg(target_os = "macos")]
+            project::song::PluginFormat::AudioUnit => {
+                if let Ok(effect) =
+                    plugin_host::AuEffect::new(&slot.identifier, f64::from(sample_rate))
+                {
+                    latency = latency.saturating_add(effect.latency_samples());
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            project::song::PluginFormat::AudioUnit => {}
+        }
+    }
+    latency
+}
+
+fn delay_buffer(buffer: &mut [f32], frames: usize) {
+    if frames == 0 || buffer.is_empty() {
+        return;
+    }
+    let samples = frames.saturating_mul(2).min(buffer.len());
+    if samples == buffer.len() {
+        buffer.fill(0.0);
+        return;
+    }
+    buffer.copy_within(0..buffer.len() - samples, samples);
+    buffer[..samples].fill(0.0);
 }
 
 fn apply_track_plugins(track: &project::song::Track, buffer: &mut [f32], sample_rate: u32) {
@@ -716,6 +789,16 @@ mod tests {
         });
         song.tracks.push(track);
         song
+    }
+
+    #[test]
+    fn latency_delay_shifts_stereo_frames() {
+        let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
+        delay_buffer(&mut buffer, 1);
+        assert_eq!(buffer, vec![0.0, 0.0, 1.0, 2.0]);
+        let mut buffer = vec![1.0, 2.0];
+        delay_buffer(&mut buffer, 1);
+        assert_eq!(buffer, vec![0.0, 0.0]);
     }
 
     #[test]

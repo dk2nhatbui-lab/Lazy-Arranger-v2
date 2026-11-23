@@ -283,6 +283,13 @@ impl Vst3Effect {
         Ok(())
     }
 
+    /// Latency reported by the audio processor, in samples at the active rate.
+    #[must_use]
+    pub fn latency_samples(&self) -> usize {
+        let latency = unsafe { self.processor.getLatencySamples() };
+        usize::try_from(latency).unwrap_or(usize::MAX)
+    }
+
     /// Saves component state as base64 for a project slot.
     ///
     /// # Errors

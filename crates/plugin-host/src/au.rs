@@ -141,6 +141,7 @@ const AU_EFFECT: u32 = 0x6175_6678; // 'aufx'
 const AU_MUSIC_DEVICE: u32 = 0x6175_6d75; // 'aumu'
 const STREAM_FORMAT: u32 = 8;
 const PARAMETER_LIST: u32 = 3;
+const LATENCY: u32 = 12;
 const PARAMETER_INFO: u32 = 4;
 const SCOPE_GLOBAL: u32 = 0;
 const MAX_FRAMES: u32 = 14;
@@ -314,6 +315,28 @@ impl AuEffect {
             return Err(format!("AudioUnitInitialize returned {result}"));
         }
         Ok(())
+    }
+
+    /// Latency reported by the unit, in samples.
+    #[must_use]
+    pub fn latency_samples(&self) -> usize {
+        let mut latency = 0.0_f64;
+        let mut size = u32::try_from(std::mem::size_of::<f64>()).unwrap_or(0);
+        let result = unsafe {
+            AudioUnitGetProperty(
+                self.unit,
+                LATENCY,
+                SCOPE_GLOBAL,
+                0,
+                (&raw mut latency).cast(),
+                &mut size,
+            )
+        };
+        if result == 0 {
+            latency.max(0.0).round() as usize
+        } else {
+            0
+        }
     }
 
     /// Parameters exposed by this unit: id, name, current, min, max, default.
@@ -693,6 +716,13 @@ mod tests {
                 "parameter did not retain the value: {readback} vs {target}"
             );
         }
+    }
+
+    #[test]
+    #[ignore = "loads the Apple dynamics Audio Unit"]
+    fn effect_reports_latency() {
+        let effect = AuEffect::new("appl:dcmp", 48_000.0).expect("au");
+        let _ = effect.latency_samples();
     }
 
     #[test]
