@@ -81,6 +81,7 @@ pub struct ShellApp {
     editor: Editor,
     selected_note: Option<(TrackId, NoteId)>,
     selected_notes: Vec<(TrackId, NoteId)>,
+    selected_chord: Option<Tick>,
     preview_player: Option<audio::player::Player>,
     selected_clip: Option<(TrackId, project::ClipId)>,
     chord_dialog: bool,
@@ -170,6 +171,7 @@ impl ShellApp {
                 .map(|path| persistence::autosave_path(path)),
             selected_note: None,
             selected_notes: Vec::new(),
+            selected_chord: None,
             preview_player: None,
             selected_clip: None,
             chord_dialog: false,
@@ -309,6 +311,38 @@ impl ShellApp {
                 .map(|entry| entry.notes.iter().map(|note| (track, note.id)).collect())
                 .unwrap_or_default();
             self.status = Some(format!("selected {} note(s)", self.selected_notes.len()));
+        }
+        if let Some(tick) = self.selected_chord {
+            if copy || cut {
+                let bar = self.song().time_signature.bar_ticks().max(1);
+                let end = self
+                    .song()
+                    .chords
+                    .iter()
+                    .map(|event| event.tick)
+                    .find(|other| *other > tick)
+                    .unwrap_or(tick + bar);
+                self.editor.copy_chords(tick, end);
+                if cut {
+                    match self.editor.remove_chords(tick, end) {
+                        Ok(removed) => {
+                            self.status = Some(format!("cut {removed} chord(s)"));
+                            self.selected_chord = None;
+                        }
+                        Err(error) => self.status = Some(error),
+                    }
+                } else {
+                    self.status = Some(format!("copied chord(s) from {tick}"));
+                }
+            }
+            if paste {
+                let at = self.roll.hover.unwrap_or(self.position).max(0);
+                match self.editor.paste_chords(at) {
+                    Ok(0) => self.status = Some(String::from("clipboard has no chords")),
+                    Ok(count) => self.status = Some(format!("pasted {count} chord(s) at {at}")),
+                    Err(error) => self.status = Some(error),
+                }
+            }
         }
         if !self.selected_notes.is_empty() && (copy || cut) {
             let track = self.selected_notes[0].0;
@@ -2180,6 +2214,7 @@ impl eframe::App for ShellApp {
                 let mut scroll_edit: Option<crate::piano_roll::RollEdit> = None;
                 let mut velocity_edit: Option<(TrackId, project::NoteId, u8)> = None;
                 let mut preview_note: Option<u8> = None;
+                let mut chord_click: Option<Tick> = None;
                 let Self { editor, roll, .. } = self;
                 let selected_clip = self.selected_clip;
                 let project = editor.project();
@@ -2222,6 +2257,9 @@ impl eframe::App for ShellApp {
                         }
                         if let Some(preview) = outcome.preview {
                             preview_note = Some(preview);
+                        }
+                        if let Some(tick) = outcome.chord {
+                            chord_click = Some(tick);
                         }
                         if let Some(track_id) = roll.selected
                             && let Some(track) = project
@@ -2399,6 +2437,7 @@ impl eframe::App for ShellApp {
                     scroll_edit,
                     velocity_edit,
                     preview_note,
+                    chord_click,
                 )
             });
         let (
@@ -2413,7 +2452,12 @@ impl eframe::App for ShellApp {
             scroll_edit,
             velocity_edit,
             preview_note,
+            chord_click,
         ) = panel.inner;
+        if let Some(tick) = chord_click {
+            self.selected_chord = Some(tick);
+            self.status = Some(format!("selected chord at tick {tick}"));
+        }
         if let Some(click) = clicked {
             self.edit_click(click);
         }

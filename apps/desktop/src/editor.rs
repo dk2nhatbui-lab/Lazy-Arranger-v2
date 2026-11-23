@@ -837,6 +837,29 @@ impl Editor {
         Ok(())
     }
 
+    /// Removes chords inside a range.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn remove_chords(&mut self, from: Tick, to: Tick) -> Result<usize, String> {
+        let kept: Vec<project::song::ChordEvent> = self
+            .song()
+            .chords
+            .iter()
+            .filter(|event| event.tick < from || event.tick >= to)
+            .cloned()
+            .collect();
+        let removed = self.song().chords.len() - kept.len();
+        if removed > 0 {
+            self.session
+                .apply(app_commands::Command::SetChords { chords: kept })
+                .map_err(|error| error.to_string())?;
+            self.dirty = true;
+        }
+        Ok(removed)
+    }
+
     /// Copies chords inside a range.
     pub fn copy_chords(&mut self, start: Tick, end: Tick) {
         self.clipboard = app_commands::clipboard::Clipboard::from_chords(self.song(), start, end);
@@ -1283,6 +1306,23 @@ mod tests {
         assert_eq!(grid.rows[0].scene.name, "Verse");
         assert!(editor.undo());
         assert!(editor.song().scene_names.is_empty());
+    }
+
+    #[test]
+    fn chords_copy_cut_and_paste_a_range() {
+        let mut editor = editor();
+        editor.apply_progression("C F G", 0).expect("progression");
+        let before = editor.song().chords.len();
+        assert!(before >= 2);
+        let first = editor.song().chords[0].tick;
+        let second = editor.song().chords[1].tick;
+        editor.copy_chords(first, second);
+        let removed = editor.remove_chords(first, second).expect("remove");
+        assert!(removed >= 1);
+        let pasted = editor.paste_chords(15360).expect("paste");
+        assert!(pasted >= 1);
+        assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
+        assert!(editor.undo());
     }
 
     #[test]

@@ -175,6 +175,8 @@ pub struct RollOutcome {
     pub preview: Option<u8>,
     /// Velocity change clicked in the lane.
     pub velocity: Option<(TrackId, project::NoteId, u8)>,
+    /// Chord tick clicked in the chord lane.
+    pub chord: Option<Tick>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -449,6 +451,21 @@ pub fn show(
             ..RollOutcome::default()
         };
     }
+    if response.clicked()
+        && pointer.y >= rect.top() + CLIP_LANE_HEIGHT
+        && pointer.y < rect.top() + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT
+    {
+        let tick = geometry.tick_at(pointer.x).max(0);
+        let nearest = song
+            .chords
+            .iter()
+            .min_by_key(|event| (event.tick - tick).abs())
+            .map(|event| event.tick);
+        return RollOutcome {
+            chord: nearest,
+            ..RollOutcome::default()
+        };
+    }
     if !response.clicked() {
         return RollOutcome::default();
     }
@@ -475,6 +492,7 @@ pub fn show(
                     edit: None,
                     velocity: None,
                     preview: None,
+                    chord: None,
                 };
             }
         }
@@ -503,6 +521,7 @@ pub fn show(
                     edit: None,
                     velocity: None,
                     preview: None,
+                    chord: None,
                 };
             }
         }
@@ -514,6 +533,7 @@ pub fn show(
         edit: None,
         velocity,
         preview: None,
+        chord: None,
     }
 }
 
