@@ -854,3 +854,10 @@ with the large transport controls, so the graded exercises remain reachable.
 resize use the raw rounded tick instead of the sixteenth grid. Arrange shows a
 Snap 1/16 checkbox; insertion uses the same flag and now snaps to a sixteenth
 instead of a quarter. The drag test checks a free 13-tick move.
+
+### Mixer bus rows
+
+The Mix view lists each bus with volume and pan sliders and a Remove button plus
+an Add bus action; edits are one `SetBuses` call. The demo has no buses, so the
+section is a header with Add bus. The captured layout is
+`docs/audit/mix.png`.

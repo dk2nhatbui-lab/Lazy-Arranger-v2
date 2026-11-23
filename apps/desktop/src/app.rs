@@ -2386,6 +2386,59 @@ impl ShellApp {
             );
             ui.checkbox(&mut self.settings.master_limiter, "Limiter");
         });
+        ui.separator();
+        let mut buses = self.song().buses.clone();
+        let mut buses_edited = false;
+        let mut remove_bus = None;
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Buses").strong());
+            if ui.small_button("Add bus").clicked() {
+                let id = buses
+                    .iter()
+                    .map(|bus| bus.id)
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_add(1);
+                buses.push(project::song::Bus {
+                    id,
+                    name: format!("Bus {id}"),
+                    volume: 100,
+                    pan: 64,
+                });
+                buses_edited = true;
+            }
+        });
+        for bus in &mut buses {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("{} {}", bus.id, bus.name))
+                        .size(10.0)
+                        .color(theme::text_muted()),
+                );
+                if ui
+                    .add(egui::Slider::new(&mut bus.volume, 0..=127).text("vol"))
+                    .changed()
+                {
+                    buses_edited = true;
+                }
+                if ui
+                    .add(egui::Slider::new(&mut bus.pan, 0..=127).text("pan"))
+                    .changed()
+                {
+                    buses_edited = true;
+                }
+                if ui.small_button("Remove").clicked() {
+                    remove_bus = Some(bus.id);
+                }
+            });
+        }
+        if let Some(id) = remove_bus {
+            buses.retain(|bus| bus.id != id);
+            buses_edited = true;
+        }
+        if buses_edited && let Err(error) = self.editor.set_buses(buses) {
+            self.status = Some(error);
+        }
         ui.collapsing("L6max takes", |ui| {
             ui.horizontal(|ui| {
                 ui.text_edit_singleline(&mut self.l6max_folder);

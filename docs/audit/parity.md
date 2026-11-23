@@ -146,7 +146,7 @@ plurals, a real AI model and speech input.
 | Per-track keyboard program (schema v4) | `project`, `app-commands`, `mcp` | verified | migration, command, MCP tool; export honors it |
 | Mute / solo / arm (schema v5) | `project`, `app-commands`, `sequencer`, `audio` | verified | mix rules tested; render/sequencer honor them; M/S in the track list |
 | Track volume and pan (schema v8) | `project`, `audio`, `smf` export | verified | fader/pan render tests; CC 7/10 written; defaults omitted |
-| Mixer panel (per-track fader, pan, mute, solo, bus routing) | `apps/desktop` | implemented | bus strip and routing tests; UI manual |
+| Mixer panel (tracks, buses, master, routing) | `apps/desktop`, `SetBuses` | implemented | bus/routing tests; capture checked |
 | Song rename and meter edit (undoable) | `SetSongName`/`SetTimeSignature`, sidebar/Inspector | verified | rename/meter/undo and MCP tests |
 | Theory window and graded lessons | `theory_summary`, `music_core::lesson`, Windows menu | verified model | summary and lesson tests; UI manual |
 | Snap toggle (drags and insertions) | `RollState.snap`, `drag_result`, Arrange | verified | snapped/free drag test; UI manual |
