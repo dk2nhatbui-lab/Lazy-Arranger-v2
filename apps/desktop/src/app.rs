@@ -428,6 +428,7 @@ pub struct ShellApp {
     audio_recording: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
     audio_record_seconds: f64,
     audio_record_start: Tick,
+    audio_record_target: Option<TrackId>,
     song_name_input: String,
     markers_open: bool,
     theory_open: bool,
@@ -616,6 +617,7 @@ impl ShellApp {
             audio_recording: None,
             audio_record_seconds: 3.0,
             audio_record_start: 0,
+            audio_record_target: None,
             song_name_input,
             markers_open: initial_window == "markers",
             theory_open: initial_window == "theory",
@@ -1337,12 +1339,23 @@ impl ShellApp {
     fn advance(&mut self, context: &Context) {
         if let Some(receiver) = self.audio_recording.take() {
             match receiver.try_recv() {
-                Ok(Ok(path)) => match self.editor.import_audio(&path, self.audio_record_start) {
-                    Ok(track) => {
-                        self.status = Some(format!("recorded audio as track {}", track.get()));
+                Ok(Ok(path)) => {
+                    let target = self.audio_record_target.take();
+                    let result = match target {
+                        Some(track) => self
+                            .editor
+                            .record_audio_into(track, &path, self.audio_record_start)
+                            .map(|()| track),
+                        None => self.editor.import_audio(&path, self.audio_record_start),
+                    };
+                    match result {
+                        Ok(track) => {
+                            self.status =
+                                Some(format!("recorded audio into track {}", track.get()));
+                        }
+                        Err(error) => self.status = Some(error),
                     }
-                    Err(error) => self.status = Some(error),
-                },
+                }
                 Ok(Err(error)) => self.status = Some(error),
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
                     self.audio_recording = Some(receiver);
@@ -5422,6 +5435,12 @@ impl ShellApp {
                                 });
                                 self.audio_recording = Some(receiver);
                                 self.audio_record_start = start;
+                                self.audio_record_target = self
+                                    .song()
+                                    .tracks
+                                    .iter()
+                                    .find(|track| track.armed)
+                                    .map(|track| track.id);
                                 self.status = Some(if count_in == 0 {
                                     format!("recording {:.1} s of audio", seconds)
                                 } else {

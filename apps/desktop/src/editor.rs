@@ -1238,6 +1238,43 @@ impl Editor {
     /// # Errors
     ///
     /// Returns a message when the track has no audio or the edit is rejected.
+    /// Replaces or creates the audio reference of an existing track.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the file cannot be read or the track is unknown.
+    pub fn record_audio_into(
+        &mut self,
+        track: TrackId,
+        wav: &std::path::Path,
+        start: Tick,
+    ) -> Result<(), String> {
+        if !self.song().tracks.iter().any(|entry| entry.id == track) {
+            return Err(String::from("unknown track"));
+        }
+        let bytes = std::fs::read(wav)
+            .map_err(|error| format!("could not read {}: {error}", wav.display()))?;
+        let info = audio::wav::info(&bytes)?;
+        let bpm = self.song().tempo_map.bpm_at(start);
+        let length = audio::chords::to_ticks(info.seconds, bpm);
+        self.session
+            .apply(app_commands::Command::SetAudioRef {
+                track,
+                reference: Some(project::song::AudioRef {
+                    path: wav.display().to_string(),
+                    start,
+                    length,
+                    offset: 0,
+                    fade_in: 0,
+                    fade_out: 0,
+                    stretch: false,
+                }),
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     pub fn set_audio_stretch(&mut self, track: TrackId, stretch: bool) -> Result<(), String> {
         let Some(reference) = self
             .song()
@@ -2247,6 +2284,27 @@ mod tests {
             .expect("set patch");
         editor.set_track_patch(track, None).expect("clear patch");
         assert_eq!(editor.song().tracks[0].patch, None);
+    }
+
+    #[test]
+    fn recorded_audio_can_replace_an_armed_tracks_reference() {
+        let path = std::env::temp_dir().join("lazy-arranger-record-target.wav");
+        let audio = audio::RenderedAudio {
+            samples: vec![0.1; 4_800 * 2],
+            sample_rate: 48_000,
+        };
+        std::fs::write(&path, audio.to_wav()).expect("write");
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        editor
+            .record_audio_into(track, &path, 0)
+            .expect("record into");
+        let reference = editor.song().tracks[0].audio.as_ref().expect("reference");
+        assert_eq!(reference.path, path.display().to_string());
+        assert!(reference.length > 0);
+        assert!(editor.undo());
+        assert!(editor.song().tracks[0].audio.is_none());
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
