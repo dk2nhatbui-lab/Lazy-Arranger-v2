@@ -209,6 +209,21 @@ pub struct DrumKit {
     pub lsb: Option<u8>,
 }
 
+/// One MIDI CC control a profile exposes for a device editor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeviceControl {
+    /// Display name.
+    pub name: String,
+    /// Controller number 0..=127.
+    pub cc: u8,
+    /// MIDI channel 1..=16.
+    pub channel: u8,
+    /// Minimum value.
+    pub min: u8,
+    /// Maximum value.
+    pub max: u8,
+}
+
 /// A profile loaded from the YAML subset this build understands.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LoadedProfile {
@@ -222,6 +237,8 @@ pub struct LoadedProfile {
     pub banks: Vec<Bank>,
     /// Drum kits, parsed but not used by export yet.
     pub drum_kits: Vec<DrumKit>,
+    /// MIDI CC controls for a generic device editor.
+    pub controls: Vec<DeviceControl>,
 }
 
 /// A malformed profile file and its reason.
@@ -278,6 +295,7 @@ pub fn parse_yaml(text: &str) -> Result<LoadedProfile, String> {
         Voices,
         Banks,
         DrumKits,
+        Controls,
     }
     let mut profile = LoadedProfile::default();
     let mut section = Section::None;
@@ -286,6 +304,10 @@ pub fn parse_yaml(text: &str) -> Result<LoadedProfile, String> {
         program: Option<u8>,
         msb: Option<u8>,
         lsb: Option<u8>,
+        cc: Option<u8>,
+        channel: Option<u8>,
+        min: Option<u8>,
+        max: Option<u8>,
     }
     let mut pending: Option<Pending> = None;
     let flush = |profile: &mut LoadedProfile,
@@ -296,6 +318,17 @@ pub fn parse_yaml(text: &str) -> Result<LoadedProfile, String> {
             let name = item
                 .name
                 .ok_or_else(|| String::from("list item needs a name"))?;
+            if matches!(section, Section::Controls) {
+                let cc = item.cc.ok_or_else(|| format!("{name}: missing cc"))?;
+                profile.controls.push(DeviceControl {
+                    name,
+                    cc,
+                    channel: item.channel.unwrap_or(1).clamp(1, 16),
+                    min: item.min.unwrap_or(0),
+                    max: item.max.unwrap_or(127),
+                });
+                return Ok(());
+            }
             let program = item
                 .program
                 .ok_or_else(|| format!("{name}: missing program"))?;
@@ -313,7 +346,9 @@ pub fn parse_yaml(text: &str) -> Result<LoadedProfile, String> {
                     msb: item.msb,
                     lsb: item.lsb,
                 }),
-                Section::None => return Err(String::from("list item outside a section")),
+                Section::None | Section::Controls => {
+                    return Err(String::from("list item outside a section"));
+                }
             }
         }
         Ok(())
@@ -334,6 +369,10 @@ pub fn parse_yaml(text: &str) -> Result<LoadedProfile, String> {
                 program: None,
                 msb: None,
                 lsb: None,
+                cc: None,
+                channel: None,
+                min: None,
+                max: None,
             });
             continue;
         }
@@ -345,26 +384,35 @@ pub fn parse_yaml(text: &str) -> Result<LoadedProfile, String> {
         match key {
             "id" => profile.id = value.to_string(),
             "name" => profile.name = value.to_string(),
-            "voices" | "banks" | "drum_kits" => {
+            "voices" | "banks" | "drum_kits" | "controls" => {
                 flush(&mut profile, &section, &mut pending)?;
                 section = match key {
                     "voices" => Section::Voices,
                     "banks" => Section::Banks,
+                    "controls" => Section::Controls,
                     _ => Section::DrumKits,
                 };
             }
-            "program" | "msb" | "lsb" => {
+            "program" | "msb" | "lsb" | "cc" | "min" | "max" | "channel" => {
                 let number: u8 = value
                     .parse()
-                    .map_err(|_| error("program, msb and lsb must be 0..=127"))?;
-                if number > 127 {
-                    return Err(error("program, msb and lsb must be 0..=127"));
+                    .map_err(|_| error("profile numbers must be 0..=127"))?;
+                if key == "channel" {
+                    if !(1..=16).contains(&number) {
+                        return Err(error("channel must be 1..=16"));
+                    }
+                } else if number > 127 {
+                    return Err(error("profile numbers must be 0..=127"));
                 }
                 match &mut pending {
                     Some(item) => match key {
                         "program" => item.program = Some(number),
                         "msb" => item.msb = Some(number),
-                        _ => item.lsb = Some(number),
+                        "lsb" => item.lsb = Some(number),
+                        "cc" => item.cc = Some(number.min(127)),
+                        "channel" => item.channel = Some(number.clamp(1, 16)),
+                        "min" => item.min = Some(number.min(127)),
+                        _ => item.max = Some(number.min(127)),
                     },
                     None => return Err(error("value without a list item")),
                 }
@@ -478,6 +526,18 @@ drum_kits:
         assert_eq!(profiles[0].id, "xio");
         assert_eq!(problems.len(), 1);
         let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn controls_parse_from_a_profile() {
+        let profile = parse_yaml(
+            "id: xio\nname: XioSynth\nvoices:\n  - name: Pad\n    program: 1\ncontrols:\n  - name: Cutoff\n    cc: 74\n    channel: 2\n    min: 10\n    max: 100\n",
+        )
+        .expect("profile");
+        assert_eq!(profile.controls.len(), 1);
+        assert_eq!(profile.controls[0].cc, 74);
+        assert_eq!(profile.controls[0].channel, 2);
+        assert_eq!(profile.controls[0].max, 100);
     }
 
     #[test]

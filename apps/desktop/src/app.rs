@@ -530,6 +530,9 @@ pub struct ShellApp {
     shortcuts_open: bool,
     about_open: bool,
     device_profiles: Vec<midi_devices::profiles::LoadedProfile>,
+    device_editor_open: bool,
+    device_editor_profile: usize,
+    device_editor_values: Vec<u8>,
     groove_open: bool,
     groove_entries: Vec<(String, std::path::PathBuf)>,
     groove_selected: usize,
@@ -779,6 +782,9 @@ impl ShellApp {
             shortcuts_open: initial_window == "shortcuts",
             about_open: initial_window == "about",
             device_profiles: load_device_profiles(),
+            device_editor_open: initial_window == "device",
+            device_editor_profile: 0,
+            device_editor_values: Vec::new(),
             groove_open: initial_window == "groove",
             groove_entries: Vec::new(),
             groove_selected: 0,
@@ -4854,6 +4860,85 @@ impl ShellApp {
         self.about_open = open;
     }
 
+    fn device_editor_window(&mut self, context: &egui::Context) {
+        if !self.device_editor_open {
+            return;
+        }
+        let mut open = self.device_editor_open;
+        egui::Window::new("Device editor")
+            .open(&mut open)
+            .resizable(false)
+            .show(context, |ui| {
+                if self.device_profiles.is_empty() {
+                    ui.label("No device profiles found. Add YAML files to the profiles folder.");
+                    return;
+                }
+                let selected = self
+                    .device_profiles
+                    .get(self.device_editor_profile)
+                    .map(|profile| profile.name.clone())
+                    .unwrap_or_default();
+                egui::ComboBox::from_id_salt("device-editor-profile")
+                    .selected_text(selected)
+                    .show_ui(ui, |ui| {
+                        for (index, profile) in self.device_profiles.iter().enumerate() {
+                            if ui
+                                .selectable_value(
+                                    &mut self.device_editor_profile,
+                                    index,
+                                    &profile.name,
+                                )
+                                .clicked()
+                            {
+                                self.device_editor_values.clear();
+                            }
+                        }
+                    });
+                let controls = self
+                    .device_profiles
+                    .get(self.device_editor_profile)
+                    .map(|profile| profile.controls.clone())
+                    .unwrap_or_default();
+                if self.device_editor_values.len() != controls.len() {
+                    self.device_editor_values =
+                        controls.iter().map(|control| control.min).collect();
+                }
+                for (index, control) in controls.iter().enumerate() {
+                    let name = control.name.clone();
+                    let cc = control.cc;
+                    let channel_number = control.channel;
+                    let min = control.min;
+                    let max = control.max;
+                    let Some(value) = self.device_editor_values.get(index).copied() else {
+                        continue;
+                    };
+                    let mut current = value;
+                    if ui
+                        .add(egui::Slider::new(&mut current, min..=max).text(name))
+                        .changed()
+                    {
+                        if let Some(slot) = self.device_editor_values.get_mut(index) {
+                            *slot = current;
+                        }
+                        if let (Ok(channel), Ok(controller)) = (
+                            music_core::Channel::from_one_based(channel_number),
+                            music_core::ControlNumber::new(cc),
+                        ) {
+                            self.send_midi(music_core::MidiMessage::ControlChange {
+                                channel,
+                                controller,
+                                value: current,
+                            });
+                        }
+                    }
+                }
+                if controls.is_empty() {
+                    ui.label("This profile has no controls.");
+                }
+            });
+        self.device_editor_open = open;
+    }
+
     fn groove_window(&mut self, context: &egui::Context) {
         if !self.groove_open {
             return;
@@ -4926,6 +5011,7 @@ impl ShellApp {
     fn windows(&mut self, context: &egui::Context) {
         self.about_window(context);
         self.groove_window(context);
+        self.device_editor_window(context);
         if self.settings_open {
             let mut open = self.settings_open;
             egui::Window::new("Settings")
@@ -6893,6 +6979,10 @@ impl ShellApp {
                                 self.shortcuts_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Device editor").clicked() {
+                                self.device_editor_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Groove library").clicked() {
                                 self.groove_open = true;
                                 ui.close_menu();
@@ -8366,6 +8456,7 @@ mod tests {
             voices: vec![(String::from("Grand Piano"), 42)],
             banks: Vec::new(),
             drum_kits: Vec::new(),
+            controls: Vec::new(),
         };
         let path = std::env::temp_dir().join("lazy-arranger-profile.mid");
         export_midi_file_with_profile(&song, &path, Some(&profile)).expect("midi");
