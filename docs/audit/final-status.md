@@ -176,3 +176,4 @@ For the clef layout, choose either four measures per system without clefs
 - Audio refs now follow bus routing and track volume before bus/master plug-ins; render test covers the routed silence.
 - Compressed audio decode now preserves stereo; WAV already did, and audio refs use both.
 - Audio references follow volume/pan automation in 64-frame blocks; a zero-volume lane test covers it.
+- Sends are applied once after track plug-ins, so audio references feed sends and send lanes move in 64-frame blocks.

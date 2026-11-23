@@ -254,7 +254,7 @@ fn mix_audio_reference(
         if target >= track_buffer.len() / usize::from(CHANNELS) {
             break;
         }
-        if frame % 64 == 0 {
+        if frame.is_multiple_of(64) {
             let tick = song.tempo_map.tick_at_samples(target as i64, sample_rate);
             (left_gain, right_gain) = gains_at(track, tick);
         }
@@ -343,7 +343,6 @@ pub fn render_with_soundfont(
                     }
                     patch
                 });
-                let send_level = track.send_at(note.start).min(127.0) / 100.0;
                 let start_seconds = song.tempo_map.seconds_at(note.start);
                 let end_seconds = song
                     .tempo_map
@@ -386,13 +385,6 @@ pub fn render_with_soundfont(
                             let right = right_audio[offset] * right_gain;
                             track_buffer[frame * 2] += left;
                             track_buffer[frame * 2 + 1] += right;
-                            if let Some(index) = track
-                                .send
-                                .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
-                            {
-                                bus_buffers[index][frame * 2] += left * send_level;
-                                bus_buffers[index][frame * 2 + 1] += right * send_level;
-                            }
                         }
                         continue;
                     }
@@ -414,13 +406,6 @@ pub fn render_with_soundfont(
                     let right = value * right_gain;
                     track_buffer[frame * 2] += left;
                     track_buffer[frame * 2 + 1] += right;
-                    if let Some(index) = track
-                        .send
-                        .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
-                    {
-                        bus_buffers[index][frame * 2] += left * send_level;
-                        bus_buffers[index][frame * 2 + 1] += right * send_level;
-                    }
                 }
             }
         }
@@ -429,6 +414,22 @@ pub fn render_with_soundfont(
             &mut track_buffer,
             max_track_latency.saturating_sub(track_latencies[track_index]),
         );
+        if let Some(index) = track
+            .send
+            .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
+        {
+            let mut frame = 0_usize;
+            let mut level = 1.0_f32;
+            while frame < frames {
+                if frame.is_multiple_of(64) {
+                    let tick = song.tempo_map.tick_at_samples(frame as i64, sample_rate);
+                    level = track.send_at(tick).clamp(0.0, 127.0) / 100.0;
+                }
+                bus_buffers[index][frame * 2] += track_buffer[frame * 2] * level;
+                bus_buffers[index][frame * 2 + 1] += track_buffer[frame * 2 + 1] * level;
+                frame += 1;
+            }
+        }
         if let Some(index) = track
             .bus
             .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
@@ -1693,6 +1694,45 @@ mod tests {
         assert!(at(0.1).abs() < 1.0e-6, "silent before the clip start");
         assert!(at(0.6) < 0.12, "fade-in starts quietly");
         assert!(at(1.1) > 0.3, "full gain after the fade");
+    }
+
+    #[test]
+    fn audio_references_feed_sends() {
+        use project::song::{AudioRef, Bus, Track};
+        let mut song = Song::new("Audio", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Take");
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-audio-send-{}.wav",
+            std::process::id()
+        ));
+        let source = RenderedAudio {
+            samples: vec![0.5; SAMPLE_RATE as usize * 2],
+            sample_rate: SAMPLE_RATE,
+        };
+        std::fs::write(&path, source.to_wav32f()).expect("write wav");
+        track.audio = Some(AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: music_core::PPQ * 2,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        track.bus = Some(2);
+        track.send = Some(1);
+        track.send_level = 100;
+        song.tracks.push(track);
+        let mut dry = Bus::new(2, "Dry");
+        dry.volume = 0;
+        song.buses.push(dry);
+        song.buses.push(Bus::new(1, "Wet"));
+        let wet = render(&song, SAMPLE_RATE);
+        assert!(wet.samples.iter().any(|sample| sample.abs() > 0.3));
+        song.tracks[0].send_level = 0;
+        let silent = render(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        assert!(silent.samples.iter().all(|sample| sample.abs() < 1.0e-6));
     }
 
     #[test]
