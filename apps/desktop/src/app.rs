@@ -3440,51 +3440,61 @@ impl ShellApp {
                                     .suffix(" s"),
                             );
                         });
-                        ui.horizontal_wrapped(|ui| {
-                            if ui.small_button("Inspector").clicked() {
+                        ui.menu_button("Windows", |ui| {
+                            if ui.button("Inspector").clicked() {
                                 self.inspector_open = true;
+                                ui.close_menu();
                             }
-                            if ui.small_button("Library").clicked() {
+                            if ui.button("Library").clicked() {
                                 self.library_open = true;
+                                ui.close_menu();
                             }
-                            if ui.small_button("Pads").clicked() {
+                            if ui.button("Pads").clicked() {
                                 self.pads_open = true;
+                                ui.close_menu();
                             }
-                            if ui.small_button("Assistant").clicked() {
+                            if ui.button("Assistant").clicked() {
                                 self.assistant_open = true;
+                                ui.close_menu();
                             }
-                            if ui.small_button("Settings").clicked() {
-                                self.settings_open = true;
-                            }
-                            if ui.small_button("MIDI map").clicked() {
+                            if ui.button("MIDI map").clicked() {
                                 self.midi_map_open = true;
+                                ui.close_menu();
                             }
-                            if ui.small_button("Controllers").clicked() {
+                            if ui.button("Controllers").clicked() {
                                 self.controller_open = true;
+                                ui.close_menu();
                             }
-                            if ui.small_button("Lyrics").clicked() {
+                            if ui.button("Lyrics").clicked() {
                                 self.lyrics_open = true;
+                                ui.close_menu();
                             }
-                            if ui.small_button("Markers").clicked() {
+                            if ui.button("Markers").clicked() {
                                 self.markers_open = true;
+                                ui.close_menu();
                             }
-                            if ui.small_button("Import L6max").clicked() {
+                            ui.separator();
+                            if ui.button("Import L6max").clicked() {
                                 self.file_path_input.clear();
                                 self.file_mode = Some(FileMode::ImportL6max);
+                                ui.close_menu();
                             }
-                            if ui.small_button("Import audio").clicked() {
+                            if ui.button("Import audio").clicked() {
                                 self.file_path_input.clear();
                                 self.file_mode = Some(FileMode::ImportAudio);
+                                ui.close_menu();
                             }
-                            if ui.small_button("Export MIDI").clicked() {
+                            ui.separator();
+                            if ui.button("Export MIDI").clicked() {
                                 self.file_path_input = self
                                     .project_path
                                     .as_ref()
                                     .map(|path| path.with_extension("mid").display().to_string())
                                     .unwrap_or_else(|| String::from("project.mid"));
                                 self.file_mode = Some(FileMode::ExportMidi);
+                                ui.close_menu();
                             }
-                            if ui.small_button("Export stems").clicked() {
+                            if ui.button("Export stems").clicked() {
                                 self.file_path_input = self
                                     .project_path
                                     .as_ref()
@@ -3492,16 +3502,18 @@ impl ShellApp {
                                     .map(|parent| parent.join("stems").display().to_string())
                                     .unwrap_or_else(|| String::from("stems"));
                                 self.file_mode = Some(FileMode::ExportStems);
+                                ui.close_menu();
                             }
-                            if ui.small_button("Export WAV").clicked() {
+                            if ui.button("Export WAV").clicked() {
                                 self.file_path_input = self
                                     .project_path
                                     .as_ref()
                                     .map(|path| path.with_extension("wav").display().to_string())
                                     .unwrap_or_else(|| String::from("project.wav"));
                                 self.file_mode = Some(FileMode::ExportWav);
+                                ui.close_menu();
                             }
-                            if ui.small_button("Export XML").clicked() {
+                            if ui.button("Export XML").clicked() {
                                 self.file_path_input = self
                                     .project_path
                                     .as_ref()
@@ -3510,6 +3522,12 @@ impl ShellApp {
                                     })
                                     .unwrap_or_else(|| String::from("project.musicxml"));
                                 self.file_mode = Some(FileMode::ExportMusicXml);
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui.button("Settings").clicked() {
+                                self.settings_open = true;
+                                ui.close_menu();
                             }
                         });
                     }

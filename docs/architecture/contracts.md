@@ -758,3 +758,10 @@ Loop and From bar live at the top of the track sidebar, not in the painted
 header; the earlier position overlapped the title badge. From bar sets the loop
 to the current bar and enables it. A light-theme window capture confirmed the
 header is clear and the controls are visible.
+
+### Sidebar Windows menu
+
+The advanced window openers and import/export actions live in one Windows menu
+at the bottom of the sidebar, so the wrapped button rows no longer clip against
+the status bar. The light-theme capture `docs/audit/light-theme.png` shows the
+fixed header and the menu layout.
