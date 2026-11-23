@@ -189,3 +189,4 @@ For the clef layout, choose either four measures per system without clefs
 - Audio takes can be auditioned and stopped, mark the active take, and can be stored, used and removed from a small window opened by the trim-row Takes button or the Windows menu; recording auto-stores the replaced take and restores both active and takes in one undo (`docs/audit/audio-takes.png`).
 - MCP get_audio_ref reports stored takes and set_audio_ref accepts them; a registry/handler coverage test now fails if a tool has no match arm.
 - Stored audio takes round-trip through JSON; a project without the field loads an empty list.
+- Release bundle was rebuilt and launched after the audio fixes; capture `docs/audit/app-bundle.png`.
