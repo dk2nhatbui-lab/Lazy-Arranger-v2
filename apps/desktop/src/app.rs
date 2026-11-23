@@ -7841,6 +7841,12 @@ impl eframe::App for ShellApp {
         if self.settings.kids_mode && self.view.index() > 1 {
             self.view = View::Arrange;
         }
+        if self.view == View::Drums
+            && (self.beat_track.is_none()
+                || (self.roll.selected.is_some() && self.roll.selected != self.beat_track))
+        {
+            self.load_beat();
+        }
         self.run_autosave();
         self.recovery_dialog(context);
         self.chord_dialog(context);
@@ -8148,8 +8154,17 @@ impl eframe::App for ShellApp {
                                 self.beat_dialog = true;
                             }
                             if let Some(track) = self.beat_track {
+                                let name = project
+                                    .song
+                                    .tracks
+                                    .iter()
+                                    .find(|entry| entry.id == track)
+                                    .map_or_else(
+                                        || format!("track {track}"),
+                                        |entry| entry.name.clone(),
+                                    );
                                 ui.label(
-                                    egui::RichText::new(format!("track {track}"))
+                                    egui::RichText::new(name)
                                         .size(10.0)
                                         .color(theme::text_dim()),
                                 );
