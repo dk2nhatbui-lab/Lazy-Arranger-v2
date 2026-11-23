@@ -286,6 +286,11 @@ enum Commands {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Recognise a Korg PCG container; decoding is not implemented.
+    KorgScan {
+        /// File to scan.
+        file: PathBuf,
+    },
     /// Render each audible track to its own WAV file.
     ExportStems {
         /// Project `.json` path.
@@ -1097,6 +1102,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                     .map_err(|error| format!("could not write {}: {error}", out.display()))?;
                 println!("wrote {}", out.display());
             }
+            Ok(())
+        }
+        Commands::KorgScan { file } => {
+            let bytes = fs::read(&file).map_err(|error| format!("{}: {error}", file.display()))?;
+            let scan = style_formats::korg::scan(&bytes);
+            println!("{}", style_formats::korg::describe(&scan));
             Ok(())
         }
         Commands::ExportStems {

@@ -126,6 +126,15 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "korg_scan",
+            description: "Recognise a Korg PCG container (decoding is not implemented).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"]
+            }),
+        },
+        Tool {
             name: "set_tempo",
             description: "Set a tempo change at a tick.",
             input_schema: json!({
@@ -439,6 +448,22 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             Ok(json!({
                 "tracks": grid.tracks.iter().map(|track| track.get()).collect::<Vec<_>>(),
                 "scenes": scenes,
+            }))
+        }
+        "korg_scan" => {
+            let path = arguments
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("path is required")))?;
+            let bytes = std::fs::read(path)
+                .map_err(|error| ToolError::Arguments(format!("{path}: {error}")))?;
+            let scan = style_formats::korg::scan(&bytes);
+            Ok(json!({
+                "korg_marker": scan.korg_marker,
+                "model": scan.model,
+                "offset": scan.offset,
+                "size": scan.size,
+                "description": style_formats::korg::describe(&scan)
             }))
         }
         "set_tempo" => {
@@ -1144,6 +1169,22 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn korg_scan_tool_recognises_a_marker() {
+        let path = std::env::temp_dir().join("lazy-arranger-korg-scan.pcg");
+        std::fs::write(&path, b"KORG\0\0KRONOS").expect("write");
+        let mut session = session_with_track();
+        let result = call(
+            &mut session,
+            "korg_scan",
+            &json!({"path": path.display().to_string()}),
+        )
+        .expect("scan");
+        assert_eq!(result["korg_marker"], true);
+        assert_eq!(result["model"], "KRONOS");
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

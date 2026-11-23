@@ -21,6 +21,7 @@ use thiserror::Error;
 pub mod casm;
 pub mod catalog;
 pub mod import;
+pub mod korg;
 pub mod write;
 
 pub use casm::{CasmRules, CasmStats, SectionRules, SffVersion, read_rules};

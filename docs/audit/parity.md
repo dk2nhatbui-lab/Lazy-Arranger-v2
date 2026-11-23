@@ -115,7 +115,7 @@ the wider ~90-tool MCP surface.
 | MIDI control map (notes/CC to actions) with text persistence and learn capture | `midi-devices::map`, CLI `midi-map-*` | verified | 6 tests + CLI bind/show run |
 | Live MIDI input applies mapped actions (play/stop/undo/scene/fader) | `midi-devices::devices::LiveInput`, shell `poll_midi` | implemented | compiles and runs with no device; hardware untested |
 | Numbered style catalog, resolution and by-number rendering | `style-formats::catalog`, CLI `style-catalog`/`style-resolve`/`style-by-number` | verified | resolve test; real library matched 'ABBA Fernando'; number 2 rendered 124 notes |
-| MCP tools for automation, lyrics/marks, style catalog, theory, generation, plugins, L6max, quantise, velocity and tempo | `crates/mcp` | verified | tool tests and CLI calls; 30 tools total |
+| MCP tools for automation, lyrics/marks, style catalog, theory, generation, plugins, L6max, Korg scan, quantise, velocity and tempo | `crates/mcp` | verified | tool tests and CLI calls; 31 tools total |
 | Local assistant panel (help/song/undo/tool commands over the registry) | `mcp::assistant`, shell window | verified core | parse and dispatch tests; UI manual |
 | Speech output for replies (macOS `say`) | `apps/desktop/src/speech.rs` | verified builder | cleaning, truncation and argument tests; audible speech unverified |
 | Synth families: piano, bass, organ, strings, pad, drums (with noise percussion) | `audio::Timbre` | verified | timbre tests, pad swell, drum energy; demo RMS 0.129 |

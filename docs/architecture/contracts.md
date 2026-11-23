@@ -253,3 +253,10 @@ The Mixer's Freeze button writes `freeze-<track>.wav` in the working directory
 and reports the path. `render_stems` renders each audible track alone (no buses)
 and `export-stems` writes `<id>-<slug>.wav` files plus a `stems.txt` manifest
 with name, file and duration.
+
+### Korg PCG recognition
+
+`style_formats::korg::scan` looks for a case-insensitive `KORG` marker in the
+first 4096 bytes and a model name (KRONOS, KROME, KINGKORG, TRITON), reporting
+the offset and size. It does not decode programs or combis; the CLI and MCP tool
+return that limit explicitly. Real Korg files remain untested.
