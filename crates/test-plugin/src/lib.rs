@@ -475,6 +475,220 @@ impl IEditControllerTrait for GainController {
     }
 }
 
+struct SynthProcessor {
+    phase: std::sync::atomic::AtomicU64,
+    frequency: std::sync::atomic::AtomicU64,
+    active: std::sync::atomic::AtomicBool,
+}
+
+impl SynthProcessor {
+    const CID: TUID = uid(0x4C41_5A59, 0x5445_5354, 0x5359_4E54, 0x0000_0003);
+
+    fn new() -> Self {
+        Self {
+            phase: AtomicU64::new(0.0f64.to_bits()),
+            frequency: AtomicU64::new(440.0f64.to_bits()),
+            active: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+}
+
+impl Class for SynthProcessor {
+    type Interfaces = (IComponent, IAudioProcessor);
+}
+
+impl IPluginBaseTrait for SynthProcessor {
+    unsafe fn initialize(&self, _context: *mut FUnknown) -> tresult {
+        kResultOk
+    }
+
+    unsafe fn terminate(&self) -> tresult {
+        kResultOk
+    }
+}
+
+impl IComponentTrait for SynthProcessor {
+    unsafe fn getControllerClassId(&self, _class_id: *mut TUID) -> tresult {
+        kNotImplemented
+    }
+
+    unsafe fn setIoMode(&self, _mode: IoMode) -> tresult {
+        kResultOk
+    }
+
+    unsafe fn getBusCount(&self, media_type: MediaType, dir: BusDirection) -> i32 {
+        match (media_type as MediaTypes, dir as BusDirections) {
+            (MediaTypes_::kAudio, BusDirections_::kOutput) => 1,
+            (MediaTypes_::kAudio, BusDirections_::kInput) => 0,
+            (MediaTypes_::kEvent, BusDirections_::kInput) => 1,
+            _ => 0,
+        }
+    }
+
+    unsafe fn getBusInfo(
+        &self,
+        media_type: MediaType,
+        dir: BusDirection,
+        index: i32,
+        bus: *mut BusInfo,
+    ) -> tresult {
+        if index != 0 {
+            return kInvalidArgument;
+        }
+        let bus = &mut *bus;
+        match (media_type as MediaTypes, dir as BusDirections) {
+            (MediaTypes_::kAudio, BusDirections_::kOutput) => {
+                bus.mediaType = MediaTypes_::kAudio as MediaType;
+                bus.direction = BusDirections_::kOutput as BusDirection;
+                bus.channelCount = 2;
+                copy_wstring("Output", &mut bus.name);
+                bus.busType = BusTypes_::kMain as BusType;
+                bus.flags = BusInfo_::BusFlags_::kDefaultActive as u32;
+                kResultOk
+            }
+            (MediaTypes_::kEvent, BusDirections_::kInput) => {
+                bus.mediaType = MediaTypes_::kEvent as MediaType;
+                bus.direction = BusDirections_::kInput as BusDirection;
+                bus.channelCount = 16;
+                copy_wstring("MIDI In", &mut bus.name);
+                bus.busType = BusTypes_::kMain as BusType;
+                bus.flags = BusInfo_::BusFlags_::kDefaultActive as u32;
+                kResultOk
+            }
+            _ => kInvalidArgument,
+        }
+    }
+
+    unsafe fn getRoutingInfo(
+        &self,
+        _in_info: *mut RoutingInfo,
+        _out_info: *mut RoutingInfo,
+    ) -> tresult {
+        kNotImplemented
+    }
+
+    unsafe fn activateBus(
+        &self,
+        _media_type: MediaType,
+        _dir: BusDirection,
+        _index: i32,
+        _state: TBool,
+    ) -> tresult {
+        kResultOk
+    }
+
+    unsafe fn setActive(&self, _state: TBool) -> tresult {
+        kResultOk
+    }
+
+    unsafe fn setState(&self, _state: *mut IBStream) -> tresult {
+        kResultOk
+    }
+
+    unsafe fn getState(&self, _state: *mut IBStream) -> tresult {
+        kResultOk
+    }
+}
+
+impl IAudioProcessorTrait for SynthProcessor {
+    unsafe fn setBusArrangements(
+        &self,
+        _inputs: *mut SpeakerArrangement,
+        num_ins: i32,
+        outputs: *mut SpeakerArrangement,
+        num_outs: i32,
+    ) -> tresult {
+        if num_ins != 0 || num_outs != 1 || *outputs != SpeakerArr::kStereo {
+            return kResultFalse;
+        }
+        kResultTrue
+    }
+
+    unsafe fn getBusArrangement(
+        &self,
+        dir: BusDirection,
+        index: i32,
+        arr: *mut SpeakerArrangement,
+    ) -> tresult {
+        if index != 0 || dir as BusDirections != BusDirections_::kOutput {
+            return kInvalidArgument;
+        }
+        *arr = SpeakerArr::kStereo;
+        kResultOk
+    }
+
+    unsafe fn canProcessSampleSize(&self, size: i32) -> tresult {
+        if size as SymbolicSampleSizes == SymbolicSampleSizes_::kSample32 {
+            kResultOk
+        } else {
+            kNotImplemented
+        }
+    }
+
+    unsafe fn getLatencySamples(&self) -> u32 {
+        0
+    }
+
+    unsafe fn setupProcessing(&self, _setup: *mut ProcessSetup) -> tresult {
+        kResultOk
+    }
+
+    unsafe fn setProcessing(&self, _state: TBool) -> tresult {
+        kResultOk
+    }
+
+    unsafe fn process(&self, data: *mut ProcessData) -> tresult {
+        let process_data = &*data;
+        if let Some(events) = ComRef::from_raw(process_data.inputEvents) {
+            for index in 0..events.getEventCount() {
+                let mut event: Event = std::mem::zeroed();
+                if events.getEvent(index, &mut event) != kResultOk {
+                    continue;
+                }
+                if event.r#type == Event_::EventTypes_::kNoteOnEvent as u16 {
+                    let note = event.__field0.noteOn;
+                    let frequency = 440.0 * 2.0_f64.powf((f64::from(note.pitch) - 69.0) / 12.0);
+                    self.frequency.store(frequency.to_bits(), Ordering::Relaxed);
+                    self.active.store(note.velocity > 0.0, Ordering::Relaxed);
+                } else if event.r#type == Event_::EventTypes_::kNoteOffEvent as u16 {
+                    self.active.store(false, Ordering::Relaxed);
+                }
+            }
+        }
+        if process_data.numOutputs != 1 {
+            return kResultOk;
+        }
+        let outputs = slice::from_raw_parts(process_data.outputs, process_data.numOutputs as usize);
+        if outputs[0].numChannels != 2 {
+            return kResultOk;
+        }
+        let channels = slice::from_raw_parts(outputs[0].__field0.channelBuffers32, 2);
+        let num_samples = process_data.numSamples as usize;
+        let left = slice::from_raw_parts_mut(channels[0], num_samples);
+        let right = slice::from_raw_parts_mut(channels[1], num_samples);
+        let frequency = f64::from_bits(self.frequency.load(Ordering::Relaxed));
+        let mut phase = f64::from_bits(self.phase.load(Ordering::Relaxed));
+        let active = self.active.load(Ordering::Relaxed);
+        for index in 0..num_samples {
+            let value = if active {
+                let sample = (std::f64::consts::TAU * phase).sin() * 0.25;
+                phase = (phase + frequency / 48_000.0).fract();
+                sample as f32
+            } else {
+                0.0
+            };
+            left[index] = value;
+            right[index] = value;
+        }
+        self.phase.store(phase.to_bits(), Ordering::Relaxed);
+        kResultOk
+    }
+
+    unsafe fn getTailSamples(&self) -> u32 {
+        64
+    }
+}
+
 struct Factory {}
 
 impl Class for Factory {
@@ -494,7 +708,7 @@ impl IPluginFactoryTrait for Factory {
     }
 
     unsafe fn countClasses(&self) -> i32 {
-        2
+        3
     }
 
     unsafe fn getClassInfo(&self, index: i32, info: *mut PClassInfo) -> tresult {
@@ -517,6 +731,14 @@ impl IPluginFactoryTrait for Factory {
 
                 kResultOk
             }
+            2 => {
+                let info = &mut *info;
+                info.cid = SynthProcessor::CID;
+                info.cardinality = PClassInfo_::ClassCardinality_::kManyInstances as int32;
+                copy_cstring("Audio Module Class", &mut info.category);
+                copy_cstring("Lazy Arranger Test Synth", &mut info.name);
+                kResultOk
+            }
             _ => kInvalidArgument,
         }
     }
@@ -535,6 +757,11 @@ impl IPluginFactoryTrait for Factory {
             ),
             GainController::CID => Some(
                 ComWrapper::new(GainController::new())
+                    .to_com_ptr::<FUnknown>()
+                    .unwrap(),
+            ),
+            SynthProcessor::CID => Some(
+                ComWrapper::new(SynthProcessor::new())
                     .to_com_ptr::<FUnknown>()
                     .unwrap(),
             ),

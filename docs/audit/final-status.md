@@ -70,7 +70,7 @@ For the clef layout, choose either four measures per system without clefs
 - AU parameters can be edited in a generic window, applied with Defaults, and saved as `id=value;` slot state that the render restores; VST3 parameter automation is absent.
 - VST3 state can be captured from the Mixer into base64 slot state and restored during render; AU parameters have a generic editor and persisted state.
 - VST3 class scans run in an isolated helper with a five-second timeout; the in-process path remains as a fallback when the helper is not packaged.
-- AU instruments are routed into track render: a track with a non-bypassed AU instrument slot renders its notes through DLSMusicDevice (ignored wet/dry test); VST3 instruments are hosted and routed through track render (LABS path verified; audible output unverified because its library is absent).
+- AU instruments are routed into track render: a track with a non-bypassed AU instrument slot renders its notes through DLSMusicDevice (ignored wet/dry test); VST3 instruments are hosted and routed through track render; the local test synth renders audible track notes.
 - AU instrument note events carry sample offsets inside 512-frame blocks; block-boundary scheduling remains the resolution limit.
 - The AU parameter window opens instruments too; DLSMusicDevice exposes editable parameters and slot state.
 - MIDI recording supports an audible 0–2 bar count-in and appends to a record-armed track (R in the track row) or inserts a new track when none is armed; a header record button starts the same capture; the same audible count-in precedes audio-input capture, which replaces the record-armed track's audio reference or inserts a new audio track.

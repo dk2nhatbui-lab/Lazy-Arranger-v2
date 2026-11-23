@@ -47,3 +47,35 @@ fn the_test_gain_plugin_reports_params_processes_and_has_latency() {
     assert!(!state.is_empty());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn the_test_synth_renders_a_note() {
+    let Some(library) = dylib_path() else {
+        return;
+    };
+    let root =
+        std::env::temp_dir().join(format!("lazy-arranger-test-synth-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let macos = root.join("Synth.vst3").join("Contents").join("MacOS");
+    std::fs::create_dir_all(&macos).expect("bundle");
+    std::fs::copy(&library, macos.join("Synth")).expect("copy");
+    let bundle = root.join("Synth.vst3");
+    let classes = plugin_host::scan_vst3(&bundle).expect("scan");
+    let class = classes
+        .iter()
+        .find(|class| class.name.contains("Synth"))
+        .expect("synth class");
+    let mut instrument =
+        plugin_host::Vst3Instrument::new(&bundle, &class.cid, 48_000.0, 512).expect("instrument");
+    instrument.note_on_at(60, 100, 0);
+    let mut left = vec![0.0_f32; 512];
+    let mut right = vec![0.0_f32; 512];
+    instrument
+        .process_block(&mut left, &mut right)
+        .expect("process");
+    instrument.note_off_at(60, 0);
+    let energy: f32 = left.iter().chain(&right).map(|sample| sample.abs()).sum();
+    assert!(energy > 0.1, "synth rendered no audio");
+    let _ = std::fs::remove_dir_all(&root);
+}

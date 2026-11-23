@@ -958,6 +958,34 @@ mod tests {
         assert!(difference > 0.01, "master AU made no change");
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_test_vst3_synth_renders_track_notes() {
+        use project::song::{PluginFormat, PluginSlot};
+        let Some(bundle) = test_gain_bundle() else {
+            return;
+        };
+        let classes = plugin_host::scan_vst3(&bundle).expect("scan");
+        let class = classes
+            .iter()
+            .find(|class| class.name.contains("Synth"))
+            .expect("synth class");
+        let mut song = song_with_note();
+        song.tracks[0].plugins.push(PluginSlot {
+            id: 1,
+            name: String::from("Test Synth"),
+            format: PluginFormat::Vst3,
+            path: bundle.display().to_string(),
+            identifier: class.cid.clone(),
+            bypassed: false,
+            state: String::new(),
+        });
+        let rendered = render(&song, SAMPLE_RATE);
+        let energy: f32 = rendered.samples.iter().map(|sample| sample.abs()).sum();
+        assert!(energy > 0.1, "VST3 synth produced no audio");
+        let _ = std::fs::remove_dir_all(bundle.parent().expect("root"));
+    }
+
     #[test]
     #[ignore = "loads the installed LABS VST3 instrument"]
     fn a_vst3_instrument_slot_replaces_the_builtin_synth() {
