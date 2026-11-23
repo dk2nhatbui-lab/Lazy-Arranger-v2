@@ -724,3 +724,10 @@ and undo.
 in 24-bit and `stems.txt` with duration. The sidebar Export stems button opens
 the file window in folder mode; a test checks that the manifest line count and
 WAV count equal the returned stem count.
+
+### L6max import from the shell
+
+`import_l6max_folder` scans WAVs through `audio::l6max::scan` and calls
+`Editor::import_l6max` at a start tick, returning imported and problem counts.
+The sidebar Import L6max button uses folder mode. A test writes two synthetic
+takes and checks two tracks and no problems.

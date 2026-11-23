@@ -94,6 +94,8 @@ pub enum FileMode {
     ExportWav,
     /// Export one WAV per audible track into a folder.
     ExportStems,
+    /// Import every WAV in a folder as an L6max take.
+    ImportL6max,
 }
 
 pub struct ShellApp {
@@ -779,6 +781,7 @@ impl ShellApp {
             FileMode::ExportMusicXml => "Export MusicXML",
             FileMode::ExportWav => "Export WAV",
             FileMode::ExportStems => "Export stems",
+            FileMode::ImportL6max => "Import L6max takes",
         })
         .collapsible(false)
         .open(&mut open)
@@ -790,6 +793,7 @@ impl ShellApp {
                 FileMode::ExportMusicXml => "Path (.musicxml)",
                 FileMode::ExportWav => "Path (.wav)",
                 FileMode::ExportStems => "Folder",
+                FileMode::ImportL6max => "Take folder",
                 _ => "Path (.arranger JSON, .mid, .midi or .musicxml)",
             });
             ui.add(egui::TextEdit::singleline(&mut self.file_path_input).desired_width(400.0));
@@ -797,7 +801,7 @@ impl ShellApp {
                 let label = match mode {
                     FileMode::Open => "Open",
                     FileMode::SaveAs => "Save",
-                    FileMode::ImportAudio => "Import",
+                    FileMode::ImportAudio | FileMode::ImportL6max => "Import",
                     FileMode::ExportMidi
                     | FileMode::ExportMusicXml
                     | FileMode::ExportWav
@@ -835,6 +839,16 @@ impl ShellApp {
                         self.status = Some(format!(
                             "exported {tracks} MIDI track(s) to {}",
                             path.display()
+                        ));
+                        self.file_mode = None;
+                    }
+                    Err(error) => self.load_error = Some(error),
+                }
+            } else if mode == FileMode::ImportL6max {
+                match import_l6max_folder(&mut self.editor, &path, self.position.max(0)) {
+                    Ok((imported, problems)) => {
+                        self.status = Some(format!(
+                            "imported {imported} L6max take(s), {problems} problem(s)"
                         ));
                         self.file_mode = None;
                     }
@@ -3423,6 +3437,10 @@ impl ShellApp {
                             if ui.small_button("Markers").clicked() {
                                 self.markers_open = true;
                             }
+                            if ui.small_button("Import L6max").clicked() {
+                                self.file_path_input.clear();
+                                self.file_mode = Some(FileMode::ImportL6max);
+                            }
                             if ui.small_button("Import audio").clicked() {
                                 self.file_path_input.clear();
                                 self.file_mode = Some(FileMode::ImportAudio);
@@ -4440,6 +4458,22 @@ pub fn export_midi_file(
     Ok(report.tracks)
 }
 
+/// Scans a take folder and imports each WAV at `start`.
+///
+/// # Errors
+///
+/// Returns a message when the folder cannot be scanned or a track cannot be
+/// inserted.
+pub fn import_l6max_folder(
+    editor: &mut Editor,
+    folder: &std::path::Path,
+    start: Tick,
+) -> Result<(usize, usize), String> {
+    let plan = audio::l6max::scan(folder)?;
+    let imported = editor.import_l6max(&plan, start)?;
+    Ok((imported, plan.problems.len()))
+}
+
 /// Writes one 24-bit WAV per audible track plus `stems.txt`.
 ///
 /// # Errors
@@ -4541,6 +4575,27 @@ pub fn demo_project() -> ProjectFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn l6max_folder_import_adds_tracks() {
+        let folder = std::env::temp_dir().join("lazy-arranger-shell-l6max");
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).expect("dir");
+        for index in 0..2 {
+            let audio = audio::RenderedAudio {
+                samples: vec![0.1; 4 * 2],
+                sample_rate: 48_000,
+            };
+            std::fs::write(folder.join(format!("TAKE{index}.WAV")), audio.to_wav()).expect("take");
+        }
+        let mut editor = Editor::new(demo_project()).expect("editor");
+        let before = editor.song().tracks.len();
+        let (imported, problems) = import_l6max_folder(&mut editor, &folder, 0).expect("import");
+        assert_eq!(imported, 2);
+        assert_eq!(problems, 0);
+        assert_eq!(editor.song().tracks.len(), before + 2);
+        let _ = std::fs::remove_dir_all(folder);
+    }
 
     #[test]
     fn stem_export_writes_files_and_a_manifest() {
