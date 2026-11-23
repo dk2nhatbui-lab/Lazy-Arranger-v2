@@ -766,3 +766,10 @@ Unit), recorded path, bypass flag and an opaque state string kept verbatim.
 duplicate ids and warns on empty names. No plugin is loaded, scanned, processed
 or given an editor window; the render ignores slots, and host compatibility is
 unverified.
+
+### Drum pads
+
+The P-key Drum pads window loads a WAV loop, slices it with `audio::drums`, and
+shows a 4x4 grid of the first 16 GM pad notes with their lengths. Clicking a pad
+plays its audition buffer through the cpal player. Pads are not triggered by an
+external keyboard, slice bounds cannot be edited and there is no time-stretch.

@@ -100,6 +100,10 @@ pub struct ShellApp {
     recent_file: std::path::PathBuf,
     midi_input: Option<midi_devices::devices::LiveInput>,
     midi_map: midi_devices::map::MidiMap,
+    pads_open: bool,
+    pad_state: Option<crate::pads::Pads>,
+    pad_path: String,
+    pad_player: Option<audio::player::Player>,
     assistant_open: bool,
     assistant_input: String,
     assistant_log: Vec<String>,
@@ -172,6 +176,10 @@ impl ShellApp {
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
             midi_input: None,
+            pads_open: false,
+            pad_state: None,
+            pad_path: String::new(),
+            pad_player: None,
             assistant_open: false,
             assistant_input: String::new(),
             assistant_log: Vec::new(),
@@ -739,6 +747,53 @@ impl ShellApp {
                     self.status = Some(error);
                 }
             }
+        }
+    }
+
+    /// The drum pad window.
+    fn pads_window(&mut self, context: &egui::Context) {
+        if !self.pads_open {
+            return;
+        }
+        let mut open = self.pads_open;
+        egui::Window::new("Drum pads")
+            .open(&mut open)
+            .default_width(380.0)
+            .show(context, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.pad_path)
+                            .hint_text("loop .wav path")
+                            .desired_width(240.0),
+                    );
+                    if ui.button("Load").clicked() {
+                        match crate::pads::Pads::load(std::path::Path::new(&self.pad_path)) {
+                            Ok(pads) => {
+                                self.status =
+                                    Some(format!("{} pad(s) loaded", pads.kit.pads.len()));
+                                self.pad_state = Some(pads);
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                });
+                if let Some(pads) = &self.pad_state {
+                    if let Some(pad) = crate::pads::show(ui, pads) {
+                        match audio::player::Player::new(pads.audio(pad)) {
+                            Ok(player) => self.pad_player = Some(player),
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                } else {
+                    ui.label(
+                        egui::RichText::new("Load a loop to slice it into pads.")
+                            .size(10.0)
+                            .color(theme::TEXT_DIM),
+                    );
+                }
+            });
+        if !open {
+            self.pads_open = false;
         }
     }
 
@@ -1776,6 +1831,7 @@ impl eframe::App for ShellApp {
         self.top_bar(context);
         self.windows(context);
         self.assistant_window(context);
+        self.pads_window(context);
         self.status_bar(context);
         self.sidebar(context);
         let waveform = self.waveform.clone();
