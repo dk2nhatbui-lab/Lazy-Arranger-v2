@@ -1617,6 +1617,26 @@ mod tests {
     }
 
     #[test]
+    fn malformed_comps_are_validation_errors() {
+        let mut song = Song::new("Comps", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Audio");
+        track.comps.push(AudioComp {
+            take: 0,
+            start: 0,
+            length: 0,
+        });
+        song.tracks.push(track);
+        let errors: Vec<String> = ProjectFile::new(song)
+            .validate()
+            .into_iter()
+            .filter(|issue| issue.severity == crate::Severity::Error)
+            .map(|issue| issue.path)
+            .collect();
+        assert!(errors.iter().any(|path| path.contains("comps[0].take")));
+        assert!(errors.iter().any(|path| path.contains("comps[0]")));
+    }
+
+    #[test]
     fn audio_takes_round_trip_and_default_to_empty() {
         let mut song = Song::new("Takes", 120.0);
         let mut track = Track::new(TrackId::new(1).expect("valid"), "Audio");

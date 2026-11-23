@@ -93,6 +93,52 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
                 String::from("fades must be non-negative and fit inside the audio length"),
             ));
         }
+        for (take_index, take) in track.takes.iter().enumerate() {
+            if take.path.trim().is_empty() {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.takes[{take_index}].path"),
+                    String::from("audio take path is empty"),
+                ));
+            }
+            if take.fade_in < 0
+                || take.fade_out < 0
+                || (take.length > 0 && take.fade_in.saturating_add(take.fade_out) > take.length)
+            {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.takes[{take_index}]"),
+                    String::from("take fades must be non-negative and fit inside its length"),
+                ));
+            }
+        }
+        let mut comps = track.comps.clone();
+        comps.sort_by_key(|comp| comp.start);
+        for (comp_index, comp) in track.comps.iter().enumerate() {
+            if comp.take >= track.takes.len() {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.comps[{comp_index}].take"),
+                    String::from("comp refers to an unknown take"),
+                ));
+            }
+            if comp.start < 0 || comp.length <= 0 {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.comps[{comp_index}]"),
+                    String::from("a comp needs a non-negative start and positive length"),
+                ));
+            }
+        }
+        for pair in comps.windows(2) {
+            if pair[0].start.saturating_add(pair[0].length) > pair[1].start {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.comps"),
+                    format!("comp spans overlap at tick {}", pair[1].start),
+                ));
+            }
+        }
         if let Some(font) = &track.soundfont
             && font.path.trim().is_empty()
         {

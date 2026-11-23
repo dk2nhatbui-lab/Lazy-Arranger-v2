@@ -195,3 +195,4 @@ For the clef layout, choose either four measures per system without clefs
 - Full workspace suite also passes with one test thread (770/770), so no test-order dependency was observed.
 - Stem render test covers an audio-only track.
 - MCP get_audio_ref reports comp spans and set_audio_ref accepts them.
+- Validation rejects empty take paths, out-of-range take fades, unknown comp takes, non-positive comp lengths and overlapping comps.
