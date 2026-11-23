@@ -141,6 +141,14 @@ enum Commands {
         #[arg(long)]
         profile: Option<PathBuf>,
     },
+    /// Import a Standard MIDI File as a project.
+    MidiImport {
+        /// Input `.mid` file.
+        midi: PathBuf,
+        /// Output `.json` path.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Add an audio file to a project as an audio track reference.
     AddAudio {
         /// Project `.json` path.
@@ -1824,6 +1832,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             Ok(())
         }
         Commands::DemoProject { out } => demo_project(&out),
+        Commands::MidiImport { midi, out } => midi_import(&midi, &out),
         Commands::ScoreLayout { project, track } => {
             let project = read_project(&project)?;
             let Some(entry) = project.song.tracks.get(track) else {
@@ -2235,6 +2244,24 @@ fn demo_project(out: &PathBuf) -> Result<(), Box<dyn Error>> {
     let project = ProjectFile::new(arranging::demo::demo_song());
     fs::write(out, project.to_json_pretty()?)?;
     println!("wrote {} with the built-in sixteen-bar demo", out.display());
+    Ok(())
+}
+
+fn midi_import(midi: &PathBuf, out: &PathBuf) -> Result<(), Box<dyn Error>> {
+    let bytes = fs::read(midi)?;
+    let (song, report) = smf::decode(&bytes).map_err(|error| error.to_string())?;
+    let project = ProjectFile::new(song);
+    fs::write(out, project.to_json_pretty()?)?;
+    println!(
+        "imported {} track(s), {} note(s) from {} -> {}",
+        report.source_tracks,
+        report.notes,
+        midi.display(),
+        out.display()
+    );
+    for warning in &report.warnings {
+        println!("warning: {warning}");
+    }
     Ok(())
 }
 

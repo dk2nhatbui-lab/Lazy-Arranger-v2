@@ -605,3 +605,10 @@ Inspector/Library/Pads/Assistant/MIDI/Controllers/Lyrics buttons and shows large
 Undo, Redo, Play/Pause, Stop and Settings buttons instead. The piano roll,
 mixer and windows that were already open keep working; there is no separate
 simplified song flow.
+
+### MIDI import
+
+`midi-import <file.mid> --out project.json` reads the file, decodes it with
+`smf::decode`, wraps the song in a schema-19 `ProjectFile` and writes pretty
+JSON, printing source track/note counts and decoder warnings. The demo round
+trip imported 5 source tracks and 336 notes into 4 project tracks.
