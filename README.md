@@ -96,6 +96,8 @@ apps/desktop           egui 0.31 desktop app
   expected green before a commit.
 - Style files are never copied into the repository; validation runs read-only
   against `ARRANGER_STYLE_LIBRARY` when configured.
+- The optimized workspace builds and its 648 tests pass; see
+  [`docs/audit/release.md`](docs/audit/release.md).
 
 ## Remaining parity gaps
 
