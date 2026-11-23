@@ -23,7 +23,7 @@ blockers are listed at the end.
 | Standard MIDI file read/write and keyboard export | verified | `crates/smf` |
 | MusicXML export/import, slurs, chords, lyrics, drums | verified round-trip tests | `crates/musicxml` |
 | Yamaha style parse/import/CASM rules | verified on 16,158 real styles | `crates/style-formats` |
-| Style writer (SFF1/SFF2, 15 sections) | verified round-trip | `style-formats::write_style` |
+| Style writer (SFF1/SFF2, 15 sections, programs) | verified round-trip | `style-formats::write_style` |
 | Arranger rules, performance capture, freeze | verified | `crates/arranger`, `crates/performance` |
 | Grooves, forms, transitions, doctor, fit, theory | verified model + CLI/MCP | `crates/arranging`, UI |
 | Score engraving: ties, beams, tuplets, rests, dots, slurs, percussion, lyrics, chord names, frames, spacing, drag/resize | verified tests; PDF/canvas checks | `crates/score`, `apps/desktop` |

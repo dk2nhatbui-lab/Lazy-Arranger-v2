@@ -10,12 +10,12 @@ This table grew over many rounds and some middle rows describe earlier states.
 The reconciled view is
 [`cpp-features-crosscheck.md`](cpp-features-crosscheck.md): 39 sections, **39
 partial and 0 missing at row level**, no section fully verified. `cargo test
---workspace` passes **651 tests**; fmt, clippy with `-D warnings` and rustdoc
+--workspace` passes **652 tests**; fmt, clippy with `-D warnings` and rustdoc
 pass.
 
 Verified by tests or offline evidence: project schema v19 with migrations,
 undo/inverses and validation; legacy import; Yamaha style parse/import/compile
-and SFF1/SFF2 writing; clip model, slots, launcher and take recording; chord
+and SFF1/SFF2 writing with track programs; clip model, slots, launcher and take recording; chord
 parsing, roman numerals, reharmonisation and find-chords; doctor/fit with A/B,
 groove files, forms and transitions; score layout with ties, beams, tuplets,
 rests, lyrics (spaced), slurs, percussion, chord symbols, guitar frames,

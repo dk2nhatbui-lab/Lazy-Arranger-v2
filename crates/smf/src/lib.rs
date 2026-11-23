@@ -156,6 +156,22 @@ pub fn encode(song: &Song) -> Result<Vec<u8>, SmfError> {
 
     for track in &song.tracks {
         let mut builder = TrackBuilder::new(track.name.as_str());
+        if let Some(program) = track.program {
+            let channel = track
+                .notes
+                .first()
+                .map_or_else(Channel::first, |note| note.channel);
+            builder.push(
+                0,
+                1,
+                TrackEventKind::Midi {
+                    channel: channel_to_u4(channel),
+                    message: Midi::ProgramChange {
+                        program: u7::new(program.min(127)),
+                    },
+                },
+            );
+        }
         for note in &track.notes {
             builder.push(
                 note.start,
@@ -230,6 +246,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
         let mut name: Option<String> = None;
         let mut sounding: Vec<(u8, u8, Tick, Velocity)> = Vec::new();
         let mut notes: Vec<RawNote> = Vec::new();
+        let mut program: Option<u8> = None;
 
         for event in events {
             absolute += u64::from(event.delta.as_int());
@@ -257,6 +274,9 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
                         tick,
                         &mut report,
                     ),
+                    Midi::ProgramChange { program: value } => {
+                        program.get_or_insert(value.as_int());
+                    }
                     _ => {}
                 },
                 TrackEventKind::Meta(meta) => match meta {
@@ -306,6 +326,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
             track_id,
             name.unwrap_or_else(|| format!("Track {}", index + 1)),
         );
+        track.program = program;
         for (note_index, raw) in notes.into_iter().enumerate() {
             let id = NoteId::new(u32::try_from(note_index + 1).unwrap_or(u32::MAX))
                 .map_err(|err| SmfError::Range(err.to_string()))?;
@@ -576,6 +597,16 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Piano", "Drums"]
         );
+    }
+
+    #[test]
+    fn track_programs_survive_the_round_trip() {
+        let mut song = example_song();
+        song.tracks[0].program = Some(40);
+        let bytes = encode(&song).expect("encode");
+        let (back, _) = decode(&bytes).expect("decode");
+        assert_eq!(back.tracks[0].program, Some(40));
+        assert_eq!(back.tracks[1].program, None);
     }
 
     #[test]
