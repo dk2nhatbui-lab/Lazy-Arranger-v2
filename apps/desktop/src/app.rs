@@ -645,6 +645,7 @@ pub struct ShellApp {
     assistant_open: bool,
     assistant_input: String,
     assistant_log: Vec<String>,
+    ai_pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
     audio_inputs: Option<Vec<String>>,
@@ -915,6 +916,7 @@ impl ShellApp {
             assistant_open: initial_window == "assistant",
             assistant_input: String::new(),
             assistant_log: Vec::new(),
+            ai_pending: None,
             waveform: None,
             midi_ports: None,
             audio_inputs: None,
@@ -2343,6 +2345,44 @@ impl ShellApp {
         }
     }
 
+    fn poll_ai(&mut self) {
+        let Some(receiver) = &self.ai_pending else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(Ok(reply)) => {
+                self.ai_pending = None;
+                self.finish_ai_reply(reply);
+            }
+            Ok(Err(error)) => {
+                self.ai_pending = None;
+                self.assistant_log.push(format!("AI: {error}"));
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.ai_pending = None;
+            }
+        }
+    }
+
+    fn finish_ai_reply(&mut self, reply: String) {
+        let mut text = reply.clone();
+        if let Some(command) = crate::ai::tool_command(&reply) {
+            self.selected_note = None;
+            self.selected_clip = None;
+            self.selected_clips.clear();
+            let result = self.editor.assistant(command);
+            text.push('\n');
+            text.push_str(&result.text);
+        }
+        if self.settings.speech
+            && let Err(error) = crate::speech::speak(&text)
+        {
+            self.status = Some(error);
+        }
+        self.assistant_log.push(text);
+    }
+
     /// The local assistant panel.
     fn assistant_window(&mut self, context: &egui::Context) {
         if !self.assistant_open {
@@ -2380,22 +2420,42 @@ impl ShellApp {
                         && ui.input(|input| input.key_pressed(egui::Key::Enter));
                     if (ui.button("Send").clicked() || enter) && !self.assistant_input.is_empty() {
                         let input = self.assistant_input.trim().to_string();
-                        if input == "undo" || input.starts_with("tool ") {
-                            self.selected_note = None;
-                            self.selected_clip = None;
-                            self.selected_clips.clear();
-                        }
-                        let reply = self.editor.assistant(&input);
                         self.assistant_log.push(format!("> {input}"));
-                        if self.settings.speech
-                            && let Err(error) = crate::speech::speak(&reply.text)
-                        {
-                            self.status = Some(error);
-                        }
-                        self.assistant_log.push(reply.text);
                         self.assistant_input.clear();
+                        let config = crate::ai::Config {
+                            url: self.settings.ai_url.clone(),
+                            model: self.settings.ai_model.clone(),
+                            api_key: self.settings.ai_api_key.clone(),
+                        };
+                        if config.is_ready() {
+                            let (sender, receiver) = std::sync::mpsc::channel();
+                            self.ai_pending = Some(receiver);
+                            std::thread::spawn(move || {
+                                let _ = sender.send(crate::ai::chat(&config, &input));
+                            });
+                        } else {
+                            if input == "undo" || input.starts_with("tool ") {
+                                self.selected_note = None;
+                                self.selected_clip = None;
+                                self.selected_clips.clear();
+                            }
+                            let reply = self.editor.assistant(&input);
+                            if self.settings.speech
+                                && let Err(error) = crate::speech::speak(&reply.text)
+                            {
+                                self.status = Some(error);
+                            }
+                            self.assistant_log.push(reply.text);
+                        }
                     }
                 });
+                if self.ai_pending.is_some() {
+                    ui.label(
+                        egui::RichText::new("Waiting for the AI endpoint…")
+                            .size(10.0)
+                            .color(theme::accent()),
+                    );
+                }
                 let mut speech = self.settings.speech;
                 if ui.checkbox(&mut speech, "Speak replies").changed() {
                     self.settings.speech = speech;
@@ -2403,8 +2463,9 @@ impl ShellApp {
                 }
                 ui.label(
                     egui::RichText::new(
-                        "Local commands over the same 93 tools; no network or model.\
-                         Speech out uses the macOS say command; speech input is not implemented.",
+                        "With an AI endpoint set in Settings, replies come from that model; \
+                         a `tool ...` reply runs one app tool. Otherwise local commands over \
+                         the same tools are used. Speech out uses macOS say; speech input is not implemented.",
                     )
                     .size(9.0)
                     .color(theme::text_dim()),
@@ -6049,6 +6110,37 @@ impl ShellApp {
                         theme::set_light(light_theme);
                         theme::refresh(ui.ctx());
                     }
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new("AI endpoint (OpenAI-compatible)")
+                            .size(11.0)
+                            .color(theme::text_muted()),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings.ai_url)
+                            .hint_text("http://localhost:11434/v1/chat/completions")
+                            .desired_width(340.0),
+                    );
+                    ui.horizontal(|ui| {
+                        ui.label("model");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.settings.ai_model)
+                                .desired_width(180.0),
+                        );
+                        ui.label("key");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.settings.ai_api_key)
+                                .password(true)
+                                .desired_width(140.0),
+                        );
+                    });
+                    ui.label(
+                        egui::RichText::new(
+                            "The key is stored in plain text in the settings file. Leave the URL empty to stay local.",
+                        )
+                        .size(9.0)
+                        .color(theme::text_dim()),
+                    );
                     if ui.button("Save settings").clicked() {
                         match self.settings.save(&crate::settings::Settings::path()) {
                             Ok(()) => {
@@ -8451,6 +8543,7 @@ impl eframe::App for ShellApp {
         }
         self.handle_keys(context);
         self.poll_midi();
+        self.poll_ai();
         self.refresh_waveform();
         if self.settings.kids_mode && self.view.index() > 1 {
             self.view = View::Perform;

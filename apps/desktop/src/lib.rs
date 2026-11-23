@@ -4,6 +4,7 @@
 //! domain type knows about egui. The v1 "Studio Console" colours live in
 //! [`theme`]; the piano roll is a read-only canvas with tested geometry.
 
+pub mod ai;
 pub mod app;
 pub mod automation_view;
 pub mod editor;

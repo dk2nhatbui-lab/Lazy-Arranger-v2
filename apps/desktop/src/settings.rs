@@ -185,6 +185,12 @@ pub struct Settings {
     pub audio_buffer_frames: u32,
     /// Preferred MIDI output name for the MIDI out window.
     pub midi_output: Option<String>,
+    /// OpenAI-compatible chat endpoint.
+    pub ai_url: String,
+    /// Model name for the chat endpoint.
+    pub ai_model: String,
+    /// Bearer token for the chat endpoint (stored as plain text).
+    pub ai_api_key: String,
     /// Selected device-profile id for keyboard export.
     pub device_profile: Option<String>,
     /// Start the metronome with playback.
@@ -245,6 +251,9 @@ impl Default for Settings {
             audio_output: None,
             audio_buffer_frames: 0,
             midi_output: None,
+            ai_url: String::new(),
+            ai_model: String::from("gpt-4o-mini"),
+            ai_api_key: String::new(),
             device_profile: None,
             metronome: false,
             metronome_accent: 1.0,
@@ -328,6 +337,9 @@ impl Settings {
                 "audio_buffer_frames" => {
                     settings.audio_buffer_frames = value.parse::<u32>().unwrap_or(0).clamp(0, 4096);
                 }
+                "ai_url" => settings.ai_url = value.to_string(),
+                "ai_model" => settings.ai_model = value.to_string(),
+                "ai_api_key" => settings.ai_api_key = value.to_string(),
                 "midi_output" => {
                     settings.midi_output = if value.is_empty() {
                         None
@@ -414,6 +426,9 @@ impl Settings {
         if let Some(output) = &self.midi_output {
             text.push_str(&format!("midi_output = {output}\n"));
         }
+        text.push_str(&format!("ai_url = {}\n", self.ai_url));
+        text.push_str(&format!("ai_model = {}\n", self.ai_model));
+        text.push_str(&format!("ai_api_key = {}\n", self.ai_api_key));
         if let Some(profile) = &self.device_profile {
             text.push_str(&format!("device_profile = {profile}\n"));
         }
@@ -491,6 +506,8 @@ mod tests {
             keyboard: Some(String::from("PSR-S970")),
             audio_input: Some(String::from("Camo Microphone")),
             audio_output: Some(String::from("Built-in Output")),
+            ai_url: String::from("http://127.0.0.1:11434/v1/chat/completions"),
+            ai_api_key: String::from("test-key"),
             midi_output: Some(String::from("PSR-S970")),
             ..Settings::default()
         };
