@@ -129,6 +129,7 @@ pub struct ShellApp {
     score_zoom: f32,
     score_grand: bool,
     score_pdf_path: String,
+    score_state: crate::score_view::ScoreState,
     automation_target: project::song::AutomationTarget,
     l6max_folder: String,
     l6max_plan: Option<audio::l6max::Plan>,
@@ -244,6 +245,7 @@ impl ShellApp {
             score_zoom: 1.0,
             score_grand: false,
             score_pdf_path: String::from("score.pdf"),
+            score_state: crate::score_view::ScoreState::default(),
             automation_target: project::song::AutomationTarget::Volume,
             l6max_folder: String::new(),
             l6max_plan: None,
@@ -3229,8 +3231,52 @@ impl eframe::App for ShellApp {
                             }
                             let zoom = self.score_zoom;
                             let page = self.score_page;
-                            let outcome = crate::score_view::show(ui, &engraved, page, zoom);
-                            if let Some((tick, pitch)) = outcome.note {
+                            let outcome = crate::score_view::show(
+                                ui,
+                                &engraved,
+                                page,
+                                zoom,
+                                &mut self.score_state,
+                            );
+                            if let Some(drag) = outcome.drag {
+                                if let Some(found) = project
+                                    .song
+                                    .tracks
+                                    .iter()
+                                    .find(|entry| entry.id == track)
+                                    .and_then(|entry| {
+                                        entry.notes.iter().find(|note| {
+                                            note.start == drag.from_tick
+                                                && note.pitch.as_u8() == drag.from_pitch
+                                        })
+                                    })
+                                    .map(|note| note.id)
+                                {
+                                    match music_core::Pitch::new(drag.to_pitch) {
+                                        Ok(pitch) => {
+                                            match editor.move_note(
+                                                track,
+                                                found,
+                                                drag.to_tick,
+                                                pitch,
+                                            ) {
+                                                Ok(()) => {
+                                                    score_status = Some(format!(
+                                                        "moved to tick {} pitch {}",
+                                                        drag.to_tick, drag.to_pitch
+                                                    ));
+                                                }
+                                                Err(error) => {
+                                                    score_status = Some(error.to_string());
+                                                }
+                                            }
+                                        }
+                                        Err(error) => {
+                                            score_status = Some(error.to_string());
+                                        }
+                                    }
+                                }
+                            } else if let Some((tick, pitch)) = outcome.note {
                                 if let Some(entry) =
                                     project.song.tracks.iter().find(|entry| entry.id == track)
                                     && let Some(found) = entry.notes.iter().find(|note| {

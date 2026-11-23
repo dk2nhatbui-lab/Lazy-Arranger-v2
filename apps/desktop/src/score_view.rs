@@ -37,6 +37,58 @@ pub struct ScoreOutcome {
     pub insert: Option<ScoreHit>,
     /// Existing note (tick, pitch) when a notehead was clicked.
     pub note: Option<(Tick, u8)>,
+    /// A finished drag from one note position to another.
+    pub drag: Option<ScoreDrag>,
+}
+
+/// A drag from one score position to another.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScoreDrag {
+    /// Tick of the grabbed note.
+    pub from_tick: Tick,
+    /// Pitch of the grabbed note.
+    pub from_pitch: u8,
+    /// Destination tick.
+    pub to_tick: Tick,
+    /// Destination pitch.
+    pub to_pitch: u8,
+}
+
+/// Persistent score canvas state.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ScoreState {
+    drag: Option<(Tick, u8)>,
+}
+
+/// Tick and pitch under a page position.
+#[must_use]
+pub fn drag_target(
+    engraved: &Engraved,
+    page_index: usize,
+    settings: Settings,
+    zoom: f32,
+    origin: Pos2,
+    position: Pos2,
+) -> Option<(Tick, u8)> {
+    let page = engraved.pages.get(page_index)?;
+    let local_x = (position.x - origin.x) / zoom;
+    let local_y = (position.y - origin.y) / zoom;
+    for system in &page.systems {
+        let height = if engraved.staves == 2 { 8.0 } else { 4.0 } * settings.staff_space;
+        if local_y < system.y - 2.5 * settings.staff_space
+            || local_y > system.y + height + 2.5 * settings.staff_space
+        {
+            continue;
+        }
+        for measure in &system.measures {
+            if local_x >= measure.x && local_x <= measure.x_end {
+                let tick = score::tick_at_x(measure, local_x, music_core::PPQ / 4);
+                let pitch = score::pitch_at_y_staff(system.y, local_y, settings, engraved.staves);
+                return Some((tick, pitch));
+            }
+        }
+    }
+    None
 }
 
 /// The notehead nearest a page position, within a notehead's reach.
@@ -68,7 +120,13 @@ pub fn hit_note(
 }
 
 /// Draws one page and maps a click to a note or an insertion position.
-pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) -> ScoreOutcome {
+pub fn show(
+    ui: &mut Ui,
+    engraved: &Engraved,
+    page: usize,
+    zoom: f32,
+    state: &mut ScoreState,
+) -> ScoreOutcome {
     let settings = Settings::default();
     let page_index = clamp_page(engraved, page);
     let (response, painter) =
@@ -246,6 +304,28 @@ pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) -> ScoreOu
             egui::FontId::proportional(10.0),
             Color32::from_rgb(0x55, 0x55, 0x55),
         );
+        if response.drag_started()
+            && let Some(position) = response.interact_pointer_pos()
+            && let Some((tick, pitch)) = hit_note(engraved, page_index, zoom, origin, position)
+        {
+            state.drag = Some((tick, pitch));
+        }
+        if response.drag_stopped()
+            && let Some((from_tick, from_pitch)) = state.drag.take()
+            && let Some(position) = response.interact_pointer_pos()
+            && let Some((to_tick, to_pitch)) =
+                drag_target(engraved, page_index, settings, zoom, origin, position)
+        {
+            return ScoreOutcome {
+                drag: Some(ScoreDrag {
+                    from_tick,
+                    from_pitch,
+                    to_tick,
+                    to_pitch,
+                }),
+                ..ScoreOutcome::default()
+            };
+        }
         if let Some(position) = response.interact_pointer_pos()
             && response.clicked()
         {
@@ -324,6 +404,21 @@ mod tests {
         assert!((rect.width() - settings.page_width * 2.0).abs() < 0.01);
         let line = staff_line_y(100.0, 4, settings, 2.0);
         assert!((line - (200.0 + 4.0 * settings.staff_space * 2.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn dragging_maps_to_a_quantized_tick_and_pitch() {
+        let settings = Settings::default();
+        let score = score_song();
+        let engraved = score::engrave(&score, project::TrackId::new(1).expect("valid"), settings);
+        let system = &engraved.pages[0].systems[0];
+        let measure = &system.measures[0];
+        let x = measure.x + (measure.x_end - measure.x) / 2.0;
+        let position = Pos2::new(x, system.y - settings.staff_space);
+        let (tick, pitch) =
+            drag_target(&engraved, 0, settings, 1.0, Pos2::ZERO, position).expect("target");
+        assert_eq!(tick, PPQ * 2);
+        assert_eq!(pitch, 62);
     }
 
     #[test]

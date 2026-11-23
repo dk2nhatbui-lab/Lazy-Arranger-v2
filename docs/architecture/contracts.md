@@ -430,3 +430,11 @@ The Score view keeps a PDF path (default `score.pdf`) and a Save PDF button. It
 reuses `score::pdf::to_pdf` with the current engravings and grand-staff setting,
 writes the file and reports success or the OS error in the score status line.
 No OS print dialog is implemented; the CLI already had a PDF command.
+
+### Score drag
+
+The score canvas uses click-and-drag. A drag started on a notehead records its
+tick/pitch; on release `drag_target` maps the pointer to a quarter-quantised tick
+and a staff pitch (staff-aware for the grand staff), and the shell finds the
+project note and applies one `move_note`. Resizing a note in the score is not
+implemented.
