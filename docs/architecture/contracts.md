@@ -804,3 +804,10 @@ and frames stay on the page. PDF text sets the dark fill before any text; it
 previously inherited the near-white page fill and was invisible. Lyrics are
 deduplicated by tick, so a chord prints one syllable. The rendered demo page is
 saved at `docs/audit/score-page.png`.
+
+### Score canvas chord/frame check
+
+The canvas now draws chord symbols and guitar frames (previously PDF only) and
+percussion barlines around the one-line staff. `ARRANGER_VIEW=score` opens the
+Score view at startup for capture checks; `docs/audit/score-canvas.png` is the
+captured result.

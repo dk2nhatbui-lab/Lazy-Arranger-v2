@@ -25,6 +25,19 @@ enum View {
 }
 
 impl View {
+    /// Parses a view name for the `ARRANGER_VIEW` developer override.
+    #[must_use]
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "perform" => Some(Self::Perform),
+            "arrange" => Some(Self::Arrange),
+            "mix" => Some(Self::Mix),
+            "loops" => Some(Self::Loops),
+            "score" => Some(Self::Score),
+            _ => None,
+        }
+    }
+
     /// Every view, in tab order.
     const ALL: [Self; 5] = [
         Self::Perform,
@@ -215,6 +228,10 @@ impl ShellApp {
     #[must_use]
     pub fn new(context: &Context, project: ProjectFile, project_path: Option<PathBuf>) -> Self {
         let settings = crate::settings::Settings::load(&crate::settings::Settings::path());
+        let initial_view = std::env::var("ARRANGER_VIEW")
+            .ok()
+            .and_then(|value| View::parse(&value))
+            .unwrap_or(View::Arrange);
         theme::set_light(settings.light_theme);
         theme::install(context);
         let icon = context.load_texture(
@@ -341,7 +358,7 @@ impl ShellApp {
             last_bar: 0,
             synth: arranging::SynthSpec::default(),
             project_path,
-            view: View::Arrange,
+            view: initial_view,
             roll: RollState::default(),
             playing: false,
             position: 0,
@@ -4773,6 +4790,14 @@ mod tests {
                 .any(|track| !track.notes.is_empty())
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn view_names_parse_for_the_developer_override() {
+        assert_eq!(View::parse("score"), Some(View::Score));
+        assert_eq!(View::parse("MIX"), Some(View::Mix));
+        assert_eq!(View::parse("arrange"), Some(View::Arrange));
+        assert_eq!(View::parse("nope"), None);
     }
 
     #[test]

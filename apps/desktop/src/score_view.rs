@@ -189,7 +189,16 @@ pub fn show(
             let bottom = origin.y + staff_line_y(system.y, 4, settings, zoom);
             for measure in &system.measures {
                 let x = origin.x + measure.x * zoom;
-                if !engraved.percussion {
+                if engraved.percussion {
+                    let centre = origin.y + (system.y - 2.0 * settings.staff_space) * zoom;
+                    painter.line_segment(
+                        [
+                            Pos2::new(x, centre - 2.0 * settings.staff_space * zoom),
+                            Pos2::new(x, centre + 2.0 * settings.staff_space * zoom),
+                        ],
+                        Stroke::new(1.2_f32, Color32::from_rgb(0x24, 0x24, 0x24)),
+                    );
+                } else {
                     painter.line_segment(
                         [Pos2::new(x, top), Pos2::new(x, bottom)],
                         Stroke::new(1.2_f32, Color32::from_rgb(0x24, 0x24, 0x24)),
@@ -204,14 +213,108 @@ pub fn show(
                 );
             }
             // Closing barline of the last measure.
-            if let Some(last) = system.measures.last()
-                && !engraved.percussion
-            {
+            if let Some(last) = system.measures.last() {
                 let x = origin.x + last.x_end * zoom;
+                if engraved.percussion {
+                    let centre = origin.y + (system.y - 2.0 * settings.staff_space) * zoom;
+                    painter.line_segment(
+                        [
+                            Pos2::new(x, centre - 2.0 * settings.staff_space * zoom),
+                            Pos2::new(x, centre + 2.0 * settings.staff_space * zoom),
+                        ],
+                        Stroke::new(1.2_f32, Color32::from_rgb(0x24, 0x24, 0x24)),
+                    );
+                } else {
+                    painter.line_segment(
+                        [Pos2::new(x, top), Pos2::new(x, bottom)],
+                        Stroke::new(1.2_f32, Color32::from_rgb(0x24, 0x24, 0x24)),
+                    );
+                }
+            }
+        }
+        for symbol in engraved
+            .chord_symbols
+            .iter()
+            .filter(|symbol| symbol.page == page_index)
+        {
+            painter.text(
+                Pos2::new(origin.x + symbol.x * zoom, origin.y + symbol.y * zoom),
+                egui::Align2::LEFT_BOTTOM,
+                &symbol.name,
+                egui::FontId::proportional(10.0 * zoom),
+                Color32::from_rgb(0x14, 0x14, 0x14),
+            );
+        }
+        for frame in engraved
+            .frames
+            .iter()
+            .filter(|frame| frame.page == page_index)
+        {
+            let width = 2.8 * settings.staff_space * zoom;
+            let height = 2.6 * settings.staff_space * zoom;
+            let left = origin.x + frame.x * zoom;
+            let bottom = origin.y + frame.y * zoom;
+            let top = bottom - height;
+            let stroke = Stroke::new(0.7_f32, Color32::from_rgb(0x33, 0x33, 0x33));
+            for string in 0..6 {
+                let x = left + width * string as f32 / 5.0;
+                painter.line_segment([Pos2::new(x, top), Pos2::new(x, bottom)], stroke);
+            }
+            for fret in 0..=5 {
+                let y = top + height * fret as f32 / 5.0;
                 painter.line_segment(
-                    [Pos2::new(x, top), Pos2::new(x, bottom)],
-                    Stroke::new(1.2_f32, Color32::from_rgb(0x24, 0x24, 0x24)),
+                    [Pos2::new(left, y), Pos2::new(left + width, y)],
+                    if fret == 0 {
+                        Stroke::new(1.2_f32, Color32::from_rgb(0x14, 0x14, 0x14))
+                    } else {
+                        stroke
+                    },
                 );
+            }
+            painter.text(
+                Pos2::new(left, top - 2.0 * zoom),
+                egui::Align2::LEFT_BOTTOM,
+                &frame.name,
+                egui::FontId::proportional(8.0 * zoom),
+                Color32::from_rgb(0x14, 0x14, 0x14),
+            );
+            for (string, fret) in frame.frets.iter().enumerate() {
+                let x = left + width * string as f32 / 5.0;
+                match fret {
+                    None => {
+                        let s = Stroke::new(0.9_f32, Color32::from_rgb(0x14, 0x14, 0x14));
+                        painter.line_segment(
+                            [
+                                Pos2::new(x - 1.8 * zoom, top - 5.0 * zoom),
+                                Pos2::new(x + 1.8 * zoom, top - 1.0 * zoom),
+                            ],
+                            s,
+                        );
+                        painter.line_segment(
+                            [
+                                Pos2::new(x - 1.8 * zoom, top - 1.0 * zoom),
+                                Pos2::new(x + 1.8 * zoom, top - 5.0 * zoom),
+                            ],
+                            s,
+                        );
+                    }
+                    Some(0) => {
+                        painter.circle_stroke(
+                            Pos2::new(x, top - 3.0 * zoom),
+                            1.7 * zoom,
+                            Stroke::new(0.8_f32, Color32::from_rgb(0x14, 0x14, 0x14)),
+                        );
+                    }
+                    Some(value) if *value >= frame.base_fret => {
+                        let row = (*value - frame.base_fret) as f32 + 0.5;
+                        painter.circle_filled(
+                            Pos2::new(x, top + height * row / 5.0),
+                            1.9 * zoom,
+                            Color32::from_rgb(0x14, 0x14, 0x14),
+                        );
+                    }
+                    Some(_) => {}
+                }
             }
         }
         for rest in engraved.rests.iter().filter(|rest| rest.page == page_index) {
