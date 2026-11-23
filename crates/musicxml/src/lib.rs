@@ -139,6 +139,7 @@ pub fn export(song: &Song, title: &str) -> String {
                 .collect();
             notes.sort_by_key(|note| note.start);
             let mut cursor = start;
+            let mut last_start: Option<Tick> = None;
             for note in notes {
                 if note.start > cursor {
                     write_rest(&mut out, note.start - cursor);
@@ -155,9 +156,16 @@ pub fn export(song: &Song, title: &str) -> String {
                 let (tie_start, tie_stop) =
                     ties.get(&note.id.get()).copied().unwrap_or((false, false));
                 let instrument = drums.then(|| format!("P{}-I{}", index + 1, note.pitch.as_u8()));
-                write_note(
-                    &mut out, note, duration, instrument, lyric, tie_start, tie_stop,
-                );
+                let chord = last_start == Some(note.start);
+                let marks = NoteMarks {
+                    instrument,
+                    lyric,
+                    tie_start,
+                    tie_stop,
+                    chord,
+                };
+                write_note(&mut out, note, duration, &marks);
+                last_start = Some(note.start);
                 cursor = note.start + duration;
             }
             if cursor < stop {
@@ -261,17 +269,20 @@ fn write_rest(out: &mut String, duration: Tick) {
     out.push_str("</note>\n");
 }
 
-fn write_note(
-    out: &mut String,
-    note: &Note,
-    duration: Tick,
+struct NoteMarks<'a> {
     instrument: Option<String>,
-    lyric: Option<&str>,
+    lyric: Option<&'a str>,
     tie_start: bool,
     tie_stop: bool,
-) {
+    chord: bool,
+}
+
+fn write_note(out: &mut String, note: &Note, duration: Tick, marks: &NoteMarks<'_>) {
     out.push_str("      <note>");
-    if let Some(id) = instrument {
+    if marks.chord {
+        out.push_str("<chord />");
+    }
+    if let Some(ref id) = marks.instrument {
         out.push_str(&format!(
             "<instrument id=\"{id}\" /><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched>"
         ));
@@ -289,13 +300,13 @@ fn write_note(
     if let Some(kind) = note_type(duration) {
         out.push_str(&format!("<type>{kind}</type>"));
     }
-    if tie_stop {
+    if marks.tie_stop {
         out.push_str("<tie type=\"stop\" />");
     }
-    if tie_start {
+    if marks.tie_start {
         out.push_str("<tie type=\"start\" />");
     }
-    if let Some(text) = lyric {
+    if let Some(text) = marks.lyric {
         out.push_str("<lyric><syllabic>single</syllabic><text>");
         out.push_str(&escape(text));
         out.push_str("</text></lyric>");

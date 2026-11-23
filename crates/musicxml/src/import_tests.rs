@@ -62,6 +62,28 @@ mod tests {
     }
 
     #[test]
+    fn chord_tones_keep_their_common_start() {
+        let mut song = Song::new("Chords", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");
+        for (index, name) in ["C4", "E4", "G4"].iter().enumerate() {
+            track.notes.push(project::song::Note {
+                id: project::NoteId::new(index as u32 + 1).expect("valid"),
+                start: 0,
+                duration: 960,
+                pitch: music_core::Pitch::from_name(name).expect("valid"),
+                velocity: music_core::Velocity::new(90).expect("valid"),
+                channel: music_core::Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        let xml = export(&song, "Chords");
+        assert_eq!(xml.matches("<chord />").count(), 2);
+        let imported = import(&xml).expect("import");
+        assert_eq!(imported.tracks[0].notes.len(), 3);
+        assert!(imported.tracks[0].notes.iter().all(|note| note.start == 0));
+    }
+
+    #[test]
     fn drum_pitch_and_velocity_survive_an_export_import_round_trip() {
         let mut song = Song::new("Drums", 120.0);
         let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Drums");
