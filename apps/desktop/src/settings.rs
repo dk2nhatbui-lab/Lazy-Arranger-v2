@@ -10,6 +10,47 @@ use std::path::{Path, PathBuf};
 /// The settings file name.
 pub const FILE: &str = "lazy-arranger-settings.txt";
 
+/// A parsed key binding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Binding {
+    /// Required modifiers.
+    pub modifiers: egui::Modifiers,
+    /// Required key.
+    pub key: egui::Key,
+}
+
+/// Parses `cmd+shift+s`-style bindings; modifiers are optional.
+#[must_use]
+pub fn parse_shortcut(text: &str) -> Option<Binding> {
+    let mut modifiers = egui::Modifiers::NONE;
+    let mut key = None;
+    for raw in text.split('+') {
+        let part = raw.trim().to_ascii_lowercase();
+        if part.is_empty() {
+            return None;
+        }
+        match part.as_str() {
+            "cmd" | "command" | "meta" => modifiers.command = true,
+            "ctrl" | "control" => modifiers.ctrl = true,
+            "shift" => modifiers.shift = true,
+            "alt" | "option" => modifiers.alt = true,
+            other => {
+                if key.is_some() {
+                    return None;
+                }
+                key = Some(
+                    egui::Key::from_name(other)
+                        .or_else(|| egui::Key::from_name(&other.to_ascii_uppercase()))?,
+                );
+            }
+        }
+    }
+    Some(Binding {
+        modifiers,
+        key: key?,
+    })
+}
+
 /// One keyboard shortcut for the help window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Shortcut {
@@ -130,6 +171,18 @@ pub struct Settings {
     pub master_gain_db: f32,
     /// Whether the master limiter is on.
     pub master_limiter: bool,
+    /// Undo binding.
+    pub undo_keys: String,
+    /// Redo binding.
+    pub redo_keys: String,
+    /// Save binding.
+    pub save_keys: String,
+    /// Save-as binding.
+    pub save_as_keys: String,
+    /// Open binding.
+    pub open_keys: String,
+    /// Play/pause binding.
+    pub play_keys: String,
     /// Fields this build does not understand.
     pub extra: BTreeMap<String, String>,
 }
@@ -148,6 +201,12 @@ impl Default for Settings {
             style_library: String::new(),
             master_gain_db: 0.0,
             master_limiter: true,
+            undo_keys: String::from("cmd+z"),
+            redo_keys: String::from("cmd+shift+z"),
+            save_keys: String::from("cmd+s"),
+            save_as_keys: String::from("cmd+shift+s"),
+            open_keys: String::from("cmd+o"),
+            play_keys: String::from("cmd+p"),
             extra: BTreeMap::new(),
         }
     }
@@ -203,6 +262,12 @@ impl Settings {
                     }
                 }
                 "master_limiter" => settings.master_limiter = value == "true",
+                "shortcut.undo" => settings.undo_keys = value.to_string(),
+                "shortcut.redo" => settings.redo_keys = value.to_string(),
+                "shortcut.save" => settings.save_keys = value.to_string(),
+                "shortcut.save_as" => settings.save_as_keys = value.to_string(),
+                "shortcut.open" => settings.open_keys = value.to_string(),
+                "shortcut.play" => settings.play_keys = value.to_string(),
                 _ => {
                     settings.extra.insert(key.to_string(), value.to_string());
                 }
@@ -233,6 +298,12 @@ impl Settings {
         }
         text.push_str(&format!("master_gain_db = {}\n", self.master_gain_db));
         text.push_str(&format!("master_limiter = {}\n", self.master_limiter));
+        text.push_str(&format!("shortcut.undo = {}\n", self.undo_keys));
+        text.push_str(&format!("shortcut.redo = {}\n", self.redo_keys));
+        text.push_str(&format!("shortcut.save = {}\n", self.save_keys));
+        text.push_str(&format!("shortcut.save_as = {}\n", self.save_as_keys));
+        text.push_str(&format!("shortcut.open = {}\n", self.open_keys));
+        text.push_str(&format!("shortcut.play = {}\n", self.play_keys));
         for (key, value) in &self.extra {
             text.push_str(&format!("{key} = {value}\n"));
         }
@@ -279,6 +350,32 @@ mod tests {
         std::fs::write(&path, "grade = 99\nlanguage = en\n").expect("write");
         let clamped = Settings::load(&path);
         assert_eq!(clamped.grade, 9, "grades clamp to nine");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn shortcut_bindings_parse_and_round_trip() {
+        let binding = parse_shortcut("cmd+shift+s").expect("binding");
+        assert!(binding.modifiers.command);
+        assert!(binding.modifiers.shift);
+        assert_eq!(binding.key, egui::Key::S);
+        assert_eq!(
+            parse_shortcut("ctrl+alt+p").expect("binding").key,
+            egui::Key::P
+        );
+        assert!(parse_shortcut("cmd+").is_none());
+        assert!(parse_shortcut("hyper+x").is_none());
+        assert!(parse_shortcut("cmd+a+b").is_none());
+        let path = temp("lazy-arranger-settings-shortcuts.txt");
+        let settings = Settings {
+            undo_keys: String::from("ctrl+u"),
+            play_keys: String::from("shift+p"),
+            ..Settings::default()
+        };
+        settings.save(&path).expect("save");
+        let back = Settings::load(&path);
+        assert_eq!(back.undo_keys, "ctrl+u");
+        assert_eq!(back.play_keys, "shift+p");
         let _ = std::fs::remove_file(path);
     }
 

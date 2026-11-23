@@ -926,3 +926,12 @@ tutorial steps.
 Each Lyrics row has Go, which seeks the live player through the tempo map via the
 shared `seek_to` helper (also used by the ruler and Markers). The captured
 window is `docs/audit/lyrics.png`.
+
+### Editable shortcuts
+
+`settings::parse_shortcut` parses `cmd/ctrl/shift/alt` chords; Settings stores
+six bindings (`shortcut.undo`, `redo`, `save`, `save_as`, `open`, `play`) that
+`handle_keys` consumes, with the old defaults as fallback. The Shortcuts window
+(Windows menu or F1) edits and saves them and validates every binding. A parser
+and settings round-trip test cover it; the capture is
+`docs/audit/shortcuts.png`.

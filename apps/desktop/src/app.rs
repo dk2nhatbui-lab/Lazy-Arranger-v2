@@ -159,6 +159,14 @@ pub fn theory_summary(song: &project::song::Song) -> Vec<String> {
     lines
 }
 
+fn consume_binding(context: &Context, text: &str, fallback: &str) -> bool {
+    let binding =
+        crate::settings::parse_shortcut(text).or_else(|| crate::settings::parse_shortcut(fallback));
+    binding.is_some_and(|binding| {
+        context.input_mut(|input| input.consume_key(binding.modifiers, binding.key))
+    })
+}
+
 /// Formats a count with a regular plural.
 #[must_use]
 pub fn plural(count: usize, singular: &str) -> String {
@@ -431,7 +439,7 @@ impl ShellApp {
                 .unwrap_or_default(),
             settings,
             settings_open: initial_window == "settings",
-            shortcuts_open: false,
+            shortcuts_open: initial_window == "shortcuts",
             score_entry: false,
             score_page: 0,
             score_zoom: 1.0,
@@ -514,24 +522,12 @@ impl ShellApp {
 
     /// Undo, redo, delete and save, from the keyboard.
     fn handle_keys(&mut self, context: &Context) {
-        let undo =
-            context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Z));
-        let redo = context.input_mut(|input| {
-            input.consume_key(
-                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
-                egui::Key::Z,
-            )
-        });
-        let save_as = context.input_mut(|input| {
-            input.consume_key(
-                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
-                egui::Key::S,
-            )
-        });
-        let save = !save_as
-            && context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::S));
-        let open_keys =
-            context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::O));
+        let undo = consume_binding(context, &self.settings.undo_keys, "cmd+z");
+        let redo = consume_binding(context, &self.settings.redo_keys, "cmd+shift+z");
+        let save_as = consume_binding(context, &self.settings.save_as_keys, "cmd+shift+s");
+        let save = !save_as && consume_binding(context, &self.settings.save_keys, "cmd+s");
+        let open_keys = consume_binding(context, &self.settings.open_keys, "cmd+o");
+        let play = consume_binding(context, &self.settings.play_keys, "cmd+p");
         let copy =
             context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::C));
         let cut =
@@ -543,6 +539,12 @@ impl ShellApp {
         let delete = context.input(|input| {
             input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace)
         });
+        if context.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::F1)) {
+            self.shortcuts_open = true;
+        }
+        if play {
+            self.toggle_playback();
+        }
         if undo {
             self.editor.undo();
             self.selected_note = None;
@@ -2520,11 +2522,51 @@ impl ShellApp {
         }
         if self.shortcuts_open {
             let mut open = self.shortcuts_open;
+            let mut undo_keys = self.settings.undo_keys.clone();
+            let mut redo_keys = self.settings.redo_keys.clone();
+            let mut save_keys = self.settings.save_keys.clone();
+            let mut save_as_keys = self.settings.save_as_keys.clone();
+            let mut open_keys = self.settings.open_keys.clone();
+            let mut play_keys = self.settings.play_keys.clone();
+            let mut save_bindings = false;
             egui::Window::new("Shortcuts")
                 .open(&mut open)
                 .collapsible(false)
+                .default_width(420.0)
                 .show(context, |ui| {
+                    ui.label(egui::RichText::new("Editable bindings").strong());
+                    for (label, value) in [
+                        ("Undo", &mut undo_keys),
+                        ("Redo", &mut redo_keys),
+                        ("Save", &mut save_keys),
+                        ("Save as", &mut save_as_keys),
+                        ("Open", &mut open_keys),
+                        ("Play/pause", &mut play_keys),
+                    ] {
+                        ui.horizontal(|ui| {
+                            ui.label(label);
+                            ui.text_edit_singleline(value);
+                        });
+                    }
+                    if ui.button("Save bindings").clicked() {
+                        save_bindings = true;
+                    }
+                    ui.label(
+                        egui::RichText::new(
+                            "Use cmd/ctrl/shift/alt plus a key, for example cmd+shift+z.",
+                        )
+                        .size(10.0)
+                        .color(theme::text_dim()),
+                    );
+                    ui.separator();
+                    ui.label(egui::RichText::new("Other shortcuts").strong());
                     for shortcut in crate::settings::SHORTCUTS {
+                        if matches!(
+                            shortcut.action,
+                            "toggle playback" | "save project" | "undo" | "redo"
+                        ) {
+                            continue;
+                        }
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(shortcut.keys).monospace().size(10.0));
                             ui.label(shortcut.action);
@@ -2536,6 +2578,33 @@ impl ShellApp {
                         });
                     }
                 });
+            if save_bindings {
+                let values = [
+                    &undo_keys,
+                    &redo_keys,
+                    &save_keys,
+                    &save_as_keys,
+                    &open_keys,
+                    &play_keys,
+                ];
+                if values
+                    .iter()
+                    .any(|value| crate::settings::parse_shortcut(value).is_none())
+                {
+                    self.status = Some(String::from("invalid shortcut binding"));
+                } else {
+                    self.settings.undo_keys = undo_keys;
+                    self.settings.redo_keys = redo_keys;
+                    self.settings.save_keys = save_keys;
+                    self.settings.save_as_keys = save_as_keys;
+                    self.settings.open_keys = open_keys;
+                    self.settings.play_keys = play_keys;
+                    match self.settings.save(&crate::settings::Settings::path()) {
+                        Ok(()) => self.status = Some(String::from("shortcuts saved")),
+                        Err(error) => self.status = Some(error),
+                    }
+                }
+            }
             if !open {
                 self.shortcuts_open = false;
             }
@@ -3975,6 +4044,10 @@ impl ShellApp {
                             }
                             if ui.button("Songs & tutorial").clicked() {
                                 self.songs_open = true;
+                                ui.close_menu();
+                            }
+                            if ui.button("Shortcuts").clicked() {
+                                self.shortcuts_open = true;
                                 ui.close_menu();
                             }
                             ui.separator();

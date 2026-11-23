@@ -138,6 +138,7 @@ plurals, a real AI model and speech input.
 | Setup events, voices, CSEG children | `style-formats` | partial | SFF write verified; voices/setup events not written |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/slur/percussion/lyric/accidental/rhythmic-spacing/dots/dotted-rests/frame/chord-symbol/PDF tests; slurs round-trip; Save PDF, Print via lp (unverified), score drag-move/Shift-resize; PDF/canvas checks, four-measure systems, meter digits and a headless canvas-text test |
+| Editable shortcuts and Shortcuts window | `parse_shortcut`, `handle_keys`, Shortcuts window | verified parser | parse/round-trip tests; `docs/audit/shortcuts.png` |
 | Settings/Inspector windows (captures checked) | `apps/desktop` | implemented | `docs/audit/settings.png`, `docs/audit/inspector.png`; interactions manual |
 | Songs & tutorial window | `ShellApp::replace_project`, named demos | verified model | named songs validate; UI manual |
 | Perform view (Now/Next, chord pads) | `apps/desktop` | implemented | capture checked (`docs/audit/perform.png`); pad audition manual |
