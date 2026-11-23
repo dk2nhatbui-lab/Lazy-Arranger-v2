@@ -84,6 +84,8 @@ pub enum FileMode {
     Open,
     /// Save the project to a new path.
     SaveAs,
+    /// Import a WAV as an audio track.
+    ImportAudio,
 }
 
 pub struct ShellApp {
@@ -747,18 +749,22 @@ impl ShellApp {
         egui::Window::new(match mode {
             FileMode::Open => "Open project",
             FileMode::SaveAs => "Save as",
+            FileMode::ImportAudio => "Import audio",
         })
         .collapsible(false)
         .open(&mut open)
         .default_width(420.0)
         .show(context, |ui| {
-            ui.label("Path (.arranger JSON, .mid or .midi)");
+            ui.label(match mode {
+                FileMode::ImportAudio => "Path (.wav)",
+                _ => "Path (.arranger JSON, .mid or .midi)",
+            });
             ui.add(egui::TextEdit::singleline(&mut self.file_path_input).desired_width(400.0));
             ui.horizontal(|ui| {
-                let label = if mode == FileMode::Open {
-                    "Open"
-                } else {
-                    "Save"
+                let label = match mode {
+                    FileMode::Open => "Open",
+                    FileMode::SaveAs => "Save",
+                    FileMode::ImportAudio => "Import",
                 };
                 if ui.button(label).clicked() {
                     action = true;
@@ -776,6 +782,14 @@ impl ShellApp {
                 self.open(&path);
                 if self.load_error.is_none() {
                     self.file_mode = None;
+                }
+            } else if mode == FileMode::ImportAudio {
+                match self.editor.import_audio(&path, self.position.max(0)) {
+                    Ok(track) => {
+                        self.status = Some(format!("imported audio as track {}", track.get()));
+                        self.file_mode = None;
+                    }
+                    Err(error) => self.load_error = Some(error),
                 }
             } else {
                 self.save_to(path);
@@ -3138,6 +3152,10 @@ impl ShellApp {
                             }
                             if ui.small_button("Lyrics").clicked() {
                                 self.lyrics_open = true;
+                            }
+                            if ui.small_button("Import audio").clicked() {
+                                self.file_path_input.clear();
+                                self.file_mode = Some(FileMode::ImportAudio);
                             }
                         });
                     }

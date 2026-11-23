@@ -149,7 +149,7 @@ plurals, a real AI model and speech input.
 | Mixer panel (per-track fader, pan, mute, solo, bus routing) | `apps/desktop` | implemented | bus strip and routing tests; UI manual |
 | Track Inspector (incl. tempo changes), ruler seek and window openers | `apps/desktop` | implemented | rename/program/tempo tests; ruler UI manual |
 | Buses and sends (schema v13) | `project::song::Bus`, `audio` render, `app-commands` | verified | route/send/pan render tests; command undo; JSON round trip |
-| Audio-reference fades, stretch, waveform zoom, input capture, float WAV | `audio` mix/waveform/record, CLI | verified helpers | fade/stretch/window/mix tests; input hardware and permission unverified |
+| Audio references, fades/stretch, waveform zoom, import, capture, float WAV | `audio`, Editor import, CLI | verified helpers | fade/stretch/window/mix/import tests; input hardware/permission unverified |
 | Lyric syllable editor (schema v10) | `Editor::add_lyric/remove_lyric/set_lyrics`, Lyrics window | verified model | add/replace/remove/undo tests; UI manual |
 | Per-track synth patch (schema v14, waveform + ADSR + brightness) | `project::song::Patch`, `audio` render, `app-commands` | verified | square-vs-sine, slow-attack, command and round-trip tests |
 | SysEx parameter-change builder, checksum and XG System On dump | `midi-devices::sysex`, CLI `sysex-xg-on` | verified | checksum/end-byte tests; 10-byte dump written |

@@ -627,3 +627,11 @@ opens Save as with `project.arranger`; Cmd+S saves in place, and on an untitled
 import (MIDI) it opens Save as instead of writing a default JSON silently. Open
 reuses `load_project` (JSON or MIDI), Save reuses `Editor::save`, and both update
 the recent list. The window is manual UI; no native dialog exists.
+
+### Audio import from the shell
+
+`Editor::import_audio(path, start)` reads the WAV header, derives the tick length
+from seconds and the tempo at `start`, and inserts one audio track with an
+`AudioRef`, as one undoable edit. The sidebar's Import audio button opens the
+file window in WAV mode; the test writes a one-second WAV and checks the track,
+length and undo.

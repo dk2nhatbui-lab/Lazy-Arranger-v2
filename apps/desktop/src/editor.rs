@@ -937,6 +937,45 @@ impl Editor {
         Ok(imported)
     }
 
+    /// Imports a WAV as a new audio track starting at a tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the file is unreadable, not a WAV, or the track
+    /// cannot be inserted.
+    pub fn import_audio(&mut self, wav: &std::path::Path, start: Tick) -> Result<TrackId, String> {
+        let bytes = std::fs::read(wav)
+            .map_err(|error| format!("could not read {}: {error}", wav.display()))?;
+        let info = audio::wav::info(&bytes)?;
+        let bpm = self.song().tempo_map.bpm_at(start);
+        let length = audio::chords::to_ticks(info.seconds, bpm);
+        let track_id = self
+            .session
+            .next_track_id()
+            .map_err(|error| error.to_string())?;
+        let mut track = project::song::Track::new(
+            track_id,
+            wav.file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("Audio")
+                .to_string(),
+        );
+        track.audio = Some(project::song::AudioRef {
+            path: wav.display().to_string(),
+            start,
+            length,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        self.session
+            .apply(app_commands::Command::InsertTrack { track })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(track_id)
+    }
+
     /// Enables or disables resampling a track's audio to its reference length.
     ///
     /// # Errors
@@ -1902,6 +1941,30 @@ mod tests {
         assert!(editor.song().tracks[0].soundfont.is_none());
         assert!(editor.undo());
         assert!(editor.song().tracks[0].soundfont.is_some());
+    }
+
+    #[test]
+    fn a_wav_imports_as_an_audio_track() {
+        let path = std::env::temp_dir().join("lazy-arranger-import-audio.wav");
+        let rendered = audio::RenderedAudio {
+            samples: vec![0.1; 48_000 * 2],
+            sample_rate: 48_000,
+        };
+        std::fs::write(&path, rendered.to_wav()).expect("write");
+        let mut editor = editor();
+        let track = editor.import_audio(&path, 0).expect("import");
+        let imported = editor
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .expect("track");
+        let reference = imported.audio.as_ref().expect("audio");
+        assert_eq!(reference.path, path.display().to_string());
+        assert!(reference.length > 0);
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks.len(), 1);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
