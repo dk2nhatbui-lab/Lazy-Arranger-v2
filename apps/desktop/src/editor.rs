@@ -642,6 +642,56 @@ impl Editor {
         Ok(())
     }
 
+    /// Replaces all lyric syllables in one edit.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_lyrics(&mut self, lyrics: Vec<project::song::LyricEvent>) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::SetLyrics { lyrics })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Adds or replaces the syllable at a tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn add_lyric(&mut self, tick: Tick, text: &str) -> Result<(), String> {
+        let mut lyrics: Vec<project::song::LyricEvent> = self
+            .song()
+            .lyrics
+            .iter()
+            .filter(|event| event.tick != tick)
+            .cloned()
+            .collect();
+        lyrics.push(project::song::LyricEvent {
+            tick,
+            text: text.to_string(),
+        });
+        lyrics.sort_by_key(|event| event.tick);
+        self.set_lyrics(lyrics)
+    }
+
+    /// Removes the syllable at a tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn remove_lyric(&mut self, tick: Tick) -> Result<(), String> {
+        let lyrics: Vec<project::song::LyricEvent> = self
+            .song()
+            .lyrics
+            .iter()
+            .filter(|event| event.tick != tick)
+            .cloned()
+            .collect();
+        self.set_lyrics(lyrics)
+    }
+
     /// Inserts recorded notes as a new track with fresh note ids.
     ///
     /// # Errors
@@ -1629,6 +1679,21 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn lyrics_add_replace_and_remove() {
+        let mut editor = editor();
+        editor.add_lyric(0, "la").expect("add");
+        editor.add_lyric(960, "da").expect("add");
+        assert_eq!(editor.song().lyrics.len(), 2);
+        editor.add_lyric(0, "lo").expect("replace");
+        assert_eq!(editor.song().lyrics.len(), 2);
+        assert_eq!(editor.song().lyrics[0].text, "lo");
+        editor.remove_lyric(960).expect("remove");
+        assert_eq!(editor.song().lyrics.len(), 1);
+        assert!(editor.undo());
+        assert_eq!(editor.song().lyrics.len(), 2);
     }
 
     #[test]

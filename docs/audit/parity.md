@@ -146,6 +146,7 @@ the wider ~90-tool MCP surface.
 | Track Inspector and sidebar window openers | `apps/desktop` | implemented | rename/program editor tests; UI manual |
 | Buses and sends (schema v13) | `project::song::Bus`, `audio` render, `app-commands` | verified | route/send/pan render tests; command undo; JSON round trip |
 | Audio-reference fades (schema v17) | `project::song::AudioRef`, `audio::mix`, Editor, trim row | verified | fade ramp test; set/undo test; UI manual |
+| Lyric syllable editor (schema v10) | `Editor::add_lyric/remove_lyric/set_lyrics`, Lyrics window | verified model | add/replace/remove/undo tests; UI manual |
 | Per-track synth patch (schema v14, waveform + ADSR + brightness) | `project::song::Patch`, `audio` render, `app-commands` | verified | square-vs-sine, slow-attack, command and round-trip tests |
 | SysEx parameter-change builder, checksum and XG System On dump | `midi-devices::sysex`, CLI `sysex-xg-on` | verified | checksum/end-byte tests; 10-byte dump written |
 | Plugin slots (schema v15), discovery and Mixer browser (no hosting) | `project::song::PluginSlot`, `plugins`, CLI/MCP, Mixer panel | verified discovery/state | slot round trip; synthetic scan; Editor add/toggle/remove test; 21 real bundles |

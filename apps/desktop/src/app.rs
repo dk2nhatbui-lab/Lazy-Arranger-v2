@@ -130,6 +130,9 @@ pub struct ShellApp {
     score_grand: bool,
     score_pdf_path: String,
     score_state: crate::score_view::ScoreState,
+    lyrics_open: bool,
+    lyric_text: String,
+    lyric_selected: Option<Tick>,
     automation_target: project::song::AutomationTarget,
     l6max_folder: String,
     l6max_plan: Option<audio::l6max::Plan>,
@@ -246,6 +249,9 @@ impl ShellApp {
             score_grand: false,
             score_pdf_path: String::from("score.pdf"),
             score_state: crate::score_view::ScoreState::default(),
+            lyrics_open: false,
+            lyric_text: String::new(),
+            lyric_selected: None,
             automation_target: project::song::AutomationTarget::Volume,
             l6max_folder: String::new(),
             l6max_plan: None,
@@ -1258,6 +1264,80 @@ impl ShellApp {
     }
 
     /// Settings and shortcut windows.
+    fn lyrics_window(&mut self, context: &egui::Context) {
+        if !self.lyrics_open {
+            return;
+        }
+        let rows: Vec<(Tick, String)> = self
+            .song()
+            .lyrics
+            .iter()
+            .map(|event| (event.tick, event.text.clone()))
+            .collect();
+        let position = self.position.max(0);
+        let mut open = self.lyrics_open;
+        let mut add = false;
+        let mut remove = None;
+        let mut save = false;
+        egui::Window::new("Lyrics")
+            .open(&mut open)
+            .default_width(320.0)
+            .show(context, |ui| {
+                ui.label(
+                    egui::RichText::new(format!("playhead at tick {position}"))
+                        .size(10.0)
+                        .color(theme::TEXT_DIM),
+                );
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.lyric_text);
+                    if ui.button("Add at playhead").clicked() {
+                        add = true;
+                    }
+                });
+                ui.separator();
+                for (tick, text) in &rows {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{tick}: {text}"));
+                        if ui.small_button("Edit").clicked() {
+                            self.lyric_selected = Some(*tick);
+                            self.lyric_text = text.clone();
+                        }
+                        if ui.small_button("Remove").clicked() {
+                            remove = Some(*tick);
+                        }
+                    });
+                }
+                if let Some(tick) = self.lyric_selected {
+                    ui.separator();
+                    ui.label(format!("editing tick {tick}"));
+                    if ui.button("Save lyric").clicked() {
+                        save = true;
+                    }
+                }
+            });
+        self.lyrics_open = open;
+        if add {
+            match self.editor.add_lyric(position, self.lyric_text.trim()) {
+                Ok(()) => self.lyric_selected = Some(position),
+                Err(error) => self.status = Some(error),
+            }
+        }
+        if let Some(tick) = remove {
+            if let Err(error) = self.editor.remove_lyric(tick) {
+                self.status = Some(error);
+            }
+            if self.lyric_selected == Some(tick) {
+                self.lyric_selected = None;
+            }
+        }
+        if save
+            && let Some(tick) = self.lyric_selected
+            && let Err(error) = self.editor.add_lyric(tick, self.lyric_text.trim())
+        {
+            self.status = Some(error);
+        }
+    }
+
     fn controller_window(&mut self, context: &egui::Context) {
         if !self.controller_open {
             return;
@@ -2751,6 +2831,9 @@ impl ShellApp {
                         if ui.small_button("Controllers").clicked() {
                             self.controller_open = true;
                         }
+                        if ui.small_button("Lyrics").clicked() {
+                            self.lyrics_open = true;
+                        }
                     });
                     if !self.recent.is_empty() {
                         ui.label(
@@ -2951,6 +3034,7 @@ impl eframe::App for ShellApp {
         self.windows(context);
         self.inspector_window(context);
         self.controller_window(context);
+        self.lyrics_window(context);
         self.midi_map_window(context);
         self.assistant_window(context);
         self.pads_window(context);

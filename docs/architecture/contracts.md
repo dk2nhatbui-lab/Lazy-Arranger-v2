@@ -438,3 +438,11 @@ tick/pitch; on release `drag_target` maps the pointer to a quarter-quantised tic
 and a staff pitch (staff-aware for the grand staff), and the shell finds the
 project note and applies one `move_note`. Resizing a note in the score is not
 implemented.
+
+### Lyrics window
+
+The Lyrics window lists syllables by tick, adds the text field at the playhead,
+loads a row for editing and removes rows. Each action is one `SetLyrics` edit:
+`add_lyric` replaces any syllable at the tick and sorts, `remove_lyric` filters,
+and `set_lyrics` writes the whole list. The score and MusicXML consume the same
+events; there is no timeline lyric lane.
