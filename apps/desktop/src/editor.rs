@@ -1529,6 +1529,14 @@ impl Editor {
         let info = audio::wav::info(&bytes)?;
         let bpm = self.song().tempo_map.bpm_at(start);
         let length = audio::chords::to_ticks(info.seconds, bpm);
+        if self
+            .song()
+            .tracks
+            .iter()
+            .any(|entry| entry.id == track && entry.audio.is_some())
+        {
+            let _ = self.store_audio_take(track);
+        }
         self.session
             .apply(app_commands::Command::SetAudioRef {
                 track,
@@ -2439,6 +2447,46 @@ mod tests {
             .remove_audio_take(TrackId::new(1).expect("track"), 0)
             .expect("remove");
         assert!(editor.song().tracks[0].takes.is_empty());
+    }
+
+    #[test]
+    fn recording_stores_the_replaced_take() {
+        let mut song = Song::new("Record", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Audio");
+        track.audio = Some(project::song::AudioRef {
+            path: String::from("first.wav"),
+            start: 0,
+            length: music_core::PPQ,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-record-take-{}.wav",
+            std::process::id()
+        ));
+        let wav = audio::RenderedAudio {
+            samples: vec![0.1; 4800 * 2],
+            sample_rate: 48_000,
+        };
+        std::fs::write(&path, wav.to_wav()).expect("wav");
+        editor
+            .record_audio_into(TrackId::new(1).expect("track"), &path, 0)
+            .expect("record");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(editor.song().tracks[0].takes.len(), 1);
+        assert_eq!(editor.song().tracks[0].takes[0].path, "first.wav");
+        assert!(
+            editor.song().tracks[0]
+                .audio
+                .as_ref()
+                .expect("audio")
+                .path
+                .contains("lazy-arranger-record-take")
+        );
     }
 
     #[test]
