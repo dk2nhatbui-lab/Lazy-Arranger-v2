@@ -299,6 +299,29 @@ fn draw(
                     x += 2.0;
                 }
             }
+            for comp in &track.comps {
+                let start = comp.start.max(audio_start);
+                let end = comp.start.saturating_add(comp.length).min(audio_end);
+                if end <= start {
+                    continue;
+                }
+                let left = x_for(start).clamp(block.left(), block.right());
+                let right = x_for(end).clamp(block.left(), block.right());
+                painter.line_segment(
+                    [
+                        pos2(left, block.top() + 1.0),
+                        pos2(left, block.bottom() - 1.0),
+                    ],
+                    Stroke::new(1.5_f32, theme::accent()),
+                );
+                painter.line_segment(
+                    [
+                        pos2(right, block.top() + 1.0),
+                        pos2(right, block.bottom() - 1.0),
+                    ],
+                    Stroke::new(1.5_f32, theme::accent()),
+                );
+            }
             painter.text(
                 pos2(block.left() + 6.0, block.center().y),
                 Align2::LEFT_CENTER,
