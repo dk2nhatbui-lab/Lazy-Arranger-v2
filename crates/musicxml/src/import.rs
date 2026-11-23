@@ -203,7 +203,18 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
             }
             let mut cursor = measure_start;
             let mut last_start = measure_start;
-            for note in measure.children().filter(|node| node.has_tag_name("note")) {
+            for node in measure.children() {
+                if node.has_tag_name("backup") {
+                    let units = number_of(node, "duration").unwrap_or(0.0);
+                    let back = (units / 960.0 * PPQ as f64).round().max(0.0) as Tick;
+                    cursor = cursor.saturating_sub(back).max(measure_start);
+                    last_start = cursor;
+                    continue;
+                }
+                if !node.has_tag_name("note") {
+                    continue;
+                }
+                let note = node;
                 let duration_units = number_of(note, "duration").unwrap_or(0.0);
                 let duration = (duration_units / 960.0 * PPQ as f64).round().max(0.0) as Tick;
                 let is_rest = note.children().any(|child| child.has_tag_name("rest"));

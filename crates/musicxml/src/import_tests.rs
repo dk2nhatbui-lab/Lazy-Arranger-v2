@@ -62,6 +62,32 @@ mod tests {
     }
 
     #[test]
+    fn overlapping_notes_keep_their_starts_through_backup() {
+        let mut song = Song::new("Overlap", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");
+        for (index, (start, duration)) in [(3840_i64, 1000_i64), (3900, 500)].iter().enumerate() {
+            track.notes.push(project::song::Note {
+                id: project::NoteId::new(index as u32 + 1).expect("valid"),
+                start: *start,
+                duration: *duration,
+                pitch: music_core::Pitch::new(60 + index as u8).expect("valid"),
+                velocity: music_core::Velocity::new(90).expect("valid"),
+                channel: music_core::Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        let xml = export(&song, "Overlap");
+        assert!(xml.contains("<backup>"));
+        let imported = import(&xml).expect("import");
+        let starts: Vec<i64> = imported.tracks[0]
+            .notes
+            .iter()
+            .map(|note| note.start)
+            .collect();
+        assert_eq!(starts, vec![3840, 3900]);
+    }
+
+    #[test]
     fn chord_tones_keep_their_common_start() {
         let mut song = Song::new("Chords", 120.0);
         let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");

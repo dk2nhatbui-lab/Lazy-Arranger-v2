@@ -141,6 +141,10 @@ pub fn export(song: &Song, title: &str) -> String {
             let mut cursor = start;
             let mut last_start: Option<Tick> = None;
             for note in notes {
+                if note.start < cursor && last_start != Some(note.start) {
+                    write_backup(&mut out, cursor - note.start);
+                    cursor = note.start;
+                }
                 if note.start > cursor {
                     write_rest(&mut out, note.start - cursor);
                 }
@@ -276,6 +280,14 @@ struct NoteMarks<'a> {
     tie_start: bool,
     tie_stop: bool,
     chord: bool,
+}
+
+fn write_backup(out: &mut String, amount: Tick) {
+    if amount > 0 {
+        out.push_str(&format!(
+            "      <backup><duration>{amount}</duration></backup>\n"
+        ));
+    }
 }
 
 fn write_note(out: &mut String, note: &Note, duration: Tick, marks: &NoteMarks<'_>) {
