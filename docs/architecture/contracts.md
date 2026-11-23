@@ -935,3 +935,11 @@ six bindings (`shortcut.undo`, `redo`, `save`, `save_as`, `open`, `play`) that
 (Windows menu or F1) edits and saves them and validates every binding. A parser
 and settings round-trip test cover it; the capture is
 `docs/audit/shortcuts.png`.
+
+### Multi-clip selection
+
+Shift-click toggles a clip in `selected_clips`; a plain click replaces the
+selection. `apply_clip_click` returns the primary clip. Arrow keys move or
+resize (Shift) every selected clip, and Delete removes them all. Clip outlines
+mark every selected clip. A unit test covers add/remove/replace. There is no
+marquee drag.

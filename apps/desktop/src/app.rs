@@ -167,6 +167,27 @@ fn consume_binding(context: &Context, text: &str, fallback: &str) -> bool {
     })
 }
 
+/// Applies a clip click to the multi-selection and returns the primary clip.
+#[must_use]
+pub fn apply_clip_click(
+    selection: &mut Vec<(TrackId, project::ClipId)>,
+    entry: (TrackId, project::ClipId),
+    shift: bool,
+) -> Option<(TrackId, project::ClipId)> {
+    if shift {
+        if let Some(index) = selection.iter().position(|item| *item == entry) {
+            selection.remove(index);
+        } else {
+            selection.push(entry);
+        }
+        selection.last().copied()
+    } else {
+        selection.clear();
+        selection.push(entry);
+        Some(entry)
+    }
+}
+
 /// Formats a count with a regular plural.
 #[must_use]
 pub fn plural(count: usize, singular: &str) -> String {
@@ -209,6 +230,7 @@ pub struct ShellApp {
     selected_chord: Option<Tick>,
     preview_player: Option<audio::player::Player>,
     selected_clip: Option<(TrackId, project::ClipId)>,
+    selected_clips: Vec<(TrackId, project::ClipId)>,
     chord_dialog: bool,
     chord_dialog_target: Tick,
     reharmonize_dialog: bool,
@@ -367,6 +389,7 @@ impl ShellApp {
             selected_chord: None,
             preview_player: None,
             selected_clip: None,
+            selected_clips: Vec::new(),
             chord_dialog: false,
             chord_dialog_target: 0,
             reharmonize_dialog: false,
@@ -492,13 +515,16 @@ impl ShellApp {
     fn edit_click(&mut self, click: piano_roll::RollClick) {
         if let Some((track, clip)) = click.clip {
             self.roll.selected = Some(track);
-            self.selected_clip = Some((track, clip));
+            self.selected_clip =
+                apply_clip_click(&mut self.selected_clips, (track, clip), click.shift);
             self.selected_note = None;
             return;
         }
         if let Some((track, note)) = click.note {
             self.roll.selected = Some(track);
             self.selected_note = Some((track, note));
+            self.selected_clip = None;
+            self.selected_clips.clear();
             return;
         }
         let Some(track) = self
@@ -518,6 +544,8 @@ impl ShellApp {
         };
         let _ = self.editor.insert(track, start, pitch);
         self.selected_note = None;
+        self.selected_clip = None;
+        self.selected_clips.clear();
     }
 
     /// Undo, redo, delete and save, from the keyboard.
@@ -548,10 +576,14 @@ impl ShellApp {
         if undo {
             self.editor.undo();
             self.selected_note = None;
+            self.selected_clip = None;
+            self.selected_clips.clear();
         }
         if redo {
             self.editor.redo();
             self.selected_note = None;
+            self.selected_clip = None;
+            self.selected_clips.clear();
         }
         if select_all
             && let Some(track) = self
@@ -696,6 +728,11 @@ impl ShellApp {
                 }
                 self.status = Some(format!("deleted {} note(s)", self.selected_notes.len()));
                 self.selected_notes.clear();
+            } else if !self.selected_clips.is_empty() {
+                for (track, clip) in std::mem::take(&mut self.selected_clips) {
+                    let _ = self.editor.remove_clip(track, clip);
+                }
+                self.selected_clip = None;
             } else if let Some((track, clip)) = self.selected_clip.take() {
                 let _ = self.editor.remove_clip(track, clip);
             } else if let Some((track, note)) = self.selected_note.take() {
@@ -704,6 +741,7 @@ impl ShellApp {
         }
         if context.input(|input| input.key_pressed(egui::Key::N))
             && self.selected_clip.is_none()
+            && self.selected_clips.is_empty()
             && let Some(track) = self
                 .roll
                 .selected
@@ -728,62 +766,71 @@ impl ShellApp {
                 };
                 let _ = self.editor.insert_clip(track, clip);
                 self.selected_clip = Some((track, id));
+                self.selected_clips = vec![(track, id)];
             }
         }
-        if let Some((track, clip)) = self.selected_clip {
-            let bar = self.song().time_signature.bar_ticks().max(1);
-            let right = context.input(|input| input.key_pressed(egui::Key::ArrowRight));
-            let left = context.input(|input| input.key_pressed(egui::Key::ArrowLeft));
-            let shift = context.input(|input| input.modifiers.shift);
-            if (right || left)
-                && let Some(found) = self
+        let targets: Vec<(TrackId, project::ClipId)> = if self.selected_clips.is_empty() {
+            self.selected_clip.into_iter().collect()
+        } else {
+            self.selected_clips.clone()
+        };
+        let bar = self.song().time_signature.bar_ticks().max(1);
+        let right = context.input(|input| input.key_pressed(egui::Key::ArrowRight));
+        let left = context.input(|input| input.key_pressed(egui::Key::ArrowLeft));
+        let shift = context.input(|input| input.modifiers.shift);
+        if right || left {
+            for (track, clip) in &targets {
+                let Some(found) = self
                     .song()
                     .tracks
                     .iter()
-                    .find(|candidate| candidate.id == track)
-                    .and_then(|candidate| candidate.clips.iter().find(|cl| cl.id == clip))
+                    .find(|candidate| candidate.id == *track)
+                    .and_then(|candidate| candidate.clips.iter().find(|cl| cl.id == *clip))
                     .cloned()
-            {
+                else {
+                    continue;
+                };
                 if shift {
                     let length = if right {
                         found.length + bar
                     } else {
                         (found.length - bar).max(1)
                     };
-                    let _ = self.editor.resize_clip(track, clip, length);
+                    let _ = self.editor.resize_clip(*track, *clip, length);
                 } else {
                     let target = if right {
                         found.start + bar
                     } else {
                         (found.start - bar).max(0)
                     };
-                    let _ = self.editor.move_clip(track, clip, target);
+                    let _ = self.editor.move_clip(*track, *clip, target);
                 }
             }
-            if context.input(|input| input.key_pressed(egui::Key::J))
-                && let Some(next) = self
-                    .song()
-                    .tracks
-                    .iter()
-                    .find(|candidate| candidate.id == track)
-                    .and_then(|candidate| {
-                        candidate
-                            .clips
-                            .iter()
-                            .find(|cl| {
-                                cl.start
-                                    > candidate
-                                        .clips
-                                        .iter()
-                                        .find(|sel| sel.id == clip)
-                                        .map_or(i64::MAX, |sel| sel.start)
-                            })
-                            .map(|cl| cl.id)
-                    })
-            {
-                let _ = self.editor.join_clips(track, clip, next);
-                self.selected_clip = Some((track, clip));
-            }
+        }
+        if let Some((track, clip)) = self.selected_clip
+            && context.input(|input| input.key_pressed(egui::Key::J))
+            && let Some(next) = self
+                .song()
+                .tracks
+                .iter()
+                .find(|candidate| candidate.id == track)
+                .and_then(|candidate| {
+                    candidate
+                        .clips
+                        .iter()
+                        .find(|cl| {
+                            cl.start
+                                > candidate
+                                    .clips
+                                    .iter()
+                                    .find(|sel| sel.id == clip)
+                                    .map_or(i64::MAX, |sel| sel.start)
+                        })
+                        .map(|cl| cl.id)
+                })
+        {
+            let _ = self.editor.join_clips(track, clip, next);
+            self.selected_clip = Some((track, clip));
         }
         if context.input(|input| input.key_pressed(egui::Key::G))
             && let Some(source) = self.roll.selected
@@ -1625,6 +1672,7 @@ impl ShellApp {
                         if input == "undo" || input.starts_with("tool ") {
                             self.selected_note = None;
                             self.selected_clip = None;
+                            self.selected_clips.clear();
                         }
                         let reply = self.editor.assistant(&input);
                         self.assistant_log.push(format!("> {input}"));
@@ -1666,6 +1714,7 @@ impl ShellApp {
                 self.project_path = None;
                 self.selected_note = None;
                 self.selected_clip = None;
+                self.selected_clips.clear();
                 self.selected_chord = None;
                 self.position = 0;
                 self.song_name_input = self.song().name.clone();
@@ -4271,6 +4320,8 @@ impl ShellApp {
                     }
                 }
                 self.selected_note = None;
+                self.selected_clip = None;
+                self.selected_clips.clear();
                 self.project_path = if imported { None } else { Some(path.clone()) };
                 self.status = if imported {
                     Some(format!(
@@ -4376,7 +4427,6 @@ impl eframe::App for ShellApp {
                 let mut lyric_click: Option<Tick> = None;
                 let mut seek: Option<Tick> = None;
                 let Self { editor, roll, .. } = self;
-                let selected_clip = self.selected_clip;
                 let project = editor.project();
                 match view {
                     View::Arrange => {
@@ -4469,13 +4519,9 @@ impl eframe::App for ShellApp {
                                 self.waveform_position,
                             );
                         }
-                        let outcome = piano_roll::show(
-                            ui,
-                            &project.song,
-                            roll,
-                            position,
-                            selected_clip.map(|(_, clip)| clip),
-                        );
+                        let selected_clips = self.selected_clips.clone();
+                        let outcome =
+                            piano_roll::show(ui, &project.song, roll, position, &selected_clips);
                         clicked = outcome.click;
                         if let Some(edit) = outcome.edit {
                             scroll_edit = Some(edit);
@@ -5447,6 +5493,28 @@ mod tests {
         assert!(lines.iter().any(|line| line.starts_with("Cadence:")));
         let empty = project::song::Song::new("Empty", 120.0);
         assert_eq!(theory_summary(&empty)[2], "No chords yet");
+    }
+
+    #[test]
+    fn clip_clicks_toggle_a_multi_selection() {
+        use project::{ClipId, TrackId};
+        let first = (
+            TrackId::new(1).expect("valid"),
+            ClipId::new(1).expect("valid"),
+        );
+        let second = (
+            TrackId::new(1).expect("valid"),
+            ClipId::new(2).expect("valid"),
+        );
+        let mut selection = Vec::new();
+        assert_eq!(apply_clip_click(&mut selection, first, false), Some(first));
+        assert_eq!(selection.len(), 1);
+        assert_eq!(apply_clip_click(&mut selection, second, true), Some(second));
+        assert_eq!(selection.len(), 2);
+        assert_eq!(apply_clip_click(&mut selection, first, true), Some(second));
+        assert_eq!(selection, vec![second]);
+        assert_eq!(apply_clip_click(&mut selection, first, false), Some(first));
+        assert_eq!(selection, vec![first]);
     }
 
     #[test]

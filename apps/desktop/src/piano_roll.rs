@@ -148,6 +148,8 @@ pub struct RollClick {
     pub note: Option<(TrackId, project::NoteId)>,
     /// Clip that was hit, if any.
     pub clip: Option<(TrackId, project::ClipId)>,
+    /// True when Shift was held at the click.
+    pub shift: bool,
 }
 
 /// What a drag on a note does.
@@ -308,7 +310,7 @@ pub fn show(
     song: &Song,
     state: &mut RollState,
     playhead: Tick,
-    selected_clip: Option<project::ClipId>,
+    selected_clips: &[(TrackId, project::ClipId)],
 ) -> RollOutcome {
     let available = ui.available_size();
     let main_height = (available.y - VELOCITY_LANE_HEIGHT).max(60.0);
@@ -428,7 +430,7 @@ pub fn show(
         &geometry,
         song,
         state.selected,
-        selected_clip,
+        selected_clips,
     );
     draw_chord_lane(&painter, content, &geometry, song);
     draw_lyric_lane(&painter, content, &geometry, song);
@@ -526,6 +528,7 @@ pub fn show(
         pitch,
         note: None,
         clip: None,
+        shift: false,
     };
     if let Some(track_id) = state.selected
         && let Some(track) = song.tracks.iter().find(|track| track.id == track_id)
@@ -538,6 +541,7 @@ pub fn show(
                         pitch,
                         note: None,
                         clip: Some((track.id, clip.id)),
+                        shift: ui.input(|input| input.modifiers.shift),
                     }),
                     edit: None,
                     velocity: None,
@@ -569,6 +573,7 @@ pub fn show(
                         pitch: note.pitch.as_u8(),
                         note: Some((track.id, note.id)),
                         clip: None,
+                        shift: false,
                     }),
                     edit: None,
                     velocity: None,
@@ -695,7 +700,7 @@ fn draw_clip_lane(
     geometry: &RollGeometry,
     song: &Song,
     selected_track: Option<TrackId>,
-    selected_clip: Option<project::ClipId>,
+    selected_clips: &[(TrackId, project::ClipId)],
 ) {
     let Some(track) = selected_track.and_then(|id| song.tracks.iter().find(|track| track.id == id))
     else {
@@ -708,7 +713,7 @@ fn draw_clip_lane(
     );
     for clip in &track.clips {
         let clip_rect = clip_rect(rect, geometry, clip);
-        let selected = selected_clip == Some(clip.id);
+        let selected = selected_clips.contains(&(track.id, clip.id));
         painter.rect_filled(
             clip_rect,
             0.0,
