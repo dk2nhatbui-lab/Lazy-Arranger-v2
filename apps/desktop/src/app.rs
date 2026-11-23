@@ -364,6 +364,18 @@ fn seed_default_device_profiles(folder: &std::path::Path) {
             include_str!("../assets/profiles/xiosynth.yaml"),
         ),
         ("d05.yaml", include_str!("../assets/profiles/d05.yaml")),
+        (
+            "generic-gs.yaml",
+            include_str!("../assets/profiles/generic-gs.yaml"),
+        ),
+        (
+            "generic-xg.yaml",
+            include_str!("../assets/profiles/generic-xg.yaml"),
+        ),
+        (
+            "korg-pa.yaml",
+            include_str!("../assets/profiles/korg-pa.yaml"),
+        ),
     ] {
         let path = folder.join(name);
         if !path.exists() {
@@ -11245,10 +11257,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&folder);
         seed_default_device_profiles(&folder);
         let (profiles, problems) = midi_devices::profiles::load_directory(&folder).expect("load");
-        assert_eq!(profiles.len(), 2);
+        assert_eq!(profiles.len(), 5);
         assert!(problems.is_empty());
         assert!(profiles.iter().any(|profile| profile.id == "xiosynth"));
         assert!(profiles.iter().any(|profile| profile.id == "d05"));
+        assert!(profiles.iter().any(|profile| profile.id == "generic-gs"));
+        assert!(profiles.iter().any(|profile| profile.id == "generic-xg"));
+        assert!(profiles.iter().any(|profile| profile.id == "korg-pa"));
         let _ = std::fs::remove_dir_all(&folder);
     }
 
