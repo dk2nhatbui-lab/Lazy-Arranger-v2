@@ -497,6 +497,13 @@ pub struct ShellApp {
     patch_open: bool,
     patch_track: Option<TrackId>,
     patch_draft: Option<project::song::Patch>,
+    style_clips_open: bool,
+    style_name: String,
+    style_chord: String,
+    style_length: u32,
+    style_from_markers: bool,
+    style_path: String,
+    style_sff1: bool,
     au_editor_open: bool,
     au_editor_track: Option<TrackId>,
     au_editor_slot: Option<u32>,
@@ -693,6 +700,13 @@ impl ShellApp {
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
             patch_track: None,
             patch_draft: None,
+            style_clips_open: std::env::var("ARRANGER_STYLE").is_ok(),
+            style_name: String::from("Main A"),
+            style_chord: String::from("C"),
+            style_length: 3840,
+            style_from_markers: true,
+            style_path: String::from("clips.sty"),
+            style_sff1: false,
             au_editor_open: false,
             au_editor_track: None,
             au_editor_slot: None,
@@ -2523,6 +2537,81 @@ impl ShellApp {
             let _ = self.editor.set_track_gain(id, volume, pan);
             let _ = self.editor.set_track_flags(id, muted, soloed, false);
         }
+    }
+
+    fn style_clips_window(&mut self, context: &Context) {
+        if !self.style_clips_open {
+            return;
+        }
+        let mut open = self.style_clips_open;
+        egui::Window::new("Style from clips")
+            .open(&mut open)
+            .resizable(false)
+            .show(context, |ui| {
+                ui.label("Section name");
+                ui.text_edit_singleline(&mut self.style_name);
+                ui.horizontal(|ui| {
+                    ui.label("Chord");
+                    ui.add(egui::TextEdit::singleline(&mut self.style_chord).desired_width(80.0));
+                });
+                ui.checkbox(&mut self.style_from_markers, "split at markers");
+                if !self.style_from_markers {
+                    ui.add(
+                        egui::DragValue::new(&mut self.style_length)
+                            .range(1..=960 * 128)
+                            .suffix(" ticks"),
+                    );
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Output");
+                    ui.add(egui::TextEdit::singleline(&mut self.style_path).desired_width(220.0));
+                });
+                ui.checkbox(&mut self.style_sff1, "SFF1 instead of SFF2");
+                if ui.button("Export style").clicked() {
+                    match self.export_style_from_clips() {
+                        Ok(message) => self.status = Some(message),
+                        Err(error) => self.status = Some(error),
+                    }
+                }
+            });
+        self.style_clips_open = open;
+    }
+
+    fn export_style_from_clips(&self) -> Result<String, String> {
+        let chord =
+            music_core::Chord::parse(&self.style_chord).map_err(|error| error.to_string())?;
+        let source = arranger::chord_type::ArrangerChord::try_from(&chord)
+            .map_err(|_| format!("unsupported style chord {:?}", self.style_chord))?;
+        let mut style = if self.style_from_markers {
+            arranger::style::from_song_sections(self.song(), &self.song().name, source)
+        } else {
+            arranger::style::from_song(
+                self.song(),
+                &self.song().name,
+                source,
+                music_core::Tick::from(self.style_length.max(1)),
+            )
+        };
+        if !self.style_from_markers
+            && let Some(first) = style.sections.first_mut()
+        {
+            first.name = self.style_name.clone();
+        }
+        let version = if self.style_sff1 {
+            style_formats::casm::SffVersion::Sff1
+        } else {
+            style_formats::casm::SffVersion::Sff2
+        };
+        let bytes = style_formats::write_native_style(&style, version)
+            .map_err(|error| error.to_string())?;
+        std::fs::write(&self.style_path, &bytes)
+            .map_err(|error| format!("{}: {error}", self.style_path))?;
+        Ok(format!(
+            "wrote {}: {} section(s), {} byte(s)",
+            self.style_path,
+            style.sections.len(),
+            bytes.len()
+        ))
     }
 
     fn patch_window(&mut self, context: &Context) {
@@ -5593,6 +5682,10 @@ impl ShellApp {
                                 self.patch_draft = None;
                                 ui.close_menu();
                             }
+                            if ui.button("Style from clips").clicked() {
+                                self.style_clips_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Shortcuts").clicked() {
                                 self.shortcuts_open = true;
                                 ui.close_menu();
@@ -5910,6 +6003,7 @@ impl eframe::App for ShellApp {
         self.help_window(context);
         self.plugins_window(context);
         self.patch_window(context);
+        self.style_clips_window(context);
         self.au_parameters_window(context);
         self.print_window(context);
         self.file_window(context);
