@@ -19,6 +19,7 @@ pub mod devices;
 pub mod dispatch;
 pub mod map;
 pub mod profiles;
+pub mod programs;
 pub mod sysex;
 
 pub use capture::{CaptureStats, CapturedNote, NoteCapture};

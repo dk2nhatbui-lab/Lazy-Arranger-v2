@@ -112,6 +112,7 @@ struct Row {
     name: String,
     notes: usize,
     program: Option<u8>,
+    audio: bool,
     muted: bool,
     soloed: bool,
     armed: bool,
@@ -4097,6 +4098,28 @@ impl ShellApp {
                             .size(10.0)
                             .color(theme::text_muted()),
                     );
+                    if track.soundfont.is_none() && track.program.is_some() {
+                        let mut program = track.program.unwrap_or(0);
+                        egui::ComboBox::from_id_salt("track-program")
+                            .selected_text(midi_devices::programs::name(program))
+                            .show_ui(ui, |ui| {
+                                for (value, name) in
+                                    midi_devices::programs::GM_NAMES.iter().enumerate()
+                                {
+                                    if ui
+                                        .selectable_value(
+                                            &mut program,
+                                            u8::try_from(value).unwrap_or(0),
+                                            *name,
+                                        )
+                                        .clicked()
+                                    {
+                                        let _ =
+                                            self.editor.set_track_program(track.id, Some(program));
+                                    }
+                                }
+                            });
+                    }
                     ui.horizontal(|ui| {
                         let mut muted = track.muted;
                         let mut soloed = track.soloed;
@@ -7126,6 +7149,7 @@ impl ShellApp {
                         name: track.name.clone(),
                         notes: track.notes.len(),
                         program: track.program,
+                        audio: track.audio.is_some(),
                         muted: track.muted,
                         soloed: track.soloed,
                         armed: track.armed,
@@ -7478,7 +7502,7 @@ impl ShellApp {
                     ui.painter().rect_filled(rect, 0.0, colour);
                     let (icon_rect, _) =
                         ui.allocate_exact_size(egui::vec2(22.0, 24.0), egui::Sense::hover());
-                    draw_track_icon(ui, icon_rect, &row.name, colour);
+                    draw_track_icon(ui, icon_rect, &row.name, row.program, row.audio, colour);
                     ui.allocate_ui_with_layout(
                         egui::vec2((ui.available_width() - 62.0).max(40.0), 30.0),
                         egui::Layout::top_down(egui::Align::LEFT),
@@ -8524,78 +8548,164 @@ impl eframe::App for ShellApp {
 }
 
 /// A round transport button drawn like v1's `RoundButton`.
-fn draw_track_icon(ui: &egui::Ui, rect: Rect, name: &str, color: egui::Color32) {
+fn draw_track_icon(
+    ui: &egui::Ui,
+    rect: Rect,
+    name: &str,
+    program: Option<u8>,
+    audio: bool,
+    color: egui::Color32,
+) {
     let lower = name.to_ascii_lowercase();
-    let painter = ui.painter();
-    let center = rect.center();
-    let stroke = egui::Stroke::new(1.3_f32, theme::text_muted());
-    if lower.contains("drum") || lower.contains("perc") {
-        painter.circle_stroke(center, 7.0, stroke);
-        painter.circle_filled(center, 2.0, color);
-        painter.line_segment(
-            [
-                egui::pos2(center.x - 9.0, center.y + 8.0),
-                egui::pos2(center.x + 9.0, center.y + 8.0),
-            ],
-            stroke,
-        );
-    } else if lower.contains("bass") {
-        painter.line_segment(
-            [
-                egui::pos2(center.x - 8.0, center.y - 2.0),
-                egui::pos2(center.x + 6.0, center.y - 2.0),
-            ],
-            stroke,
-        );
-        painter.circle_stroke(egui::pos2(center.x + 6.0, center.y - 2.0), 3.0, stroke);
-        painter.line_segment(
-            [
-                egui::pos2(center.x - 8.0, center.y + 4.0),
-                egui::pos2(center.x + 2.0, center.y + 4.0),
-            ],
-            stroke,
-        );
-    } else if lower.contains("pad") || lower.contains("string") {
-        for offset in [-5.0_f32, 0.0, 5.0] {
-            painter.line_segment(
-                [
-                    egui::pos2(center.x - 8.0, center.y + offset),
-                    egui::pos2(center.x + 8.0, center.y + offset),
-                ],
-                stroke,
-            );
-        }
-    } else if lower.contains("piano") || lower.contains("key") || lower.contains("organ") {
-        let keys = Rect::from_center_size(center, egui::vec2(18.0, 12.0));
-        painter.rect_stroke(keys, 1.0, stroke, egui::StrokeKind::Inside);
-        for offset in [-6.0_f32, 0.0, 6.0] {
-            painter.line_segment(
-                [
-                    egui::pos2(center.x + offset, keys.top()),
-                    egui::pos2(center.x + offset, keys.bottom()),
-                ],
-                stroke,
-            );
-        }
-    } else if lower.contains("guitar") {
-        painter.line_segment(
-            [
-                egui::pos2(center.x - 7.0, center.y - 7.0),
-                egui::pos2(center.x + 5.0, center.y + 5.0),
-            ],
-            stroke,
-        );
-        painter.circle_stroke(egui::pos2(center.x + 5.0, center.y + 6.0), 3.5, stroke);
+    let has = |word: &str| lower.contains(word);
+    let icon = if audio {
+        "waveform"
+    } else if has("drum") || has("kit") || has("perc") {
+        "drums"
+    } else if has("guitar") {
+        "guitar"
+    } else if has("bass") {
+        "bass"
+    } else if has("brass") || has("trumpet") || has("trombone") || has("sax") || has("horn") {
+        "brass"
+    } else if has("piano") || has("keys") {
+        "piano"
+    } else if has("lead") || has("synth") || has("pad") || has("arp") {
+        "synth"
     } else {
-        let points: Vec<egui::Pos2> = (0..9)
-            .map(|index| {
-                egui::pos2(
-                    center.x - 8.0 + index as f32 * 2.0,
-                    center.y + (index as f32 * 1.7).sin() * 4.0,
-                )
-            })
-            .collect();
-        painter.add(egui::Shape::line(points, stroke));
+        match program.unwrap_or(0) {
+            24..=31 => "guitar",
+            32..=39 => "bass",
+            56..=63 => "brass",
+            80..=87 => "synth",
+            0..=7 => "piano",
+            _ => "instrument",
+        }
+    };
+    let painter = ui.painter();
+    let c = rect.center();
+    let ink = theme::text_muted();
+    let stroke = egui::Stroke::new(1.4_f32, ink);
+    let line = |a: egui::Pos2, b: egui::Pos2| painter.line_segment([a, b], stroke);
+    match icon {
+        "drums" => {
+            painter.circle_stroke(egui::pos2(c.x - 3.0, c.y + 3.0), 4.5, stroke);
+            painter.circle_stroke(egui::pos2(c.x - 3.0, c.y + 3.0), 1.8, stroke);
+            let snare =
+                Rect::from_center_size(egui::pos2(c.x + 5.0, c.y + 2.0), egui::vec2(5.0, 3.5));
+            painter.rect_stroke(snare, 1.0, stroke, egui::StrokeKind::Inside);
+            line(
+                egui::pos2(snare.left(), snare.bottom()),
+                egui::pos2(snare.left(), c.y + 8.0),
+            );
+            line(
+                egui::pos2(snare.right(), snare.bottom()),
+                egui::pos2(snare.right(), c.y + 8.0),
+            );
+            line(
+                egui::pos2(c.x - 7.0, c.y - 8.0),
+                egui::pos2(c.x + 2.0, c.y - 8.0),
+            );
+            line(egui::pos2(c.x - 5.0, c.y - 8.0), egui::pos2(c.x, c.y + 1.0));
+        }
+        "guitar" => {
+            painter.circle_stroke(egui::pos2(c.x - 4.0, c.y + 4.0), 4.5, stroke);
+            painter.circle_stroke(egui::pos2(c.x + 0.5, c.y - 0.5), 3.5, stroke);
+            line(
+                egui::pos2(c.x + 1.0, c.y - 1.0),
+                egui::pos2(c.x + 9.0, c.y - 9.0),
+            );
+            painter.circle_filled(egui::pos2(c.x - 4.0, c.y + 4.0), 1.5, ink);
+        }
+        "bass" => {
+            painter.circle_stroke(egui::pos2(c.x - 4.0, c.y + 4.0), 5.0, stroke);
+            line(
+                egui::pos2(c.x - 1.0, c.y + 1.0),
+                egui::pos2(c.x + 8.0, c.y - 8.0),
+            );
+            painter.rect_filled(
+                Rect::from_center_size(egui::pos2(c.x + 8.5, c.y - 8.5), egui::vec2(3.0, 4.0)),
+                1.0,
+                ink,
+            );
+        }
+        "brass" => {
+            let points = vec![
+                egui::pos2(c.x - 9.0, c.y),
+                egui::pos2(c.x - 2.0, c.y + 1.0),
+                egui::pos2(c.x + 2.0, c.y + 5.0),
+                egui::pos2(c.x + 8.0, c.y + 6.0),
+                egui::pos2(c.x + 8.0, c.y - 5.0),
+                egui::pos2(c.x + 2.0, c.y - 3.0),
+                egui::pos2(c.x - 2.0, c.y + 1.0),
+            ];
+            painter.add(egui::Shape::line(points, stroke));
+            line(
+                egui::pos2(c.x - 1.0, c.y - 3.0),
+                egui::pos2(c.x - 1.0, c.y + 3.0),
+            );
+        }
+        "piano" => {
+            let keys = Rect::from_center_size(egui::pos2(c.x, c.y - 1.0), egui::vec2(15.0, 7.0));
+            painter.rect_stroke(keys, 1.0, stroke, egui::StrokeKind::Inside);
+            for index in 1..5 {
+                let x = keys.left() + keys.width() * index as f32 / 5.0;
+                line(egui::pos2(x, keys.top()), egui::pos2(x, keys.bottom()));
+            }
+            line(
+                egui::pos2(keys.left() + 2.0, keys.bottom()),
+                egui::pos2(keys.left() + 1.0, c.y + 9.0),
+            );
+            line(
+                egui::pos2(keys.right() - 2.0, keys.bottom()),
+                egui::pos2(keys.right() - 1.0, c.y + 9.0),
+            );
+        }
+        "synth" => {
+            let panel = Rect::from_center_size(c, egui::vec2(15.0, 10.0));
+            painter.rect_stroke(panel, 1.0, stroke, egui::StrokeKind::Inside);
+            for index in 0..3 {
+                painter.circle_stroke(
+                    egui::pos2(panel.left() + 3.0 + index as f32 * 4.0, panel.top() + 3.0),
+                    1.4,
+                    stroke,
+                );
+            }
+            line(
+                egui::pos2(panel.left() + 2.0, panel.bottom() - 2.0),
+                egui::pos2(panel.right() - 2.0, panel.bottom() - 2.0),
+            );
+        }
+        "waveform" => {
+            let heights = [4.0_f32, 8.0, 11.0, 6.0, 9.0];
+            for (index, height) in heights.iter().enumerate() {
+                let x = c.x - 8.0 + index as f32 * 4.0;
+                painter.rect_filled(
+                    Rect::from_min_max(
+                        egui::pos2(x, c.y - height / 2.0),
+                        egui::pos2(x + 2.5, c.y + height / 2.0),
+                    ),
+                    1.0,
+                    color,
+                );
+            }
+        }
+        _ => {
+            let keys = Rect::from_center_size(c, egui::vec2(14.0, 10.0));
+            painter.rect_stroke(keys, 1.0, stroke, egui::StrokeKind::Inside);
+            for index in 1..4 {
+                let x = keys.left() + keys.width() * index as f32 / 4.0;
+                line(egui::pos2(x, keys.top()), egui::pos2(x, keys.bottom()));
+            }
+            for index in 0..3 {
+                let x = keys.left() + 2.0 + index as f32 * 3.5;
+                painter.rect_filled(
+                    Rect::from_min_size(egui::pos2(x, keys.top()), egui::vec2(2.0, 5.0)),
+                    0.5,
+                    ink,
+                );
+            }
+        }
     }
 }
 
