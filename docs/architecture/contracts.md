@@ -836,3 +836,11 @@ The default measure gap is 16 pt, so four 4/4 measures fit the 499 pt content
 width (4 × 112 + 3 × 16 = 496). The demo page is re-rendered at
 `docs/audit/score-page.png`; the wide-page test now expects one system of four
 measures.
+
+### Graded lessons
+
+`music_core::lesson::question(kind, seed)` deterministically builds a
+chord-quality, roman-numeral or interval question; `is_correct`, `answer_text`
+and `explanation` wrap it. The Lessons window offers kind selection, New
+question, answer buttons and an in-memory score. Tests cover every kind across
+50 seeds, determinism and answer checking.

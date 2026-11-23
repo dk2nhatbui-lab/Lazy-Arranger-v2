@@ -11,6 +11,7 @@
 //! * Display spellings are chosen at format time, never stored in a pitch.
 
 pub mod chord;
+pub mod lesson;
 pub mod midi;
 pub mod pitch;
 pub mod progression;

@@ -188,6 +188,12 @@ pub struct ShellApp {
     song_name_input: String,
     markers_open: bool,
     theory_open: bool,
+    lessons_open: bool,
+    lesson_kind: music_core::lesson::LessonKind,
+    lesson_seed: u64,
+    lesson_question: Option<music_core::lesson::Question>,
+    lesson_score: (u32, u32),
+    lesson_feedback: Option<bool>,
     marker_text: String,
     marker_selected: Option<Tick>,
     form_dialog: bool,
@@ -332,6 +338,12 @@ impl ShellApp {
             song_name_input,
             markers_open: false,
             theory_open: false,
+            lessons_open: false,
+            lesson_kind: music_core::lesson::LessonKind::ChordQuality,
+            lesson_seed: 1,
+            lesson_question: None,
+            lesson_score: (0, 0),
+            lesson_feedback: None,
             marker_text: String::new(),
             marker_selected: None,
             form_dialog: false,
@@ -1582,6 +1594,90 @@ impl ShellApp {
     }
 
     /// Settings and shortcut windows.
+    fn lessons_window(&mut self, context: &egui::Context) {
+        if !self.lessons_open {
+            return;
+        }
+        let mut open = self.lessons_open;
+        let mut new_question = false;
+        let mut answer = None;
+        egui::Window::new("Lessons")
+            .open(&mut open)
+            .default_width(360.0)
+            .show(context, |ui| {
+                egui::ComboBox::from_id_salt("lesson-kind")
+                    .selected_text(self.lesson_kind.name())
+                    .show_ui(ui, |ui| {
+                        for kind in music_core::lesson::LessonKind::ALL {
+                            if ui
+                                .selectable_label(self.lesson_kind == kind, kind.name())
+                                .clicked()
+                            {
+                                self.lesson_kind = kind;
+                                self.lesson_question = None;
+                                self.lesson_feedback = None;
+                            }
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    if ui.button("New question").clicked() {
+                        new_question = true;
+                    }
+                    ui.label(format!(
+                        "score {} / {}",
+                        self.lesson_score.0,
+                        self.lesson_score.0 + self.lesson_score.1
+                    ));
+                });
+                if let Some(question) = &self.lesson_question {
+                    ui.separator();
+                    ui.label(egui::RichText::new(&question.prompt).strong());
+                    for (index, choice) in question.choices.iter().enumerate() {
+                        if ui
+                            .add_enabled(self.lesson_feedback.is_none(), egui::Button::new(choice))
+                            .clicked()
+                        {
+                            answer = Some(index);
+                        }
+                    }
+                    if let Some(correct) = self.lesson_feedback {
+                        ui.label(if correct {
+                            egui::RichText::new("Correct").color(theme::playing())
+                        } else {
+                            egui::RichText::new(format!("Wrong — {}", question.explanation()))
+                                .color(theme::recording())
+                        });
+                        if ui.button("Next").clicked() {
+                            new_question = true;
+                        }
+                    }
+                } else {
+                    ui.label("Press New question to start a graded exercise.");
+                }
+            });
+        self.lessons_open = open;
+        if let Some(index) = answer
+            && let Some(question) = &self.lesson_question
+            && self.lesson_feedback.is_none()
+        {
+            let correct = question.is_correct(index);
+            if correct {
+                self.lesson_score.0 += 1;
+            } else {
+                self.lesson_score.1 += 1;
+            }
+            self.lesson_feedback = Some(correct);
+        }
+        if new_question {
+            self.lesson_question = Some(music_core::lesson::question(
+                self.lesson_kind,
+                self.lesson_seed,
+            ));
+            self.lesson_seed = self.lesson_seed.wrapping_add(1);
+            self.lesson_feedback = None;
+        }
+    }
+
     fn theory_window(&mut self, context: &egui::Context) {
         if !self.theory_open {
             return;
@@ -3568,6 +3664,10 @@ impl ShellApp {
                                 self.theory_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Lessons").clicked() {
+                                self.lessons_open = true;
+                                ui.close_menu();
+                            }
                             ui.separator();
                             if ui.button("Import L6max").clicked() {
                                 self.file_path_input.clear();
@@ -3843,6 +3943,7 @@ impl eframe::App for ShellApp {
         self.lyrics_window(context);
         self.markers_window(context);
         self.theory_window(context);
+        self.lessons_window(context);
         self.file_window(context);
         self.midi_map_window(context);
         self.assistant_window(context);
