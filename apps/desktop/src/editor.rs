@@ -2278,6 +2278,34 @@ mod tests {
     }
 
     #[test]
+    fn moving_the_first_plugin_earlier_is_a_no_op() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let first = editor
+            .add_plugin(
+                track,
+                "First",
+                project::song::PluginFormat::Vst3,
+                "/p/First.vst3",
+                "",
+            )
+            .expect("add");
+        editor
+            .add_plugin(
+                track,
+                "Second",
+                project::song::PluginFormat::Vst3,
+                "/p/Second.vst3",
+                "",
+            )
+            .expect("add");
+        editor.move_plugin(track, first, true).expect("bounded");
+        assert_eq!(editor.song().tracks[0].plugins[0].id, first);
+        editor.move_plugin(track, first, false).expect("move down");
+        assert_eq!(editor.song().tracks[0].plugins[1].id, first);
+    }
+
+    #[test]
     fn a_plugin_state_is_stored_and_undoable() {
         let mut editor = editor();
         let track = TrackId::new(1).expect("valid");
