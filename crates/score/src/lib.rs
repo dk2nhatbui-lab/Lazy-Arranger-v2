@@ -71,6 +71,38 @@ pub struct PlacedNote {
     pub tied: bool,
 }
 
+/// A beam joining short notes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Beam {
+    /// Page holding the beam.
+    pub page: usize,
+    /// First notehead x.
+    pub start_x: f32,
+    /// Last notehead x.
+    pub end_x: f32,
+    /// Beam line y.
+    pub y: f32,
+    /// Notes joined.
+    pub notes: usize,
+    /// True when a sixteenth beam is needed too.
+    pub sixteenth: bool,
+}
+
+/// A tuplet bracket.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tuplet {
+    /// Page holding the bracket.
+    pub page: usize,
+    /// Bracket start x.
+    pub start_x: f32,
+    /// Bracket end x.
+    pub end_x: f32,
+    /// Bracket y.
+    pub y: f32,
+    /// Notes in the tuplet.
+    pub count: usize,
+}
+
 /// One score mark placed on the page.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlacedMark {
@@ -177,6 +209,10 @@ pub struct Engraved {
     pub lyrics: Vec<Lyric>,
     /// Dynamics and articulations.
     pub marks: Vec<PlacedMark>,
+    /// Beams for short notes.
+    pub beams: Vec<Beam>,
+    /// Tuplet brackets.
+    pub tuplets: Vec<Tuplet>,
 }
 
 impl Engraved {
@@ -191,6 +227,81 @@ impl Engraved {
 #[must_use]
 pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
     engrave_with(song, track, settings, &[])
+}
+
+fn beams_and_tuplets(notes: &[PlacedNote]) -> (Vec<Beam>, Vec<Tuplet>) {
+    let mut beams = Vec::new();
+    let mut tuplets = Vec::new();
+    let eighth = music_core::PPQ / 2;
+    let sixteenth = music_core::PPQ / 4;
+    let mut index = 0;
+    while index < notes.len() {
+        let note = notes[index];
+        if note.tie_start || note.tied {
+            index += 1;
+            continue;
+        }
+        // Triplet run: three equal notes whose total is a quarter or eighth.
+        let triplet =
+            |value: Tick| value * 3 == music_core::PPQ || value * 3 == music_core::PPQ / 2;
+        if triplet(note.duration) {
+            let mut end = index;
+            while end + 1 < notes.len()
+                && notes[end + 1].duration == note.duration
+                && notes[end + 1].tick == notes[end].tick + note.duration
+                && notes[end + 1].measure == note.measure
+            {
+                end += 1;
+            }
+            let count = end - index + 1;
+            if count == 3 {
+                tuplets.push(Tuplet {
+                    page: note.page,
+                    start_x: note.x,
+                    end_x: notes[end].x,
+                    y: notes[index..=end]
+                        .iter()
+                        .map(|entry| entry.y)
+                        .fold(f32::MAX, f32::min)
+                        - 14.0,
+                    count,
+                });
+                index = end + 1;
+                continue;
+            }
+        }
+        if note.duration <= eighth {
+            let mut end = index;
+            while end + 1 < notes.len()
+                && notes[end + 1].duration <= eighth
+                && notes[end + 1].tick == notes[end].tick + notes[end].duration
+                && notes[end + 1].measure == note.measure
+            {
+                end += 1;
+            }
+            if end > index {
+                let sixteenth = notes[index..=end]
+                    .iter()
+                    .any(|entry| entry.duration <= sixteenth);
+                beams.push(Beam {
+                    page: note.page,
+                    start_x: note.x,
+                    end_x: notes[end].x,
+                    y: notes[index..=end]
+                        .iter()
+                        .map(|entry| entry.y)
+                        .fold(f32::MAX, f32::min)
+                        - 8.0,
+                    notes: end - index + 1,
+                    sixteenth,
+                });
+                index = end + 1;
+                continue;
+            }
+        }
+        index += 1;
+    }
+    (beams, tuplets)
 }
 
 /// Lays out one track, placing one lyric syllable per note.
@@ -382,6 +493,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
             note.y = system.y - (step as f32) * settings.staff_space;
         }
     }
+    let (beams, tuplets) = beams_and_tuplets(&notes);
     Engraved {
         pages,
         notes,
@@ -390,6 +502,8 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         key,
         lyrics: placed_lyrics,
         marks: placed_marks,
+        beams,
+        tuplets,
     }
 }
 
@@ -664,5 +778,68 @@ mod tests {
             .find(|note| note.pitch.as_u8() == 84)
             .expect("C6");
         assert!(c6.y < c4.y, "higher pitch is higher on the page");
+    }
+}
+
+#[cfg(test)]
+mod notation_tests {
+    use super::*;
+    use music_core::{Channel, PPQ, Pitch, Velocity};
+    use project::TrackId;
+    use project::song::{Note, Song, Track};
+
+    fn song_with(durations: &[(Tick, Tick)]) -> Song {
+        let mut song = Song::new("Notation", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for (index, (start, duration)) in durations.iter().enumerate() {
+            track.notes.push(Note {
+                id: project::NoteId::new(index as u32 + 1).expect("valid"),
+                start: *start,
+                duration: *duration,
+                pitch: Pitch::from_name("C4")
+                    .expect("valid")
+                    .transpose(index as i8),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        song
+    }
+
+    #[test]
+    fn eighth_notes_beam_in_a_group() {
+        let song = song_with(&[
+            (0, PPQ / 2),
+            (PPQ / 2, PPQ / 2),
+            (PPQ, PPQ / 2),
+            (PPQ * 3 / 2, PPQ / 2),
+        ]);
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        assert_eq!(engraved.beams.len(), 1);
+        assert_eq!(engraved.beams[0].notes, 4);
+        assert!(!engraved.beams[0].sixteenth);
+    }
+
+    #[test]
+    fn sixteenth_groups_need_a_second_beam() {
+        let song = song_with(&[
+            (0, PPQ / 4),
+            (PPQ / 4, PPQ / 4),
+            (PPQ / 2, PPQ / 4),
+            (PPQ * 3 / 4, PPQ / 4),
+        ]);
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        assert_eq!(engraved.beams.len(), 1);
+        assert!(engraved.beams[0].sixteenth);
+    }
+
+    #[test]
+    fn triplet_runs_get_a_bracket() {
+        let song = song_with(&[(0, PPQ / 3), (PPQ / 3, PPQ / 3), (PPQ * 2 / 3, PPQ / 3)]);
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        assert_eq!(engraved.tuplets.len(), 1);
+        assert_eq!(engraved.tuplets[0].count, 3);
+        assert!(engraved.beams.is_empty());
     }
 }

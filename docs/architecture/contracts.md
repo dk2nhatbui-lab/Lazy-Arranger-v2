@@ -210,3 +210,11 @@ copy the range from that chord to the next (or one bar), remove it, or paste
 chords at the hover/playhead tick. `paste_chords_repeated` (Shift+V) adds the range four times, spaced by the
 selected range's length, in one SetChords edit; a duplicate tick is rejected by
 validation. Note ranges still paste once.
+
+### Beams and tuplets
+
+`beams_and_tuplets` groups consecutive short notes by measure: eighth-or-shorter
+runs become a beam (a second line joins sixteenths), and runs of exactly three
+equal notes whose duration triples to a quarter or eighth become a tuplet
+bracket with its count. The canvas draws both. Slurs and articulations are not
+implemented.

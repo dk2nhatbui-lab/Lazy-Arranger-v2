@@ -147,6 +147,48 @@ pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) -> ScoreOu
                 Stroke::new(1.1_f32, Color32::from_rgb(0x14, 0x14, 0x14)),
             );
         }
+        for beam in engraved.beams.iter().filter(|beam| beam.page == page_index) {
+            let start = Pos2::new(origin.x + beam.start_x * zoom, origin.y + beam.y * zoom);
+            let end = Pos2::new(origin.x + beam.end_x * zoom, origin.y + beam.y * zoom);
+            painter.line_segment(
+                [start, end],
+                Stroke::new(2.2_f32 * zoom, Color32::from_rgb(0x14, 0x14, 0x14)),
+            );
+            if beam.sixteenth {
+                painter.line_segment(
+                    [
+                        start + Vec2::new(0.0, 3.0 * zoom),
+                        end + Vec2::new(0.0, 3.0 * zoom),
+                    ],
+                    Stroke::new(1.6_f32 * zoom, Color32::from_rgb(0x14, 0x14, 0x14)),
+                );
+            }
+        }
+        for tuplet in engraved
+            .tuplets
+            .iter()
+            .filter(|tuplet| tuplet.page == page_index)
+        {
+            let y = origin.y + tuplet.y * zoom;
+            let left = origin.x + tuplet.start_x * zoom;
+            let right = origin.x + tuplet.end_x * zoom;
+            let stroke = Stroke::new(1.0_f32, Color32::from_rgb(0x33, 0x33, 0x33));
+            painter.line_segment(
+                [Pos2::new(left, y), Pos2::new(left + 6.0 * zoom, y)],
+                stroke,
+            );
+            painter.line_segment(
+                [Pos2::new(right - 6.0 * zoom, y), Pos2::new(right, y)],
+                stroke,
+            );
+            painter.text(
+                Pos2::new((left + right) / 2.0, y),
+                egui::Align2::CENTER_CENTER,
+                format!("{}", tuplet.count),
+                egui::FontId::proportional(9.0 * zoom),
+                Color32::from_rgb(0x33, 0x33, 0x33),
+            );
+        }
         painter.text(
             Pos2::new(centre.x, page_rect.max.y - 12.0),
             egui::Align2::CENTER_BOTTOM,
