@@ -829,3 +829,10 @@ that still showed the older frame is therefore not the authority; the test is.
 major/natural-minor scale, the first eight chords as roman labels, the cadence
 and the first voice-leading cost. The Windows menu opens a read-only Theory
 window. A test covers the demo and an empty song.
+
+### Four-measure systems
+
+The default measure gap is 16 pt, so four 4/4 measures fit the 499 pt content
+width (4 × 112 + 3 × 16 = 496). The demo page is re-rendered at
+`docs/audit/score-page.png`; the wide-page test now expects one system of four
+measures.

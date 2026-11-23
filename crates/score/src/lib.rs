@@ -44,7 +44,7 @@ impl Default for Settings {
             staff_space: 8.0,
             system_gap: 110.0,
             quarter_width: 28.0,
-            measure_gap: 18.0,
+            measure_gap: 16.0,
             grand_staff: false,
         }
     }
@@ -1070,10 +1070,10 @@ mod tests {
         assert_eq!(engraved.pages.len(), 1);
         assert_eq!(
             engraved.pages[0].systems.len(),
-            2,
-            "three measures fit a system"
+            1,
+            "four measures fit a system"
         );
-        assert_eq!(engraved.pages[0].systems[0].measures.len(), 3);
+        assert_eq!(engraved.pages[0].systems[0].measures.len(), 4);
     }
 
     #[test]
