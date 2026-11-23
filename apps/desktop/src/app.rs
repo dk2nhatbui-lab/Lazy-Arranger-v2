@@ -180,6 +180,27 @@ pub fn quantise_recorded(notes: &mut [project::song::Note], grid: Tick) {
     });
 }
 
+/// Filters the installed plug-in list by search text and format.
+#[must_use]
+pub fn plugin_matches(
+    plugin: &plugins::FoundPlugin,
+    search: &str,
+    format: Option<plugins::Format>,
+) -> bool {
+    if format.is_some_and(|wanted| wanted != plugin.format) {
+        return false;
+    }
+    let needle = search.trim().to_ascii_lowercase();
+    needle.is_empty()
+        || plugin.name.to_ascii_lowercase().contains(&needle)
+        || plugin
+            .path
+            .display()
+            .to_string()
+            .to_ascii_lowercase()
+            .contains(&needle)
+}
+
 /// Compact text for the recent-MIDI list.
 #[must_use]
 pub fn midi_label(message: &music_core::MidiMessage) -> String {
@@ -418,6 +439,9 @@ pub struct ShellApp {
     sf2_path: String,
     sf2_bank: u16,
     sf2_program: u16,
+    plugins_open: bool,
+    plugin_search: String,
+    plugin_filter: Option<plugins::Format>,
     plugin_scan: Option<Vec<plugins::FoundPlugin>>,
     plugin_error: Option<String>,
     inspector_open: bool,
@@ -595,6 +619,9 @@ impl ShellApp {
             sf2_path: String::new(),
             sf2_bank: 0,
             sf2_program: 0,
+            plugins_open: initial_window == "plugins",
+            plugin_search: String::new(),
+            plugin_filter: None,
             plugin_scan: None,
             plugin_error: None,
             inspector_open: initial_window == "inspector",
@@ -2009,6 +2036,126 @@ impl ShellApp {
                 ));
             }
             Err(error) => self.status = Some(format!("could not run lp: {error}")),
+        }
+    }
+
+    fn plugins_window(&mut self, context: &egui::Context) {
+        if !self.plugins_open {
+            return;
+        }
+        if self.plugin_scan.is_none() {
+            self.plugin_scan = Some(plugins::scan_installed());
+        }
+        let mut open = self.plugins_open;
+        let mut add = None;
+        egui::Window::new("My Plug-Ins")
+            .open(&mut open)
+            .default_width(520.0)
+            .default_height(420.0)
+            .show(context, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("My Plug-Ins")
+                            .size(20.0)
+                            .strong(),
+                    );
+                    ui.add_space(10.0);
+                    if ui.button("Rescan").clicked() {
+                        self.plugin_scan = Some(plugins::scan_installed());
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.plugin_search)
+                            .hint_text("Search plug-ins")
+                            .desired_width(240.0),
+                    );
+                    ui.selectable_value(&mut self.plugin_filter, None, "All");
+                    ui.selectable_value(
+                        &mut self.plugin_filter,
+                        Some(plugins::Format::AudioUnit),
+                        "AU",
+                    );
+                    ui.selectable_value(
+                        &mut self.plugin_filter,
+                        Some(plugins::Format::Vst3),
+                        "VST3",
+                    );
+                });
+                ui.label(
+                    egui::RichText::new(
+                        "Installed bundles are listed here. Hosting and editors are not implemented.",
+                    )
+                    .size(10.0)
+                    .color(theme::text_dim()),
+                );
+                ui.separator();
+                let scan = self.plugin_scan.clone().unwrap_or_default();
+                if scan.is_empty() {
+                    ui.label("no plug-in bundles found");
+                }
+                egui::ScrollArea::vertical()
+                    .max_height(320.0)
+                    .show(ui, |ui| {
+                        for plugin in scan
+                            .iter()
+                            .filter(|plugin| {
+                                plugin_matches(
+                                    plugin,
+                                    &self.plugin_search,
+                                    self.plugin_filter,
+                                )
+                            })
+                        {
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .add_sized(
+                                        [260.0, 28.0],
+                                        egui::Button::new(egui::RichText::new(&plugin.name).size(13.0)),
+                                    )
+                                    .on_hover_text(plugin.path.display().to_string())
+                                    .clicked()
+                                {
+                                    add = Some(plugin.clone());
+                                }
+                                ui.label(plugin.format.label());
+                                ui.label(
+                                    egui::RichText::new("installed")
+                                        .size(10.0)
+                                        .color(theme::text_muted()),
+                                );
+                            });
+                        }
+                    });
+            });
+        self.plugins_open = open;
+        if let Some(plugin) = add {
+            let track = self
+                .roll
+                .selected
+                .or_else(|| self.song().tracks.first().map(|track| track.id));
+            if let Some(track) = track {
+                let format = match plugin.format {
+                    plugins::Format::Vst3 => project::song::PluginFormat::Vst3,
+                    plugins::Format::AudioUnit => project::song::PluginFormat::AudioUnit,
+                };
+                match self.editor.add_plugin(
+                    track,
+                    &plugin.name,
+                    format,
+                    &plugin.path.display().to_string(),
+                ) {
+                    Ok(id) => {
+                        self.status = Some(format!(
+                            "added {} to track {track} (slot {id})",
+                            plugin.name
+                        ));
+                    }
+                    Err(error) => self.status = Some(error),
+                }
+            } else {
+                self.status = Some(String::from("select a track first"));
+            }
         }
     }
 
@@ -4547,6 +4694,10 @@ impl ShellApp {
                                 self.help_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Plugins").clicked() {
+                                self.plugins_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Shortcuts").clicked() {
                                 self.shortcuts_open = true;
                                 ui.close_menu();
@@ -4853,6 +5004,7 @@ impl eframe::App for ShellApp {
         self.lessons_window(context);
         self.songs_window(context);
         self.help_window(context);
+        self.plugins_window(context);
         self.print_window(context);
         self.file_window(context);
         self.midi_map_window(context);
@@ -5951,6 +6103,22 @@ mod tests {
         quantise_recorded(&mut notes, music_core::PPQ / 4);
         assert_eq!(notes[0].start, 0);
         assert_eq!(notes[1].start, 960);
+    }
+
+    #[test]
+    fn plugin_filter_checks_name_path_and_format() {
+        use plugins::{Format, FoundPlugin};
+        let plugin = FoundPlugin {
+            name: String::from("R0Verb"),
+            path: std::path::PathBuf::from("/Library/Audio/Plug-Ins/Components/R0Verb.component"),
+            format: Format::AudioUnit,
+        };
+        assert!(plugin_matches(&plugin, "", None));
+        assert!(plugin_matches(&plugin, "r0v", None));
+        assert!(plugin_matches(&plugin, "components", None));
+        assert!(!plugin_matches(&plugin, "LABS", None));
+        assert!(plugin_matches(&plugin, "", Some(Format::AudioUnit)));
+        assert!(!plugin_matches(&plugin, "", Some(Format::Vst3)));
     }
 
     #[test]

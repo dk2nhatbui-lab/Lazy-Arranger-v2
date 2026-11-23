@@ -40,7 +40,7 @@ blockers are listed at the end.
 | MCP stdio/socket server, 93 tools | tool/reference tests and CLI runs | `crates/mcp` |
 | Desktop shell: Perform, Arrange, Mix, Loops, Score | runs; captures in `docs/audit/` | `apps/desktop` |
 | Light/dark palettes, eight languages with plural rules, Kids Mode, lessons | verified tests; light capture | `theme`, `strings`, `lesson` |
-| Plugin discovery (VST3/AU) | scan only; no hosting | `crates/plugins` |
+| Plugin browser (VST3/AU) | scan/list/filter/add slots; no hosting | `crates/plugins`, My Plug-Ins window |
 | Real MIDI keyboard, PSR-S970, cpal audibility, print, microphone | **unverified** | no hardware here |
 
 ## Quick start

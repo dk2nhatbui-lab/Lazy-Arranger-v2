@@ -24,7 +24,7 @@ parse/import/write with SFF1/SFF2, programs and bank select; score engraving
 spacing, meter, measure numbers, PDF/canvas/print dialog); audio render, SF2,
 mixer with buses/sends/master reverb/chorus/meters, stems/freeze, float WAV;
 MIDI maps/learn/Launchkey preset/panic builders; arrangements, grooves, forms,
-theory/lessons; MCP server with 93 tools; five-view egui shell with six
+theory/lessons; MCP server with 93 tools; five-view egui shell with eight
 languages, Kids Mode, named songs and tutorial.
 
 ## Concrete blockers to full parity
@@ -32,17 +32,18 @@ languages, Kids Mode, named songs and tutorial.
 These are not ordinary bugs; each needs an asset, format, model or product
 decision that is absent here.
 
-1. **Plugin hosting/processing/editors** — the repository stores VST3/AU slots
-   and scans bundles, but no host/SDK integration or plugin binaries are present
-   to implement or test processing and editor windows.
-2. **Korg PCG program/combi decoding and L6max project/mixer page** — only
-   recognition/scans exist; no format specification or real PCG/project files
-   were available to decode program, combi or mixer-page structures.
+1. **Plugin hosting/processing/editors** — 21 AU/VST3 bundles are installed and
+   listed in the My Plug-Ins browser, but no host integration exists. The UAD
+   `.lunacomponent` files used by Luna are proprietary and are not AU/VST3, so
+   they cannot be loaded without UA's host. Hosting/editors remain a project.
+2. **Korg PCG program/combi decoding and L6max project/mixer page** — the Pa5X
+   user manual describes imports but does not specify the PCG binary layout, and
+   no PCG/L6max project fixture was supplied; only recognition/scans exist.
 3. **SoundFont modulators** — SF3 is out of scope by request; SF2 is supported.
    Modulator semantics remain unverified.
-4. **AI model, network chat and speech input** — the assistant is a local rule
-   engine over the MCP registry; no model endpoint, subscription, key or
-   Whisper/Kitten/Kokoro assets exist in this environment.
+4. **AI/speech input (optional)** — the assistant is a local rule engine and
+   speech output uses macOS `say`. Live speech input needs a speech model and
+   microphone permission; it is optional, not required for the current scope.
 5. **Hardware acceptance (partial)** — MIDI ports/sends and a PSR-S970 send were
    exercised, and printers are visible; key capture, audible output, monitoring
    latency and actual print jobs remain unverified. See `docs/audit/hardware.md`.
