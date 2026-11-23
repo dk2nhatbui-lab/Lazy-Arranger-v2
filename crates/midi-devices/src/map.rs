@@ -7,6 +7,18 @@ use music_core::MidiMessage;
 use project::TrackId;
 use std::fmt::Write as _;
 
+/// Launchkey-style mixer map: CC 21..=28 set faders for tracks 1..=8.
+#[must_use]
+pub fn launchkey_mixer_map() -> MidiMap {
+    let mut map = MidiMap::default();
+    for number in 1_u8..=8 {
+        if let Ok(track) = TrackId::new(u32::from(number)) {
+            map.bind(Control::Controller(20 + number), Action::TrackFader(track));
+        }
+    }
+    map
+}
+
 /// A control that can trigger an action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Control {
@@ -413,6 +425,14 @@ mod controller_tests {
 #[cfg(test)]
 mod launchkey_tests {
     use super::*;
+
+    #[test]
+    fn mixer_preset_covers_eight_tracks() {
+        let map = launchkey_mixer_map();
+        assert_eq!(map.bindings.len(), 8);
+        assert_eq!(map.bindings[0].control, Control::Controller(21));
+        assert!(matches!(map.bindings[7].action, Action::TrackFader(track) if track.get() == 8));
+    }
 
     #[test]
     fn pad_preset_covers_sixteen_notes() {

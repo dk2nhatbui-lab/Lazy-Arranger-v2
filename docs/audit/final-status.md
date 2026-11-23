@@ -169,3 +169,4 @@ For the clef layout, choose either four measures per system without clefs
 - Bundle includes AppIcon.icns derived from the runtime icon asset.
 - Style from link downloads yt-dlp audio and opens Style from audio; network unverified (`docs/audit/style-link.png`).
 - Inline Drums view and floating Beat editor have previous/next bar navigation (`docs/audit/beat-nav.png`).
+- Controllers window loads a Launchkey mixer preset (CC 21-28 -> faders 1-8); hardware unverified (`docs/audit/controllers.png`).

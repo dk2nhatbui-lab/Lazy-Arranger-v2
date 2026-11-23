@@ -6780,6 +6780,20 @@ impl ShellApp {
                     self.midi_learn = Some(midi_devices::map::Learn::begin(actions[chosen]));
                     self.status = Some(String::from("waiting for a note or CC"));
                 }
+                if ui
+                    .button("Load Launchkey mixer preset")
+                    .on_hover_text("CC 21-28 set faders for tracks 1-8")
+                    .clicked()
+                {
+                    self.midi_map = midi_devices::map::launchkey_mixer_map();
+                    let text = self.midi_map.to_text();
+                    match std::fs::write("lazy-arranger-midi-map.txt", text) {
+                        Ok(()) => {
+                            self.status = Some(String::from("loaded Launchkey mixer preset"));
+                        }
+                        Err(error) => self.status = Some(format!("midi map: {error}")),
+                    }
+                }
                 if self.midi_learn.is_some() {
                     ui.label(
                         egui::RichText::new("Waiting for the next note or control change…")
