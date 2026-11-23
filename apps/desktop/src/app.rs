@@ -4013,6 +4013,7 @@ impl ShellApp {
             .unwrap_or_default();
         let mut open = self.takes_open;
         let mut action = None;
+        let mut comp_edit: Option<(usize, Tick, Tick)> = None;
         let mut play_take: Option<String> = None;
         egui::Window::new("Audio takes")
             .open(&mut open)
@@ -4081,10 +4082,26 @@ impl ShellApp {
                 }
                 for (index, comp) in comps.iter().enumerate() {
                     ui.horizontal(|ui| {
-                        ui.label(format!(
-                            "{index}: take {} · {} + {}",
-                            comp.take, comp.start, comp.length
-                        ));
+                        ui.label(format!("{index}: take {}", comp.take));
+                        let mut start = comp.start;
+                        let mut length = comp.length;
+                        let start_changed = ui
+                            .add(
+                                egui::DragValue::new(&mut start)
+                                    .range(0..=1_000_000)
+                                    .speed(10.0),
+                            )
+                            .changed();
+                        let length_changed = ui
+                            .add(
+                                egui::DragValue::new(&mut length)
+                                    .range(1..=1_000_000)
+                                    .speed(10.0),
+                            )
+                            .changed();
+                        if start_changed || length_changed {
+                            comp_edit = Some((index, start, length.max(1)));
+                        }
                         if ui.small_button("Remove").clicked() {
                             action = Some((index, 4));
                         }
@@ -4107,6 +4124,11 @@ impl ShellApp {
                 Ok(()) => self.status = Some(String::from("audio takes updated")),
                 Err(error) => self.status = Some(error),
             }
+        }
+        if let Some((index, start, length)) = comp_edit
+            && let Err(error) = self.editor.set_audio_comp(track_id, index, start, length)
+        {
+            self.status = Some(error);
         }
         if let Some(path) = play_take {
             let source = std::path::Path::new(&path);

@@ -1468,6 +1468,47 @@ impl Editor {
         Ok(())
     }
 
+    /// Changes one comp span's start and length.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the span is unknown, empty or overlaps another.
+    pub fn set_audio_comp(
+        &mut self,
+        track: TrackId,
+        index: usize,
+        start: Tick,
+        length: Tick,
+    ) -> Result<(), String> {
+        let mut comps = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map(|entry| entry.comps.clone())
+            .ok_or_else(|| String::from("unknown track"))?;
+        if index >= comps.len() {
+            return Err(String::from("unknown comp span"));
+        }
+        if length <= 0 {
+            return Err(String::from("comp length must be positive"));
+        }
+        let start = start.max(0);
+        let end = start.saturating_add(length);
+        if comps.iter().enumerate().any(|(other, span)| {
+            other != index && start < span.start.saturating_add(span.length) && span.start < end
+        }) {
+            return Err(String::from("comp span overlaps another span"));
+        }
+        comps[index].start = start;
+        comps[index].length = length;
+        self.session
+            .apply(app_commands::Command::SetAudioComps { track, comps })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Removes one comp span.
     ///
     /// # Errors
@@ -2518,6 +2559,15 @@ mod tests {
                 .is_err(),
             "overlapping comps are rejected"
         );
+        editor
+            .set_audio_comp(
+                TrackId::new(1).expect("track"),
+                0,
+                music_core::PPQ,
+                music_core::PPQ / 2,
+            )
+            .expect("set");
+        assert_eq!(editor.song().tracks[0].comps[0].start, music_core::PPQ);
         editor
             .remove_audio_comp(TrackId::new(1).expect("track"), 0)
             .expect("remove");
