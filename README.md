@@ -1,119 +1,88 @@
-# Lazy Arranger Rust v2
+# Crosscheck: `features.md` (v1.0.0-beta.1) vs the Rust build
 
-A second-generation, MIDI-first arranger DAW in Rust: a five-view egui desktop
-app, a headless CLI, a versioned project format and a 93-tool MCP server.
+Source: the 39-section feature list supplied by the owner, archived verbatim at
+[`docs/reference/cpp-features.md`](../reference/cpp-features.md) (v1.0.0-beta.1, 512 lines). Every
+section below is a row, so nothing is skipped. Status: **verified**,
+**partial**, **missing**.
 
-The product plan is in [`LAZY_ARRANGER_RUST_V2_BLUEPRINT.md`](LAZY_ARRANGER_RUST_V2_BLUEPRINT.md).
-The C++ v1 feature crosscheck and evidence live in
-[`docs/audit/`](docs/audit/), shared contracts in
-[`docs/architecture/contracts.md`](docs/architecture/contracts.md), and decisions
-in [`docs/adr/`](docs/adr/). Parity is **partial**, not complete; remaining
-blockers are listed at the end.
+| § | C++ feature | Rust | Key gap / evidence |
+| --- | --- | --- | --- |
+| 1 | Projects and files | partial | `.arranger` open/save, autosave/recovery, SMF export (CLI and shell Export MIDI), `midi-import` (5 source tracks/336 notes) and desktop opening of `.mid`/`.midi` and `.musicxml`/`.xml` as untitled imports, plus an Open/Save as path window (Cmd+O, Cmd+Shift+S; Cmd+S on an untitled import opens Save as), WAV export in 16/24-bit PCM and 32-bit float (CLI and shell), MusicXML export/import (CLI and shell), style save, PSR-S970 song export. Recent list with Clear and audio-reference import (WAV/FLAC/MP3/M4A/AIFF/OGG); Save-as appends `.json` when no extension is typed. No editing of audio, PDF, Korg, L6max, SysEx |
+| 2 | Window: header, views, inspector, mixer panel, AI panel, light theme, zoom | partial | Header, LCD, five views, track list, Mix strips, volume automation lane, dark and light palettes (Settings toggle, live refresh), square corners, wheel and slider zoom; an Inspector window shows/edits the selected track's name, gain, pan, flags, program and summaries, and sidebar has a Windows menu for Inspector, Library, Pads, Assistant, MIDI map, Controllers, Lyrics, Markers, imports/exports and Settings. Light palette is selected in Settings; `docs/audit/light-theme.png` is a captured light window |
+| 3 | Tracks | partial | MIDI tracks with program, volume, pan, mute/solo/arm and audio references (schema v11); track list, mixer strips and keyboard export honour them; tracks also carry a SoundFont reference (v16) and audio references draw waveform peaks. No per-track input routing or multiple outputs |
+| 4 | Transport: play/stop, start, record, loop, metronome, ruler, tempo/meter edit, MIDI record, all-notes-off, auto inputs | partial | Audio play/pause/stop with silence on stop; CLI MIDI record/echo and clip-grid take recording. A sidebar Record button captures the selected MIDI keyboard for a chosen 1–60 s on a background thread and inserts the notes as one undoable track; the piano-roll ruler shows bar numbers and clicking it seeks the live player through the tempo map; `midi-panic` sends CC 123 on all 16 channels to a named output (no ports attached here, so the send is unverified); a persisted 0–2 bar count-in plays an audible metronome through a temporary cpal player before MIDI recording; the header transport has a record button and track rows have an R arm toggle; MIDI recording appends to the armed track (new track when none is armed); the 0–2 bar audible count-in precedes audio-input capture, which targets a record-armed track's audio reference; audio capture and input monitoring can select a named input device from Settings and fall back to the system default; no auto inputs; a Settings toggle quantises recorded starts to 1/16 before the take is inserted; the Inspector lists tempo changes and writes one at the playhead. The sidebar has Loop and From bar controls (playback restarts at the loop start), and a generated click track (bar downbeats accented) mixes into playback and `export-audio --metronome` |
+| 5 | Timeline clips | partial | Clip and chord lanes: click select, arrow move, shift+arrow resize, J join, N add, Delete remove; clip commands are undoable with overlap rejection. Markers and syllables are editable in Markers and Lyrics windows; markers draw in the bar ruler and each row has Go (add at playhead, edit or remove); timeline lyrics are not drawn in the roll; the Snap 1/16 toggle governs note drags and insertions; Shift-click and marquee multi-select clips, with arrow/Shift-arrow/Delete operations |
+| 6 | Note editor: add/select/move/resize/delete, arrows, velocity lane, grid, quantise, piano keys, select all | partial | Click insert, select, delete, undo/redo, save, scroll/zoom. Drag a note body to move start and pitch, or its right edge to resize; starts snap to a 1/16 grid and each change is one command. Quantise 1/16 and 1/8 buttons snap all starts; A velocity lane under the roll draws per-note bars and click/drag sets velocity through one command; a piano-key strip auditions a pitch on click, and Cmd/Ctrl+A selects all notes on the selected track for one-step multi-delete. No copy/paste across views |
+| 7 | Cut/copy/paste in every view | partial | Notes copy, cut and paste in Arrange with Cmd/Ctrl+C/X/V at the playhead, each paste one undo step; a chord range can be copied and pasted through the same clipboard. Cmd/Ctrl+C/X/V also work on a multi-selection: copy takes every selected note, cut copies then deletes in one edit per track, and paste lands at the playhead. Paste lands at the mouse tick when the pointer is over the roll, else at the playhead; clicking a notehead in the Score selects it, and clicking a chord in the chord lane selects it; C/X/V copy, remove and paste chord ranges there, and Shift+V pastes the range four times one range-length apart as one edit. Note ranges still paste once |
+| 8 | Audio tracks | partial | Audio references (schema v12; fades in v17) with WAV import at 16/24/32-bit PCM and 32-bit float plus symphonia FLAC/MP3/M4A/AIFF/OGG decode, an in-point, waveform peaks drawn in Arrange, trim-from-front through one undoable command, tempo-derived length, and mixing into render and cpal playback with mute/solo, resampling and reported files. A bounce command renders the mix, writes a WAV and inserts it as an audio track (one undoable insert); a Mixer Freeze button renders one track to WAV, clears its notes and sets its audio reference atomically; export-stems and the shell Export stems mode write each audible track to its own WAV plus a stems.txt manifest (demo produced 4 files); audio references carry fade-in/fade-out lengths mixed as linear ramps and set from the trim row. `stretch` resamples a reference to its clip length (pitch shifts; it is not a phase-vocoder stretch); the waveform has zoom and position sliders; `record-audio` and a sidebar Rec audio button capture the default input through cpal to WAV; an Import audio window adds WAV or compressed audio as an audio track; `wav-gain`/`wav-normalize` edit files and the trim row Normalize writes a normalized copy and switches the reference; an optional input monitor (Settings, default off, feedback risk) opens cpal input and output streams and is unverified on hardware; each capture becomes its own audio track unless a track is record-armed, in which case the take replaces that track's audio reference; there is no take list or comping (a scoped model/UI decision) and no in-place destructive waveform editing; capture/permission remain unverified here |
+| 9 | Audio analysis | partial | Monophonic audio→MIDI, chroma-based chord recognition with a CLI, transcription answers still missing. stems, lyrics and stems export exist; no instrument tags, higher-level transcription or model-based polyphony |
+| 10 | Drum sampler and slicer | partial | Onset detection, slicing, GM pad mapping, `drum-slice`, a P-key Drum pads window that loads a loop, grids 16 pads with names and lengths, auditions clicked pads through cpal, and a `pad <note>` MIDI-map action so an external keyboard triggers loaded pads. Pad start/end can be nudged by 10 ms with a 64-sample minimum (Inspector-style controls in the Drum pads window); there is no waveform dragging or drum-slice time-stretch, and audio references keep their pitch-shifting stretch |
+| 11 | Beat view | partial | Four drum rows by sixteen steps with off/soft/normal/loud cycling, read from and written to a bar as one undo step, B opens the grid. rows have C/P/X copy, paste and clear buttons (model row/set_row/clear_row); patterns cover 1 or 2 bars with the span cleared and rewritten; Put-in-bars writes the pattern across four bars as one edit; no scrolling long clips |
+| 12 | Clip grid | partial | Scenes of N bars, slots, a bar-quantised launcher with waiting/cancel/log, scene recording to the timeline as undoable edits, `get_clip_grid`. Loops view shows scene rows and track slots, queues on click and records a take. The grid shows track column headers and a Rename button; right-click a slot to clear, set 1/2 bars or copy to the playhead. Scene names persist and can be renamed; slot length, clear and copy-to-tick work and are exposed as `edit_slot`. A Launchkey pad preset maps notes 36-51 to pad audition; no audio-loop library |
+| 13 | Smart chords | partial | Chord parsing, transposition, progression text, roman numerals in the chosen key, chord lane with K entry, 16 key-aware pads, and a suggestion function with dialog buttons. Reharmonize rules and dialog. Find Chords from the Music (pitch-class recognition, slash bass). Inversions/voicings as ascending pitch sets with A/B WAV audition (`voicing C --out-dir` wrote a.wav and b.wav). A Settings toggle detects chords after MIDI recording and a Launchkey pad preset maps notes 36-51 to pad audition; no real-time chord capture |
+| 14 | Styles | partial | Yamaha open, import, compile on chords, **save container (SFF1/SFF2, real 15-section style rewritten)**; `style_from_clips` (MCP), `style-from-clips` (CLI) and a Windows > Style from clips dialog build an SFF from a project's tracks with default channel rules; `--from-markers` writes one section per marker (demo: A and B, 8 bars each, 168 notes each, re-read cleanly), otherwise one section from `--length`; dialog capture `docs/audit/style-clips.png`. Track program and bank-select events now round-trip through the SMF reader/writer and the style writer and are editable from the Inspector Bank row; Korg, live sections, XG voices and the SInt setup region remain absent; a basic rules editor (destination channel, written root/type, NTR/NTT, held-note RTR, bass, high key/limits) edits the style draft before export. Catalog resolution by number or name (`style-resolve`) matched a real library entry; a PCG scanner now recognises the KORG marker and model name only, with no program or combi decoding |
+| 15 | Style from Audio and Link | partial | Link→monophonic MIDI; no style output, no match scores |
+| 16 | Score view | partial | MusicXML export/import with `<harmony>` chords, drum instrument ids, `<sound dynamics>`, slurs and a round-trip audit. On the demo tracks, chords (16), lyrics (2), marks (2), drums and the pitched detail are preserved (186 = 186 after merging 22 ties). A style-derived project with mixed drum/pitched tracks and overlapping notes now keeps all 1,423 pitched notes (counts and tie merges), but one chord-group note starts at a different tick inside an overlap; `<backup>` was added for overlaps, and MusicXML still cannot express every simultaneous overlap we hold, which is recorded as a limitation plus a toolkit-independent layout engine (pages, systems, measures, positioned notes, CLI report). An egui page canvas renders staff lines, barlines, noteheads, page navigation and zoom from the layout. Key detection, spelling, accidentals, canvas, vector PDF, per-pitch ties and a lyric line (40-bar two-page acceptance test). Dynamics and articulations are marks in schema v11, exchanged as MusicXML directions and drawn by both renderers. Note entry: with Note entry enabled, a click on the score inserts a note at a quarter-quantised tick and the staff pitch through one undoable command. A grand-staff toggle, beams, tuplet brackets, ties, rests in gaps/empty measures, augmentation dots (notes and rests) and articulation glyphs now draw on canvas and PDF; phrase slurs (schema v18) draw as curves, are exposed by `get_slurs`/`set_slurs` and round-trip as MusicXML `<slur>` notations; a drum track gets a one-line percussion staff with x noteheads on canvas and PDF; lyrics shift right when crowded; chord names are drawn above the staff on canvas and PDF, common major/minor/seventh chords get guitar frames (slash chords or unlisted qualities get none); the Score view has a path field, Save PDF and a Print dialog with printer, copies and page ranges via `lp`; chord names and guitar frames draw on canvas and PDF with a top reserve, the song title draws inside the page margin, one lyric per chord tick, PDF text uses the dark fill; four 4/4 measures fit a system and the song meter draws at each system start, measure numbers draw above the staff, `docs/audit/score-page.png` shows the balanced layout, and a headless test checks canvas text; and a headless egui test verifies the canvas title, chord name and measure number shapes; dense rhythms widen their measures and crowded accidentals shift left; Shift-drag resizes a note's duration (quarter-quantised); augmentation dots move into the space above when their notehead or rest sits on a staff line (no other vertical rest collision handling); The primary Score view and PDF now use the bundled Cecilia 0.51 engraver through a Song→Cecilia adapter (key signature and subtitle, G/F clefs, grand staff, tempo and chords, PNG pages); the legacy vector editor remains behind the Cecilia-preview toggle; printing uses `lp`, not an OS print panel |
+| 17 | Mixer and buses | partial | Tracks carry fader, pan, mute/solo and automation; buses (schema v13) have volume and pan, tracks route to a bus and can send a copy at a level, and the render sums bus buffers after the tracks. Mix view shows bus rows with volume/pan/remove and an Add bus action plus a per-track routing picker (`docs/audit/mix.png`). Mix rows add a send-bus picker and send-level slider over the same routing command; Loops slots have a right-click menu for clear, one-bar length and copy to playhead. Master gain and a soft limiter apply to playback and `export-audio` (`--gain-db`, `--no-limiter`), and the export prints peak/RMS; master reverb and chorus wet amounts (feedback-delay reverb and modulated-delay chorus, applied after gain before the limiter) are settable in the Mixer and Settings and used by playback/`export-audio --reverb/--chorus`; master peak/RMS bars and per-track peak badges draw while playing (track levels come from offline stems; other master effects absent) |
+| 18 | Automation | partial | Volume and pan lanes with linear interpolation and held ends, applied per note in the render, edited through one undoable command. Arrange shows a volume lane for the selected track; clicking adds a point, clicking a point removes it, and each edit is one command. the automation target picker covers Volume, Pan, Send and Brightness; no plugin-parameter lanes or MIDI-port automation |
+| 19 | VST3/AU plugins | partial | `Track.plugins` slots (id, name, format VST3/AU, path, identifier, bypass, opaque state) with one undoable `SetPlugins` command and duplicate/no-name validation. The standard-folder scan found 21 bundles here (17 AU, 4 VST3); `plugin-scan` and `plugin_scan` expose them. My Plug-Ins (`docs/audit/plugins.png`) and the Mixer Plugins panel add/bypass/remove/move slots (undoable reorder). The manager reads AU `Info.plist`, VST3 `moduleinfo.json` and, when needed, scans a VST3 bundle in the `lazy-arranger-plugin-scan` child (five-second timeout, in-process fallback if the helper is absent); the catalog is cached as JSON. `plugin-host` also hosts VST3 effects (component/controller, host application, buses, stereo `ProcessData`) and macOS AU effects (`AudioUnitProcess`); non-bypassed slots run in offline track render. R0Verb VST3 and Apple AUDynamicsProcessor wet/dry tests pass; R0Verb's AU instance returns -3000 and is skipped. VST3 component state is saved/restored as base64: a Mixer **Capture** button stores the current state in the slot, and render restores it (R0Verb round-trip). AU parameters are enumerable/settable (Apple AUDynamicsProcessor readback); a generic AU parameters window edits values, saves `id=value;` into slot state and render restores it. VST3 parameters still have no UI/automation. AU instrument hosting exists (`AuInstrument`, Apple DLSMusicDevice note-render test) and tracks with a non-bypassed AU instrument slot render their notes through it with sample offsets inside 512-frame blocks (wet/dry test); VST3 instruments are hosted (`Vst3Instrument`, MIDI event list, stereo blocks); a track with a pure VST3 instrument slot renders through it, audible output is verified with the local test synth; the installed LABS still has no library. The generic AU parameter window opens instruments as well as effects. Parameter automation, editors, sandbox scanning and instrument plug-ins remain absent |
+| 20 | SF2/SF3 SoundFont player, metronome | partial | Built-in synth now has piano, bass, organ, strings, pad and noise drums chosen from channel, program and name, with per-family attack and decay. An SF2 reader parses RIFF, preset/instrument zones and sample headers; `sf2-info` lists a real bank (137 presets, 239 instruments, 125 samples), `sf2-render` plays one note, and a track can carry a SoundFont preset (schema v16) that render honours in playback and export (`sf2-use`; demo track RMS 0.252 versus 0.116 built-in). The Mixer has a SoundFont panel (path, bank, program, use/load/clear) that validates the bank and applies one command. Sample playback applies the volume envelope (six phases from timecents/centibels), a biquad lowpass from the cutoff/Q generators, linked stereo pairs as two channels, and a short crossfade at a looping sample's seam. No modulators; SF3 is out of scope by request (SF2 is supported); a missing file falls back to the built-in timbre; a metronome click mixes into playback and export |
+| 21 | MIDI devices and profiles | partial | One built-in PSR-S970 voice subset plus a YAML-subset loader (id, name, voices, banks, drum kits) with validation and keyword matching (`device-profile` resolved Finger Bass to 33); port enumeration, live input, CLI record/echo. Bank and drum-kit entries drive `export-keyboard --profile`: bank select MSB/LSB is written before each program, drums use the kit program and bank (audit: msb [63,0,0,0], lsb [0,1,1,1]). The Controllers window keeps the last 16 decoded note/CC/program/bend messages; no other devices or profile overrides |
+| 22 | Synth sound editors (D-05, XioSynth, S970 XG, L6max), sysex dumps | partial | A per-track synth patch (sine/saw/square/triangle, attack, decay, sustain, release, brightness) in schema v14, honoured by the render, edited through one undoable command, and exposed by a Synth patch window with Apply/Default/Clear (capture `docs/audit/synth-patch.png`). A generic Yamaha parameter-change builder with the 7-bit checksum and an XG System On dump (`sysex-xg-on`, 10 bytes written). No device-specific panels (D-05, XioSynth, S970 XG) or patch dumps |
+| 23 | Controller pages, MIDI Map, MIDI Learn, channel check | partial | MIDI map model with text persistence, learn capture, CLI bind/show, live application of play/stop/undo/scene/fader/pad, a MIDI map window that chooses an action, learns the next note/CC, saves automatically and clears bindings (with inline hints), `midi-channel-check` sends note-on/off on a chosen channel, and a Controllers window lists CC bindings with live values, starts a learn session and saves it. No MIDI ports were available here, so live values and the send remain hardware-unverified |
+| 24 | PSR-S970 tools | partial | Song export with setup bar, program, volume, pan, chord markers, lyrics and drums on channel 10, plus a byte-level audit that re-parses the file; the demo exported 5 tracks, 4 programs/volumes/pans, 16 chord markers and 128 drum notes. Numbered style catalog and `style-by-number` rendering. A MIDI out window sends program changes, notes and panic to a chosen output (`docs/audit/midi-out.png`); no registration remote, audition queue or hardware verification |
+| 25 | Music Finder and Playlists | partial | JSON, CSV, TSV and MFD import (1,653-record real file), CLI, and an L-key Library window that loads any of those, searches title/detail, applies an entry's tempo and imports the row's style through the catalog (setting or ARRANGER_STYLE_LIBRARY), inserting its tracks with fresh ids and a prefix. Playlist rows are listed but not opened; `playlist-from-csv` converts a Music Finder CSV into a Yamaha playlist TSV (2 entries written with paths and REGIST). A real import was run through `library-import`: 1 track and 1,926 notes from ABBA Fernando; the ignored integration test passes when ARRANGER_STYLE_LIBRARY is set |
+| 26 | Zoom L6max mixer page and import | partial | `audio::l6max` scans a folder of takes, reads headers, flags the L6max's 32-bit float recordings, reports problems and imports each take as an audio track at a start tick; `l6max-import` did so for two synthetic takes (3.20 s, one float), and the shell Import L6max mode scans a folder and adds each WAV at the playhead. No device project-file parsing, mixer page or transport control; Mixer L6max panel scans a folder and imports takes as audio tracks |
+| 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | partial | A local assistant panel and command layer (`mcp::assistant`) parses help/song/undo and `tool <name> {json}`, reaches any of the current 94 tools through `tool`, logs replies and marks the project dirty only for changing calls; each tool call is one undo step. No model, network, subscriptions or keys, no proposal cards |
+| 28 | MCP server, ~94 tools | partial | Stdio JSON-RPC server with 94 tools (song, tracks, notes, chords, undo, doctor, grooves, forms, reharmonise, clip grid, slots, programs, automation, lyrics/marks, style catalog, theory, generation, plugins, L6max scan, quantise, velocity, tempo, SoundFonts, buses and routing, Korg scan, tracks, notes, chords, markers, clips, scene names) and save-after-call; `mcp-tools`/`mcp-call`. Loopback TCP transport with a per-start 32-hex token required on every line and save-after-call; a real client was accepted with the token and rejected without it. 94 tools are registered; no TLS or multi-client concurrency |
+| 29 | Speech in/out (Whisper, Kitten, Kokoro) | partial | Assistant replies can be spoken through the macOS `say` command (cleaned, length-bounded, optional voice) behind a settings toggle; other hosts fall back silently. No speech input, Whisper/Kitten/Kokoro models or waveform narration |
+| 30 | AI music tools (humanize, drumify, continue, write part, melody) | partial | Rule-based, seeded generators: humanise, drumify, bass/pad/arp parts, continue the last bars and a chord-following melody, each one undoable edit. Exposed by the `generate` CLI and MCP tool. No learned or model-based generation, UI or chat-driven tool use |
+| 31 | Theory: keys, roman numerals, scales, voice-leading, skill packs | partial | Nine scale modes, roman labels, cadence classification and voice-leading cost, as CLI and MCP tools; key detection in the score. A Theory window shows detected key/scale, roman chord labels, cadence and voice-leading cost; a Lessons window grades chord-quality, roman-numeral and interval questions deterministically; captures are `docs/audit/theory.png` and `docs/audit/lessons.png`; no skill packs |
+| 32 | Arranging help | partial | Arrangement Doctor (crowded bars, repeats) and Fit to My Synths (range octaves, polyphony removal, drum-kit warning) with proposal cards and undo; Doctor and fit cards both have before/after A/B audition through a separate player; the Doctor window has SynthSpec limits (low/high/polyphony/drum kit), fit cards with before/after A/B audition through a separate player, and `fit-project` applies in one command (demo bass: 12 notes moved into 40..80) |
+| 33 | Groove | partial | Timing offset and velocity level per 1/16 slot, extract/apply with timing and accent amounts, feel-match score, G applies the selected track's groove to the others. Grooves save to and load from `.groove` files (`groove-library save/list/apply`; the demo's drums saved and applied to bass). No audio-derived grooves, word descriptions or Play Before/After |
+| 34 | Song Forms | partial | Sections from markers, Short/Gig/Long-intro/Instrumental presets, plan and apply to timeline with chords and markers, undo. Drum-fill and lead-in transitions with automatic choice (T), plus Hold (sustains the last chord for a bar) and Break (silences the bar before the join) through `form-transition`; on the demo hold added 3 notes and break removed 21. Join loops repeat a marker section in place and shift later notes, chords, lyrics, marks, markers, clips, automation and audio references (`join-loop A --times 2` added 168 notes and 8 chords). No learned preferences |
+| 35 | Kids Mode | partial | Settings switch restricts tabs to Perform and Arrange, forces a simple view, enlarges header controls and shows a translated banner. Perform shows Now/Next chords and full-width chord pads; Kids Mode shows a chord step-through that follows song edits (position kept when possible) with Next chord, Start over and a Load kids demo button (four slow chords), above 16 big chord pads that audition. In Arrange the sidebar swaps to large Undo/Redo/Play/Stop/Settings plus Lessons and Theory and hides the record row and advanced window buttons; there is no separate simplified workflow beyond this |
+| 36 | Languages (EN/DA/FR/VI/DE/ES/IT/PT) | partial | Eight string tables (English, Danish, French, Vietnamese, German, Spanish, Italian, Portuguese) with a runtime switch and per-language completeness tests; the Help window has three sections translated into all eight (`docs/audit/help.png`, Italian sample `docs/audit/help-it.png`) and the Inspector count label follows each language's plural rule (French singular at 0/1, Vietnamese invariant, the others singular at 1). No other locales |
+| 37 | Settings, shortcut editor, updates | partial | Settings file, settings window, shortcut list, MIDI port picker, and an update answer that states no channel is configured. Six bindings (undo/redo/save/save-as/open/play) are editable in the Shortcuts window and used by the keyboard handler, reachable from Windows and F1; no updater or telemetry controls |
+| 38 | Performance and safety: native, idle CPU, plugin scan, damaged-file tolerance | partial | Native Rust, audio thread separate, damaged styles counted; VST3 bundles are scanned in an isolated child with a five-second timeout, and the desktop runs the scan on a worker thread with a progress state; idle CPU is still unmeasured |
+| 39 | Demo content (2 songs + 540 styles) | partial | Sixteen-bar built-in demo (drums, bass, piano, pad, chords, marks, lyrics) on first run and via `demo-project`; the short MIDI `demo` remains. Named songs (arranger demo, kids demo, empty) load from the Songs & tutorial window (`docs/audit/songs.png`) with a four-step tutorial; no style pack or broader tutorial |
 
-## Status
+## Scorecard
 
-| Area | State | Evidence |
-| --- | --- | --- |
-| Source audit (C++ / Cadenza / Vibez) | verified | `docs/audit/` |
-| Musical primitives, tempo map, 960 PPQ | verified | `crates/music-core` |
-| Project schema v20, migrations, validation | verified | `crates/project` |
-| Legacy C++ import | verified on fixtures | `project::legacy` |
-| Typed commands, inverse edits, undo/redo | verified | `crates/app-commands` |
-| Sample-clock scheduler | verified | `crates/sequencer` |
-| Standard MIDI file read/write and keyboard export | verified | `crates/smf` |
-| MusicXML export/import, slurs, chords, lyrics, drums | verified round-trip tests | `crates/musicxml` |
-| Yamaha style parse/import/CASM rules | verified on 16,158 real styles | `crates/style-formats` |
-| Style writer (SFF1/SFF2, 15 sections, programs) | verified round-trip | `style-formats::write_style` |
-| Arranger rules, performance capture, freeze | verified | `crates/arranger`, `crates/performance` |
-| Grooves, forms, transitions, doctor, fit, theory | verified model + CLI/MCP | `crates/arranging`, UI |
-| Score engraving: Cecilia 0.51 (clefs/key/grand staff/PDF) plus legacy vector editor | verified adapter/PDF/PNG tests; captures | `crates/score`, `apps/desktop` |
-| Vector score PDF and print via `lp` (printer picker) | PDF verified; print unverified | `score::pdf`, Score view |
-| Offline audio render, SF2, cpal playback | rendered tests; audible cpal unverified | `crates/audio` |
-| Mixer: buses, sends, pan, automation, master gain/limiter/reverb/chorus, peak/RMS and per-track meters | verified render tests | `audio`, Mix view |
-| Stems, freeze, 16/24/32-bit float WAV, gain/normalize | verified | `audio`, CLI |
-| Audio references: trim, fades, resample-to-fit, waveform zoom, normalize | verified helpers | `audio`, Editor |
-| Drum pads: onset slicing, pad audition, ±10 ms boundary nudge | verified model; player unverified | `audio::drums`, Drum pads window |
-| Audio analysis: monophonic pitch, chroma chords, link-to-MIDI | monophonic verified | `audio::analysis`, `link` |
-| MIDI profiles, maps, learn, channel check, panic | verified builders; hardware unverified | `crates/midi-devices` |
-| L6max take scan/import; Korg recognition | synthetic and real-file scans | `audio::l6max`, `style-formats::korg` |
-| Library: JSON/CSV/TSV/MFD, playlists, browser | verified real MFD (1,653 rows) | `crates/library` |
-| MCP stdio/socket server, 94 tools | tool/reference tests and CLI runs | `crates/mcp` |
-| Desktop shell: Perform, Arrange, Mix, Loops, Score; persistent right inspector and bottom mixer | runs; C++ comparison capture `docs/audit/ui-cpp.png` | `apps/desktop` |
-| Light/dark palettes, eight languages with plural rules, Kids Mode, lessons | verified tests; light capture | `theme`, `strings`, `lesson` |
-| Plugin manager (VST3/AU metadata + catalog cache) | scan/list/filter/add slots; no binary loading/hosting yet | `crates/plugins`, My Plug-Ins window |
-| Real MIDI keyboard, PSR-S970, cpal audibility, print, microphone | **unverified** | no hardware here |
+39 sections at round 169: 0 fully verified beyond their Rust subset, 39 partial,
+0 missing. No section is missing at row level, but several rows are partial
+because they need hardware, proprietary formats, plugin hosting or a model.
+The deepest partials are styles (open/import/compile/SFF1/SFF2 write), project
+files, score layout/PDF/MusicXML, audio references with fades/stretch/record,
+the MIDI map, arranging help and the 93-tool MCP surface.
 
-## Quick start
+## State at round 169
 
-```sh
-cargo test --workspace
+`cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (605 tests) and
+rustdoc pass; the shell starts and runs for 6 s without a panic. Since the old
+round-60 state, the app gained the score engraver/PDF/MusicXML round trip,
+common-practice accidentals and chord symbols, lyric spacing, guitar frames,
+SF2 playback, clip/scene models, groove files, forms, doctor/fit with A/B,
+stem/freeze export, buses/sends/automation, 32-bit float WAV, input capture,
+waveform zoom, eight languages, Kids sidebar and a 93-tool MCP registry.
 
-# Desktop app (five views; ARRANGER_VIEW=score opens a view directly).
-cargo run -p lazy-arranger-desktop
+Still absent or unverified: plugin hosting/processing/editors; SF3 and
+SoundFont modulators; Korg PCG program/combi decoding; L6max project/mixer-page
+parsing and transport; audio monitoring, takes and destructive waveform
+editing; light theme; localized help/plurals; a real model, speech input and
+chat-driven tool use; hardware acceptance for MIDI keyboards, PSR-S970, cpal
+output and printing. Korg recognition, YouTube/network paths and plugin scanning
+are evidence-limited.
 
-# Headless demo project, render and inspect.
-cargo run -p lazy-arranger-cli -- demo-project --out demo.json
-cargo run -p lazy-arranger-cli -- inspect demo.json
-cargo run -p lazy-arranger-cli -- export-audio demo.json --out demo.wav --bits 24
+Parity is **not** achieved. Hardware-dependent claims (real MIDI keyboards,
+PSR-S970 acceptance, cpal output on every host, printing, YouTube download)
+remain unverified; CI builds and tests are the only continuous evidence.
 
-# Import/export.
-cargo run -p lazy-arranger-cli -- midi-import song.mid --out song.json
-cargo run -p lazy-arranger-cli -- export-music-xml song.json --out score.musicxml
-cargo run -p lazy-arranger-cli -- score-pdf demo.json --out score.pdf --track 2
+## Next blocks
 
-# MCP over stdio (also mcp-socket).
-cargo run -p lazy-arranger-cli -- mcp-tools
-cargo run -p lazy-arranger-cli -- mcp-serve
-```
-
-## Workspace
-
-```text
-crates/music-core      pitch, chord, tick, tempo, theory, lesson questions
-crates/project         song schema v20, validation, legacy import, recent files
-crates/app-commands    typed commands, inverses, undo/redo
-crates/sequencer       prepared patterns, sample-clock scheduler
-crates/smf             standard MIDI file encode/decode, keyboard export
-crates/musicxml        MusicXML export/import and round-trip audit
-crates/style-formats   Yamaha containers, CASM rules, Korg recognition
-crates/arranger        chord rules, sections, style conversion
-crates/arranging       grooves, forms, doctor, fit, clip grid, beat, demo songs
-crates/performance     intent/rendered capture, provenance, freeze
-crates/score           engraving, pages/systems, PDF
-crates/audio           synth, SF2 (loop crossfade), WAV/FLAC/MP3/M4A/AIFF/OGG decode, mix, buses, automation, analysis, L6max
-crates/library         Music Finder books, playlists
-crates/midi-devices    profiles, ports, maps, SysEx, dispatch
-crates/plugins         VST3/AU metadata, catalog cache and browser (no hosting)
-crates/test-plugin     local VST3 gain fixture (MIT/Apache vst3-rs example)
-crates/plugin-host     isolated unsafe VST3/AU FFI: child-process class scan + stereo effects + AU/VST3 instrument tracks (slots applied in render; VST3 state capture; AU parameter window; VST3 params/editors pending)
-crates/mcp             stdio/socket MCP server, 94 tools, local assistant
-apps/cli               headless binary
-apps/desktop           egui 0.31 desktop app
-```
-
-## Platform notes
-
-- Rust 2024 workspace, MSRV 1.89; `./scripts/rust.sh` sets a workspace-local
-  `CARGO_HOME`.
-- `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` and rustdoc are
-  expected green before a commit.
-- Style files are never copied into the repository; validation runs read-only
-  against `ARRANGER_STYLE_LIBRARY` when configured.
-- The optimized workspace builds and its 648 tests pass; see
-  [`docs/audit/release.md`](docs/audit/release.md).
-
-## Remaining parity gaps
-
-- Plugin **hosting/processing/editors** (discovery only).
-- Korg PCG program/combi decoding and an L6max project/mixer page (scans/imports
-  only).
-- SF3 and SoundFont modulators.
-- Take comping/selection and destructive waveform editing (input monitoring exists but is hardware-unverified).
-- A real AI model, speech input and chat-driven tool use (the assistant is a
-  local rule engine over the MCP registry).
-- Score key signatures and broader vertical rest collision avoidance (G/F clefs and space-aware dots are implemented).
-- Channel-count-preserving WAV edits.
-- Hardware acceptance: real MIDI keyboards, PSR-S970, cpal output, printers.
-
-These are tracked with row-level evidence in
-[`docs/audit/cpp-features-crosscheck.md`](docs/audit/cpp-features-crosscheck.md).
+1. Score vertical collision avoidance and drag-resize; then a native print panel.
+2. Audio takes and monitoring; destructive waveform editing and slice editing.
+3. Plugin hosting/load validation and editor windows; SF3 and modulators.
+4. Korg PCG program/combi decoding; L6max project/mixer-page parsing.
+5. Light theme, localized help/plural rules.
+6. A real AI model/speech input; hardware acceptance runs.

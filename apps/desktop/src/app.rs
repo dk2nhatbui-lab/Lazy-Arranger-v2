@@ -511,6 +511,12 @@ pub struct ShellApp {
     bus_fx_open: bool,
     bus_fx_choice: usize,
     bus_fx_plugin_choice: usize,
+    midi_out_open: bool,
+    midi_out_port: Option<String>,
+    midi_out_channel: u8,
+    midi_out_program: u8,
+    midi_out_note: u8,
+    midi_out_velocity: u8,
     au_editor_open: bool,
     au_editor_track: Option<TrackId>,
     au_editor_slot: Option<u32>,
@@ -726,6 +732,12 @@ impl ShellApp {
             bus_fx_open: std::env::var("ARRANGER_BUS_FX").is_ok(),
             bus_fx_choice: 0,
             bus_fx_plugin_choice: 0,
+            midi_out_open: std::env::var("ARRANGER_MIDI_OUT").is_ok(),
+            midi_out_port: None,
+            midi_out_channel: 1,
+            midi_out_program: 0,
+            midi_out_note: 60,
+            midi_out_velocity: 100,
             au_editor_open: false,
             au_editor_track: None,
             au_editor_slot: None,
@@ -2561,6 +2573,113 @@ impl ShellApp {
             let _ = self.editor.set_track_gain(id, volume, pan);
             let _ = self.editor.set_track_flags(id, muted, soloed, false);
         }
+    }
+
+    fn send_midi(&mut self, message: music_core::MidiMessage) {
+        let Some(port) = self.midi_out_port.clone() else {
+            self.status = Some(String::from("choose a MIDI output first"));
+            return;
+        };
+        match midi_devices::devices::open_output(&port) {
+            Ok(mut connection) => {
+                let bytes = message.to_bytes();
+                match connection.send(&bytes[..message.encoded_len()]) {
+                    Ok(()) => self.status = Some(format!("sent to {port}")),
+                    Err(error) => self.status = Some(format!("{port}: {error}")),
+                }
+            }
+            Err(error) => self.status = Some(error.to_string()),
+        }
+    }
+
+    fn midi_out_window(&mut self, context: &Context) {
+        if !self.midi_out_open {
+            return;
+        }
+        let mut open = self.midi_out_open;
+        egui::Window::new("MIDI out")
+            .open(&mut open)
+            .resizable(false)
+            .show(context, |ui| {
+                if self.midi_ports.is_none()
+                    && let Ok(ports) = midi_devices::devices::list_ports()
+                {
+                    self.midi_ports = Some((ports.inputs, ports.outputs));
+                }
+                let outputs = self
+                    .midi_ports
+                    .as_ref()
+                    .map(|(_, outputs)| outputs.clone())
+                    .unwrap_or_default();
+                egui::ComboBox::from_id_salt("midi-out-port")
+                    .selected_text(self.midi_out_port.as_deref().unwrap_or("Choose output"))
+                    .show_ui(ui, |ui| {
+                        for name in &outputs {
+                            ui.selectable_value(&mut self.midi_out_port, Some(name.clone()), name);
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    ui.label("channel");
+                    ui.add(egui::DragValue::new(&mut self.midi_out_channel).range(1..=16));
+                    ui.label("program");
+                    ui.add(egui::DragValue::new(&mut self.midi_out_program).range(0..=127));
+                    if ui.button("Send program").clicked()
+                        && let Ok(channel) =
+                            music_core::Channel::from_one_based(self.midi_out_channel)
+                    {
+                        self.send_midi(music_core::MidiMessage::ProgramChange {
+                            channel,
+                            program: self.midi_out_program,
+                        });
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("note");
+                    ui.add(egui::DragValue::new(&mut self.midi_out_note).range(0..=127));
+                    ui.label("velocity");
+                    ui.add(egui::DragValue::new(&mut self.midi_out_velocity).range(1..=127));
+                    if ui.button("Send note").clicked()
+                        && let (Ok(channel), Ok(pitch), Ok(velocity)) = (
+                            music_core::Channel::from_one_based(self.midi_out_channel),
+                            music_core::Pitch::new(self.midi_out_note),
+                            music_core::Velocity::new(self.midi_out_velocity),
+                        )
+                    {
+                        self.send_midi(music_core::MidiMessage::note_on(channel, pitch, velocity));
+                        let port = self.midi_out_port.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(350));
+                            if let Some(port) = port
+                                && let Ok(mut connection) =
+                                    midi_devices::devices::open_output(&port)
+                            {
+                                let bytes = music_core::MidiMessage::note_off(
+                                    channel,
+                                    pitch,
+                                    music_core::Velocity::new(0).unwrap_or(velocity),
+                                );
+                                let _ = connection.send(&bytes.to_bytes()[..3]);
+                            }
+                        });
+                    }
+                    if ui.button("Panic").clicked()
+                        && let Some(port) = self.midi_out_port.clone()
+                    {
+                        match midi_devices::devices::panic(&port) {
+                            Ok(sent) => self.status = Some(format!("panic sent {sent}")),
+                            Err(error) => self.status = Some(error.to_string()),
+                        }
+                    }
+                });
+                if self.midi_out_port.is_none() {
+                    ui.label(
+                        egui::RichText::new("No output selected. Use Settings to list ports.")
+                            .size(10.0)
+                            .color(theme::text_dim()),
+                    );
+                }
+            });
+        self.midi_out_open = open;
     }
 
     fn bus_fx_window(&mut self, context: &Context) {
@@ -6200,6 +6319,10 @@ impl ShellApp {
                                 self.bus_fx_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("MIDI out").clicked() {
+                                self.midi_out_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Shortcuts").clicked() {
                                 self.shortcuts_open = true;
                                 ui.close_menu();
@@ -6521,6 +6644,7 @@ impl eframe::App for ShellApp {
         self.style_rules_window(context);
         self.master_fx_window(context);
         self.bus_fx_window(context);
+        self.midi_out_window(context);
         self.au_parameters_window(context);
         self.vst3_parameters_window(context);
         self.print_window(context);
