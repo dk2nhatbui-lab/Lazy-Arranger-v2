@@ -195,6 +195,62 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "set_track_name",
+            description: "Rename a track.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "name": {"type": "string"}
+                },
+                "required": ["track", "name"]
+            }),
+        },
+        Tool {
+            name: "set_track_gain",
+            description: "Set a track's volume and pan.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "volume": {"type": "integer"},
+                    "pan": {"type": "integer"}
+                },
+                "required": ["track", "volume", "pan"]
+            }),
+        },
+        Tool {
+            name: "set_track_flags",
+            description: "Set a track's mute, solo and arm flags.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "muted": {"type": "boolean"},
+                    "soloed": {"type": "boolean"},
+                    "armed": {"type": "boolean"}
+                },
+                "required": ["track"]
+            }),
+        },
+        Tool {
+            name: "set_audio_ref",
+            description: "Set or clear a track's audio reference.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "path": {"type": "string"},
+                    "start": {"type": "integer"},
+                    "length": {"type": "integer"},
+                    "offset": {"type": "integer"},
+                    "fade_in": {"type": "integer"},
+                    "fade_out": {"type": "integer"}
+                },
+                "required": ["track"]
+            }),
+        },
+        Tool {
             name: "get_tracks",
             description: "List tracks with mix and routing state.",
             input_schema: json!({"type": "object"}),
@@ -643,6 +699,87 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             target.velocity = music_core::Velocity::new(velocity.clamp(1, 127))?;
             session.apply(Command::ReplaceTrackNotes { track, notes })?;
             Ok(json!({"velocity": velocity.clamp(1, 127)}))
+        }
+        "set_track_name" => {
+            let track = track_argument(arguments)?;
+            let name = arguments
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("name is required")))?;
+            session.apply(Command::RenameTrack {
+                track,
+                name: name.to_string(),
+            })?;
+            Ok(json!({"name": name}))
+        }
+        "set_track_gain" => {
+            let track = track_argument(arguments)?;
+            let volume = arguments
+                .get("volume")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("volume is required")))?
+                .min(127) as u8;
+            let pan = arguments
+                .get("pan")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("pan is required")))?
+                .min(127) as u8;
+            session.apply(Command::SetTrackGain { track, volume, pan })?;
+            Ok(json!({"volume": volume, "pan": pan}))
+        }
+        "set_track_flags" => {
+            let track = track_argument(arguments)?;
+            let muted = arguments
+                .get("muted")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let soloed = arguments
+                .get("soloed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let armed = arguments
+                .get("armed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            session.apply(Command::SetTrackFlags {
+                track,
+                muted,
+                soloed,
+                armed,
+            })?;
+            Ok(json!({"muted": muted, "soloed": soloed, "armed": armed}))
+        }
+        "set_audio_ref" => {
+            use project::song::AudioRef;
+            let track = track_argument(arguments)?;
+            let path = arguments
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let reference = if path.is_empty() {
+                None
+            } else {
+                Some(AudioRef {
+                    path,
+                    start: arguments.get("start").and_then(Value::as_i64).unwrap_or(0),
+                    length: arguments.get("length").and_then(Value::as_i64).unwrap_or(0),
+                    offset: arguments.get("offset").and_then(Value::as_i64).unwrap_or(0),
+                    fade_in: arguments
+                        .get("fade_in")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(0),
+                    fade_out: arguments
+                        .get("fade_out")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(0),
+                })
+            };
+            session.apply(Command::SetAudioRef {
+                track,
+                reference: reference.clone(),
+            })?;
+            Ok(json!({"audio": reference}))
         }
         "get_tracks" => Ok(json!({
             "tracks": session.song().tracks.iter().map(|track| json!({
@@ -1589,6 +1726,52 @@ mod tests {
         assert_eq!(result["korg_marker"], true);
         assert_eq!(result["model"], "KRONOS");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn track_edit_tools_work() {
+        let mut session = session_with_track();
+        let track = TrackId::new(1).expect("valid");
+        call(
+            &mut session,
+            "set_track_name",
+            &json!({"track": 1, "name": "Strings"}),
+        )
+        .expect("name");
+        assert_eq!(session.song().tracks[0].name, "Strings");
+        call(
+            &mut session,
+            "set_track_gain",
+            &json!({"track": 1, "volume": 80, "pan": 30}),
+        )
+        .expect("gain");
+        assert_eq!(session.song().tracks[0].volume, 80);
+        call(
+            &mut session,
+            "set_track_flags",
+            &json!({"track": 1, "muted": true, "soloed": false, "armed": true}),
+        )
+        .expect("flags");
+        assert!(session.song().tracks[0].muted && session.song().tracks[0].armed);
+        call(
+            &mut session,
+            "set_track_program",
+            &json!({"track": 1, "program": 48}),
+        )
+        .expect("program");
+        assert_eq!(session.song().tracks[0].program, Some(48));
+        call(
+            &mut session,
+            "set_audio_ref",
+            &json!({"track": 1, "path": "/tmp/take.wav", "length": 960, "fade_in": 120}),
+        )
+        .expect("audio");
+        let reference = session.song().tracks[0].audio.as_ref().expect("audio");
+        assert_eq!(reference.fade_in, 120);
+        assert_eq!(reference.length, 960);
+        call(&mut session, "set_audio_ref", &json!({"track": 1})).expect("clear");
+        assert!(session.song().tracks[0].audio.is_none());
+        let _ = track;
     }
 
     #[test]

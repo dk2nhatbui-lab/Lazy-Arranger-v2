@@ -333,7 +333,7 @@ loaded, validated or hosted, and processing still ignores slots.
 `get_clips`/`set_clips` and `get_scene_names`/`set_scene_names` expose the
 project's basic state and edits. Clip ids are optional on input (the next free
 id is used) and markers/clips are sorted by tick on write. The registry now
-holds 46 tools.
+holds 48 tools.
 
 ### Track Inspector
 
@@ -361,3 +361,10 @@ pages are not implemented, and hardware capture is untested.
 and returns the bytes; `midi-channel-check` exposes it. This machine reported no
 MIDI input or output ports, so the send path is byte-tested but unverified
 against hardware. Controller pages remain absent.
+
+### Track-property tools
+
+`set_track_name`, `set_track_gain`, `set_track_flags`, `set_track_program` and
+`set_audio_ref` edit the same fields as the Inspector. An empty or missing audio
+path clears the reference. The registry holds 48 tools; earlier counts were two
+high because the counter also matched nested `name` keys in input schemas.
