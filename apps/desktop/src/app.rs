@@ -978,6 +978,8 @@ pub struct ShellApp {
     midi_out_note: u8,
     midi_out_velocity: u8,
     midi_out_cc: u8,
+    xg_open: bool,
+    xg_parts: [[u8; 4]; 16],
     psr_open: bool,
     psr_channel: u8,
     psr_bank_msb: u8,
@@ -1295,6 +1297,8 @@ impl ShellApp {
             midi_out_note: 60,
             midi_out_velocity: 100,
             midi_out_cc: 7,
+            xg_open: std::env::var("ARRANGER_XG").is_ok(),
+            xg_parts: [[100, 64, 40, 0]; 16],
             psr_open: std::env::var("ARRANGER_PSR").is_ok(),
             psr_channel: 1,
             psr_bank_msb: 0,
@@ -3951,6 +3955,95 @@ impl ShellApp {
         self.psr_reverb = reg.reverb;
         self.psr_chorus = reg.chorus;
         self.psr_send_state();
+    }
+
+    fn xg_window(&mut self, context: &Context) {
+        if !self.xg_open {
+            return;
+        }
+        let mut open = self.xg_open;
+        let mut send_all = false;
+        let mut reset = false;
+        let mut sends: Vec<(usize, u8, u8)> = Vec::new();
+        egui::Window::new("XG part mixer")
+            .open(&mut open)
+            .resizable(true)
+            .default_width(520.0)
+            .show(context, |ui| {
+                ui.label(
+                    egui::RichText::new(
+                        "16 MIDI parts · volume / pan / reverb / chorus · uses the selected MIDI output",
+                    )
+                    .size(9.0)
+                    .color(theme::text_dim()),
+                );
+                ui.horizontal(|ui| {
+                    if ui.button("Send all").clicked() {
+                        send_all = true;
+                    }
+                    if ui.button("Reset").clicked() {
+                        reset = true;
+                    }
+                });
+                for (index, values) in self.xg_parts.iter_mut().enumerate() {
+                    let mut current = *values;
+                    ui.horizontal(|ui| {
+                        ui.label(format!("Part {:>2}", index + 1));
+                        for (label, slot, cc) in [
+                            ("vol", 0, 7_u8),
+                            ("pan", 1, 10),
+                            ("rev", 2, 91),
+                            ("cho", 3, 93),
+                        ] {
+                            let mut value = current[slot];
+                            if ui
+                                .add(egui::Slider::new(&mut value, 0..=127).text(label))
+                                .changed()
+                            {
+                                current[slot] = value;
+                                sends.push((index, cc, value));
+                            }
+                        }
+                    });
+                    *values = current;
+                }
+            });
+        for (part, cc, value) in sends {
+            if let (Ok(channel), Ok(controller)) = (
+                music_core::Channel::from_one_based(u8::try_from(part + 1).unwrap_or(1)),
+                music_core::ControlNumber::new(cc),
+            ) {
+                self.send_midi(music_core::MidiMessage::ControlChange {
+                    channel,
+                    controller,
+                    value,
+                });
+            }
+        }
+        if reset {
+            self.xg_parts = [[100, 64, 40, 0]; 16];
+        }
+        if send_all {
+            let parts = self.xg_parts;
+            for (index, values) in parts.iter().enumerate() {
+                let Ok(channel) =
+                    music_core::Channel::from_one_based(u8::try_from(index + 1).unwrap_or(1))
+                else {
+                    continue;
+                };
+                for (value, cc) in values.iter().zip([7_u8, 10, 91, 93]) {
+                    if let Ok(controller) = music_core::ControlNumber::new(cc) {
+                        self.send_midi(music_core::MidiMessage::ControlChange {
+                            channel,
+                            controller,
+                            value: *value,
+                        });
+                    }
+                }
+            }
+            self.status = Some(String::from("XG part mixer sent"));
+        }
+        self.xg_open = open;
     }
 
     fn psr_window(&mut self, context: &Context) {
@@ -10031,6 +10124,10 @@ impl ShellApp {
                                 self.midi_monitor_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("XG part mixer").clicked() {
+                                self.xg_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("L6max mixer").clicked() {
                                 self.l6max_mixer_open = true;
                                 ui.close_menu();
@@ -10628,6 +10725,7 @@ impl eframe::App for ShellApp {
         self.master_fx_window(context);
         self.bus_fx_window(context);
         self.psr_window(context);
+        self.xg_window(context);
         self.midi_out_window(context);
         self.midi_monitor_window(context);
         self.au_parameters_window(context);
