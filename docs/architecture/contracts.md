@@ -400,4 +400,4 @@ a partly filled measure and a whole rest in an empty one.
 Schema v18 adds `Track.slurs` (`start`, `end` ticks); validation requires end >
 start. `SetSlurs` is one undoable edit, and `get_slurs`/`set_slurs` expose it to
 MCP. Engraving finds the notes inside each range and draws one curve above the
-highest note on canvas and PDF. MusicXML does not exchange slurs yet.
+highest note on canvas and PDF. MusicXML export writes `<notations><slur type="start|stop" number="1"/>` on the boundary notes and import rebuilds `Track.slurs`; the audit compares slur counts.

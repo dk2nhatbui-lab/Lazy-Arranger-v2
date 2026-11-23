@@ -163,6 +163,7 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
         );
         let mut measure_start: Tick = 0;
         let mut measure_meter = meter;
+        let mut pending_slur: Option<Tick> = None;
         for measure in part.children().filter(|node| node.has_tag_name("measure")) {
             if let Some(attributes) = measure
                 .children()
@@ -285,6 +286,21 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                 let tie_stop = note.children().any(|child| {
                     child.has_tag_name("tie") && child.attribute("type") == Some("stop")
                 });
+                let slur_start = note.descendants().any(|child| {
+                    child.has_tag_name("slur") && child.attribute("type") == Some("start")
+                });
+                let slur_stop = note.descendants().any(|child| {
+                    child.has_tag_name("slur") && child.attribute("type") == Some("stop")
+                });
+                if slur_start {
+                    pending_slur = Some(start);
+                }
+                if slur_stop && let Some(slur_start) = pending_slur.take() {
+                    track.slurs.push(project::song::Slur {
+                        start: slur_start,
+                        end: start,
+                    });
+                }
                 if tie_stop
                     && let Some(previous) = track.notes.iter_mut().find(|held| {
                         held.pitch.as_u8() == pitch.as_u8()

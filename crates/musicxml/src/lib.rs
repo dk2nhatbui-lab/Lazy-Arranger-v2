@@ -132,6 +132,7 @@ pub fn export(song: &Song, title: &str) -> String {
                 }
             }
             let ties = tie_flags(track);
+            let slurs = slur_flags(track);
             let mut notes: Vec<&Note> = track
                 .notes
                 .iter()
@@ -159,6 +160,8 @@ pub fn export(song: &Song, title: &str) -> String {
                 };
                 let (tie_start, tie_stop) =
                     ties.get(&note.id.get()).copied().unwrap_or((false, false));
+                let (slur_start, slur_stop) =
+                    slurs.get(&note.id.get()).copied().unwrap_or((false, false));
                 let is_drum = note.channel.zero_based() == 9;
                 let instrument = is_drum.then(|| format!("P{}-I{}", index + 1, note.pitch.as_u8()));
                 let chord = last_start == Some(note.start);
@@ -167,6 +170,8 @@ pub fn export(song: &Song, title: &str) -> String {
                     lyric,
                     tie_start,
                     tie_stop,
+                    slur_start,
+                    slur_stop,
                     chord,
                 };
                 write_note(&mut out, note, duration, &marks);
@@ -199,6 +204,28 @@ fn tie_flags(track: &project::song::Track) -> std::collections::BTreeMap<u32, (b
             flags.entry(note.id.get()).or_default().1 = true;
         }
         open.insert(pitch, (note.id.get(), note.start + note.duration.max(1)));
+    }
+    flags
+}
+
+fn slur_flags(track: &project::song::Track) -> std::collections::BTreeMap<u32, (bool, bool)> {
+    let mut flags: std::collections::BTreeMap<u32, (bool, bool)> =
+        std::collections::BTreeMap::new();
+    for slur in &track.slurs {
+        let start_note = track
+            .notes
+            .iter()
+            .filter(|note| note.start >= slur.start)
+            .min_by_key(|note| note.start);
+        let end_note = track
+            .notes
+            .iter()
+            .filter(|note| note.start <= slur.end)
+            .max_by_key(|note| note.start);
+        if let (Some(start_note), Some(end_note)) = (start_note, end_note) {
+            flags.entry(start_note.id.get()).or_default().0 = true;
+            flags.entry(end_note.id.get()).or_default().1 = true;
+        }
     }
     flags
 }
@@ -279,6 +306,8 @@ struct NoteMarks<'a> {
     lyric: Option<&'a str>,
     tie_start: bool,
     tie_stop: bool,
+    slur_start: bool,
+    slur_stop: bool,
     chord: bool,
 }
 
@@ -318,6 +347,16 @@ fn write_note(out: &mut String, note: &Note, duration: Tick, marks: &NoteMarks<'
     }
     if marks.tie_start {
         out.push_str("<tie type=\"start\" />");
+    }
+    if marks.slur_start || marks.slur_stop {
+        out.push_str("<notations>");
+        if marks.slur_start {
+            out.push_str("<slur number=\"1\" type=\"start\" />");
+        }
+        if marks.slur_stop {
+            out.push_str("<slur number=\"1\" type=\"stop\" />");
+        }
+        out.push_str("</notations>");
     }
     if let Some(text) = marks.lyric {
         out.push_str("<lyric><syllabic>single</syllabic><text>");
@@ -361,6 +400,23 @@ mod tests {
         });
         song.tracks.push(track);
         song
+    }
+
+    #[test]
+    fn slurs_round_trip() {
+        let mut song = song();
+        song.tracks[0].slurs.push(project::song::Slur {
+            start: 0,
+            end: 2 * PPQ,
+        });
+        let xml = export(&song, "Slur test");
+        assert!(xml.contains("<slur number=\"1\" type=\"start\" />"));
+        assert!(xml.contains("<slur number=\"1\" type=\"stop\" />"));
+        let imported = crate::import::import(&xml).expect("import");
+        assert_eq!(imported.tracks[0].slurs, song.tracks[0].slurs);
+        let delta = crate::audit::audit(&song, &imported);
+        assert_eq!(delta.slurs, (1, 1));
+        assert!(delta.is_clean(), "{:?}", delta.changes);
     }
 
     #[test]

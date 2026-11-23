@@ -21,6 +21,8 @@ pub struct Delta {
     pub lyrics: (usize, usize),
     /// Score marks before and after.
     pub marks: (usize, usize),
+    /// Phrase slurs before and after.
+    pub slurs: (usize, usize),
     /// Notes the import is expected to merge through ties.
     pub ties_merged: usize,
     /// Drum (pitch, velocity) pairs before and after.
@@ -50,6 +52,10 @@ pub fn audit(original: &Song, imported: &Song) -> Delta {
         chords: (original.chords.len(), imported.chords.len()),
         lyrics: (original.lyrics.len(), imported.lyrics.len()),
         marks: (original.marks.len(), imported.marks.len()),
+        slurs: (
+            original.tracks.iter().map(|track| track.slurs.len()).sum(),
+            imported.tracks.iter().map(|track| track.slurs.len()).sum(),
+        ),
         ties_merged: tie_merges(original),
         drums: (drum_notes(original), drum_notes(imported)),
         detail: (untied_notes(original), untied_notes(imported)),
@@ -61,6 +67,7 @@ pub fn audit(original: &Song, imported: &Song) -> Delta {
         ("chords", delta.chords),
         ("lyrics", delta.lyrics),
         ("marks", delta.marks),
+        ("slurs", delta.slurs),
     ] {
         if pair.0 != pair.1 {
             delta
