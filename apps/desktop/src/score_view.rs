@@ -232,6 +232,7 @@ pub fn show(
     zoom: f32,
     title: &str,
     state: &mut ScoreState,
+    playhead: music_core::Tick,
 ) -> ScoreOutcome {
     let settings = Settings::default();
     let page_index = clamp_page(engraved, page);
@@ -668,6 +669,28 @@ pub fn show(
             egui::FontId::proportional(10.0),
             Color32::from_rgb(0x55, 0x55, 0x55),
         );
+        'cursor: for system in &page.systems {
+            for measure in &system.measures {
+                if playhead < measure.start || playhead >= measure.start + measure.length {
+                    continue;
+                }
+                let ratio = ((playhead - measure.start) as f32 / measure.length.max(1) as f32)
+                    .clamp(0.0, 1.0);
+                let x = origin.x + (measure.x + ratio * (measure.x_end - measure.x)) * zoom;
+                let top = origin.y + staff_line_y(system.y, 0, settings, zoom);
+                let bottom_line = if engraved.staves == 2 && !engraved.percussion {
+                    8
+                } else {
+                    4
+                };
+                let bottom = origin.y + staff_line_y(system.y, bottom_line, settings, zoom);
+                painter.line_segment(
+                    [Pos2::new(x, top), Pos2::new(x, bottom)],
+                    Stroke::new(1.5_f32, theme::accent()),
+                );
+                break 'cursor;
+            }
+        }
         if response.drag_started()
             && let Some(position) = response.interact_pointer_pos()
             && let Some((tick, pitch)) = hit_note(engraved, page_index, zoom, origin, position)
@@ -827,7 +850,7 @@ mod tests {
             },
             |context| {
                 egui::CentralPanel::default().show(context, |ui| {
-                    let _ = show(ui, &engraved, 0, 1.0, "Canvas & Test", &mut state);
+                    let _ = show(ui, &engraved, 0, 1.0, "Canvas & Test", &mut state, 0);
                 });
             },
         );

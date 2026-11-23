@@ -10472,6 +10472,7 @@ impl eframe::App for ShellApp {
                                     zoom,
                                     title,
                                     &mut self.score_state,
+                                    position,
                                 )
                             };
                             if let Some(drag) = outcome.drag {
