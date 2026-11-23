@@ -201,6 +201,8 @@ pub fn plugin_matches(
     let needle = search.trim().to_ascii_lowercase();
     needle.is_empty()
         || plugin.name.to_ascii_lowercase().contains(&needle)
+        || plugin.vendor.to_ascii_lowercase().contains(&needle)
+        || plugin.identifier.to_ascii_lowercase().contains(&needle)
         || plugin
             .path
             .display()
@@ -2100,7 +2102,8 @@ impl ShellApp {
             return;
         }
         if self.plugin_scan.is_none() {
-            self.plugin_scan = Some(plugins::scan_installed());
+            self.plugin_scan = plugins::load_catalog(std::path::Path::new(plugins::CATALOG_FILE))
+                .or_else(|| Some(plugins::scan_installed()));
         }
         let mut open = self.plugins_open;
         let mut add = None;
@@ -2117,7 +2120,12 @@ impl ShellApp {
                     );
                     ui.add_space(10.0);
                     if ui.button("Rescan").clicked() {
-                        self.plugin_scan = Some(plugins::scan_installed());
+                        let found = plugins::scan_installed();
+                        let _ = plugins::save_catalog(
+                            std::path::Path::new(plugins::CATALOG_FILE),
+                            &found,
+                        );
+                        self.plugin_scan = Some(found);
                     }
                 });
                 ui.horizontal(|ui| {
@@ -2147,6 +2155,15 @@ impl ShellApp {
                 );
                 ui.separator();
                 let scan = self.plugin_scan.clone().unwrap_or_default();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} plug-in(s) · cache {}",
+                        scan.len(),
+                        plugins::CATALOG_FILE
+                    ))
+                    .size(10.0)
+                    .color(theme::text_dim()),
+                );
                 if scan.is_empty() {
                     ui.label("no plug-in bundles found");
                 }
@@ -2176,10 +2193,21 @@ impl ShellApp {
                                 }
                                 ui.label(plugin.format.label());
                                 ui.label(
-                                    egui::RichText::new("installed")
-                                        .size(10.0)
-                                        .color(theme::text_muted()),
+                                    egui::RichText::new(match plugin.role {
+                                        plugins::Role::Instrument => "instrument",
+                                        plugins::Role::Effect => "effect",
+                                        plugins::Role::Unknown => "",
+                                    })
+                                    .size(10.0)
+                                    .color(theme::text_muted()),
                                 );
+                                if !plugin.vendor.is_empty() {
+                                    ui.label(
+                                        egui::RichText::new(&plugin.vendor)
+                                            .size(10.0)
+                                            .color(theme::text_dim()),
+                                    );
+                                }
                             });
                         }
                     });
@@ -6529,6 +6557,10 @@ mod tests {
         use plugins::{Format, FoundPlugin};
         let plugin = FoundPlugin {
             name: String::from("R0Verb"),
+            vendor: String::from("Klevgrand"),
+            version: String::from("1.0.4"),
+            identifier: String::from("Klev:rvrb"),
+            role: plugins::Role::Effect,
             path: std::path::PathBuf::from("/Library/Audio/Plug-Ins/Components/R0Verb.component"),
             format: Format::AudioUnit,
         };

@@ -40,7 +40,7 @@ blockers are listed at the end.
 | MCP stdio/socket server, 93 tools | tool/reference tests and CLI runs | `crates/mcp` |
 | Desktop shell: Perform, Arrange, Mix, Loops, Score; persistent right inspector and bottom mixer | runs; C++ comparison capture `docs/audit/ui-cpp.png` | `apps/desktop` |
 | Light/dark palettes, eight languages with plural rules, Kids Mode, lessons | verified tests; light capture | `theme`, `strings`, `lesson` |
-| Plugin browser (VST3/AU) | scan/list/filter/add slots; no hosting | `crates/plugins`, My Plug-Ins window |
+| Plugin manager (VST3/AU metadata + catalog cache) | scan/list/filter/add slots; no binary loading/hosting yet | `crates/plugins`, My Plug-Ins window |
 | Real MIDI keyboard, PSR-S970, cpal audibility, print, microphone | **unverified** | no hardware here |
 
 ## Quick start
@@ -83,7 +83,7 @@ crates/score           engraving, pages/systems, PDF
 crates/audio           synth, SF2, WAV, mix, buses, automation, analysis, L6max
 crates/library         Music Finder books, playlists
 crates/midi-devices    profiles, ports, maps, SysEx, dispatch
-crates/plugins         VST3/AU discovery (no hosting)
+crates/plugins         VST3/AU metadata, catalog cache and browser (no hosting)
 crates/mcp             stdio/socket MCP server, 93 tools, local assistant
 apps/cli               headless binary
 apps/desktop           egui 0.31 desktop app

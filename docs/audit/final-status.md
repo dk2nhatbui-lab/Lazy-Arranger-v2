@@ -32,8 +32,7 @@ languages, persistent right inspector, bottom mixer and a Cecilia Score tab; the
 These are not ordinary bugs; each needs an asset, format, model or product
 decision that is absent here.
 
-1. **Plugin hosting/processing/editors** — 21 AU/VST3 bundles are installed and
-   listed in the My Plug-Ins browser, but no host integration exists. The UAD
+1. **Plugin hosting/processing/editors** — 21 AU/VST3 bundles are installed; the manager reads AU Info.plist and VST3 moduleinfo metadata, caches the catalog and lists it in the My Plug-Ins browser. No binary loading or host integration exists yet (needs an isolated unsafe FFI crate). The UAD
    `.lunacomponent` files used by Luna are proprietary and are not AU/VST3, so
    they cannot be loaded without UA's host. Hosting/editors remain a project.
 2. **Korg PCG program/combi decoding and L6max project/mixer page** — the Pa5X
