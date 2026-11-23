@@ -267,3 +267,13 @@ The Mixer's L6max panel scans a folder with `audio::l6max::scan`, shows the take
 count, how many are 32-bit float and total seconds, and imports every take at
 the playhead as its own audio track through `Editor::import_l6max` (one
 InsertTrack per take). Device project/mixer files are not parsed.
+
+### SF2 reader
+
+`audio::soundfont::parse` reads the RIFF structure and the `pdta` preset,
+instrument, zone and sample-header tables, resolving preset zones to instrument
+indices and instrument zones to sample indices, key/velocity ranges, root
+override, coarse/fine tuning and loop mode. Modulators, filters and sample
+rendering are not implemented, and SF3 (compressed samples) is not decoded.
+`sf2-info` lists bank, preset, instrument and sample counts; a real 137-preset
+bank parsed in a test gated on `ARRANGER_SF2`.

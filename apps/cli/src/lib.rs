@@ -286,6 +286,11 @@ enum Commands {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Parse an SF2 SoundFont and list its presets.
+    Sf2Info {
+        /// SF2 file.
+        file: PathBuf,
+    },
     /// Recognise a Korg PCG container; decoding is not implemented.
     KorgScan {
         /// File to scan.
@@ -1101,6 +1106,25 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 fs::write(&out, json)
                     .map_err(|error| format!("could not write {}: {error}", out.display()))?;
                 println!("wrote {}", out.display());
+            }
+            Ok(())
+        }
+        Commands::Sf2Info { file } => {
+            let bytes = fs::read(&file).map_err(|error| format!("{}: {error}", file.display()))?;
+            let font = audio::soundfont::parse(&bytes)
+                .map_err(|error| format!("{}: {error}", file.display()))?;
+            println!("{}", audio::soundfont::describe(&font));
+            for preset in font.presets.iter().take(20) {
+                println!(
+                    "  {:03}:{:03} {} ({} zone(s))",
+                    preset.bank,
+                    preset.program,
+                    preset.name,
+                    preset.zones.len()
+                );
+            }
+            if font.presets.len() > 20 {
+                println!("  ... {} more", font.presets.len() - 20);
             }
             Ok(())
         }
