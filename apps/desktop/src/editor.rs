@@ -2273,6 +2273,43 @@ mod tests {
     }
 
     #[test]
+    fn trimming_an_audio_end_is_undoable() {
+        let mut song = Song::new("Trim", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Audio");
+        track.audio = Some(project::song::AudioRef {
+            path: String::from("take.wav"),
+            start: 0,
+            length: 4 * music_core::PPQ,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
+        editor
+            .trim_audio_length(TrackId::new(1).expect("track"), music_core::PPQ)
+            .expect("trim");
+        assert_eq!(
+            editor.song().tracks[0]
+                .audio
+                .as_ref()
+                .expect("audio")
+                .length,
+            music_core::PPQ
+        );
+        editor.undo();
+        assert_eq!(
+            editor.song().tracks[0]
+                .audio
+                .as_ref()
+                .expect("audio")
+                .length,
+            4 * music_core::PPQ
+        );
+    }
+
+    #[test]
     fn generating_a_part_is_one_undo_step() {
         let mut editor = editor();
         let track = TrackId::new(1).expect("track");
