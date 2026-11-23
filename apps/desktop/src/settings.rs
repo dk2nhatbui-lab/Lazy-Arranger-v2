@@ -579,6 +579,8 @@ mod tests {
             audio_output: Some(String::from("Built-in Output")),
             ai_url: String::from("http://127.0.0.1:11434/v1/chat/completions"),
             ai_api_key: String::from("test-key"),
+            speech_command: String::from("whisper {file}"),
+            speak_command: String::from("kokoro {text}"),
             midi_output: Some(String::from("PSR-S970")),
             ..Settings::default()
         };

@@ -190,3 +190,4 @@ For the clef layout, choose either four measures per system without clefs
 - MCP get_audio_ref reports stored takes and set_audio_ref accepts them; a registry/handler coverage test now fails if a tool has no match arm.
 - Stored audio takes round-trip through JSON; a project without the field loads an empty list.
 - Release bundle was rebuilt and launched after the audio fixes; capture `docs/audit/app-bundle.png`.
+- Settings round-trip test now covers the Whisper and custom speech command templates.
