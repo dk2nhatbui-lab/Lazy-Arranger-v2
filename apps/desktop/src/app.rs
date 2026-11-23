@@ -8811,7 +8811,14 @@ impl eframe::App for ShellApp {
                         }
                         let selected_clips = self.selected_clips.clone();
                         let (outcome, timeline_track) = if timeline_mode {
-                            crate::timeline::show(ui, &project.song, position, roll.selected, timeline_zoom)
+                            crate::timeline::show(
+                                ui,
+                                &project.song,
+                                position,
+                                roll.selected,
+                                timeline_zoom,
+                                self.playing,
+                            )
                         } else {
                             (
                                 piano_roll::show(

@@ -26,6 +26,7 @@ pub fn show(
     position: Tick,
     selected: Option<TrackId>,
     zoom: f32,
+    follow_playhead: bool,
 ) -> (RollOutcome, Option<TrackId>) {
     let bar = song.time_signature.bar_ticks().max(1);
     let bars = ((song.end_tick().max(bar * 8) + bar - 1) / bar).max(8);
@@ -37,6 +38,18 @@ pub fn show(
         .auto_shrink([false, false])
         .show(ui, |ui| {
             result = draw(ui, song, position, selected, width);
+            if follow_playhead {
+                let end = song.end_tick().max(bar * 8).max(1);
+                let fraction = position.min(end) as f32 / end as f32;
+                let x = ui.min_rect().left() + LABEL_WIDTH + fraction * (width - LABEL_WIDTH);
+                let playhead = Rect::from_min_size(
+                    pos2(x, ui.min_rect().top()),
+                    vec2(2.0, ui.min_rect().height()),
+                );
+                if !ui.clip_rect().contains_rect(playhead) {
+                    ui.scroll_to_rect(playhead, Some(egui::Align::Center));
+                }
+            }
         });
     result
 }
@@ -224,7 +237,7 @@ mod tests {
         let _ = context.run(egui::RawInput::default(), |context| {
             egui::CentralPanel::default().show(context, |ui| {
                 let song = arranging::demo::demo_song();
-                let _ = show(ui, &song, 0, None, 1.0);
+                let _ = show(ui, &song, 0, None, 1.0, false);
                 ran = true;
             });
         });
