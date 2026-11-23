@@ -159,6 +159,29 @@ pub fn theory_summary(song: &project::song::Song) -> Vec<String> {
     lines
 }
 
+/// Parses `lpstat -p` lines into printer names.
+#[must_use]
+pub fn printers_from_lpstat(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| line.strip_prefix("printer "))
+        .filter_map(|rest| rest.split_whitespace().next())
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Queries the local CUPS printer list; empty when `lpstat` is unavailable.
+#[must_use]
+pub fn available_printers() -> Vec<String> {
+    let Ok(output) = std::process::Command::new("lpstat").arg("-p").output() else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    printers_from_lpstat(&String::from_utf8_lossy(&output.stdout))
+}
+
 pub struct ShellApp {
     editor: Editor,
     selected_note: Option<(TrackId, NoteId)>,
@@ -194,6 +217,9 @@ pub struct ShellApp {
     lesson_question: Option<music_core::lesson::Question>,
     lesson_score: (u32, u32),
     lesson_feedback: Option<bool>,
+    printers: Vec<String>,
+    printer_choice: Option<String>,
+    printers_loaded: bool,
     marker_text: String,
     marker_selected: Option<Tick>,
     form_dialog: bool,
@@ -344,6 +370,9 @@ impl ShellApp {
             lesson_question: None,
             lesson_score: (0, 0),
             lesson_feedback: None,
+            printers: Vec::new(),
+            printer_choice: None,
+            printers_loaded: false,
             marker_text: String::new(),
             marker_selected: None,
             form_dialog: false,
@@ -4410,6 +4439,10 @@ impl eframe::App for ShellApp {
                     View::Score => {
                         let mut save_pdf = false;
                         let mut print_pdf = false;
+                        if !self.printers_loaded {
+                            self.printers = available_printers();
+                            self.printers_loaded = true;
+                        }
                         ui.horizontal(|ui| {
                             ui.checkbox(&mut self.score_entry, "Note entry");
                             ui.checkbox(&mut self.score_grand, "Grand staff");
@@ -4434,6 +4467,26 @@ impl eframe::App for ShellApp {
                                 .clicked()
                             {
                                 print_pdf = true;
+                            }
+                            if !self.printers.is_empty() {
+                                egui::ComboBox::from_id_salt("printer-choice")
+                                    .selected_text(
+                                        self.printer_choice.as_deref().unwrap_or("Default printer"),
+                                    )
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(
+                                            &mut self.printer_choice,
+                                            None,
+                                            "Default printer",
+                                        );
+                                        for name in &self.printers {
+                                            ui.selectable_value(
+                                                &mut self.printer_choice,
+                                                Some(name.clone()),
+                                                name,
+                                            );
+                                        }
+                                    });
                             }
                             ui.label(
                                 egui::RichText::new("Shift-drag to resize")
@@ -4467,28 +4520,33 @@ impl eframe::App for ShellApp {
                                     std::process::id()
                                 ));
                                 match std::fs::write(&path, pdf) {
-                                    Ok(()) => match std::process::Command::new("lp")
-                                        .arg(&path)
-                                        .output()
-                                    {
-                                        Ok(output) if output.status.success() => {
-                                            let message = String::from_utf8_lossy(&output.stdout);
-                                            score_status = Some(format!(
-                                                "sent {} to lp: {}",
-                                                path.display(),
-                                                message.trim()
-                                            ));
+                                    Ok(()) => {
+                                        let mut command = std::process::Command::new("lp");
+                                        if let Some(printer) = &self.printer_choice {
+                                            command.arg("-d").arg(printer);
                                         }
-                                        Ok(output) => {
-                                            let message = String::from_utf8_lossy(&output.stderr);
-                                            score_status =
-                                                Some(format!("lp failed: {}", message.trim()));
+                                        match command.arg(&path).output() {
+                                            Ok(output) if output.status.success() => {
+                                                let message =
+                                                    String::from_utf8_lossy(&output.stdout);
+                                                score_status = Some(format!(
+                                                    "sent {} to lp: {}",
+                                                    path.display(),
+                                                    message.trim()
+                                                ));
+                                            }
+                                            Ok(output) => {
+                                                let message =
+                                                    String::from_utf8_lossy(&output.stderr);
+                                                score_status =
+                                                    Some(format!("lp failed: {}", message.trim()));
+                                            }
+                                            Err(error) => {
+                                                score_status =
+                                                    Some(format!("could not run lp: {error}"));
+                                            }
                                         }
-                                        Err(error) => {
-                                            score_status =
-                                                Some(format!("could not run lp: {error}"));
-                                        }
-                                    },
+                                    }
                                     Err(error) => {
                                         score_status = Some(format!("{}: {error}", path.display()));
                                     }
@@ -5168,6 +5226,17 @@ mod tests {
         assert!(lines.iter().any(|line| line.starts_with("Cadence:")));
         let empty = project::song::Song::new("Empty", 120.0);
         assert_eq!(theory_summary(&empty)[2], "No chords yet");
+    }
+
+    #[test]
+    fn lpstat_output_parses_to_printer_names() {
+        assert_eq!(
+            printers_from_lpstat(
+                "printer Alpha is idle.  enabled since today\nprinter Beta_2 is idle.\n"
+            ),
+            vec!["Alpha", "Beta_2"]
+        );
+        assert!(printers_from_lpstat("no printers").is_empty());
     }
 
     #[test]

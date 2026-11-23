@@ -875,3 +875,9 @@ The Loops view uses a grid with Scene and per-track headers, a Rename button per
 scene row and a context menu per slot (Clear, Length 1/2 bars, Copy to
 playhead). The captured layout is `docs/audit/loops.png`; slot operations go
 through the existing Editor grid methods.
+
+### Printer choice
+
+`printers_from_lpstat` parses `printer NAME ...` lines; the Score view queries
+`lpstat -p` once and offers a Default/printer combo. Print adds `lp -d NAME`
+when one is chosen. The parser has a unit test; no job was sent.
