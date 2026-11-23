@@ -75,6 +75,8 @@ pub struct PlacedNote {
     pub tied: bool,
     /// Extra leftward shift for a crowded accidental.
     pub accidental_shift: f32,
+    /// Augmentation dots: 0, 1 or 2.
+    pub dots: u8,
 }
 
 /// A beam joining short notes.
@@ -777,6 +779,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
                             tie_start,
                             tied,
                             accidental_shift: 0.0,
+                            dots: dots_for(note.duration),
                         });
                         let pushed = notes.len() - 1;
                         open_ties.insert(
@@ -923,6 +926,18 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         frames,
         chord_symbols,
     }
+}
+
+fn dots_for(duration: Tick) -> u8 {
+    for base in [3840_i64, 1920, 960, 480, 240, 120, 60] {
+        if duration == base * 3 / 2 {
+            return 1;
+        }
+        if duration == base * 7 / 4 {
+            return 2;
+        }
+    }
+    0
 }
 
 fn required_measure_width(
@@ -1537,6 +1552,27 @@ mod lyric_spacing_tests {
     use music_core::{Channel, PPQ, Pitch, Velocity};
     use project::TrackId;
     use project::song::{LyricEvent, Note, Song, Track};
+
+    #[test]
+    fn dotted_durations_get_one_or_two_dots() {
+        assert_eq!(dots_for(960), 0);
+        assert_eq!(dots_for(1440), 1);
+        assert_eq!(dots_for(1000), 0);
+        assert_eq!(dots_for(1680), 2);
+        let mut song = Song::new("Dotted", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 1440,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        song.tracks.push(track);
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        assert_eq!(engraved.notes[0].dots, 1);
+    }
 
     #[test]
     fn dense_rhythms_widen_their_measure() {

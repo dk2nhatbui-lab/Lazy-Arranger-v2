@@ -266,6 +266,14 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     x + radius,
                     y + 3.4 * settings.staff_space
                 );
+                for dot in 0..note.dots {
+                    circle(
+                        &mut content,
+                        x + radius * (1.9 + f32::from(dot) * 1.3),
+                        y,
+                        radius * 0.34,
+                    );
+                }
             }
         }
         objects.push(

@@ -781,3 +781,10 @@ new duration (minimum one sixteenth) and the shell applies one
 `SetNoteDuration`, with the old duration as the inverse. Without Shift the drag
 still moves start/pitch. The Score toolbar notes the gesture. A command/editor
 test covers set, rejection of zero and undo.
+
+### Augmentation dots
+
+`dots_for` recognizes one dot (`3/2` of a base note) and two dots (`7/4`) for
+whole through 64th values; `PlacedNote.dots` carries the count. Canvas and PDF
+draw 0.34-radius dots to the right of the notehead. Tests cover plain, dotted,
+double-dotted and a non-matching duration.

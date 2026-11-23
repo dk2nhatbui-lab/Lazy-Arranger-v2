@@ -258,6 +258,13 @@ pub fn show(
                 ],
                 Stroke::new(1.1_f32, Color32::from_rgb(0x14, 0x14, 0x14)),
             );
+            for dot in 0..note.dots {
+                painter.circle_filled(
+                    Pos2::new(x + radius * (1.9 + f32::from(dot) * 1.3), y),
+                    radius * 0.34,
+                    Color32::from_rgb(0x14, 0x14, 0x14),
+                );
+            }
         }
         for beam in engraved.beams.iter().filter(|beam| beam.page == page_index) {
             let start = Pos2::new(origin.x + beam.start_x * zoom, origin.y + beam.y * zoom);
