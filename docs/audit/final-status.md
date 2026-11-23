@@ -90,3 +90,4 @@ For the clef layout, choose either four measures per system without clefs
 - VST3 parameter changes use an `IParameterChanges` queue; a generic window edits them and saves state, but no installed VST3 exposes parameters, so it is unverified.
 - Windows > MIDI out sends program changes, bank select, CC, test notes, chords and panic to a selected output, persists the output choice (capture `docs/audit/midi-out.png`); sends remain hardware-unverified.
 - Failed isolated VST3 scans are blocklisted persistently and shown/clearable in My Plug-Ins.
+- Style from clips has Audition/Stop, compiling the section(s) to a temporary song and playing it.

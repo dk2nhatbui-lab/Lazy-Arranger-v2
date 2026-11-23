@@ -244,7 +244,37 @@ fn count_in_audio(bpm: f64, bars: u8) -> audio::RenderedAudio {
     }
 }
 
-pub fn plugin_matches(
+pub fn style_preview_song(style: &arranger::style::Style) -> Result<project::Song, String> {
+    let mut song = project::Song::new("Style audition", 120.0);
+    let mut track = project::song::Track::new(
+        project::TrackId::new(1).map_err(|error| error.to_string())?,
+        "Style",
+    );
+    let mut offset = 0;
+    let mut next_note = 1_u32;
+    for section in &style.sections {
+        let compiled = style
+            .compile(&section.name, offset, &[])
+            .map_err(|error| error.to_string())?;
+        for note in compiled {
+            track.notes.push(project::song::Note {
+                id: project::NoteId::new(next_note).map_err(|error| error.to_string())?,
+                start: note.tick,
+                duration: note.duration,
+                pitch: music_core::Pitch::new(note.pitch).map_err(|error| error.to_string())?,
+                velocity: music_core::Velocity::new(note.velocity)
+                    .map_err(|error| error.to_string())?,
+                channel: note.channel,
+            });
+            next_note += 1;
+        }
+        offset = offset.saturating_add(section.length_ticks);
+    }
+    song.tracks.push(track);
+    Ok(song)
+}
+
+fn plugin_matches(
     plugin: &plugins::FoundPlugin,
     search: &str,
     format: Option<plugins::Format>,
@@ -506,6 +536,7 @@ pub struct ShellApp {
     style_sff1: bool,
     style_draft: Option<arranger::style::Style>,
     style_rules_open: bool,
+    style_preview: Option<audio::player::Player>,
     master_fx_open: bool,
     master_fx_choice: usize,
     bus_fx_open: bool,
@@ -732,6 +763,7 @@ impl ShellApp {
             style_sff1: false,
             style_draft: None,
             style_rules_open: false,
+            style_preview: None,
             master_fx_open: std::env::var("ARRANGER_MASTER_FX").is_ok(),
             master_fx_choice: 0,
             bus_fx_open: std::env::var("ARRANGER_BUS_FX").is_ok(),
@@ -3186,6 +3218,24 @@ impl ShellApp {
                             Ok(message) => self.status = Some(message),
                             Err(error) => self.status = Some(error),
                         }
+                    }
+                    if ui.button("Audition").clicked() {
+                        match self.build_style_from_clips() {
+                            Ok(style) => match style_preview_song(&style).and_then(|song| {
+                                audio::player::Player::new(audio::render(&song, audio::SAMPLE_RATE))
+                            }) {
+                                Ok(player) => {
+                                    player.play();
+                                    self.style_preview = Some(player);
+                                    self.status = Some(String::from("auditioning style"));
+                                }
+                                Err(error) => self.status = Some(error),
+                            },
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                    if ui.button("Stop").clicked() {
+                        self.style_preview = None;
                     }
                     if ui.button("Edit rules").clicked() {
                         match self.build_style_from_clips() {
@@ -7940,6 +7990,33 @@ mod tests {
         quantise_recorded(&mut notes, music_core::PPQ / 4);
         assert_eq!(notes[0].start, 0);
         assert_eq!(notes[1].start, 960);
+    }
+
+    #[test]
+    fn a_style_audition_song_contains_compiled_notes() {
+        let mut song = project::Song::new("Source", 120.0);
+        let mut track = project::song::Track::new(project::TrackId::new(1).expect("track"), "Bass");
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("note"),
+            start: 0,
+            duration: music_core::PPQ,
+            pitch: music_core::Pitch::from_name("C2").expect("pitch"),
+            velocity: music_core::Velocity::new(100).expect("velocity"),
+            channel: music_core::Channel::from_one_based(11).expect("channel"),
+        });
+        song.tracks.push(track);
+        let style = arranger::style::from_song(
+            &song,
+            "Source",
+            arranger::chord_type::ArrangerChord::new(
+                music_core::PitchClass::new(0),
+                arranger::chord_type::ChordType::Major,
+            ),
+            music_core::PPQ,
+        );
+        let preview = style_preview_song(&style).expect("preview");
+        assert_eq!(preview.tracks.len(), 1);
+        assert_eq!(preview.tracks[0].notes.len(), 1);
     }
 
     #[test]
