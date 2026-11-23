@@ -8,7 +8,7 @@ use music_core::Tick;
 use project::TrackId;
 use project::song::Song;
 
-const LABEL_WIDTH: f32 = 112.0;
+const LABEL_WIDTH: f32 = 0.0;
 const RULER_HEIGHT: f32 = 28.0;
 const CHORD_HEIGHT: f32 = 22.0;
 const LANE_HEIGHT: f32 = 54.0;
@@ -140,47 +140,9 @@ fn draw(
                 StrokeKind::Inside,
             );
         }
-        painter.rect_filled(
-            Rect::from_min_max(
-                pos2(rect.left(), top),
-                pos2(content.left(), top + LANE_HEIGHT),
-            ),
-            0.0,
-            if is_selected {
-                theme::raised()
-            } else {
-                theme::panel()
-            },
-        );
         painter.line_segment(
             [pos2(rect.left(), top), pos2(rect.right(), top)],
             Stroke::new(1.0_f32, theme::line()),
-        );
-        painter.rect_filled(
-            Rect::from_min_size(
-                pos2(rect.left() + 6.0, top + 12.0),
-                vec2(4.0, LANE_HEIGHT - 24.0),
-            ),
-            1.0,
-            color,
-        );
-        painter.text(
-            pos2(rect.left() + 16.0, top + 10.0),
-            Align2::LEFT_TOP,
-            if track.name.is_empty() {
-                "untitled"
-            } else {
-                &track.name
-            },
-            FontId::proportional(12.0),
-            theme::text(),
-        );
-        painter.text(
-            pos2(rect.left() + 16.0, top + 28.0),
-            Align2::LEFT_TOP,
-            format!("{} notes", track.notes.len()),
-            FontId::proportional(9.0),
-            theme::text_dim(),
         );
         for clip in &track.clips {
             let clip_rect = Rect::from_min_max(
