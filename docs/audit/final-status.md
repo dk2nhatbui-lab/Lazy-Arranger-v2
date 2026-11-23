@@ -53,9 +53,7 @@ decision that is absent here.
 
 ## Scoped limitations that remain implementable
 
-Take comping, destructive waveform editing, vertical rest/dot collision
-avoidance, plural rules for non-English locales and further plugin UI work are
-implementable with more rounds, but they do not remove the blockers above and
+Take comping (scoped model/UI), destructive waveform editing and broader vertical rest collision avoidance are implementable with more rounds, but they do not remove the blockers above and
 were not forced speculatively.
 
 ## How to resume

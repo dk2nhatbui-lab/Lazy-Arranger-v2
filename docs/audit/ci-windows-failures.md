@@ -79,3 +79,6 @@ on `467e0c7` (dot placement) passed ubuntu 1m14s, windows 1m53s, macos 1m5s.
 
 Run [45167578655](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45167578655)
 on `77cd5b5` (Italian/Portuguese) passed windows 2m37s, macos 1m31s, ubuntu 1m26s.
+
+Run [45168142423](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45168142423)
+on `866baa6` (recent-MIDI buffer) passed macos 1m51s, windows 2m44s, ubuntu 1m18s.
