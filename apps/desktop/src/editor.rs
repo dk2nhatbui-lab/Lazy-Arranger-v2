@@ -1177,6 +1177,24 @@ impl Editor {
     /// # Errors
     ///
     /// Returns a message when the command is rejected.
+    /// Adds an empty MIDI track.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track id or command is rejected.
+    pub fn add_empty_track(&mut self) -> Result<TrackId, String> {
+        let track_id = self
+            .session
+            .next_track_id()
+            .map_err(|error| error.to_string())?;
+        let track = project::song::Track::new(track_id, format!("Track {track_id}"));
+        self.session
+            .apply(app_commands::Command::InsertTrack { track })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(track_id)
+    }
+
     /// Imports every L6max take as an audio track at `start`.
     ///
     /// # Errors

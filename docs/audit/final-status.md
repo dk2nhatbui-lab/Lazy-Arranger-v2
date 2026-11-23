@@ -104,3 +104,4 @@ For the clef layout, choose either four measures per system without clefs
 - MIDI out sends transport realtime messages; Device editor can send SysEx; both hardware-unverified.
 - UI pass started: C++-style square transport, light tabs, Mixer toggle, Ask AI and resizable left/right/mixer panels.
 - Timeline lane view added as the Arrange default, with a Piano roll toggle (`docs/audit/ui-timeline.png`).
+- UI pass: Tracks header with add, C++-style mixer strips with knobs/faders, resizable panels, song rename in the inspector (`docs/audit/ui-mixer.png`).

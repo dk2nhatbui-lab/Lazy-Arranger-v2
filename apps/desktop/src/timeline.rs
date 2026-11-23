@@ -13,6 +13,12 @@ const RULER_HEIGHT: f32 = 28.0;
 const CHORD_HEIGHT: f32 = 22.0;
 const LANE_HEIGHT: f32 = 54.0;
 
+/// Palette color for a track lane.
+#[must_use]
+pub fn lane_color(index: usize) -> Color32 {
+    LANE_COLORS[index % LANE_COLORS.len()]
+}
+
 const LANE_COLORS: [Color32; 8] = [
     Color32::from_rgb(232, 106, 74),
     Color32::from_rgb(60, 140, 122),
@@ -106,7 +112,7 @@ pub fn show(
             pos2(rect.left(), top),
             pos2(rect.right(), top + LANE_HEIGHT),
         );
-        let color = LANE_COLORS[index % LANE_COLORS.len()];
+        let color = lane_color(index);
         let is_selected = selected == Some(track.id);
         painter.rect_filled(
             Rect::from_min_max(

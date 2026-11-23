@@ -2615,11 +2615,12 @@ impl ShellApp {
             return;
         }
         let tracks = self.song().tracks.clone();
-        let mut edits: Vec<(TrackId, u8, u8, bool, bool)> = Vec::new();
+        let mut edits: Vec<(TrackId, u8, u8, bool, bool, u8, bool)> = Vec::new();
+        let mut master_gain = self.settings.master_gain_db;
         egui::TopBottomPanel::bottom("bottom-mixer")
             .resizable(true)
-            .default_height(150.0)
-            .height_range(100.0..=360.0)
+            .default_height(236.0)
+            .height_range(120.0..=420.0)
             .frame(
                 egui::Frame::new()
                     .fill(theme::panel())
@@ -2627,17 +2628,26 @@ impl ShellApp {
             )
             .show(context, |ui| {
                 egui::ScrollArea::horizontal().show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        for track in &tracks {
-                            ui.allocate_ui(egui::vec2(96.0, 120.0), |ui| {
+                    ui.horizontal_top(|ui| {
+                        for (index, track) in tracks.iter().enumerate() {
+                            let color = crate::timeline::lane_color(index);
+                            let mut volume = f32::from(track.volume);
+                            let mut pan = f32::from(track.pan);
+                            let mut send = f32::from(track.send_level);
+                            let mut muted = track.muted;
+                            let mut soloed = track.soloed;
+                            let mut armed = track.armed;
+                            ui.allocate_ui(egui::vec2(108.0, 220.0), |ui| {
                                 ui.vertical(|ui| {
+                                    painter_strip(ui, color);
                                     ui.label(
                                         egui::RichText::new(if track.name.is_empty() {
                                             "untitled"
                                         } else {
                                             &track.name
                                         })
-                                        .size(11.0),
+                                        .size(11.0)
+                                        .strong(),
                                     );
                                     ui.label(
                                         egui::RichText::new(
@@ -2650,61 +2660,130 @@ impl ShellApp {
                                         .size(9.0)
                                         .color(theme::text_dim()),
                                     );
-                                    let mut volume = i32::from(track.volume);
-                                    if ui
-                                        .add(
-                                            egui::Slider::new(&mut volume, 0..=127)
-                                                .show_value(false),
-                                        )
-                                        .changed()
-                                    {
-                                        edits.push((
-                                            track.id,
-                                            u8::try_from(volume).unwrap_or(track.volume),
-                                            track.pan,
-                                            track.muted,
-                                            track.soloed,
-                                        ));
-                                    }
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{} dB",
-                                            f32::from(track.volume) - 100.0
-                                        ))
-                                        .size(9.0)
-                                        .color(theme::text_muted()),
-                                    );
                                     ui.horizontal(|ui| {
-                                        let mut muted = track.muted;
-                                        let mut soloed = track.soloed;
-                                        let muted_clicked = ui
-                                            .small_button(if muted { "M*" } else { "M" })
-                                            .clicked();
-                                        let soloed_clicked = ui
-                                            .small_button(if soloed { "S*" } else { "S" })
-                                            .clicked();
-                                        if muted_clicked {
-                                            muted = !muted;
-                                        }
-                                        if soloed_clicked {
-                                            soloed = !soloed;
-                                        }
-                                        if muted_clicked || soloed_clicked {
+                                        let rev =
+                                            mixer_knob(ui, &mut send, 0.0, 127.0, "Rev", true);
+                                        let _ = mixer_knob(ui, &mut 0.0, 0.0, 127.0, "Cho", false);
+                                        if rev {
                                             edits.push((
                                                 track.id,
                                                 track.volume,
                                                 track.pan,
                                                 muted,
                                                 soloed,
+                                                u8::try_from(send.round() as i32)
+                                                    .unwrap_or(track.send_level),
+                                                armed,
                                             ));
                                         }
                                     });
+                                    ui.horizontal(|ui| {
+                                        let label = pan_label(pan);
+                                        let changed =
+                                            mixer_knob(ui, &mut pan, 0.0, 127.0, &label, true);
+                                        if changed {
+                                            edits.push((
+                                                track.id,
+                                                track.volume,
+                                                u8::try_from(pan.round() as i32)
+                                                    .unwrap_or(track.pan),
+                                                muted,
+                                                soloed,
+                                                track.send_level,
+                                                armed,
+                                            ));
+                                        }
+                                    });
+                                    ui.horizontal(|ui| {
+                                        if ui.small_button("M").clicked() {
+                                            muted = !muted;
+                                            edits.push((
+                                                track.id,
+                                                track.volume,
+                                                track.pan,
+                                                muted,
+                                                soloed,
+                                                track.send_level,
+                                                armed,
+                                            ));
+                                        }
+                                        if ui.small_button("S").clicked() {
+                                            soloed = !soloed;
+                                            edits.push((
+                                                track.id,
+                                                track.volume,
+                                                track.pan,
+                                                muted,
+                                                soloed,
+                                                track.send_level,
+                                                armed,
+                                            ));
+                                        }
+                                        if ui.small_button("R").clicked() {
+                                            armed = !armed;
+                                            edits.push((
+                                                track.id,
+                                                track.volume,
+                                                track.pan,
+                                                muted,
+                                                soloed,
+                                                track.send_level,
+                                                armed,
+                                            ));
+                                        }
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.allocate_ui(egui::vec2(42.0, 88.0), |ui| {
+                                            if ui
+                                                .add(
+                                                    egui::Slider::new(&mut volume, 0.0..=127.0)
+                                                        .vertical()
+                                                        .show_value(false),
+                                                )
+                                                .changed()
+                                            {
+                                                edits.push((
+                                                    track.id,
+                                                    u8::try_from(volume.round() as i32)
+                                                        .unwrap_or(track.volume),
+                                                    track.pan,
+                                                    muted,
+                                                    soloed,
+                                                    track.send_level,
+                                                    armed,
+                                                ));
+                                            }
+                                        });
+                                        let (meter, _) = ui.allocate_exact_size(
+                                            egui::vec2(5.0, 82.0),
+                                            egui::Sense::hover(),
+                                        );
+                                        ui.painter().rect_filled(meter, 1.0, theme::raised());
+                                        let level = f32::from(track.volume) / 127.0;
+                                        let fill = egui::Rect::from_min_max(
+                                            egui::pos2(
+                                                meter.left(),
+                                                meter.bottom() - meter.height() * level,
+                                            ),
+                                            meter.max,
+                                        );
+                                        ui.painter().rect_filled(fill, 1.0, color);
+                                    });
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{:.1} dB",
+                                            f32::from(track.volume) - 100.0
+                                        ))
+                                        .size(9.0)
+                                        .color(theme::text_muted()),
+                                    );
                                 });
                             });
                         }
-                        ui.allocate_ui(egui::vec2(96.0, 120.0), |ui| {
+                        ui.allocate_ui(egui::vec2(110.0, 220.0), |ui| {
                             ui.vertical(|ui| {
-                                ui.label(egui::RichText::new("Master").size(11.0));
+                                painter_strip(ui, theme::text_muted());
+                                ui.label(egui::RichText::new("Master").size(11.0).strong());
                                 ui.label(
                                     egui::RichText::new(if self.player.is_some() {
                                         "cpal"
@@ -2714,32 +2793,33 @@ impl ShellApp {
                                     .size(9.0)
                                     .color(theme::text_dim()),
                                 );
-                                let mut gain = self.settings.master_gain_db;
-                                if ui
-                                    .add(
-                                        egui::Slider::new(&mut gain, -24.0..=12.0)
+                                ui.add_space(62.0);
+                                ui.allocate_ui(egui::vec2(48.0, 92.0), |ui| {
+                                    ui.add(
+                                        egui::Slider::new(&mut master_gain, -24.0..=12.0)
+                                            .vertical()
                                             .show_value(false),
-                                    )
-                                    .changed()
-                                {
-                                    self.settings.master_gain_db = gain;
-                                }
+                                    );
+                                });
                                 ui.label(
-                                    egui::RichText::new(format!(
-                                        "{:.1} dB",
-                                        self.settings.master_gain_db
-                                    ))
-                                    .size(9.0)
-                                    .color(theme::text_muted()),
+                                    egui::RichText::new(format!("{master_gain:.1} dB"))
+                                        .size(9.0)
+                                        .color(theme::text_muted()),
                                 );
                             });
                         });
                     });
                 });
             });
-        for (id, volume, pan, muted, soloed) in edits {
+        self.settings.master_gain_db = master_gain;
+        for (id, volume, pan, muted, soloed, send_level, armed) in edits {
             let _ = self.editor.set_track_gain(id, volume, pan);
-            let _ = self.editor.set_track_flags(id, muted, soloed, false);
+            let _ = self.editor.set_track_flags(id, muted, soloed, armed);
+            if let Some(track) = self.song().tracks.iter().find(|track| track.id == id) {
+                let _ = self
+                    .editor
+                    .set_track_routing(id, track.bus, track.send, send_level);
+            }
         }
     }
 
@@ -4041,7 +4121,20 @@ impl ShellApp {
                             .size(9.0)
                             .color(theme::text_dim()),
                     );
-                    ui.label(&self.song().name);
+                    if ui
+                        .add(
+                            egui::TextEdit::singleline(&mut self.song_name_input)
+                                .desired_width(160.0),
+                        )
+                        .lost_focus()
+                        && ui.input(|input| input.key_pressed(egui::Key::Enter))
+                    {
+                        let name = self.song_name_input.trim().to_string();
+                        match self.editor.rename_song(&name) {
+                            Ok(()) => self.status = Some(format!("song renamed to {name:?}")),
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
                     let key = score::spelling::detect_key(self.song());
                     ui.label(format!(
                         "{} {}",
@@ -6854,21 +6947,20 @@ impl ShellApp {
             )
             .show(context, |ui| {
                 ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Tracks").size(13.0).strong());
                     ui.label(
-                        egui::RichText::new("SONG")
-                            .size(9.0)
+                        egui::RichText::new(self.song().tracks.len().to_string())
+                            .size(10.0)
                             .color(theme::text_dim()),
                     );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.song_name_input).desired_width(110.0),
-                    );
-                    if ui.small_button("Rename").clicked() {
-                        let name = self.song_name_input.trim().to_string();
-                        match self.editor.rename_song(&name) {
-                            Ok(()) => self.status = Some(format!("song renamed to {name:?}")),
-                            Err(error) => self.status = Some(error),
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("+").on_hover_text("Add a track").clicked() {
+                            match self.editor.add_empty_track() {
+                                Ok(_) => self.status = Some(String::from("track added")),
+                                Err(error) => self.status = Some(error),
+                            }
                         }
-                    }
+                    });
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -6895,11 +6987,6 @@ impl ShellApp {
                         self.loop_buffer = None;
                     }
                 });
-                ui.label(
-                    egui::RichText::new("TRACKS")
-                        .size(10.0)
-                        .color(theme::text_muted()),
-                );
                 ui.add_space(4.0);
                 let rows: Vec<Row> = self
                     .song()
@@ -8292,6 +8379,81 @@ impl eframe::App for ShellApp {
 }
 
 /// A round transport button drawn like v1's `RoundButton`.
+fn painter_strip(ui: &mut egui::Ui, color: egui::Color32) {
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 3.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 1.0, color);
+}
+
+fn pan_label(pan: f32) -> String {
+    let value = pan.round() as i32;
+    if value == 64 {
+        String::from("C")
+    } else if value < 64 {
+        format!("L{}", 64 - value)
+    } else {
+        format!("R{}", value - 64)
+    }
+}
+
+fn mixer_knob(
+    ui: &mut egui::Ui,
+    value: &mut f32,
+    min: f32,
+    max: f32,
+    label: &str,
+    enabled: bool,
+) -> bool {
+    let size = egui::vec2(44.0, 46.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+    if enabled && response.dragged() {
+        let delta = ui.input(|input| input.pointer.delta().y);
+        *value = (*value - delta / 90.0 * (max - min)).clamp(min, max);
+    }
+    let changed = enabled && response.dragged() && ui.input(|input| input.pointer.delta().y != 0.0);
+    let center = egui::pos2(rect.center().x, rect.top() + 15.0);
+    let radius = 13.0;
+    let fill = if enabled {
+        theme::raised()
+    } else {
+        theme::panel()
+    };
+    ui.painter().circle_filled(center, radius, fill);
+    ui.painter()
+        .circle_stroke(center, radius, egui::Stroke::new(1.0_f32, theme::line()));
+    let ratio = ((*value - min) / (max - min).max(0.0001)).clamp(0.0, 1.0);
+    let angle = (-std::f32::consts::FRAC_PI_2 - 2.356) + ratio * 4.712;
+    let end = egui::pos2(
+        center.x + angle.cos() * (radius - 3.0),
+        center.y + angle.sin() * (radius - 3.0),
+    );
+    ui.painter().line_segment(
+        [center, end],
+        egui::Stroke::new(
+            2.0_f32,
+            if enabled {
+                theme::accent()
+            } else {
+                theme::text_dim()
+            },
+        ),
+    );
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.bottom() - 6.0),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(9.0),
+        theme::text_muted(),
+    );
+    let response = if enabled {
+        response.on_hover_text("Drag up or down")
+    } else {
+        response.on_hover_text("Chorus send is not routed")
+    };
+    let _ = response;
+    changed
+}
+
 fn transport_button(ui: &mut egui::Ui, rect: Rect, glyph: &str, active: bool) -> bool {
     let response = ui.interact(rect, ui.id().with(glyph), egui::Sense::click());
     let fill = if active {
