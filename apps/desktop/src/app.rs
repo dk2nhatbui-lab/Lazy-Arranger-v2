@@ -354,6 +354,28 @@ pub fn parse_sysex(text: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+fn profile_for_port(
+    port: &str,
+    profiles: &[midi_devices::profiles::LoadedProfile],
+) -> Option<String> {
+    let normalize = |text: &str| -> String {
+        text.chars()
+            .filter(char::is_ascii_alphanumeric)
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let port = normalize(port);
+    profiles
+        .iter()
+        .find(|profile| {
+            let id = normalize(&profile.id);
+            let name = normalize(&profile.name);
+            (!id.is_empty() && port.contains(&id))
+                || (!name.is_empty() && (port.contains(&name) || name.contains(&port)))
+        })
+        .map(|profile| profile.id.clone())
+}
+
 fn seed_default_device_profiles(folder: &std::path::Path) {
     if std::fs::create_dir_all(folder).is_err() {
         return;
@@ -375,6 +397,10 @@ fn seed_default_device_profiles(folder: &std::path::Path) {
         (
             "korg-pa.yaml",
             include_str!("../assets/profiles/korg-pa.yaml"),
+        ),
+        (
+            "psr-s970.yaml",
+            include_str!("../assets/profiles/psr-s970.yaml"),
         ),
     ] {
         let path = folder.join(name);
@@ -2211,7 +2237,16 @@ impl ShellApp {
                 }
             } else if let Some(name) = self.settings.keyboard.clone() {
                 match midi_devices::devices::LiveInputs::open_named(&name) {
-                    Ok(input) => self.midi_input = Some(input),
+                    Ok(input) => {
+                        self.midi_input = Some(input);
+                        if self.settings.device_profile.is_none()
+                            && let Some(profile) = profile_for_port(&name, &self.device_profiles)
+                        {
+                            self.status = Some(format!("device profile {profile} from {name}"));
+                            self.settings.device_profile = Some(profile);
+                            let _ = self.settings.save(&crate::settings::Settings::path());
+                        }
+                    }
                     Err(error) => {
                         self.status = Some(format!("MIDI input {name}: {error}"));
                         self.settings.keyboard = None;
@@ -11252,18 +11287,32 @@ mod tests {
     }
 
     #[test]
+    fn a_port_name_selects_a_profile() {
+        let folder = std::env::temp_dir().join("lazy-arranger-port-profiles");
+        let _ = std::fs::remove_dir_all(&folder);
+        seed_default_device_profiles(&folder);
+        let (profiles, _) = midi_devices::profiles::load_directory(&folder).expect("load");
+        assert_eq!(
+            profile_for_port("Yamaha PSR-S970", &profiles).as_deref(),
+            Some("psr-s970")
+        );
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
     fn default_device_profiles_are_seeded() {
         let folder = std::env::temp_dir().join("lazy-arranger-seed-profiles");
         let _ = std::fs::remove_dir_all(&folder);
         seed_default_device_profiles(&folder);
         let (profiles, problems) = midi_devices::profiles::load_directory(&folder).expect("load");
-        assert_eq!(profiles.len(), 5);
+        assert_eq!(profiles.len(), 6);
         assert!(problems.is_empty());
         assert!(profiles.iter().any(|profile| profile.id == "xiosynth"));
         assert!(profiles.iter().any(|profile| profile.id == "d05"));
         assert!(profiles.iter().any(|profile| profile.id == "generic-gs"));
         assert!(profiles.iter().any(|profile| profile.id == "generic-xg"));
         assert!(profiles.iter().any(|profile| profile.id == "korg-pa"));
+        assert!(profiles.iter().any(|profile| profile.id == "psr-s970"));
         let _ = std::fs::remove_dir_all(&folder);
     }
 

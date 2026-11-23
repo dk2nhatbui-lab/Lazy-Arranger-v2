@@ -146,4 +146,4 @@ For the clef layout, choose either four measures per system without clefs
 - Held MIDI notes show the recognised chord in Perform and the Inspector; hardware-unverified.
 - Assistant Dictate records 5 s and transcribes through a configurable Whisper command; microphone/model unverified (`docs/audit/dictate.png`).
 - Assistant can call a local CLI template with {prompt}; after Apply it sends the tool result back for a short summary. Mock-command tested.
-- Seeded device profiles now include generic GS, generic XG and Korg Pa.
+- Seeded profiles include PSR-S970, generic GS/XG and Korg Pa; a port name auto-selects a matching profile.
