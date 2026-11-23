@@ -333,7 +333,7 @@ loaded, validated or hosted, and processing still ignores slots.
 `get_clips`/`set_clips` and `get_scene_names`/`set_scene_names` expose the
 project's basic state and edits. Clip ids are optional on input (the next free
 id is used) and markers/clips are sorted by tick on write. The registry now
-holds 50 tools.
+holds 55 tools.
 
 ### Track Inspector
 
@@ -366,7 +366,7 @@ against hardware. Controller pages remain absent.
 
 `set_track_name`, `set_track_gain`, `set_track_flags`, `set_track_program` and
 `set_audio_ref` edit the same fields as the Inspector. An empty or missing audio
-path clears the reference. The registry holds 50 tools; earlier counts were two
+path clears the reference. The registry holds 55 tools; earlier counts were two
 high because the counter also matched nested `name` keys in input schemas.
 
 ### Controller page
@@ -446,3 +446,12 @@ loads a row for editing and removes rows. Each action is one `SetLyrics` edit:
 `add_lyric` replaces any syllable at the tick and sorts, `remove_lyric` filters,
 and `set_lyrics` writes the whole list. The score and MusicXML consume the same
 events; there is no timeline lyric lane.
+
+### Export tools
+
+`save_project`, `export_midi`, `export_musicxml`, `render_wav` and `export_stems`
+write project, keyboard MIDI, MusicXML, 16-bit WAV and per-track stem output.
+MIDI uses each track's program and sends drum tracks to channel 10; the WAV mix
+includes audio references and reports problem count; stems write a manifest.
+One test writes all five into a temporary folder and checks non-empty files. The
+registry holds 55 tools.

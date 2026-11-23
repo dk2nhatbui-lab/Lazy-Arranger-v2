@@ -11,8 +11,10 @@ app-commands = { path = "../app-commands" }
 audio = { path = "../audio" }
 arranging = { path = "../arranging" }
 music-core = { path = "../music-core" }
+musicxml = { path = "../musicxml" }
 plugins = { path = "../plugins" }
 project = { path = "../project" }
+smf = { path = "../smf" }
 style-formats = { path = "../style-formats" }
 serde_json = { workspace = true }
 thiserror.workspace = true

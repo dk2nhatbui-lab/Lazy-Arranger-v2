@@ -1609,9 +1609,11 @@ dependencies = [
  "arranging",
  "audio",
  "music-core",
+ "musicxml",
  "plugins",
  "project",
  "serde_json",
+ "smf",
  "style-formats",
  "thiserror 2.0.21",
 ]

@@ -195,6 +195,60 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "save_project",
+            description: "Write the project JSON to a path.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"]
+            }),
+        },
+        Tool {
+            name: "export_midi",
+            description: "Write a keyboard MIDI file (setup bar, programs, drums).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"]
+            }),
+        },
+        Tool {
+            name: "export_musicxml",
+            description: "Write a MusicXML score.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "title": {"type": "string"}
+                },
+                "required": ["path"]
+            }),
+        },
+        Tool {
+            name: "render_wav",
+            description: "Render the song to a 16-bit WAV.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "sample_rate": {"type": "integer"}
+                },
+                "required": ["path"]
+            }),
+        },
+        Tool {
+            name: "export_stems",
+            description: "Render each audible track to a folder with a manifest.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string"},
+                    "sample_rate": {"type": "integer"}
+                },
+                "required": ["directory"]
+            }),
+        },
+        Tool {
             name: "get_slurs",
             description: "List a track's phrase slurs.",
             input_schema: json!({
@@ -720,6 +774,129 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             target.velocity = music_core::Velocity::new(velocity.clamp(1, 127))?;
             session.apply(Command::ReplaceTrackNotes { track, notes })?;
             Ok(json!({"velocity": velocity.clamp(1, 127)}))
+        }
+        "save_project" => {
+            let path = arguments
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("path is required")))?;
+            let json = session
+                .project()
+                .to_json_pretty()
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            std::fs::write(path, json)
+                .map_err(|error| ToolError::Arguments(format!("{path}: {error}")))?;
+            Ok(json!({"path": path}))
+        }
+        "export_midi" => {
+            use smf::keyboard::Voice;
+            let path = arguments
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("path is required")))?;
+            let voices: Vec<Voice> = session
+                .song()
+                .tracks
+                .iter()
+                .enumerate()
+                .map(|(index, track)| {
+                    let drums = track
+                        .notes
+                        .iter()
+                        .any(|note| note.channel.zero_based() == 9);
+                    Voice {
+                        channel: if drums {
+                            9
+                        } else {
+                            u8::try_from(index).unwrap_or(0) & 0x0f
+                        },
+                        program: track.program.unwrap_or(0),
+                        volume: track.volume.min(127),
+                        pan: track.pan.min(127),
+                        bank: None,
+                    }
+                })
+                .collect();
+            let (bytes, report) = smf::keyboard::export(session.song(), &voices, &[]);
+            std::fs::write(path, &bytes)
+                .map_err(|error| ToolError::Arguments(format!("{path}: {error}")))?;
+            Ok(json!({"path": path, "bytes": bytes.len(), "tracks": report.tracks}))
+        }
+        "export_musicxml" => {
+            let path = arguments
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("path is required")))?;
+            let title = arguments
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("Lazy Arranger score");
+            let xml = musicxml::export(session.song(), title);
+            std::fs::write(path, xml.as_bytes())
+                .map_err(|error| ToolError::Arguments(format!("{path}: {error}")))?;
+            Ok(json!({"path": path, "bytes": xml.len()}))
+        }
+        "render_wav" => {
+            let path = arguments
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("path is required")))?;
+            let sample_rate = arguments
+                .get("sample_rate")
+                .and_then(Value::as_u64)
+                .unwrap_or(48_000)
+                .clamp(8_000, 192_000) as u32;
+            let mut rendered = audio::render(session.song(), sample_rate);
+            let problems = audio::mix::mix_audio_references(&mut rendered, session.song(), 0.9);
+            std::fs::write(path, rendered.to_wav())
+                .map_err(|error| ToolError::Arguments(format!("{path}: {error}")))?;
+            Ok(json!({
+                "path": path,
+                "seconds": rendered.duration_seconds(),
+                "problems": problems.len()
+            }))
+        }
+        "export_stems" => {
+            let directory = arguments
+                .get("directory")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("directory is required")))?;
+            let sample_rate = arguments
+                .get("sample_rate")
+                .and_then(Value::as_u64)
+                .unwrap_or(48_000)
+                .clamp(8_000, 192_000) as u32;
+            let stems = audio::render_stems(session.song(), sample_rate);
+            std::fs::create_dir_all(directory)
+                .map_err(|error| ToolError::Arguments(format!("{directory}: {error}")))?;
+            let mut manifest = String::new();
+            for stem in &stems {
+                let slug: String = stem
+                    .name
+                    .chars()
+                    .map(|character| {
+                        if character.is_ascii_alphanumeric() {
+                            character.to_ascii_lowercase()
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect();
+                let file = format!("{}-{slug}.wav", stem.track.get());
+                std::fs::write(
+                    std::path::Path::new(directory).join(&file),
+                    stem.audio.to_wav(),
+                )
+                .map_err(|error| ToolError::Arguments(format!("{directory}: {error}")))?;
+                manifest.push_str(&format!(
+                    "{}\t{file}\t{:.2}s\n",
+                    stem.name,
+                    stem.audio.duration_seconds()
+                ));
+            }
+            std::fs::write(std::path::Path::new(directory).join("stems.txt"), manifest)
+                .map_err(|error| ToolError::Arguments(format!("{directory}: {error}")))?;
+            Ok(json!({"directory": directory, "stems": stems.len()}))
         }
         "get_slurs" => {
             let track = track_argument(arguments)?;
@@ -1788,6 +1965,59 @@ mod tests {
         assert_eq!(result["korg_marker"], true);
         assert_eq!(result["model"], "KRONOS");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn export_tools_write_files() {
+        let directory = std::env::temp_dir().join("lazy-arranger-mcp-exports");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("dir");
+        let mut session = session_with_track();
+        let project = directory.join("project.json");
+        call(
+            &mut session,
+            "save_project",
+            &json!({"path": project.display().to_string()}),
+        )
+        .expect("save");
+        let midi = directory.join("song.mid");
+        let saved = call(
+            &mut session,
+            "export_midi",
+            &json!({"path": midi.display().to_string()}),
+        )
+        .expect("midi");
+        assert!(saved["bytes"].as_u64().unwrap_or(0) > 0);
+        let xml = directory.join("song.xml");
+        call(
+            &mut session,
+            "export_musicxml",
+            &json!({"path": xml.display().to_string(), "title": "Test"}),
+        )
+        .expect("xml");
+        let wav = directory.join("song.wav");
+        call(
+            &mut session,
+            "render_wav",
+            &json!({"path": wav.display().to_string(), "sample_rate": 8000}),
+        )
+        .expect("wav");
+        let stems = directory.join("stems");
+        let exported = call(
+            &mut session,
+            "export_stems",
+            &json!({"directory": stems.display().to_string(), "sample_rate": 8000}),
+        )
+        .expect("stems");
+        for path in [&project, &midi, &xml, &wav, &stems.join("stems.txt")] {
+            assert!(
+                std::fs::metadata(path).is_ok_and(|metadata| metadata.len() > 0),
+                "{}",
+                path.display()
+            );
+        }
+        assert_eq!(exported["stems"], 1);
+        let _ = std::fs::remove_dir_all(directory);
     }
 
     #[test]
