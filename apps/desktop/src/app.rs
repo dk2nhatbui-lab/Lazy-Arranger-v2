@@ -4220,6 +4220,46 @@ impl eframe::App for ShellApp {
                         }
                     }
                     View::Perform => {
+                        if !kids {
+                            let current = project
+                                .song
+                                .chords
+                                .iter()
+                                .filter(|event| event.tick <= position)
+                                .max_by_key(|event| event.tick)
+                                .map(|event| event.chord.format(music_core::Spelling::Sharp));
+                            let next = project
+                                .song
+                                .chords
+                                .iter()
+                                .filter(|event| event.tick > position)
+                                .min_by_key(|event| event.tick)
+                                .map(|event| event.chord.format(music_core::Spelling::Sharp));
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("Now")
+                                        .size(11.0)
+                                        .color(theme::text_dim()),
+                                );
+                                ui.label(
+                                    egui::RichText::new(
+                                        current.unwrap_or_else(|| String::from("—")),
+                                    )
+                                    .size(28.0),
+                                );
+                                ui.add_space(18.0);
+                                ui.label(
+                                    egui::RichText::new("Next")
+                                        .size(11.0)
+                                        .color(theme::text_dim()),
+                                );
+                                ui.label(
+                                    egui::RichText::new(next.unwrap_or_else(|| String::from("—")))
+                                        .size(18.0),
+                                );
+                            });
+                            ui.separator();
+                        }
                         if kids && !lesson.is_empty() {
                             ui.vertical_centered(|ui| {
                                 ui.label(
@@ -4265,6 +4305,7 @@ impl eframe::App for ShellApp {
                                 .size(12.0)
                                 .color(theme::text_dim()),
                         );
+                        let pad_width = ((ui.available_width() - 24.0) / 4.0).clamp(96.0, 190.0);
                         for row in 0..4 {
                             ui.horizontal(|ui| {
                                 for column in 0..4 {
@@ -4275,9 +4316,9 @@ impl eframe::App for ShellApp {
                                     let text = chord.format(music_core::Spelling::Sharp);
                                     if ui
                                         .add_sized(
-                                            [86.0, 40.0],
+                                            [pad_width, 52.0],
                                             egui::Button::new(
-                                                egui::RichText::new(&text).size(12.0),
+                                                egui::RichText::new(&text).size(14.0),
                                             ),
                                         )
                                         .clicked()

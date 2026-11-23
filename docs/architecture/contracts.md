@@ -861,3 +861,10 @@ The Mix view lists each bus with volume and pan sliders and a Remove button plus
 an Add bus action; edits are one `SetBuses` call. The demo has no buses, so the
 section is a header with Add bus. The captured layout is
 `docs/audit/mix.png`.
+
+### Perform view
+
+Outside Kids Mode the Perform view shows the current chord (last chord at or
+before the playhead), the next chord and a four-by-four pad grid sized to the
+available width. Kids Mode keeps its large lesson controls above the pads. The
+captured layout is `docs/audit/perform.png`.
