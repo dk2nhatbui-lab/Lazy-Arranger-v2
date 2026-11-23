@@ -4098,20 +4098,25 @@ impl ShellApp {
                             .size(10.0)
                             .color(theme::text_muted()),
                     );
-                    if track.soundfont.is_none() && track.program.is_some() {
-                        let mut program = track.program.unwrap_or(0);
+                    if track.soundfont.is_none() {
+                        let selected = track
+                            .program
+                            .map_or("Built-in SoundFont", midi_devices::programs::name);
                         egui::ComboBox::from_id_salt("track-program")
-                            .selected_text(midi_devices::programs::name(program))
+                            .selected_text(selected)
                             .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_label(track.program.is_none(), "Built-in SoundFont")
+                                    .clicked()
+                                {
+                                    let _ = self.editor.set_track_program(track.id, None);
+                                }
                                 for (value, name) in
                                     midi_devices::programs::GM_NAMES.iter().enumerate()
                                 {
+                                    let program = u8::try_from(value).unwrap_or(0);
                                     if ui
-                                        .selectable_value(
-                                            &mut program,
-                                            u8::try_from(value).unwrap_or(0),
-                                            *name,
-                                        )
+                                        .selectable_label(track.program == Some(program), *name)
                                         .clicked()
                                     {
                                         let _ =
@@ -4135,10 +4140,12 @@ impl ShellApp {
                         }
                     });
                     if ui.button("Effects…").clicked() {
-                        self.inspector_open = true;
+                        self.view = View::Mix;
                     }
                     if ui.button("SoundFont…").clicked() {
-                        self.inspector_open = true;
+                        self.view = View::Mix;
+                        self.status =
+                            Some(String::from("SoundFont controls are in the Mixer view"));
                     }
                     ui.separator();
                     ui.label(
@@ -4184,6 +4191,9 @@ impl ShellApp {
                             .color(theme::text_dim()),
                     );
                     ui.label(audio_engine_label());
+                    if ui.button("Audio and MIDI settings").clicked() {
+                        self.settings_open = true;
+                    }
                     ui.separator();
                     ui.label(
                         egui::RichText::new("MIDI INPUTS")
@@ -6825,7 +6835,7 @@ impl ShellApp {
                     title_rect.left_bottom(),
                     egui::Align2::LEFT_BOTTOM,
                     name,
-                    egui::FontId::proportional(16.0),
+                    egui::FontId::proportional(14.0),
                     theme::text(),
                 );
                 let subtitle = format!(
@@ -6946,7 +6956,10 @@ impl ShellApp {
                     widgets::TABS_SIZE,
                 );
                 let mut tabs_ui = ui.new_child(egui::UiBuilder::new().max_rect(tabs_rect));
-                let views = View::allowed(self.settings.kids_mode);
+                let views: Vec<View> = View::allowed(self.settings.kids_mode)
+                    .into_iter()
+                    .filter(|view| self.settings.kids_mode || *view != View::Mix)
+                    .collect();
                 let names: Vec<&str> = views
                     .iter()
                     .map(|view| match view {
@@ -7112,6 +7125,23 @@ impl ShellApp {
                         }
                     });
                 });
+                let chord_track = self
+                    .roll
+                    .selected
+                    .and_then(|id| self.song().tracks.iter().find(|track| track.id == id))
+                    .or_else(|| {
+                        self.song()
+                            .tracks
+                            .iter()
+                            .max_by_key(|track| track.notes.len())
+                    })
+                    .map(|track| track.name.clone())
+                    .unwrap_or_else(|| String::from("no track"));
+                ui.label(
+                    egui::RichText::new(format!("Chords on {chord_track}"))
+                        .size(9.0)
+                        .color(theme::text_dim()),
+                );
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui
@@ -7608,15 +7638,20 @@ impl ShellApp {
                                 .color(theme::text_muted()),
                         );
                     }
-                    if let Some(path) = &self.project_path {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some(path) = &self.project_path {
                             ui.label(
                                 egui::RichText::new(path.display().to_string())
                                     .size(10.0)
                                     .color(theme::text_dim()),
                             );
-                        });
-                    }
+                        }
+                        ui.label(
+                            egui::RichText::new("Space Play · C Metronome · Home Start")
+                                .size(9.0)
+                                .color(theme::text_dim()),
+                        );
+                    });
                 });
             });
     }

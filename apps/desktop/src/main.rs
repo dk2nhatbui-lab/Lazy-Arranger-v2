@@ -13,7 +13,7 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Lazy Arranger")
-            .with_inner_size([1360.0, 840.0])
+            .with_inner_size([1500.0, 900.0])
             .with_min_inner_size([960.0, 600.0])
             // ADR-011: start hidden; the shell shows it after the first frame.
             .with_visible(false)
