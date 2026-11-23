@@ -74,7 +74,7 @@ fn dragged_edit(drag: &ClipDrag, pointer_tick: Tick) -> ClipEdit {
 }
 const RULER_HEIGHT: f32 = 28.0;
 const CHORD_HEIGHT: f32 = 22.0;
-const LANE_HEIGHT: f32 = 54.0;
+const LANE_HEIGHT: f32 = 64.0;
 
 /// Palette color for a track lane.
 #[must_use]
