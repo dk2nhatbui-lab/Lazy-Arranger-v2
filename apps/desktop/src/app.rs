@@ -8314,7 +8314,7 @@ impl ShellApp {
         }
     }
 
-    fn status_bar(&self, context: &Context) {
+    fn status_bar(&mut self, context: &Context) {
         egui::TopBottomPanel::bottom("status")
             .exact_height(theme::STATUS_HEIGHT)
             .frame(
@@ -8364,6 +8364,12 @@ impl ShellApp {
                                     .size(10.0)
                                     .color(theme::text_dim()),
                             );
+                        }
+                        if self.view == View::Arrange
+                            && self.timeline_mode
+                            && ui.small_button("Piano roll").clicked()
+                        {
+                            self.timeline_mode = false;
                         }
                         ui.label(
                             egui::RichText::new("Space Play · C Metronome · Home Start")
@@ -8553,24 +8559,25 @@ impl eframe::App for ShellApp {
                 let project = editor.project();
                 match view {
                     View::Arrange => {
-                        ui.horizontal(|ui| {
-                            if ui
-                                .selectable_label(self.timeline_mode, "Timeline")
-                                .on_hover_text("Coloured track lanes")
-                                .clicked()
-                            {
-                                self.timeline_mode = true;
-                            }
-                            if ui
-                                .selectable_label(!self.timeline_mode, "Piano roll")
-                                .on_hover_text("Edit notes on the grid")
-                                .clicked()
-                            {
-                                self.timeline_mode = false;
-                            }
-                            ui.checkbox(&mut roll.snap, "Snap 1/16")
-                                .on_hover_text("Snap note drags and insertions to a sixteenth");
-                        });
+                        if !timeline_mode {
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .button("Timeline")
+                                    .on_hover_text("Back to the coloured track lanes")
+                                    .clicked()
+                                {
+                                    self.timeline_mode = true;
+                                }
+                                ui.label(
+                                    egui::RichText::new("Piano roll")
+                                        .size(11.0)
+                                        .color(theme::text_muted()),
+                                );
+                                ui.checkbox(&mut roll.snap, "Snap 1/16").on_hover_text(
+                                    "Snap note drags and insertions to a sixteenth",
+                                );
+                            });
+                        }
                         if let Some((track_id, path, peaks)) = &waveform
                             && roll.selected == Some(*track_id)
                         {

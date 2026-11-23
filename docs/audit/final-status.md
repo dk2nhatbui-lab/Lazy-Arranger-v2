@@ -129,3 +129,4 @@ For the clef layout, choose either four measures per system without clefs
 - PSR panel has eight persisted registration slots; hardware unverified.
 - XioSynth and D-05 profile files seed the profiles folder and expose CC controls in the Device editor; hardware unverified.
 - Track list scrolls vertically when the sidebar is full.
+- Timeline view has no extra toolbar; the Piano roll switch sits in the status bar (`docs/audit/ui-no-toolbar.png`).
