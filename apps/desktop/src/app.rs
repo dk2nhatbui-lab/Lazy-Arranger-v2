@@ -939,6 +939,8 @@ pub struct ShellApp {
     controller_open: bool,
     midi_cc_values: [u8; 128],
     midi_recent: std::collections::VecDeque<String>,
+    midi_log: std::collections::VecDeque<(std::time::Instant, String)>,
+    midi_monitor_open: bool,
     controller_action: usize,
     recording: Option<std::sync::mpsc::Receiver<Result<Song, String>>>,
     record_target: Option<TrackId>,
@@ -1245,6 +1247,8 @@ impl ShellApp {
             controller_open: initial_window == "controllers",
             midi_cc_values: [0; 128],
             midi_recent: std::collections::VecDeque::new(),
+            midi_log: std::collections::VecDeque::new(),
+            midi_monitor_open: std::env::var("ARRANGER_MIDIMON").is_ok(),
             controller_action: 0,
             recording: None,
             record_target: None,
@@ -2341,8 +2345,17 @@ impl ShellApp {
                 {
                     detected_chord = Some(name.clone());
                 }
-                self.midi_recent.push_front(midi_label(&message));
+                let label = midi_label(&message);
+                self.midi_recent.push_front(label.clone());
                 self.midi_recent.truncate(16);
+                self.midi_log.push_front((std::time::Instant::now(), label));
+                while self
+                    .midi_log
+                    .back()
+                    .is_some_and(|(at, _)| at.elapsed().as_secs() > 120)
+                {
+                    self.midi_log.pop_back();
+                }
                 if let music_core::MidiMessage::ControlChange {
                     controller, value, ..
                 } = &message
@@ -3777,6 +3790,39 @@ impl ShellApp {
             }
             Err(error) => self.status = Some(error.to_string()),
         }
+    }
+
+    fn midi_monitor_window(&mut self, context: &Context) {
+        if !self.midi_monitor_open {
+            return;
+        }
+        let mut open = self.midi_monitor_open;
+        egui::Window::new("MIDI monitor")
+            .open(&mut open)
+            .resizable(true)
+            .default_width(320.0)
+            .show(context, |ui| {
+                if ui.button("Clear").clicked() {
+                    self.midi_log.clear();
+                    self.midi_recent.clear();
+                }
+                ui.label(
+                    egui::RichText::new("Last two minutes of input messages")
+                        .size(9.0)
+                        .color(theme::text_dim()),
+                );
+                egui::ScrollArea::vertical()
+                    .max_height(260.0)
+                    .show(ui, |ui| {
+                        if self.midi_log.is_empty() {
+                            ui.label("No MIDI messages yet.");
+                        }
+                        for (at, label) in &self.midi_log {
+                            ui.label(format!("{:>6.1}s  {label}", at.elapsed().as_secs_f64()));
+                        }
+                    });
+            });
+        self.midi_monitor_open = open;
     }
 
     fn midi_out_window(&mut self, context: &Context) {
@@ -9507,6 +9553,10 @@ impl ShellApp {
                                 self.audio_style_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("MIDI monitor").clicked() {
+                                self.midi_monitor_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("L6max mixer").clicked() {
                                 self.l6max_mixer_open = true;
                                 ui.close_menu();
@@ -10079,6 +10129,7 @@ impl eframe::App for ShellApp {
         self.bus_fx_window(context);
         self.psr_window(context);
         self.midi_out_window(context);
+        self.midi_monitor_window(context);
         self.au_parameters_window(context);
         self.vst3_parameters_window(context);
         self.print_window(context);
