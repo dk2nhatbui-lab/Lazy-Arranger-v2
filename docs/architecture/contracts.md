@@ -343,3 +343,12 @@ and offers a track chooser, rename (`Editor::rename_track`), volume/pan sliders
 (`set_track_program`) and read-only summaries of clips, automation, audio,
 SoundFont and plug-in slots. Sidebar buttons now open Inspector, Library, Pads,
 Assistant and Settings; those windows previously had no opener.
+
+### MIDI map window
+
+The MIDI map window lists bindings, chooses an action (play, stop, undo, scene,
+first-track fader, pad 38), starts a learn session and cancels it; the shell
+feeds live messages to `Learn::capture` before action dispatch, binds the
+captured control, writes `lazy-arranger-midi-map.txt` and clears the session.
+Clear all replaces the map and rewrites the file. Channel check and controller
+pages are not implemented, and hardware capture is untested.

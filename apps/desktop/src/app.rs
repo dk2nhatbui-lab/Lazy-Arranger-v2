@@ -140,6 +140,9 @@ pub struct ShellApp {
     inspector_open: bool,
     inspector_track: Option<TrackId>,
     inspector_name: String,
+    midi_map_open: bool,
+    midi_learn: Option<midi_devices::map::Learn>,
+    midi_learn_choice: usize,
     rename_scene: Option<usize>,
     rename_scene_input: String,
     last_bar: i64,
@@ -246,6 +249,9 @@ impl ShellApp {
             inspector_open: false,
             inspector_track: None,
             inspector_name: String::new(),
+            midi_map_open: false,
+            midi_learn: None,
+            midi_learn_choice: 0,
             rename_scene: None,
             rename_scene_input: String::new(),
             last_bar: 0,
@@ -883,13 +889,30 @@ impl ShellApp {
             }
         }
         let mut actions = Vec::new();
+        let mut learned = None;
         if let Some(input) = &self.midi_input {
             while let Some(message) = input.next() {
+                if let Some(learn) = self.midi_learn {
+                    if let Some((control, action)) = learn.capture(&message) {
+                        learned = Some((control, action));
+                    }
+                    continue;
+                }
                 if let Some(action) = self.midi_map.action_for(&message) {
                     let value = midi_devices::map::value_of(&message);
                     actions.push((action, value));
                 }
             }
+        }
+        if let Some((control, action)) = learned {
+            self.midi_map.bind(control, action);
+            let text = self.midi_map.to_text();
+            if let Err(error) = std::fs::write("lazy-arranger-midi-map.txt", text) {
+                self.status = Some(format!("midi map: {error}"));
+            } else {
+                self.status = Some(format!("bound {} -> {}", control.label(), action.label()));
+            }
+            self.midi_learn = None;
         }
         for (action, value) in actions {
             self.apply_midi_action(action, value);
@@ -1185,6 +1208,80 @@ impl ShellApp {
     }
 
     /// Settings and shortcut windows.
+    fn midi_map_window(&mut self, context: &egui::Context) {
+        if !self.midi_map_open {
+            return;
+        }
+        let tracks: Vec<(TrackId, String)> = self
+            .song()
+            .tracks
+            .iter()
+            .map(|track| (track.id, track.name.clone()))
+            .collect();
+        let actions: Vec<midi_devices::map::Action> = vec![
+            midi_devices::map::Action::Play,
+            midi_devices::map::Action::Stop,
+            midi_devices::map::Action::Undo,
+            midi_devices::map::Action::Scene(0),
+            midi_devices::map::Action::TrackFader(
+                tracks
+                    .first()
+                    .map_or_else(|| TrackId::new(1).expect("valid"), |(id, _)| *id),
+            ),
+            midi_devices::map::Action::Pad(38),
+        ];
+        let mut open = self.midi_map_open;
+        egui::Window::new("MIDI map")
+            .open(&mut open)
+            .default_width(340.0)
+            .show(context, |ui| {
+                let choice = self.midi_learn_choice.min(actions.len() - 1);
+                let mut chosen = choice;
+                egui::ComboBox::from_id_salt("midi-map-action")
+                    .selected_text(actions[choice].label())
+                    .show_ui(ui, |ui| {
+                        for (index, action) in actions.iter().enumerate() {
+                            ui.selectable_value(&mut chosen, index, action.label());
+                        }
+                    });
+                self.midi_learn_choice = chosen;
+                ui.horizontal(|ui| {
+                    if ui.button("Learn").clicked() {
+                        self.midi_learn = Some(midi_devices::map::Learn::begin(actions[chosen]));
+                        self.status = Some(String::from("waiting for a note or CC"));
+                    }
+                    if self.midi_learn.is_some() && ui.button("Cancel").clicked() {
+                        self.midi_learn = None;
+                        self.status = Some(String::from("learn cancelled"));
+                    }
+                    if ui.button("Clear all").clicked() {
+                        self.midi_map = midi_devices::map::MidiMap::default();
+                        let _ =
+                            std::fs::write("lazy-arranger-midi-map.txt", self.midi_map.to_text());
+                        self.status = Some(String::from("MIDI map cleared"));
+                    }
+                });
+                if self.midi_learn.is_some() {
+                    ui.label(
+                        egui::RichText::new("Waiting for the next note or control change…")
+                            .color(theme::ACCENT),
+                    );
+                }
+                ui.separator();
+                if self.midi_map.bindings.is_empty() {
+                    ui.label(egui::RichText::new("no bindings").color(theme::TEXT_DIM));
+                }
+                for binding in &self.midi_map.bindings {
+                    ui.label(format!(
+                        "{} = {}",
+                        binding.control_label(),
+                        binding.action.label()
+                    ));
+                }
+            });
+        self.midi_map_open = open;
+    }
+
     fn inspector_window(&mut self, context: &egui::Context) {
         if !self.inspector_open {
             return;
@@ -2495,6 +2592,9 @@ impl ShellApp {
                         if ui.small_button("Settings").clicked() {
                             self.settings_open = true;
                         }
+                        if ui.small_button("MIDI map").clicked() {
+                            self.midi_map_open = true;
+                        }
                     });
                     if !self.recent.is_empty() {
                         ui.label(
@@ -2694,6 +2794,7 @@ impl eframe::App for ShellApp {
         self.top_bar(context);
         self.windows(context);
         self.inspector_window(context);
+        self.midi_map_window(context);
         self.assistant_window(context);
         self.pads_window(context);
         self.library_window(context);

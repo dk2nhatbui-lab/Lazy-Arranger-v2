@@ -25,7 +25,7 @@ impl Binding {
 }
 
 impl Control {
-    fn label(self) -> String {
+    pub fn label(self) -> String {
         match self {
             Self::Note(key) => format!("note {key}"),
             Self::Controller(number) => format!("cc {number}"),
@@ -51,7 +51,7 @@ pub enum Action {
 }
 
 impl Action {
-    fn label(self) -> String {
+    pub fn label(self) -> String {
         match self {
             Self::Play => String::from("play"),
             Self::Stop => String::from("stop"),
@@ -332,5 +332,40 @@ mod tests {
         );
         assert_eq!(learn.capture(&release), None);
         assert_eq!(learn.capture(&control(64, 0)), None);
+    }
+}
+
+#[cfg(test)]
+mod learn_tests {
+    use super::*;
+    use music_core::{Channel, ControlNumber, MidiMessage, Pitch, Velocity};
+
+    #[test]
+    fn learn_captures_note_on_and_control_change_only() {
+        let learn = Learn::begin(Action::Play);
+        let note = MidiMessage::NoteOn {
+            channel: Channel::first(),
+            key: Pitch::new(45).expect("valid"),
+            velocity: Velocity::new(90).expect("valid"),
+        };
+        assert_eq!(
+            learn.capture(&note),
+            Some((Control::Note(45), Action::Play))
+        );
+        let off = MidiMessage::NoteOn {
+            channel: Channel::first(),
+            key: Pitch::new(45).expect("valid"),
+            velocity: Velocity::new(0).expect("valid"),
+        };
+        assert!(learn.capture(&off).is_none());
+        let cc = MidiMessage::ControlChange {
+            channel: Channel::first(),
+            controller: ControlNumber::new(7).expect("valid"),
+            value: 100,
+        };
+        assert_eq!(
+            learn.capture(&cc),
+            Some((Control::Controller(7), Action::Play))
+        );
     }
 }
