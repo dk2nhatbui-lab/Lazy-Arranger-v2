@@ -1238,6 +1238,41 @@ impl ShellApp {
                         .editor
                         .set_track_routing(id, bus_choice, routing.1, routing.2);
                 }
+                let mut send_choice = routing.1;
+                egui::ComboBox::from_id_salt(format!("send-{id}"))
+                    .selected_text(match send_choice {
+                        Some(bus) => format!("Send {bus}"),
+                        None => String::from("No send"),
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut send_choice, None, "No send");
+                        for bus in &buses {
+                            ui.selectable_value(
+                                &mut send_choice,
+                                Some(bus.id),
+                                format!("Send {}", bus.id),
+                            );
+                        }
+                    });
+                if send_choice != routing.1 {
+                    let _ = self
+                        .editor
+                        .set_track_routing(id, routing.0, send_choice, routing.2);
+                }
+                if let Some(_send) = send_choice {
+                    let mut level = i32::from(routing.2);
+                    if ui
+                        .add(egui::Slider::new(&mut level, 0..=127).text("send"))
+                        .changed()
+                    {
+                        let _ = self.editor.set_track_routing(
+                            id,
+                            routing.0,
+                            send_choice,
+                            u8::try_from(level).unwrap_or(routing.2),
+                        );
+                    }
+                }
                 if ui.selectable_label(muted, "M").clicked() {
                     let _ = self.editor.set_track_flags(id, !muted, soloed, false);
                 }
@@ -1323,9 +1358,11 @@ impl ShellApp {
             }
         });
         ui.label(
-            egui::RichText::new("Click a scene to queue it; the next bar starts it while playing.")
-                .size(10.0)
-                .color(theme::TEXT_DIM),
+            egui::RichText::new(
+                "Click a scene to queue it; right-click a slot to clear, resize or copy it.",
+            )
+            .size(10.0)
+            .color(theme::TEXT_DIM),
         );
         if let Some(index) = self.rename_scene {
             let mut open = true;

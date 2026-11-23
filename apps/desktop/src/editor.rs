@@ -655,6 +655,55 @@ impl Editor {
         Ok(())
     }
 
+    /// Removes one slot's clip.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn clear_slot(&mut self, scene: usize, track: TrackId) -> Result<(), String> {
+        let grid = self.grid(2);
+        arranging::grid::clear_slot(&mut self.session, &grid, scene, track)
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Sets one slot's clip length.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_slot_length(
+        &mut self,
+        scene: usize,
+        track: TrackId,
+        length: Tick,
+    ) -> Result<(), String> {
+        let grid = self.grid(2);
+        arranging::grid::set_slot_length(&mut self.session, &grid, scene, track, length)
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Copies one slot to a tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn copy_slot(
+        &mut self,
+        scene: usize,
+        track: TrackId,
+        target: Tick,
+    ) -> Result<usize, String> {
+        let grid = self.grid(2);
+        let copied = arranging::grid::copy_slot(&mut self.session, &grid, scene, track, target)
+            .map_err(|error| error.to_string())?;
+        self.dirty |= copied > 0;
+        Ok(copied)
+    }
+
     /// Trims the front of a track's audio reference.
     ///
     /// # Errors
@@ -1113,6 +1162,29 @@ mod tests {
         assert_eq!(grid.rows[0].scene.name, "Verse");
         assert!(editor.undo());
         assert!(editor.song().scene_names.is_empty());
+    }
+
+    #[test]
+    fn slot_wrappers_clear_and_resize_through_commands() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        editor
+            .insert_clip(
+                track,
+                project::song::Clip {
+                    id: project::ClipId::new(1).expect("valid"),
+                    name: String::from("A"),
+                    start: 0,
+                    length: 3840,
+                },
+            )
+            .expect("clip");
+        editor.set_slot_length(0, track, 1920).expect("length");
+        assert_eq!(editor.song().tracks[0].clips[0].length, 1920);
+        editor.clear_slot(0, track).expect("clear");
+        assert!(editor.song().tracks[0].clips.is_empty());
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].clips.len(), 1);
     }
 
     #[test]
