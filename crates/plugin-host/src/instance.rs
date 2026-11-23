@@ -7,13 +7,15 @@ use std::path::{Path, PathBuf};
 use vst3::Steinberg::Vst::{
     AudioBusBuffers, AudioBusBuffers__type0, BusDirections_, IAudioProcessor, IAudioProcessorTrait,
     IComponent, IComponentTrait, IEditController, IEditControllerTrait, IHostApplication,
-    IHostApplicationTrait, MediaTypes_, ProcessContext, ProcessData, ProcessSetup, String128,
+    IHostApplicationTrait, IParamValueQueue, IParamValueQueueTrait, IParameterChanges,
+    IParameterChangesTrait, MediaTypes_, ProcessContext, ProcessData, ProcessSetup, String128,
     SymbolicSampleSizes_,
 };
 use vst3::Steinberg::{
     IBStream, IBStreamTrait, IPluginBaseTrait, IPluginFactory, IPluginFactoryTrait, TUID,
     kNoInterface, kResultOk,
 };
+use vst3::com_scrape_types::Unknown;
 use vst3::{Class, ComPtr, ComWrapper, Interface};
 
 /// One active VST3 effect.
@@ -25,6 +27,7 @@ pub struct Vst3Effect {
     channels: usize,
     max_block: usize,
     sample_rate: f64,
+    pending_parameters: Vec<(u32, f64)>,
 }
 
 impl std::fmt::Debug for Vst3Effect {
@@ -152,6 +155,7 @@ impl Vst3Effect {
             channels: 2,
             max_block: max_block.max(1),
             sample_rate,
+            pending_parameters: Vec::new(),
         })
     }
 
@@ -159,6 +163,14 @@ impl Vst3Effect {
     #[must_use]
     pub fn channels(&self) -> usize {
         self.channels
+    }
+
+    /// Queues a normalized parameter change for the next process block.
+    pub fn set_parameter(&mut self, id: u32, value: f64) {
+        self.pending_parameters.push((id, value.clamp(0.0, 1.0)));
+        if let Some(controller) = &self.controller {
+            let _ = unsafe { controller.setParamNormalized(id, value.clamp(0.0, 1.0)) };
+        }
     }
 
     /// Processes interleaved stereo samples in place.
@@ -174,6 +186,26 @@ impl Vst3Effect {
         if !samples.len().is_multiple_of(2) {
             return Err(String::from("stereo buffer has an odd length"));
         }
+        let changes = if self.pending_parameters.is_empty() {
+            None
+        } else {
+            let queues = self
+                .pending_parameters
+                .drain(..)
+                .map(|(id, value)| {
+                    ComWrapper::new(ParameterQueue {
+                        id,
+                        points: std::sync::Mutex::new(vec![ParameterPoint { offset: 0, value }]),
+                    })
+                    .to_com_ptr::<IParamValueQueue>()
+                })
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| String::from("parameter queue"))?;
+            ComWrapper::new(ParameterChanges {
+                queues: std::sync::Mutex::new(queues),
+            })
+            .to_com_ptr::<IParameterChanges>()
+        };
         for block in samples.chunks_mut(self.max_block * 2) {
             let frames = block.len() / 2;
             let mut left = vec![0.0_f32; frames];
@@ -214,7 +246,9 @@ impl Vst3Effect {
                 numOutputs: 1,
                 inputs: inputs.as_mut_ptr(),
                 outputs: outputs.as_mut_ptr(),
-                inputParameterChanges: std::ptr::null_mut(),
+                inputParameterChanges: changes
+                    .as_ref()
+                    .map_or(std::ptr::null_mut(), |changes| changes.as_ptr()),
                 outputParameterChanges: std::ptr::null_mut(),
                 inputEvents: std::ptr::null_mut(),
                 outputEvents: std::ptr::null_mut(),
@@ -500,6 +534,107 @@ pub(crate) fn memory_stream() -> (
     MemoryStream::new()
 }
 
+struct ParameterPoint {
+    offset: i32,
+    value: f64,
+}
+
+struct ParameterQueue {
+    id: u32,
+    points: std::sync::Mutex<Vec<ParameterPoint>>,
+}
+
+impl Class for ParameterQueue {
+    type Interfaces = (IParamValueQueue,);
+}
+
+impl IParamValueQueueTrait for ParameterQueue {
+    unsafe fn getParameterId(&self) -> u32 {
+        self.id
+    }
+
+    unsafe fn getPointCount(&self) -> i32 {
+        self.points.lock().map_or(0, |points| points.len() as i32)
+    }
+
+    unsafe fn getPoint(
+        &self,
+        index: i32,
+        sample_offset: *mut i32,
+        value: *mut f64,
+    ) -> vst3::Steinberg::tresult {
+        let Ok(points) = self.points.lock() else {
+            return vst3::Steinberg::kResultFalse;
+        };
+        let Some(point) = usize::try_from(index)
+            .ok()
+            .and_then(|index| points.get(index))
+        else {
+            return vst3::Steinberg::kResultFalse;
+        };
+        if !sample_offset.is_null() {
+            unsafe { *sample_offset = point.offset };
+        }
+        if !value.is_null() {
+            unsafe { *value = point.value };
+        }
+        kResultOk
+    }
+
+    unsafe fn addPoint(
+        &self,
+        sample_offset: i32,
+        value: f64,
+        index: *mut i32,
+    ) -> vst3::Steinberg::tresult {
+        let Ok(mut points) = self.points.lock() else {
+            return vst3::Steinberg::kResultFalse;
+        };
+        let position = points.len() as i32;
+        points.push(ParameterPoint {
+            offset: sample_offset,
+            value,
+        });
+        if !index.is_null() {
+            unsafe { *index = position };
+        }
+        kResultOk
+    }
+}
+
+struct ParameterChanges {
+    queues: std::sync::Mutex<Vec<ComPtr<IParamValueQueue>>>,
+}
+
+impl Class for ParameterChanges {
+    type Interfaces = (IParameterChanges,);
+}
+
+impl IParameterChangesTrait for ParameterChanges {
+    unsafe fn getParameterCount(&self) -> i32 {
+        self.queues.lock().map_or(0, |queues| queues.len() as i32)
+    }
+
+    unsafe fn getParameterData(&self, index: i32) -> *mut IParamValueQueue {
+        let Ok(queues) = self.queues.lock() else {
+            return std::ptr::null_mut();
+        };
+        let Some(queue) = usize::try_from(index)
+            .ok()
+            .and_then(|index| queues.get(index))
+        else {
+            return std::ptr::null_mut();
+        };
+        let pointer = queue.as_ptr();
+        unsafe { IParamValueQueue::add_ref(pointer) };
+        pointer
+    }
+
+    unsafe fn addParameterData(&self, _id: *const u32, _index: *mut i32) -> *mut IParamValueQueue {
+        std::ptr::null_mut()
+    }
+}
+
 pub(crate) struct HostApplication;
 
 impl Class for HostApplication {
@@ -572,6 +707,30 @@ pub(crate) fn vst3_binary(path: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parameter_changes_expose_a_queue() {
+        let queue = ComWrapper::new(ParameterQueue {
+            id: 7,
+            points: std::sync::Mutex::new(vec![ParameterPoint {
+                offset: 0,
+                value: 0.5,
+            }]),
+        })
+        .to_com_ptr::<IParamValueQueue>()
+        .expect("queue");
+        let changes = ComWrapper::new(ParameterChanges {
+            queues: std::sync::Mutex::new(vec![queue]),
+        })
+        .to_com_ptr::<IParameterChanges>()
+        .expect("changes");
+        assert_eq!(unsafe { changes.getParameterCount() }, 1);
+        let raw = unsafe { changes.getParameterData(0) };
+        assert!(!raw.is_null());
+        let queue = unsafe { ComPtr::from_raw(raw) }.expect("queue pointer");
+        assert_eq!(unsafe { queue.getParameterId() }, 7);
+        assert_eq!(unsafe { queue.getPointCount() }, 1);
+    }
 
     #[test]
     fn class_ids_parse_only_32_hex_digits() {

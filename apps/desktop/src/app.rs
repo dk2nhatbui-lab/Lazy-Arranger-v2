@@ -516,6 +516,11 @@ pub struct ShellApp {
     au_editor_slot: Option<u32>,
     au_effect: Option<AuEditorUnit>,
     au_params: Vec<(u32, String, f32, f32, f32, f32)>,
+    vst3_params_open: bool,
+    vst3_params_track: Option<TrackId>,
+    vst3_params_slot: Option<u32>,
+    vst3_effect: Option<plugin_host::Vst3Effect>,
+    vst3_params: Vec<(u32, String, f64)>,
     score_pdf_path: String,
     score_track: Option<TrackId>,
     score_state: crate::score_view::ScoreState,
@@ -726,6 +731,11 @@ impl ShellApp {
             au_editor_slot: None,
             au_effect: None,
             au_params: Vec::new(),
+            vst3_params_open: false,
+            vst3_params_track: None,
+            vst3_params_slot: None,
+            vst3_effect: None,
+            vst3_params: Vec::new(),
             score_pdf_path: String::from("score.pdf"),
             score_track: None,
             score_state: crate::score_view::ScoreState::default(),
@@ -3117,6 +3127,102 @@ impl ShellApp {
         }
     }
 
+    fn open_vst3_parameters(&mut self, track: TrackId, slot: u32) {
+        let Some(plugin) = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.plugins.iter().find(|entry| entry.id == slot))
+            .cloned()
+        else {
+            self.status = Some(String::from("plug-in slot not found"));
+            return;
+        };
+        let effect = match plugin_host::Vst3Effect::new(
+            std::path::Path::new(&plugin.path),
+            &plugin.identifier,
+            48_000.0,
+            512,
+        ) {
+            Ok(effect) => effect,
+            Err(error) => {
+                self.status = Some(format!("VST3: {error}"));
+                return;
+            }
+        };
+        let mut effect = effect;
+        if !plugin.state.is_empty() {
+            let _ = effect.load_state_base64(&plugin.state);
+        }
+        let params = effect.parameters();
+        if params.is_empty() {
+            self.status = Some(format!("{} exposes no VST3 parameters", plugin.name));
+            return;
+        }
+        self.vst3_params = params;
+        self.vst3_effect = Some(effect);
+        self.vst3_params_track = Some(track);
+        self.vst3_params_slot = Some(slot);
+        self.vst3_params_open = true;
+    }
+
+    fn vst3_parameters_window(&mut self, context: &Context) {
+        if !self.vst3_params_open {
+            return;
+        }
+        let mut open = self.vst3_params_open;
+        egui::Window::new("VST3 parameters")
+            .open(&mut open)
+            .resizable(false)
+            .show(context, |ui| {
+                if let (Some(track), Some(slot)) = (self.vst3_params_track, self.vst3_params_slot) {
+                    ui.label(
+                        egui::RichText::new(format!("track {track} · slot {slot}"))
+                            .size(10.0)
+                            .color(theme::text_dim()),
+                    );
+                }
+                if let Some(effect) = self.vst3_effect.as_mut() {
+                    for (id, name, value) in &mut self.vst3_params {
+                        let label = if name.is_empty() {
+                            format!("Param {id}")
+                        } else {
+                            name.clone()
+                        };
+                        if ui
+                            .add(egui::Slider::new(value, 0.0..=1.0).text(label))
+                            .changed()
+                        {
+                            effect.set_parameter(*id, *value);
+                        }
+                    }
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("Apply state").clicked()
+                        && let (Some(effect), Some(track), Some(slot)) = (
+                            self.vst3_effect.as_ref(),
+                            self.vst3_params_track,
+                            self.vst3_params_slot,
+                        )
+                    {
+                        match effect.save_state_base64() {
+                            Ok(state) => match self.editor.set_plugin_state(track, slot, &state) {
+                                Ok(()) => self.status = Some(String::from("VST3 state saved")),
+                                Err(error) => self.status = Some(error),
+                            },
+                            Err(error) => self.status = Some(format!("VST3: {error}")),
+                        }
+                    }
+                });
+            });
+        self.vst3_params_open = open;
+        if !open {
+            self.vst3_effect = None;
+            self.vst3_params.clear();
+        }
+    }
+
     fn open_au_parameters(&mut self, track: TrackId, slot: u32) {
         let Some(plugin) = self
             .song()
@@ -4722,10 +4828,13 @@ impl ShellApp {
                         {
                             self.open_au_parameters(track_id, slot.id);
                         }
-                        if slot.format == project::song::PluginFormat::Vst3
-                            && ui.small_button("Capture").clicked()
-                        {
-                            self.capture_vst3_state(track_id, slot.id);
+                        if slot.format == project::song::PluginFormat::Vst3 {
+                            if ui.small_button("Params").clicked() {
+                                self.open_vst3_parameters(track_id, slot.id);
+                            }
+                            if ui.small_button("Capture").clicked() {
+                                self.capture_vst3_state(track_id, slot.id);
+                            }
                         }
                         if ui
                             .small_button(if slot.bypassed { "Enable" } else { "Bypass" })
@@ -6413,6 +6522,7 @@ impl eframe::App for ShellApp {
         self.master_fx_window(context);
         self.bus_fx_window(context);
         self.au_parameters_window(context);
+        self.vst3_parameters_window(context);
         self.print_window(context);
         self.file_window(context);
         self.midi_map_window(context);
