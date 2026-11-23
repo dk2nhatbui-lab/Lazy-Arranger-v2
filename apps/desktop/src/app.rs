@@ -128,6 +128,7 @@ pub struct ShellApp {
     score_page: usize,
     score_zoom: f32,
     score_grand: bool,
+    score_pdf_path: String,
     automation_target: project::song::AutomationTarget,
     l6max_folder: String,
     l6max_plan: Option<audio::l6max::Plan>,
@@ -242,6 +243,7 @@ impl ShellApp {
             score_page: 0,
             score_zoom: 1.0,
             score_grand: false,
+            score_pdf_path: String::from("score.pdf"),
             automation_target: project::song::AutomationTarget::Volume,
             l6max_folder: String::new(),
             l6max_plan: None,
@@ -3173,6 +3175,7 @@ impl eframe::App for ShellApp {
                         self.grid_panel(ui);
                     }
                     View::Score => {
+                        let mut save_pdf = false;
                         ui.horizontal(|ui| {
                             ui.checkbox(&mut self.score_entry, "Note entry");
                             ui.checkbox(&mut self.score_grand, "Grand staff");
@@ -3187,6 +3190,10 @@ impl eframe::App for ShellApp {
                                     .text("zoom")
                                     .fixed_decimals(1),
                             );
+                            ui.text_edit_singleline(&mut self.score_pdf_path);
+                            if ui.button("Save PDF").clicked() {
+                                save_pdf = true;
+                            }
                         });
                         if let Some(track) = roll
                             .selected
@@ -3199,6 +3206,27 @@ impl eframe::App for ShellApp {
                             let engraved = score::engrave(&project.song, track, score_settings);
                             self.score_page =
                                 crate::score_view::clamp_page(&engraved, self.score_page);
+                            if save_pdf {
+                                let pdf = score::pdf::to_pdf(
+                                    &engraved,
+                                    score_settings,
+                                    if project.song.name.is_empty() {
+                                        "Lazy Arranger score"
+                                    } else {
+                                        &project.song.name
+                                    },
+                                );
+                                match std::fs::write(&self.score_pdf_path, pdf) {
+                                    Ok(()) => {
+                                        score_status =
+                                            Some(format!("wrote {}", self.score_pdf_path));
+                                    }
+                                    Err(error) => {
+                                        score_status =
+                                            Some(format!("{}: {error}", self.score_pdf_path));
+                                    }
+                                }
+                            }
                             let zoom = self.score_zoom;
                             let page = self.score_page;
                             let outcome = crate::score_view::show(ui, &engraved, page, zoom);

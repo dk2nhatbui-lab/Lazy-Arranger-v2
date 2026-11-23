@@ -423,3 +423,10 @@ sevenths, three minor sevenths and four major sevenths to six-string fret
 shapes; slash chords and other qualities return `None`. Engraving places one
 frame above the staff per chord (shifting right by 50 units when crowded), and
 canvas/PDF draw the grid, mute/open markers, dots and the chord name.
+
+### Score PDF from the app
+
+The Score view keeps a PDF path (default `score.pdf`) and a Save PDF button. It
+reuses `score::pdf::to_pdf` with the current engravings and grand-staff setting,
+writes the file and reports success or the OS error in the score status line.
+No OS print dialog is implemented; the CLI already had a PDF command.
