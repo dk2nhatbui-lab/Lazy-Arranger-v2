@@ -79,6 +79,32 @@ impl View {
     }
 }
 
+/// One AU slot open in the parameter window: effect or instrument.
+enum AuEditorUnit {
+    Effect(plugin_host::AuEffect),
+    Instrument(plugin_host::AuInstrument),
+}
+
+impl AuEditorUnit {
+    fn parameters(&self) -> Vec<(u32, String, f32, f32, f32, f32)> {
+        match self {
+            Self::Effect(effect) => effect.parameters(),
+            Self::Instrument(instrument) => instrument.parameters(),
+        }
+    }
+
+    fn set_parameter(&self, id: u32, value: f32) {
+        match self {
+            Self::Effect(effect) => {
+                let _ = effect.set_parameter(id, value);
+            }
+            Self::Instrument(instrument) => {
+                let _ = instrument.set_parameter(id, value);
+            }
+        }
+    }
+}
+
 /// One row of the track list, snapshotted before drawing so the borrow ends.
 struct Row {
     index: usize,
@@ -443,7 +469,7 @@ pub struct ShellApp {
     au_editor_open: bool,
     au_editor_track: Option<TrackId>,
     au_editor_slot: Option<u32>,
-    au_effect: Option<plugin_host::AuEffect>,
+    au_effect: Option<AuEditorUnit>,
     au_params: Vec<(u32, String, f32, f32, f32, f32)>,
     score_pdf_path: String,
     score_track: Option<TrackId>,
@@ -2531,16 +2557,22 @@ impl ShellApp {
             self.status = Some(String::from("only AU parameters are supported"));
             return;
         }
-        let effect = match plugin_host::AuEffect::new(&plugin.identifier, 48_000.0) {
-            Ok(effect) => effect,
-            Err(error) => {
-                self.status = Some(format!("AU: {error}"));
-                return;
-            }
+        let unit = if let Ok(effect) = plugin_host::AuEffect::new(&plugin.identifier, 48_000.0) {
+            effect.apply_state(&plugin.state);
+            AuEditorUnit::Effect(effect)
+        } else if let Ok(instrument) = plugin_host::AuInstrument::new(&plugin.identifier, 48_000.0)
+        {
+            instrument.apply_state(&plugin.state);
+            AuEditorUnit::Instrument(instrument)
+        } else {
+            self.status = Some(format!(
+                "AU: {} could not be opened as an effect or instrument",
+                plugin.name
+            ));
+            return;
         };
-        effect.apply_state(&plugin.state);
-        self.au_params = effect.parameters();
-        self.au_effect = Some(effect);
+        self.au_params = unit.parameters();
+        self.au_effect = Some(unit);
         self.au_editor_track = Some(track);
         self.au_editor_slot = Some(slot);
         self.au_editor_open = true;
@@ -2574,7 +2606,7 @@ impl ShellApp {
                             .add(egui::Slider::new(value, *min..=*max).text(label))
                             .changed()
                         {
-                            let _ = effect.set_parameter(*id, *value);
+                            effect.set_parameter(*id, *value);
                         }
                     }
                 } else {
@@ -2600,7 +2632,7 @@ impl ShellApp {
                     {
                         for (id, _, value, _, _, default) in &mut self.au_params {
                             *value = *default;
-                            let _ = effect.set_parameter(*id, *default);
+                            effect.set_parameter(*id, *default);
                         }
                     }
                 });

@@ -72,3 +72,4 @@ For the clef layout, choose either four measures per system without clefs
 - VST3 class scans run in an isolated helper with a five-second timeout; the in-process path remains as a fallback when the helper is not packaged.
 - AU instruments are routed into track render: a track with a non-bypassed AU instrument slot renders its notes through DLSMusicDevice (ignored wet/dry test); VST3 instruments remain absent.
 - AU instrument note events carry sample offsets inside 512-frame blocks; block-boundary scheduling remains the resolution limit.
+- The AU parameter window opens instruments too; DLSMusicDevice exposes editable parameters and slot state.

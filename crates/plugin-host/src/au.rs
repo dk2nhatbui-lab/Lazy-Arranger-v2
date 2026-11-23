@@ -151,6 +151,74 @@ const FLOAT: u32 = 1;
 const PACKED: u32 = 1 << 3;
 const NON_INTERLEAVED: u32 = 1 << 5;
 
+fn unit_parameters(unit: AudioUnit) -> Vec<(u32, String, f32, f32, f32, f32)> {
+    let mut size = 0_u32;
+    let result = unsafe {
+        AudioUnitGetProperty(
+            unit,
+            PARAMETER_LIST,
+            SCOPE_GLOBAL,
+            0,
+            std::ptr::null_mut(),
+            &mut size,
+        )
+    };
+    if result != 0 || size == 0 {
+        return Vec::new();
+    }
+    let count = size as usize / std::mem::size_of::<u32>();
+    let mut ids = vec![0_u32; count];
+    let result = unsafe {
+        AudioUnitGetProperty(
+            unit,
+            PARAMETER_LIST,
+            SCOPE_GLOBAL,
+            0,
+            ids.as_mut_ptr().cast(),
+            &mut size,
+        )
+    };
+    if result != 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for id in ids {
+        let mut info: AudioUnitParameterInfo = unsafe { std::mem::zeroed() };
+        let mut info_size =
+            u32::try_from(std::mem::size_of::<AudioUnitParameterInfo>()).unwrap_or(0);
+        let result = unsafe {
+            AudioUnitGetProperty(
+                unit,
+                PARAMETER_INFO,
+                SCOPE_GLOBAL,
+                id,
+                (&raw mut info).cast(),
+                &mut info_size,
+            )
+        };
+        if result != 0 {
+            continue;
+        }
+        let mut current = info.default;
+        let _ = unsafe { AudioUnitGetParameter(unit, id, SCOPE_GLOBAL, 0, &mut current) };
+        let name: Vec<u8> = info
+            .name
+            .iter()
+            .take_while(|value| **value != 0)
+            .map(|value| *value as u8)
+            .collect();
+        out.push((
+            id,
+            String::from_utf8_lossy(&name).into_owned(),
+            current,
+            info.min,
+            info.max,
+            info.default,
+        ));
+    }
+    out
+}
+
 /// One active Audio Unit effect.
 pub struct AuEffect {
     unit: AudioUnit,
@@ -251,71 +319,7 @@ impl AuEffect {
     /// Parameters exposed by this unit: id, name, current, min, max, default.
     #[must_use]
     pub fn parameters(&self) -> Vec<(u32, String, f32, f32, f32, f32)> {
-        let mut size = 0_u32;
-        let result = unsafe {
-            AudioUnitGetProperty(
-                self.unit,
-                PARAMETER_LIST,
-                SCOPE_GLOBAL,
-                0,
-                std::ptr::null_mut(),
-                &mut size,
-            )
-        };
-        if result != 0 || size == 0 {
-            return Vec::new();
-        }
-        let count = size as usize / std::mem::size_of::<u32>();
-        let mut ids = vec![0_u32; count];
-        let result = unsafe {
-            AudioUnitGetProperty(
-                self.unit,
-                PARAMETER_LIST,
-                SCOPE_GLOBAL,
-                0,
-                ids.as_mut_ptr().cast(),
-                &mut size,
-            )
-        };
-        if result != 0 {
-            return Vec::new();
-        }
-        let mut out = Vec::new();
-        for id in ids {
-            let mut info: AudioUnitParameterInfo = unsafe { std::mem::zeroed() };
-            let mut info_size =
-                u32::try_from(std::mem::size_of::<AudioUnitParameterInfo>()).unwrap_or(0);
-            let result = unsafe {
-                AudioUnitGetProperty(
-                    self.unit,
-                    PARAMETER_INFO,
-                    SCOPE_GLOBAL,
-                    id,
-                    (&raw mut info).cast(),
-                    &mut info_size,
-                )
-            };
-            if result != 0 {
-                continue;
-            }
-            let mut current = info.default;
-            let _ = unsafe { AudioUnitGetParameter(self.unit, id, SCOPE_GLOBAL, 0, &mut current) };
-            let name: Vec<u8> = info
-                .name
-                .iter()
-                .take_while(|value| **value != 0)
-                .map(|value| *value as u8)
-                .collect();
-            out.push((
-                id,
-                String::from_utf8_lossy(&name).into_owned(),
-                current,
-                info.min,
-                info.max,
-                info.default,
-            ));
-        }
-        out
+        unit_parameters(self.unit)
     }
 
     /// Sets one parameter by id.
@@ -537,6 +541,12 @@ impl AuInstrument {
         }
     }
 
+    /// Parameters exposed by this instrument: id, name, current, min, max, default.
+    #[must_use]
+    pub fn parameters(&self) -> Vec<(u32, String, f32, f32, f32, f32)> {
+        unit_parameters(self.unit)
+    }
+
     /// Sends a MIDI note-on at the next render position.
     pub fn note_on(&self, key: u8, velocity: u8) {
         self.note_on_at(key, velocity, 0);
@@ -629,6 +639,17 @@ fn fourcc(text: &str) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "loads the Apple DLSMusicDevice Audio Unit"]
+    fn dls_instrument_exposes_parameters() {
+        let instrument = AuInstrument::new("appl:dls", 48_000.0).expect("au");
+        let parameters = instrument.parameters();
+        assert!(!parameters.is_empty());
+        let (id, _, _, min, max, _) = parameters[0];
+        let target = (min + max) / 2.0;
+        instrument.set_parameter(id, target).expect("set");
+    }
 
     #[test]
     #[ignore = "loads the Apple DLSMusicDevice Audio Unit"]
