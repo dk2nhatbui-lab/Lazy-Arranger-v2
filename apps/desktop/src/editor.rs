@@ -470,11 +470,22 @@ impl Editor {
         track: TrackId,
         start: Tick,
     ) -> Option<(Tick, arranging::beat::BeatPattern)> {
+        self.beat_pattern_bars(track, start, 1)
+    }
+
+    /// Reads a beat pattern covering `bars` bars.
+    #[must_use]
+    pub fn beat_pattern_bars(
+        &self,
+        track: TrackId,
+        start: Tick,
+        bars: usize,
+    ) -> Option<(Tick, arranging::beat::BeatPattern)> {
         let found = self.song().tracks.iter().find(|entry| entry.id == track)?;
         let bar = self.song().time_signature.bar_ticks().max(1);
         Some((
             bar,
-            arranging::beat::BeatPattern::from_track(found, start, bar),
+            arranging::beat::BeatPattern::from_track_bars(found, start, bar, bars),
         ))
     }
 

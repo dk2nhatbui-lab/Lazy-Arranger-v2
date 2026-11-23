@@ -34,31 +34,61 @@ impl Default for BeatPattern {
 }
 
 impl BeatPattern {
-    /// Reads the first occurrence of each row pitch in one bar.
+    /// Reads one bar.
     #[must_use]
     pub fn from_track(track: &project::song::Track, start: Tick, bar: Tick) -> Self {
+        Self::from_track_bars(track, start, bar, 1)
+    }
+
+    /// Reads `bars` bars, one step per sixteenth.
+    #[must_use]
+    pub fn from_track_bars(
+        track: &project::song::Track,
+        start: Tick,
+        bar: Tick,
+        bars: usize,
+    ) -> Self {
         let mut pattern = Self::default();
+        pattern.set_bars(bars);
         if bar <= 0 {
             return pattern;
         }
-        let step = bar / STEPS as Tick;
+        let step = (bar / STEPS as Tick).max(1);
+        let end = start + bar * bars as Tick;
+        let steps = pattern.grid.first().map_or(STEPS, Vec::len);
         for (row, (pitch, _)) in ROWS.iter().enumerate() {
             for note in &track.notes {
-                if note.pitch.as_u8() != *pitch || note.start < start || note.start >= start + bar {
+                if note.pitch.as_u8() != *pitch || note.start < start || note.start >= end {
                     continue;
                 }
                 let slot = usize::try_from((note.start - start) / step)
                     .unwrap_or(0)
-                    .min(STEPS - 1);
+                    .min(steps.saturating_sub(1));
                 pattern.grid[row][slot] = note.velocity.as_u8().max(1);
             }
         }
         pattern
     }
 
+    /// Bars this pattern covers.
+    #[must_use]
+    pub fn bars(&self) -> usize {
+        self.grid
+            .first()
+            .map_or(1, |row| (row.len() / STEPS).max(1))
+    }
+
+    /// Resizes to `bars` bars, preserving the existing steps.
+    pub fn set_bars(&mut self, bars: usize) {
+        let steps = STEPS * bars.clamp(1, 8);
+        for row in &mut self.grid {
+            row.resize(steps, 0);
+        }
+    }
+
     /// Cycles a step through off, soft, normal and loud.
     pub fn cycle(&mut self, row: usize, slot: usize) {
-        if row >= self.grid.len() || slot >= STEPS {
+        if row >= self.grid.len() || slot >= self.grid[row].len() {
             return;
         }
         let current = self.grid[row][slot];
@@ -153,10 +183,11 @@ pub fn apply(
         .iter()
         .find(|note| note.channel.zero_based() == 9)
         .map_or_else(|| Channel::new(9).expect("valid"), |note| note.channel);
+    let end = start + bar * pattern.bars() as Tick;
     let mut notes: Vec<Note> = entry
         .notes
         .iter()
-        .filter(|note| note.start < start || note.start >= start + bar)
+        .filter(|note| note.start < start || note.start >= end)
         .cloned()
         .collect();
     let added = pattern.to_notes(start, bar, channel);
@@ -201,6 +232,47 @@ mod tests {
             channel: Channel::new(9).expect("valid"),
         });
         track
+    }
+
+    #[test]
+    fn a_two_bar_pattern_places_and_clears_both_bars() {
+        let mut song = Song::new("Beat", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Drums");
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 3840,
+            duration: PPQ / 4,
+            pitch: Pitch::new(38).expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::new(9).expect("valid"),
+        });
+        song.tracks.push(track);
+        let mut session = EditSession::new(ProjectFile::new(song)).expect("valid");
+        let mut pattern = BeatPattern::default();
+        pattern.set_bars(2);
+        assert_eq!(pattern.bars(), 2);
+        pattern.grid[0][16] = 120;
+        let added = apply(
+            &mut session,
+            TrackId::new(1).expect("valid"),
+            0,
+            3840,
+            &pattern,
+        )
+        .expect("apply");
+        assert_eq!(added, 1);
+        let notes = &session.song().tracks[0].notes;
+        assert!(
+            notes
+                .iter()
+                .all(|note| !(note.start == 3840 && note.pitch.as_u8() == 38)),
+            "old second bar cleared"
+        );
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.start == 3840 && note.pitch.as_u8() == 36)
+        );
     }
 
     #[test]

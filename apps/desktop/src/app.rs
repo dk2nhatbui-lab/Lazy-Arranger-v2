@@ -99,6 +99,7 @@ pub struct ShellApp {
     beat_bar: Tick,
     beat_pattern: arranging::beat::BeatPattern,
     beat_clipboard: Option<Vec<u8>>,
+    beat_bars: usize,
     launcher: arranging::grid::Launcher,
     recent: Vec<std::path::PathBuf>,
     recent_file: std::path::PathBuf,
@@ -217,6 +218,7 @@ impl ShellApp {
             beat_bar: 3840,
             beat_pattern: arranging::beat::BeatPattern::default(),
             beat_clipboard: None,
+            beat_bars: 1,
             launcher: arranging::grid::Launcher::default(),
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
@@ -2348,13 +2350,27 @@ impl ShellApp {
             .open(&mut open)
             .show(context, |ui| {
                 ui.label(format!(
-                    "bar {} · click to cycle off/soft/normal/loud",
-                    self.beat_start / self.beat_bar.max(1) + 1
+                    "bar {} · {}, {} bars · click to cycle off/soft/normal/loud",
+                    self.beat_start / self.beat_bar.max(1) + 1,
+                    self.beat_pattern.bars(),
+                    self.beat_bars
                 ));
+                let mut reload_bars = None;
+                ui.horizontal(|ui| {
+                    for bars in [1_usize, 2] {
+                        if ui
+                            .selectable_label(self.beat_bars == bars, format!("{bars} bar"))
+                            .clicked()
+                        {
+                            reload_bars = Some(bars);
+                        }
+                    }
+                });
                 for (row, (_, label)) in arranging::beat::ROWS.iter().enumerate() {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(*label).size(10.0));
-                        for slot in 0..arranging::beat::STEPS {
+                        let steps = self.beat_pattern.grid[row].len();
+                        for slot in 0..steps {
                             let level = self.beat_pattern.grid[row][slot];
                             let text = if level == 0 {
                                 String::from("·")
@@ -2382,6 +2398,15 @@ impl ShellApp {
                             self.beat_pattern.clear_row(row);
                         }
                     });
+                }
+                if let Some(bars) = reload_bars
+                    && let (Some(track), Some(_)) = (self.beat_track, Some(self.beat_start))
+                    && let Some((bar, pattern)) =
+                        self.editor.beat_pattern_bars(track, self.beat_start, bars)
+                {
+                    self.beat_bar = bar;
+                    self.beat_pattern = pattern;
+                    self.beat_bars = bars;
                 }
                 ui.horizontal(|ui| {
                     if ui.button("Apply").clicked()

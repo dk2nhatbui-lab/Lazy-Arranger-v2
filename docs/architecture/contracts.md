@@ -508,3 +508,11 @@ per row, with P disabled until a row is copied. Pattern length is still one bar.
 `set_lyrics` replaces syllables; `get_marks`/`set_marks` exchange dynamics and
 articulations by short names; `get_patch`/`set_patch` exchange waveform, ADSR and
 brightness (null clears). The registry holds 67 tools.
+
+### Multi-bar beat patterns
+
+`BeatPattern::set_bars` resizes each row to 16 steps per bar (1–8, UI offers 1
+or 2); `from_track_bars` reads the full span. `apply` clears notes from `start`
+through `bar * pattern.bars()` and writes every slot, so a two-bar pattern
+replaces both bars. The Beat window shows a 1/2-bar selector that reloads the
+pattern from the track; reloading discards unsaved edits.
