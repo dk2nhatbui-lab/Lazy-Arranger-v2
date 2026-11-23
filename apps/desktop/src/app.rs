@@ -793,6 +793,7 @@ pub struct ShellApp {
     style_ending: bool,
     style_held: [bool; 128],
     style_last_chord: String,
+    midi_chord: Option<String>,
     style_queue_at: f64,
     audio_style_open: bool,
     audio_style_path: String,
@@ -1086,6 +1087,7 @@ impl ShellApp {
             style_ending: false,
             style_held: [false; 128],
             style_last_chord: String::new(),
+            midi_chord: None,
             style_queue_at: 0.0,
             audio_style_open: std::env::var("ARRANGER_AUDIO_STYLE").is_ok(),
             audio_style_path: String::new(),
@@ -2210,24 +2212,24 @@ impl ShellApp {
         if let Some(input) = &self.midi_input {
             while let Some(message) = input.next() {
                 midi_activity = true;
-                if self.style_file_open {
-                    match &message {
-                        music_core::MidiMessage::NoteOn { key, velocity, .. }
-                            if velocity.as_u8() > 0 =>
-                        {
-                            self.style_held[usize::from(key.as_u8())] = true;
-                        }
-                        music_core::MidiMessage::NoteOff { key, .. }
-                        | music_core::MidiMessage::NoteOn { key, .. } => {
-                            self.style_held[usize::from(key.as_u8())] = false;
-                        }
-                        _ => {}
-                    }
-                    if let Some(name) = held_chord_name(&self.style_held)
-                        && name != self.style_last_chord
+                match &message {
+                    music_core::MidiMessage::NoteOn { key, velocity, .. }
+                        if velocity.as_u8() > 0 =>
                     {
-                        detected_chord = Some(name);
+                        self.style_held[usize::from(key.as_u8())] = true;
                     }
+                    music_core::MidiMessage::NoteOff { key, .. }
+                    | music_core::MidiMessage::NoteOn { key, .. } => {
+                        self.style_held[usize::from(key.as_u8())] = false;
+                    }
+                    _ => {}
+                }
+                self.midi_chord = held_chord_name(&self.style_held);
+                if self.style_file_open
+                    && let Some(name) = &self.midi_chord
+                    && *name != self.style_last_chord
+                {
+                    detected_chord = Some(name.clone());
                 }
                 self.midi_recent.push_front(midi_label(&message));
                 self.midi_recent.truncate(16);
@@ -5284,6 +5286,13 @@ impl ShellApp {
                             egui::RichText::new(input)
                                 .size(10.0)
                                 .color(theme::text_muted()),
+                        );
+                    }
+                    if let Some(chord) = &self.midi_chord {
+                        ui.label(
+                            egui::RichText::new(format!("Held chord: {chord}"))
+                                .size(11.0)
+                                .color(theme::accent()),
                         );
                     }
                 });
@@ -9820,6 +9829,13 @@ impl eframe::App for ShellApp {
                                 );
                             });
                             ui.separator();
+                        }
+                        if let Some(chord) = &self.midi_chord {
+                            ui.label(
+                                egui::RichText::new(format!("Keys: {chord}"))
+                                    .size(13.0)
+                                    .color(theme::accent()),
+                            );
                         }
                         if kids && !lesson.is_empty() {
                             ui.vertical_centered(|ui| {

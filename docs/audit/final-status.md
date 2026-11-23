@@ -143,3 +143,4 @@ For the clef layout, choose either four measures per system without clefs
 - Inspector edits song meter from a picker (`docs/audit/ui-meter-edit.png`).
 - Timeline chord lane follows the detected key's sharp/flat signature.
 - L6max import mutes a master/mix take; test covers it.
+- Held MIDI notes show the recognised chord in Perform and the Inspector; hardware-unverified.
