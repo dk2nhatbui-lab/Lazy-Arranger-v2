@@ -6,6 +6,7 @@
 //! fixed measure widths; spelling, beams, ties, collisions, lyrics and marks
 //! come later.
 
+pub mod guitar;
 pub mod pdf;
 pub mod spelling;
 
@@ -89,6 +90,23 @@ pub struct Beam {
     pub notes: usize,
     /// True when a sixteenth beam is needed too.
     pub sixteenth: bool,
+}
+
+/// A guitar chord frame above the staff.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChordFrame {
+    /// Page holding the frame.
+    pub page: usize,
+    /// Left edge.
+    pub x: f32,
+    /// Bottom edge (the staff side).
+    pub y: f32,
+    /// Written chord name.
+    pub name: String,
+    /// Fret per string, low E first.
+    pub frets: [Option<u8>; 6],
+    /// Base fret.
+    pub base_fret: u8,
 }
 
 /// A phrase slur curve.
@@ -290,6 +308,8 @@ pub struct Engraved {
     pub slurs: Vec<SlurArc>,
     /// True when the track is shown on a percussion staff.
     pub percussion: bool,
+    /// Guitar chord frames.
+    pub frames: Vec<ChordFrame>,
 }
 
 impl Engraved {
@@ -304,6 +324,55 @@ impl Engraved {
 #[must_use]
 pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
     engrave_with(song, track, settings, &[])
+}
+
+fn placed_frames(song: &Song, pages: &[Page], settings: Settings) -> Vec<ChordFrame> {
+    use music_core::Spelling;
+    let mut frames = Vec::new();
+    let mut last: std::collections::BTreeMap<(usize, i32), f32> = std::collections::BTreeMap::new();
+    for event in &song.chords {
+        let Some(shape) = guitar::shape(&event.chord) else {
+            continue;
+        };
+        let mut placed = None;
+        for (page_index, page) in pages.iter().enumerate() {
+            for system in &page.systems {
+                for measure in &system.measures {
+                    if event.tick >= measure.start && event.tick < measure.start + measure.length {
+                        let fraction = (event.tick - measure.start) as f32 / measure.length as f32;
+                        let mut x = measure.x + fraction * (measure.x_end - measure.x);
+                        let key = (page_index, (system.y * 10.0) as i32);
+                        if let Some(previous) = last.get(&key)
+                            && x < previous + 50.0
+                        {
+                            x = previous + 50.0;
+                        }
+                        last.insert(key, x);
+                        placed = Some(ChordFrame {
+                            page: page_index,
+                            x,
+                            y: system.y - 6.0 * settings.staff_space,
+                            name: shape.name.clone(),
+                            frets: shape.frets,
+                            base_fret: shape.base_fret,
+                        });
+                        break;
+                    }
+                }
+                if placed.is_some() {
+                    break;
+                }
+            }
+            if placed.is_some() {
+                break;
+            }
+        }
+        if let Some(mut frame) = placed {
+            frame.name = event.chord.format(Spelling::Sharp);
+            frames.push(frame);
+        }
+    }
+    frames
 }
 
 fn spread_lyrics(lyrics: &mut [Lyric]) {
@@ -737,6 +806,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         &notes,
         source.map_or(&[][..], |track| track.slurs.as_slice()),
     );
+    let frames = placed_frames(song, &pages, settings);
     Engraved {
         pages,
         notes,
@@ -752,6 +822,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         rests,
         slurs,
         percussion,
+        frames,
     }
 }
 
@@ -1371,5 +1442,47 @@ mod lyric_spacing_tests {
             lyrics[1].x >= lyrics[0].x + 4.6 + 4.0,
             "the second syllable moved"
         );
+    }
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+    use music_core::{Channel, Chord, PPQ, Pitch, Velocity};
+    use project::TrackId;
+    use project::song::{ChordEvent, Note, Song, Track};
+
+    #[test]
+    fn chords_get_frames_that_do_not_overlap() {
+        let mut song = Song::new("Frames", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Guitar");
+        track.notes.push(Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 8 * PPQ,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        song.tracks.push(track);
+        for (tick, name) in [(0_i64, "C"), (120, "G")] {
+            song.chords.push(ChordEvent {
+                tick,
+                chord: Chord::parse(name).expect("valid"),
+            });
+        }
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        assert_eq!(engraved.frames.len(), 2);
+        assert_eq!(engraved.frames[0].name, "C");
+        assert!(engraved.frames[1].x >= engraved.frames[0].x + 50.0);
+        assert!(engraved.frames[0].y < 200.0, "frames sit above the staff");
+        let mut unknown = song;
+        unknown.chords[0].chord = Chord::parse("C#dim").expect("valid");
+        let engraved = engrave(
+            &unknown,
+            TrackId::new(1).expect("valid"),
+            Settings::default(),
+        );
+        assert_eq!(engraved.frames.len(), 1, "only the listed shape remains");
     }
 }

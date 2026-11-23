@@ -128,6 +128,49 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     text = escape(&lyric.text)
                 );
             }
+            for frame in engraved.frames.iter().filter(|frame| frame.page == index) {
+                let width = 3.2 * settings.staff_space;
+                let height = 3.6 * settings.staff_space;
+                let left = frame.x;
+                let bottom = settings.page_height - frame.y;
+                let top = bottom + height;
+                for string in 0..6 {
+                    let x = left + width * string as f32 / 5.0;
+                    let _ = writeln!(content, "{x:.1} {bottom:.1} m {x:.1} {top:.1} l S");
+                }
+                for fret in 0..=5 {
+                    let y = top - height * fret as f32 / 5.0;
+                    let _ = writeln!(content, "{left:.1} {y:.1} m {:.1} {y:.1} l S", left + width);
+                }
+                let _ = writeln!(
+                    content,
+                    "BT /F1 8 Tf {left:.1} {:.1} Td ({}) Tj ET",
+                    top + 2.0,
+                    escape(&frame.name)
+                );
+                for (string, fret) in frame.frets.iter().enumerate() {
+                    let x = left + width * string as f32 / 5.0;
+                    match fret {
+                        None => {
+                            let _ = writeln!(
+                                content,
+                                "{a:.1} {b:.1} m {c:.1} {d:.1} l S {c:.1} {b:.1} m {a:.1} {d:.1} l S",
+                                a = x - 2.0,
+                                b = top + 2.0,
+                                c = x + 2.0,
+                                d = top + 6.0
+                            );
+                        }
+                        Some(0) => circle(&mut content, x, top + 4.0, 1.6),
+                        Some(value) if *value >= frame.base_fret => {
+                            let row = (*value - frame.base_fret) as f32 + 0.5;
+                            let y = top - height * row / 5.0;
+                            circle(&mut content, x, y, 1.8);
+                        }
+                        Some(_) => {}
+                    }
+                }
+            }
             for slur in engraved.slurs.iter().filter(|slur| slur.page == index) {
                 let x1 = slur.start_x;
                 let x2 = slur.end_x;

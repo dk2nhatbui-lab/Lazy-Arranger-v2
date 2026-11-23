@@ -415,3 +415,11 @@ tracks keep the five-line staff. A test checks the flag and equal note heights.
 4.6 px per character (minimum 4), and shifts a syllable right to at least the
 previous right edge plus 4 px. It only handles lyrics; noteheads and rests are
 not collision-avoided.
+
+### Guitar frames
+
+`score::guitar::shape` maps C, D, E, F, G, A majors, Am/Em/Dm/Bm, six dominant
+sevenths, three minor sevenths and four major sevenths to six-string fret
+shapes; slash chords and other qualities return `None`. Engraving places one
+frame above the staff per chord (shifting right by 50 units when crowded), and
+canvas/PDF draw the grid, mute/open markers, dots and the chord name.
