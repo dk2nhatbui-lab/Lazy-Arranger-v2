@@ -47,7 +47,7 @@ The crate has no lints inheritance by design; all other crates still forbid
 controller, a minimal `IHostApplication`, main-bus activation, `setupProcessing`,
 `setActive`, `setProcessing` and a block `ProcessData` loop. Verified by an
 ignored test that runs R0Verb over an impulse: output is non-silent. **Track effect slots are now applied**: an offline track render sends the track
-buffer through each non-bypassed VST3 slot, before the bus/主 mix; an ignored
+buffer through each non-bypassed VST3 slot, before the bus/master mix; an ignored
 R0Verb integration test asserts the wet and dry renders differ. Remaining:
 parameters/automation, state, offline/realtime modes, AU v2 (AudioToolbox C
 API), instrument plugins, sandbox and editors; production scanning should move to
