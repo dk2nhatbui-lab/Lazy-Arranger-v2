@@ -1752,7 +1752,7 @@ impl ShellApp {
         .default_width(420.0)
         .show(context, |ui| {
             ui.label(match mode {
-                FileMode::ImportAudio => "Path (WAV, FLAC, MP3, M4A, AIFF or OGG)",
+                FileMode::ImportAudio => "Path (WAV, FLAC, MP3, M4A, AIFF, OGG or video)",
                 FileMode::ExportMidi => "Path (.mid)",
                 FileMode::ExportMusicXml => "Path (.musicxml)",
                 FileMode::ExportWav => "Path (.wav)",
@@ -1789,7 +1789,18 @@ impl ShellApp {
                     self.file_mode = None;
                 }
             } else if mode == FileMode::ImportAudio {
-                match self.editor.import_audio(&path, self.position.max(0)) {
+                let audio_path = if crate::video::is_video(&path) {
+                    match crate::video::extract_audio(&path) {
+                        Ok(extracted) => extracted,
+                        Err(error) => {
+                            self.load_error = Some(error);
+                            return;
+                        }
+                    }
+                } else {
+                    path
+                };
+                match self.editor.import_audio(&audio_path, self.position.max(0)) {
                     Ok(track) => {
                         self.status = Some(format!("imported audio as track {}", track.get()));
                         self.file_mode = None;

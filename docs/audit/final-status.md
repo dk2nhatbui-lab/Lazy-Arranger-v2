@@ -151,3 +151,4 @@ For the clef layout, choose either four measures per system without clefs
 - Timeline lane height is 64 px, closer to the C++ layout (`docs/audit/ui-lane-height.png`).
 - Chords from audio window recognises WAV segments in a background thread and writes them as one undoable chord set (`docs/audit/audio-chords.png`, synthetic C major recognised).
 - Score view draws an accent playback cursor at the transport position (`docs/audit/score-cursor.png`).
+- Video import extracts a mono 48 kHz WAV with FFmpeg; extraction test creates a 1 s MP4.
