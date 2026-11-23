@@ -746,6 +746,23 @@ impl ShellApp {
                 self.launcher.launch(index);
                 self.status = Some(format!("scene {}", index + 1));
             }
+            Action::Pad(note) => {
+                let Some(pads) = &self.pad_state else {
+                    self.status = Some(String::from("load a loop into Drum pads first"));
+                    return;
+                };
+                let Some(pad) = pads.kit.pads.iter().find(|pad| pad.note == note).copied() else {
+                    self.status = Some(format!("pad {note} is empty"));
+                    return;
+                };
+                match audio::player::Player::new(pads.audio(pad)) {
+                    Ok(player) => {
+                        self.pad_player = Some(player);
+                        self.status = Some(format!("pad {note}"));
+                    }
+                    Err(error) => self.status = Some(error),
+                }
+            }
             Action::TrackFader(track) => {
                 let Some(value) = value else {
                     return;

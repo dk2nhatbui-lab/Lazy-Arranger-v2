@@ -46,6 +46,8 @@ pub enum Action {
     Scene(usize),
     /// Set the fader of a track, using the incoming value.
     TrackFader(TrackId),
+    /// Audition a drum pad by MIDI note.
+    Pad(u8),
 }
 
 impl Action {
@@ -56,6 +58,7 @@ impl Action {
             Self::Undo => String::from("undo"),
             Self::Scene(index) => format!("scene {index}"),
             Self::TrackFader(track) => format!("fader {track}"),
+            Self::Pad(note) => format!("pad {note}"),
         }
     }
 }
@@ -234,6 +237,17 @@ fn parse_action(text: &str) -> Result<Action, String> {
                 .map_err(|_| String::from("fader needs a track id"))?;
             let track = TrackId::new(track).map_err(|error| error.to_string())?;
             Ok(Action::TrackFader(track))
+        }
+        "pad" => {
+            let note: u8 = parts
+                .next()
+                .ok_or("pad needs a note")?
+                .parse()
+                .map_err(|_| String::from("pad note must be 0..=127"))?;
+            if note > 127 {
+                return Err(String::from("pad note must be 0..=127"));
+            }
+            Ok(Action::Pad(note))
         }
         other => Err(format!("unknown action {other:?}")),
     }
