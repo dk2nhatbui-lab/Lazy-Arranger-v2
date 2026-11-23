@@ -1,13 +1,14 @@
 # Final status (2026-11-23)
 
-Commit basis: `7482ea4` (docs-only after `752b1ca`). Goal: C++ v1.0.0-beta.1
-feature parity. **Parity is not claimed.** All 39 crosscheck rows are `partial`;
-none is `verified` in full, because several require material this environment
-does not have.
+Commit basis: `3e60dd9` at round 452. Goal: C++ v1.0.0-beta.1 feature parity.
+**Parity is not claimed.** All 39 crosscheck rows are `partial`; none is
+`verified` in full, because several require material this environment does not
+have (hardware, proprietary formats, native plug-in editor support or model
+services).
 
 ## Gate and CI
 
-- `cargo test --workspace`: **656 passed, 0 failed**.
+- `cargo test --workspace`: **774 passed, 0 failed** (also 774/774 with one test thread).
 - `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all`
   and rustdoc (warnings denied): clean.
 - Release build: 32.47 s; 648 release tests at the time; CLI demo and desktop
