@@ -114,6 +114,11 @@ impl AuEditorUnit {
 }
 
 /// One row of the track list, snapshotted before drawing so the borrow ends.
+#[derive(Clone, Debug, Default)]
+struct L6Scene {
+    values: Vec<(TrackId, u8, u8, bool, u8)>,
+}
+
 #[derive(Clone, Debug)]
 struct AssistantProposal {
     command: String,
@@ -913,6 +918,9 @@ pub struct ShellApp {
     l6max_plan: Option<audio::l6max::Plan>,
     l6max_error: Option<String>,
     l6max_selected: Vec<bool>,
+    l6max_mixer_open: bool,
+    l6max_compact: bool,
+    l6max_scenes: [Option<L6Scene>; 4],
     sf2_path: String,
     sf2_bank: u16,
     sf2_program: u16,
@@ -1216,6 +1224,9 @@ impl ShellApp {
             l6max_plan: None,
             l6max_error: None,
             l6max_selected: Vec::new(),
+            l6max_mixer_open: std::env::var("ARRANGER_L6MIX").is_ok(),
+            l6max_compact: false,
+            l6max_scenes: [None, None, None, None],
             sf2_path: String::new(),
             sf2_bank: 0,
             sf2_program: 0,
@@ -4609,6 +4620,149 @@ impl ShellApp {
                 });
             let _ = sender.send(result);
         });
+    }
+
+    fn l6max_mixer_window(&mut self, context: &Context) {
+        if !self.l6max_mixer_open {
+            return;
+        }
+        let mut open = self.l6max_mixer_open;
+        let compact = self.l6max_compact;
+        let mut edits = Vec::new();
+        let mut scene_save = None;
+        let mut scene_recall = None;
+        egui::Window::new("L6max mixer")
+            .open(&mut open)
+            .resizable(true)
+            .default_width(520.0)
+            .show(context, |ui| {
+                let tracks: Vec<(TrackId, String, u8, u8, bool, u8)> = self
+                    .song()
+                    .tracks
+                    .iter()
+                    .filter(|track| track.audio.is_some())
+                    .take(8)
+                    .map(|track| {
+                        (
+                            track.id,
+                            track.name.clone(),
+                            track.volume,
+                            track.pan.clamp(0, 127),
+                            track.muted,
+                            track.send_level,
+                        )
+                    })
+                    .collect();
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.l6max_compact, "Compact layout");
+                    for (index, label) in ["A", "B", "C", "D"].iter().enumerate() {
+                        if ui.small_button(format!("Save {label}")).clicked() {
+                            scene_save = Some(index);
+                        }
+                        if ui.small_button(*label).clicked() {
+                            scene_recall = Some(index);
+                        }
+                    }
+                    if ui.button("Reset").clicked() {
+                        for (id, _, _, _, _, _) in &tracks {
+                            edits.push((*id, 100, 64, false, 0));
+                        }
+                    }
+                });
+                if tracks.is_empty() {
+                    ui.label("No imported L6max audio tracks yet.");
+                    return;
+                }
+                for (id, name, volume, pan, muted, send) in &tracks {
+                    ui.horizontal(|ui| {
+                        ui.label(name);
+                        let mut level = *volume;
+                        if ui
+                            .add(egui::Slider::new(&mut level, 0..=127).text("level"))
+                            .changed()
+                        {
+                            edits.push((*id, level, *pan, *muted, *send));
+                        }
+                        let mut pan = *pan;
+                        if ui
+                            .add(egui::Slider::new(&mut pan, 0..=127).text("pan"))
+                            .changed()
+                        {
+                            edits.push((*id, *volume, pan, *muted, *send));
+                        }
+                        let mut send_value = *send;
+                        if ui
+                            .add(egui::Slider::new(&mut send_value, 0..=127).text("send"))
+                            .changed()
+                        {
+                            edits.push((*id, *volume, pan, *muted, send_value));
+                        }
+                        let mut mute = *muted;
+                        if ui.checkbox(&mut mute, "Mute").changed() {
+                            edits.push((*id, *volume, pan, mute, *send));
+                        }
+                    });
+                }
+                ui.label(
+                    egui::RichText::new(
+                        "L6max EQ, MONO, USB routing, effects and compressor need device project data.",
+                    )
+                    .size(9.0)
+                    .color(theme::text_dim()),
+                );
+                if compact {
+                    ui.label(
+                        egui::RichText::new("Compact rows use the same controls.")
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                    );
+                }
+            });
+        if let Some(index) = scene_save {
+            let scene = L6Scene {
+                values: self
+                    .song()
+                    .tracks
+                    .iter()
+                    .filter(|track| track.audio.is_some())
+                    .take(8)
+                    .map(|track| {
+                        (
+                            track.id,
+                            track.volume,
+                            track.pan.clamp(0, 127),
+                            track.muted,
+                            track.send_level,
+                        )
+                    })
+                    .collect(),
+            };
+            self.l6max_scenes[index] = Some(scene);
+            self.status = Some(format!("saved L6max scene {}", ["A", "B", "C", "D"][index]));
+        }
+        if let Some(index) = scene_recall
+            && let Some(scene) = self.l6max_scenes[index].clone()
+        {
+            edits.extend(scene.values);
+            self.status = Some(format!(
+                "recalled L6max scene {}",
+                ["A", "B", "C", "D"][index]
+            ));
+        }
+        for (id, volume, pan, muted, send) in edits {
+            let _ = self.editor.set_track_gain(id, volume, pan);
+            let info = self
+                .song()
+                .tracks
+                .iter()
+                .find(|track| track.id == id)
+                .map(|track| (track.soloed, track.armed, track.bus, track.send));
+            if let Some((soloed, armed, bus, has_send)) = info {
+                let _ = self.editor.set_track_flags(id, muted, soloed, armed);
+                let _ = self.editor.set_track_routing(id, bus, has_send, send);
+            }
+        }
+        self.l6max_mixer_open = open;
     }
 
     fn generate_window(&mut self, context: &Context) {
@@ -9351,6 +9505,10 @@ impl ShellApp {
                                 self.audio_style_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("L6max mixer").clicked() {
+                                self.l6max_mixer_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Generate part").clicked() {
                                 self.generate_open = true;
                                 ui.close_menu();
@@ -9912,6 +10070,7 @@ impl eframe::App for ShellApp {
         self.style_file_window(context);
         self.audio_chords_window(context);
         self.generate_window(context);
+        self.l6max_mixer_window(context);
         self.audio_style_window(context);
         self.style_rules_window(context);
         self.master_fx_window(context);
