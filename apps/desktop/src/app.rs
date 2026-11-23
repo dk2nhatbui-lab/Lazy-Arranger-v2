@@ -518,6 +518,7 @@ pub struct ShellApp {
     settings: crate::settings::Settings,
     settings_open: bool,
     shortcuts_open: bool,
+    about_open: bool,
     help_open: bool,
     score_entry: bool,
     score_page: usize,
@@ -758,6 +759,7 @@ impl ShellApp {
             settings,
             settings_open: initial_window == "settings",
             shortcuts_open: initial_window == "shortcuts",
+            about_open: initial_window == "about",
             help_open: initial_window == "help",
             score_entry: false,
             score_page: 0,
@@ -4787,7 +4789,42 @@ impl ShellApp {
         self.inspector_open = open;
     }
 
+    fn about_window(&mut self, context: &egui::Context) {
+        if !self.about_open {
+            return;
+        }
+        let mut open = self.about_open;
+        egui::Window::new("About Lazy Arranger")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(context, |ui| {
+                ui.heading("Lazy Arranger");
+                ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                ui.label("Project schema v20 · 960 PPQ");
+                ui.label("Rust · egui/eframe · Cecilia 0.51 engraving");
+                ui.separator();
+                if let Some(path) = &self.project_path {
+                    ui.label(format!("Project: {}", path.display()));
+                } else {
+                    ui.label("Project: untitled");
+                }
+                ui.label(format!("Audio: {} Hz", audio::SAMPLE_RATE));
+                ui.label(format!("{} MCP tools", mcp::tools().len()));
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(
+                        "A local arranger for Yamaha styles, MIDI and audio. No song data leaves this computer.",
+                    )
+                    .size(10.0)
+                    .color(theme::text_dim()),
+                );
+            });
+        self.about_open = open;
+    }
+
     fn windows(&mut self, context: &egui::Context) {
+        self.about_window(context);
         if self.settings_open {
             let mut open = self.settings_open;
             egui::Window::new("Settings")
@@ -4895,6 +4932,23 @@ impl ShellApp {
                     });
                     if ui.button("Check for updates").clicked() {
                         self.status = Some(String::from(crate::settings::update_status()));
+                    }
+                    if ui.button("Show device profiles folder").clicked() {
+                        let folder = crate::settings::Settings::path()
+                            .parent()
+                            .map(|path| path.join("profiles"))
+                            .unwrap_or_else(|| std::path::PathBuf::from("profiles"));
+                        if let Err(error) = std::fs::create_dir_all(&folder) {
+                            self.status = Some(format!("{}: {error}", folder.display()));
+                        } else {
+                            self.status = Some(format!("device profiles: {}", folder.display()));
+                            #[cfg(target_os = "macos")]
+                            {
+                                let _ = std::process::Command::new("open")
+                                    .arg(&folder)
+                                    .spawn();
+                            }
+                        }
                     }
                     ui.checkbox(&mut self.settings.metronome, "metronome with playback");
                     ui.checkbox(
@@ -6659,6 +6713,10 @@ impl ShellApp {
                             }
                             if ui.button("Shortcuts").clicked() {
                                 self.shortcuts_open = true;
+                                ui.close_menu();
+                            }
+                            if ui.button("About Lazy Arranger").clicked() {
+                                self.about_open = true;
                                 ui.close_menu();
                             }
                             ui.separator();

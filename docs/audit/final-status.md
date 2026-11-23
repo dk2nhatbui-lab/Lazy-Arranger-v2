@@ -98,3 +98,4 @@ For the clef layout, choose either four measures per system without clefs
 - Audio tags are a model-free heuristic (drums/bass/pad/melodic); 97 MCP tools.
 - Language offers System default, resolved from LC_ALL/LC_MESSAGES/LANG.
 - Track plug-in parameter automation lanes render block-by-block; VST3 test gain verifies 0→127 gain; an ignored Apple dynamics test verifies AU min/max mapping. Bus/master lanes remain absent.
+- About box and device-profiles folder button added; update channel still unconfigured.
