@@ -817,3 +817,11 @@ case-insensitive name, then a substring match; `style-resolve` reports the
 match. It matched "ABBA Fernando" as entry 1 in the real library. The library
 window does not yet call it; importing the resolved style into the project is
 still manual through the style commands.
+
+### Keyboard export audit
+
+`smf::keyboard::audit` re-parses an exported file byte by byte and counts track
+chunks, program changes, channel volumes and pans, chord markers, lyric events
+and note-ons (drum note-ons on channel 10). `export-keyboard` prints the summary;
+the demo produced 5 tracks, 4 programs/volumes/pans, 16 chord markers and 128
+drum notes. Acceptance by a real PSR-S970 remains unverified.

@@ -50,6 +50,145 @@ pub struct Report {
     pub dropped: usize,
 }
 
+/// What a byte-level audit counted in a keyboard file.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Audit {
+    /// Track chunks.
+    pub tracks: usize,
+    /// Program changes.
+    pub programs: Vec<u8>,
+    /// Channel-volume values.
+    pub volumes: Vec<u8>,
+    /// Pan values.
+    pub pans: Vec<u8>,
+    /// Markers that name a chord.
+    pub chord_markers: usize,
+    /// Lyric meta events.
+    pub lyrics: usize,
+    /// Note-on events on channel 10.
+    pub drum_note_ons: usize,
+    /// All note-on events with velocity.
+    pub note_ons: usize,
+}
+
+/// Parses the exported bytes and counts the events the keyboard cares about.
+///
+/// # Errors
+///
+/// Returns a message for a malformed file.
+pub fn audit(bytes: &[u8]) -> Result<Audit, String> {
+    if bytes.len() < 14 || &bytes[0..4] != b"MThd" {
+        return Err(String::from("not a MIDI file"));
+    }
+    let mut audit = Audit::default();
+    let header_length = u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
+    let mut offset = 8 + header_length;
+    let chunks = u16::from_be_bytes([bytes[10], bytes[11]]) as usize;
+    let mut seen = 0;
+    while offset + 8 <= bytes.len() && seen < chunks {
+        if &bytes[offset..offset + 4] != b"MTrk" {
+            return Err(String::from("expected a track chunk"));
+        }
+        let length = u32::from_be_bytes([
+            bytes[offset + 4],
+            bytes[offset + 5],
+            bytes[offset + 6],
+            bytes[offset + 7],
+        ]) as usize;
+        let body = bytes
+            .get(offset + 8..offset + 8 + length)
+            .ok_or("truncated track")?;
+        audit.tracks += 1;
+        let mut position = 0;
+        let mut status = 0_u8;
+        while position < body.len() {
+            let (delta, used) = read_vlq(&body[position..])?;
+            let _ = delta;
+            position += used;
+            let Some(byte) = body.get(position).copied() else {
+                break;
+            };
+            if byte & 0x80 != 0 {
+                status = byte;
+                position += 1;
+            }
+            match status & 0xf0 {
+                0x90 | 0x80 => {
+                    let key = *body.get(position).ok_or("truncated note")?;
+                    let velocity = *body.get(position + 1).ok_or("truncated note")?;
+                    position += 2;
+                    if status & 0xf0 == 0x90 && velocity > 0 {
+                        audit.note_ons += 1;
+                        if status & 0x0f == 9 {
+                            audit.drum_note_ons += 1;
+                        }
+                    }
+                    let _ = key;
+                }
+                0xb0 => {
+                    let controller = *body.get(position).ok_or("truncated cc")?;
+                    let value = *body.get(position + 1).ok_or("truncated cc")?;
+                    position += 2;
+                    match controller {
+                        7 => audit.volumes.push(value),
+                        10 => audit.pans.push(value),
+                        _ => {}
+                    }
+                }
+                0xc0 => {
+                    let program = *body.get(position).ok_or("truncated program")?;
+                    position += 1;
+                    audit.programs.push(program);
+                }
+                0xd0 => {
+                    position += 1;
+                }
+                0xe0 | 0xa0 => {
+                    position += 2;
+                }
+                0xf0 if status == 0xff => {
+                    let kind = *body.get(position).ok_or("truncated meta")?;
+                    position += 1;
+                    let (length, used) = read_vlq(&body[position..])?;
+                    position += used;
+                    let data = body
+                        .get(position..position + length)
+                        .ok_or("truncated meta body")?;
+                    position += length;
+                    match kind {
+                        0x06 => {
+                            let text = String::from_utf8_lossy(data);
+                            if text.starts_with("Chord:") {
+                                audit.chord_markers += 1;
+                            }
+                        }
+                        0x05 => audit.lyrics += 1,
+                        _ => {}
+                    }
+                }
+                _ => {
+                    // SysEx and other meta events: skip by delta only.
+                    break;
+                }
+            }
+        }
+        offset += 8 + length;
+        seen += 1;
+    }
+    Ok(audit)
+}
+
+fn read_vlq(bytes: &[u8]) -> Result<(usize, usize), String> {
+    let mut value = 0_usize;
+    for (index, byte) in bytes.iter().enumerate().take(4) {
+        value = (value << 7) | usize::from(byte & 0x7f);
+        if byte & 0x80 == 0 {
+            return Ok((value, index + 1));
+        }
+    }
+    Err(String::from("malformed variable-length quantity"))
+}
+
 /// Exports a song for the keyboard.
 #[must_use]
 pub fn export(song: &Song, voices: &[Voice], lyrics: &[(Tick, String)]) -> (Vec<u8>, Report) {
@@ -295,5 +434,68 @@ mod tests {
         let (bytes, _) = export(&song(), &voices, &[]);
         assert!(contains(&bytes, &[0xc2, 40]));
         assert!(contains(&bytes, &[0xb2, 10, 30]));
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    use music_core::{Channel, Chord, Pitch, Velocity};
+    use project::song::{ChordEvent, Note, Track};
+    use project::{NoteId, TrackId};
+
+    #[test]
+    fn an_exported_file_passes_a_byte_level_audit() {
+        let mut song = Song::new("Audit", 120.0);
+        song.chords.push(ChordEvent {
+            tick: 0,
+            chord: Chord::parse("C").expect("valid"),
+        });
+        let mut piano = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        piano.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        let mut drums = Track::new(TrackId::new(2).expect("valid"), "Drums");
+        drums.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 120,
+            pitch: Pitch::new(38).expect("valid"),
+            velocity: Velocity::new(110).expect("valid"),
+            channel: Channel::drums(),
+        });
+        song.tracks.push(piano);
+        song.tracks.push(drums);
+        let voices = [
+            Voice {
+                channel: 0,
+                program: 4,
+                volume: 100,
+                pan: 64,
+            },
+            Voice {
+                channel: 9,
+                program: 0,
+                volume: 90,
+                pan: 64,
+            },
+        ];
+        let (bytes, report) = export(&song, &voices, &[(0, String::from("la"))]);
+        assert_eq!(report.lyrics, 1);
+        let audit = audit(&bytes).expect("audit");
+        assert_eq!(audit.tracks, 3, "setup plus two music tracks");
+        assert!(audit.programs.contains(&4));
+        assert_eq!(audit.volumes, vec![100, 90]);
+        assert_eq!(audit.pans, vec![64, 64]);
+        assert_eq!(audit.chord_markers, 1);
+        assert_eq!(audit.lyrics, 1);
+        assert!(audit.drum_note_ons >= 1);
+        assert!(audit.note_ons >= 2);
+        assert!(super::audit(&bytes[..6]).is_err());
     }
 }

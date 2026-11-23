@@ -630,6 +630,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 );
             }
             let (bytes, report) = smf::export_keyboard(&project.song, &parsed, &[]);
+            let audit = smf::keyboard::audit(&bytes)?;
             fs::write(&out, &bytes)
                 .map_err(|error| format!("could not write {}: {error}", out.display()))?;
             println!(
@@ -639,6 +640,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 report.notes,
                 report.chords,
                 report.shift
+            );
+            println!(
+                "audit: {} track(s), {} program(s), {} volume(s), {} pan(s), {} chord marker(s), {} lyric(s), {} drum note(s)",
+                audit.tracks,
+                audit.programs.len(),
+                audit.volumes.len(),
+                audit.pans.len(),
+                audit.chord_markers,
+                audit.lyrics,
+                audit.drum_note_ons
             );
             Ok(())
         }
