@@ -4,6 +4,8 @@
 //! parsing and dispatch onto [`EditSession`]. It never touches a socket, so the
 //! same layer can later serve stdio, a local socket or a test harness.
 
+pub mod assistant;
+
 use app_commands::{Command, CommandError, EditSession};
 use music_core::{Channel, Chord, Pitch, Tick, Velocity};
 use project::song::{ChordEvent, Note, ProjectFile};

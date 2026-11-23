@@ -100,6 +100,9 @@ pub struct ShellApp {
     recent_file: std::path::PathBuf,
     midi_input: Option<midi_devices::devices::LiveInput>,
     midi_map: midi_devices::map::MidiMap,
+    assistant_open: bool,
+    assistant_input: String,
+    assistant_log: Vec<String>,
     waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
     settings: crate::settings::Settings,
@@ -169,6 +172,9 @@ impl ShellApp {
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
             midi_input: None,
+            assistant_open: false,
+            assistant_input: String::new(),
+            assistant_log: Vec::new(),
             waveform: None,
             midi_ports: None,
             midi_map: std::fs::read_to_string("lazy-arranger-midi-map.txt")
@@ -733,6 +739,64 @@ impl ShellApp {
                     self.status = Some(error);
                 }
             }
+        }
+    }
+
+    /// The local assistant panel.
+    fn assistant_window(&mut self, context: &egui::Context) {
+        if !self.assistant_open {
+            return;
+        }
+        let mut open = self.assistant_open;
+        egui::Window::new("Assistant")
+            .open(&mut open)
+            .default_width(420.0)
+            .show(context, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(260.0)
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        if self.assistant_log.is_empty() {
+                            ui.label(
+                                egui::RichText::new(
+                                    "Ask for help, a song summary, undo, or run any tool:\n                                     tool add_track {\"name\":\"Bass\"}",
+                                )
+                                .size(10.0)
+                                .color(theme::TEXT_DIM),
+                            );
+                        }
+                        for line in &self.assistant_log {
+                            ui.label(egui::RichText::new(line).monospace().size(10.0));
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut self.assistant_input)
+                            .hint_text("help")
+                            .desired_width(320.0),
+                    );
+                    let enter = response.lost_focus()
+                        && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                    if (ui.button("Send").clicked() || enter) && !self.assistant_input.is_empty() {
+                        let input = self.assistant_input.trim().to_string();
+                        if input == "undo" || input.starts_with("tool ") {
+                            self.selected_note = None;
+                            self.selected_clip = None;
+                        }
+                        let reply = self.editor.assistant(&input);
+                        self.assistant_log.push(format!("> {input}"));
+                        self.assistant_log.push(reply.text);
+                        self.assistant_input.clear();
+                    }
+                });
+                ui.label(
+                    egui::RichText::new("Local commands over the same 22 tools; no network or model.")
+                        .size(9.0)
+                        .color(theme::TEXT_DIM),
+                );
+            });
+        if !open {
+            self.assistant_open = false;
         }
     }
 
@@ -1698,6 +1762,7 @@ impl eframe::App for ShellApp {
         self.advance(context);
         self.top_bar(context);
         self.windows(context);
+        self.assistant_window(context);
         self.status_bar(context);
         self.sidebar(context);
         let waveform = self.waveform.clone();

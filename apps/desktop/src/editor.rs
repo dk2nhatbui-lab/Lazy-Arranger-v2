@@ -567,6 +567,15 @@ impl Editor {
         Ok(copied)
     }
 
+    /// Runs one assistant command against the session.
+    pub fn assistant(&mut self, input: &str) -> mcp::assistant::Reply {
+        let reply = mcp::assistant::respond(&mut self.session, input);
+        if reply.changed {
+            self.dirty = true;
+        }
+        reply
+    }
+
     /// Replaces the mix buses.
     ///
     /// # Errors

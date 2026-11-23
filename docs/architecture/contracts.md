@@ -741,3 +741,11 @@ The L6max records 32-bit float WAV takes. `audio::l6max::scan` reads a folder's
 adds each take as an audio track at a start tick, with length computed at the
 project tempo. Device project files, marker metadata and the L6max mixer page
 are not parsed or implemented.
+
+### Local assistant
+
+`mcp::assistant` parses `help`, `song`, `undo` and `tool <name> {json}`, runs the
+tool through the same registry the server uses, and returns text, JSON and a
+`changed` flag. The shell's Assistant window logs requests and replies and marks
+the project dirty only when a call changed it. There is no model, network,
+subscription or key handling, and no proposal-card flow.

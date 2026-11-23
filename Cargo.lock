@@ -1494,6 +1494,7 @@ dependencies = [
  "audio",
  "eframe",
  "egui",
+ "mcp",
  "midi-devices",
  "music-core",
  "project",
