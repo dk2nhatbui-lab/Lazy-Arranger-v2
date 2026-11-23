@@ -133,3 +133,4 @@ For the clef layout, choose either four measures per system without clefs
 - Assistant supports an optional OpenAI-compatible endpoint with background request with chat history, one `tool` reply and Apply/Cancel proposal cards for changes; local fallback kept (`docs/audit/ai-settings.png`); external endpoint unverified.
 - Timeline lanes fill the panel; track names live only in the sidebar (`docs/audit/ui-no-labels.png`).
 - Timeline clips drag to move or resize on a 1/16 grid.
+- Settings can auto-open all MIDI inputs; no hardware verification yet.

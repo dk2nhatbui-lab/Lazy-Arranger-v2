@@ -177,6 +177,8 @@ pub struct Settings {
     pub grade: u8,
     /// Preferred MIDI input name, when set.
     pub keyboard: Option<String>,
+    /// Listen to every MIDI input, not only `keyboard`.
+    pub auto_inputs: bool,
     /// Preferred audio input name, when set.
     pub audio_input: Option<String>,
     /// Preferred audio output device.
@@ -247,6 +249,7 @@ impl Default for Settings {
             language: String::from("en"),
             grade: 5,
             keyboard: None,
+            auto_inputs: false,
             audio_input: None,
             audio_output: None,
             audio_buffer_frames: 0,
@@ -313,6 +316,7 @@ impl Settings {
                         settings.grade = grade.clamp(1, 9);
                     }
                 }
+                "auto_inputs" => settings.auto_inputs = value == "true",
                 "keyboard" => {
                     settings.keyboard = if value.is_empty() {
                         None
@@ -413,6 +417,7 @@ impl Settings {
         if let Some(keyboard) = &self.keyboard {
             text.push_str(&format!("keyboard = {keyboard}\n"));
         }
+        text.push_str(&format!("auto_inputs = {}\n", self.auto_inputs));
         if let Some(input) = &self.audio_input {
             text.push_str(&format!("audio_input = {input}\n"));
         }
@@ -504,6 +509,7 @@ mod tests {
             master_chorus: 0.2,
             grade: 3,
             keyboard: Some(String::from("PSR-S970")),
+            auto_inputs: true,
             audio_input: Some(String::from("Camo Microphone")),
             audio_output: Some(String::from("Built-in Output")),
             ai_url: String::from("http://127.0.0.1:11434/v1/chat/completions"),

@@ -171,6 +171,61 @@ impl LiveInput {
     }
 }
 
+/// Several live input connections polled together.
+pub struct LiveInputs {
+    inputs: Vec<LiveInput>,
+}
+
+impl std::fmt::Debug for LiveInputs {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LiveInputs")
+            .field("count", &self.inputs.len())
+            .finish()
+    }
+}
+
+impl LiveInputs {
+    /// Wraps one named input.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DeviceError`] when the input cannot be opened.
+    pub fn open_named(name: &str) -> Result<Self, DeviceError> {
+        Ok(Self {
+            inputs: vec![LiveInput::open(name)?],
+        })
+    }
+
+    /// Opens every input port that can be opened.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DeviceError`] when the backend or enumeration fails.
+    pub fn open_all() -> Result<Self, DeviceError> {
+        let names = list_ports()?.inputs;
+        let mut inputs = Vec::new();
+        for name in names {
+            if let Ok(input) = LiveInput::open(&name) {
+                inputs.push(input);
+            }
+        }
+        Ok(Self { inputs })
+    }
+
+    /// Number of open inputs.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.inputs.len()
+    }
+
+    /// The next pending message from any input.
+    #[must_use]
+    pub fn next(&self) -> Option<MidiMessage> {
+        self.inputs.iter().find_map(LiveInput::next)
+    }
+}
+
 /// Builds the note-on and note-off bytes for a channel check.
 ///
 /// # Errors
@@ -402,6 +457,11 @@ pub fn record_to_song(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opening_all_inputs_does_not_panic() {
+        let _ = LiveInputs::open_all();
+    }
 
     /// True on CI runners that have no MIDI stack at all.
     ///

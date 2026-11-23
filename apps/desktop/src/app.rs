@@ -632,7 +632,7 @@ pub struct ShellApp {
     launcher: arranging::grid::Launcher,
     recent: Vec<std::path::PathBuf>,
     recent_file: std::path::PathBuf,
-    midi_input: Option<midi_devices::devices::LiveInput>,
+    midi_input: Option<midi_devices::devices::LiveInputs>,
     midi_map: midi_devices::map::MidiMap,
     loop_enabled: bool,
     loop_region: Option<(Tick, Tick)>,
@@ -2038,14 +2038,23 @@ impl ShellApp {
 
     /// Opens the configured keyboard once and applies mapped controls.
     fn poll_midi(&mut self) {
-        if self.midi_input.is_none()
-            && let Some(name) = self.settings.keyboard.clone()
-        {
-            match midi_devices::devices::LiveInput::open(&name) {
-                Ok(input) => self.midi_input = Some(input),
-                Err(error) => {
-                    self.status = Some(format!("MIDI input {name}: {error}"));
-                    self.settings.keyboard = None;
+        if self.midi_input.is_none() {
+            if self.settings.auto_inputs {
+                match midi_devices::devices::LiveInputs::open_all() {
+                    Ok(inputs) => {
+                        self.status =
+                            Some(format!("listening to {} MIDI input(s)", inputs.count()));
+                        self.midi_input = Some(inputs);
+                    }
+                    Err(error) => self.status = Some(format!("MIDI inputs: {error}")),
+                }
+            } else if let Some(name) = self.settings.keyboard.clone() {
+                match midi_devices::devices::LiveInputs::open_named(&name) {
+                    Ok(input) => self.midi_input = Some(input),
+                    Err(error) => {
+                        self.status = Some(format!("MIDI input {name}: {error}"));
+                        self.settings.keyboard = None;
+                    }
                 }
             }
         }
