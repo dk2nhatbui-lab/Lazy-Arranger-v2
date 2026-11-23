@@ -175,3 +175,4 @@ For the clef layout, choose either four measures per system without clefs
 - Audio references are mixed in the offline render and cpal playback with start/offset/fades/stretch; render and bounce tests cover it.
 - Audio refs now follow bus routing and track volume before bus/master plug-ins; render test covers the routed silence.
 - Compressed audio decode now preserves stereo; WAV already did, and audio refs use both.
+- Audio references follow volume/pan automation in 64-frame blocks; a zero-volume lane test covers it.

@@ -247,11 +247,16 @@ fn mix_audio_reference(
     } else {
         0.0
     };
-    let (left_gain, right_gain) = gains(f32::from(track.volume), track.pan);
+    let mut left_gain = 1.0_f32;
+    let mut right_gain = 1.0_f32;
     for frame in 0..target_frames {
         let target = target_start + frame;
         if target >= track_buffer.len() / usize::from(CHANNELS) {
             break;
+        }
+        if frame % 64 == 0 {
+            let tick = song.tempo_map.tick_at_samples(target as i64, sample_rate);
+            (left_gain, right_gain) = gains_at(track, tick);
         }
         let source_position = source_start + (frame as f64 * ratio).round() as usize;
         if source_position >= source.frames() {
@@ -1688,6 +1693,45 @@ mod tests {
         assert!(at(0.1).abs() < 1.0e-6, "silent before the clip start");
         assert!(at(0.6) < 0.12, "fade-in starts quietly");
         assert!(at(1.1) > 0.3, "full gain after the fade");
+    }
+
+    #[test]
+    fn audio_references_follow_volume_automation() {
+        use project::song::{AudioRef, Automation, AutomationPoint, AutomationTarget, Track};
+        let mut song = Song::new("Audio", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Take");
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-audio-automation-{}.wav",
+            std::process::id()
+        ));
+        let source = RenderedAudio {
+            samples: vec![0.5; SAMPLE_RATE as usize * 2],
+            sample_rate: SAMPLE_RATE,
+        };
+        std::fs::write(&path, source.to_wav32f()).expect("write wav");
+        track.audio = Some(AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: music_core::PPQ * 2,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        track.automation.push(Automation {
+            target: AutomationTarget::Volume,
+            points: vec![AutomationPoint {
+                tick: 0,
+                value: 0.0,
+            }],
+        });
+        song.tracks.push(track);
+        let rendered = render(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            rendered.samples.iter().all(|sample| sample.abs() < 1.0e-6),
+            "audio follows a volume lane"
+        );
     }
 
     #[test]
