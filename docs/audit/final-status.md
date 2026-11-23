@@ -144,3 +144,4 @@ For the clef layout, choose either four measures per system without clefs
 - Timeline chord lane follows the detected key's sharp/flat signature.
 - L6max import mutes a master/mix take; test covers it.
 - Held MIDI notes show the recognised chord in Perform and the Inspector; hardware-unverified.
+- Assistant Dictate records 5 s and transcribes through a configurable Whisper command; microphone/model unverified (`docs/audit/dictate.png`).

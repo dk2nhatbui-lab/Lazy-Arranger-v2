@@ -735,6 +735,7 @@ pub struct ShellApp {
     assistant_proposal: Option<AssistantProposal>,
     available_update: Option<crate::update::Release>,
     update_download: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>>,
+    dictation_pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
     timeline_waveforms: std::collections::HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
@@ -1025,6 +1026,7 @@ impl ShellApp {
             assistant_proposal: None,
             available_update: None,
             update_download: None,
+            dictation_pending: None,
             waveform: None,
             timeline_waveforms: std::collections::HashMap::new(),
             midi_ports: None,
@@ -2619,6 +2621,32 @@ impl ShellApp {
                     );
                     let enter = response.lost_focus()
                         && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                    if ui
+                        .button("Dictate")
+                        .on_hover_text("Record 5 s and run the Whisper command from Settings")
+                        .clicked()
+                    {
+                        if self.settings.speech_command.trim().is_empty() {
+                            self.status = Some(String::from(
+                                "set a Whisper command in Settings first",
+                            ));
+                        } else {
+                            let command = self.settings.speech_command.clone();
+                            let (sender, receiver) = std::sync::mpsc::channel();
+                            self.dictation_pending = Some(receiver);
+                            self.status = Some(String::from("listening for 5 s…"));
+                            std::thread::spawn(move || {
+                                let result = crate::dictate::record_to_wav(5.0)
+                                    .and_then(|path| {
+                                        let text =
+                                            crate::dictate::transcribe(&path, &command);
+                                        let _ = std::fs::remove_file(path);
+                                        text
+                                    });
+                                let _ = sender.send(result);
+                            });
+                        }
+                    }
                     if (ui.button("Send").clicked() || enter) && !self.assistant_input.is_empty() {
                         let input = self.assistant_input.trim().to_string();
                         let history: Vec<(String, String)> = self
@@ -2689,6 +2717,13 @@ impl ShellApp {
                 if self.ai_pending.is_some() {
                     ui.label(
                         egui::RichText::new("Waiting for the AI endpoint…")
+                            .size(10.0)
+                            .color(theme::accent()),
+                    );
+                }
+                if self.dictation_pending.is_some() {
+                    ui.label(
+                        egui::RichText::new("Listening and transcribing…")
                             .size(10.0)
                             .color(theme::accent()),
                     );
@@ -6780,6 +6815,16 @@ impl ShellApp {
                         .size(9.0)
                         .color(theme::text_dim()),
                     );
+                    ui.label(
+                        egui::RichText::new("Whisper command (use {file})")
+                            .size(11.0)
+                            .color(theme::text_muted()),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings.speech_command)
+                            .hint_text("whisper-cli -f {file} -nt")
+                            .desired_width(340.0),
+                    );
                     if ui.button("Save settings").clicked() {
                         match self.settings.save(&crate::settings::Settings::path()) {
                             Ok(()) => {
@@ -9256,6 +9301,24 @@ impl eframe::App for ShellApp {
         }
         self.poll_midi();
         self.poll_ai();
+        if let Some(receiver) = &self.dictation_pending {
+            match receiver.try_recv() {
+                Ok(Ok(text)) => {
+                    self.assistant_input = text.clone();
+                    self.status = Some(String::from("dictation ready"));
+                    self.dictation_pending = None;
+                    self.assistant_open = true;
+                }
+                Ok(Err(error)) => {
+                    self.status = Some(format!("dictation: {error}"));
+                    self.dictation_pending = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.dictation_pending = None;
+                }
+            }
+        }
         if let Some(receiver) = &self.update_download {
             match receiver.try_recv() {
                 Ok(Ok(path)) => {

@@ -195,6 +195,8 @@ pub struct Settings {
     pub ai_api_key: String,
     /// Release tag the user chose to skip.
     pub skipped_update: String,
+    /// Whisper command template with `{file}`.
+    pub speech_command: String,
     /// Selected device-profile id for keyboard export.
     pub device_profile: Option<String>,
     /// Start the metronome with playback.
@@ -260,6 +262,7 @@ impl Default for Settings {
             ai_model: String::from("gpt-4o-mini"),
             ai_api_key: String::new(),
             skipped_update: String::new(),
+            speech_command: String::new(),
             device_profile: None,
             metronome: false,
             metronome_accent: 1.0,
@@ -348,6 +351,7 @@ impl Settings {
                 "ai_model" => settings.ai_model = value.to_string(),
                 "ai_api_key" => settings.ai_api_key = value.to_string(),
                 "skipped_update" => settings.skipped_update = value.to_string(),
+                "speech_command" => settings.speech_command = value.to_string(),
                 "midi_output" => {
                     settings.midi_output = if value.is_empty() {
                         None
@@ -439,6 +443,7 @@ impl Settings {
         text.push_str(&format!("ai_model = {}\n", self.ai_model));
         text.push_str(&format!("ai_api_key = {}\n", self.ai_api_key));
         text.push_str(&format!("skipped_update = {}\n", self.skipped_update));
+        text.push_str(&format!("speech_command = {}\n", self.speech_command));
         if let Some(profile) = &self.device_profile {
             text.push_str(&format!("device_profile = {profile}\n"));
         }
