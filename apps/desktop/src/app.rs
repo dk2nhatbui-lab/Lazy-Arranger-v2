@@ -3942,10 +3942,13 @@ impl eframe::App for ShellApp {
             seek,
         ) = panel.inner;
         if let Some(tick) = seek {
-            if self.playing {
-                self.stop_playback();
+            let tick = tick.max(0);
+            if self.playing
+                && let Some(player) = &self.player
+            {
+                let _ = player.seek_seconds(self.song().tempo_map.seconds_at(tick));
             }
-            self.position = tick.max(0);
+            self.position = tick;
         }
         if let Some(tick) = chord_click {
             self.selected_chord = Some(tick);

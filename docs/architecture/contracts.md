@@ -649,3 +649,10 @@ unverified here; there is no monitoring.
 `SetSongName` renames the song with the old name as inverse; the sidebar SONG
 field and Rename button call `Editor::rename_song`, and MCP exposes
 `get_song_name`/`set_song_name`. The registry holds 92 tools.
+
+### Seek while playing
+
+`Playback::seek_frame`/`seek_seconds` move the position without changing the play
+state; `Player::seek_seconds` locks and delegates. A ruler click converts the
+tick through `TempoMap::seconds_at` and seeks the live player instead of
+stopping playback. A unit test checks both play states and clamping.

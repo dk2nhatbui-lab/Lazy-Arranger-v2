@@ -14,6 +14,7 @@ use crate::RenderedAudio;
 #[derive(Debug)]
 pub struct Playback {
     samples: Arc<Vec<f32>>,
+    sample_rate: u32,
     position: usize,
     playing: bool,
 }
@@ -24,6 +25,7 @@ impl Playback {
     pub fn new(audio: RenderedAudio) -> Self {
         Self {
             samples: Arc::new(audio.samples),
+            sample_rate: audio.sample_rate,
             position: 0,
             playing: false,
         }
@@ -46,6 +48,17 @@ impl Playback {
     pub fn stop(&mut self) {
         self.playing = false;
         self.position = 0;
+    }
+
+    /// Moves to a frame without changing the play state.
+    pub fn seek_frame(&mut self, frame: usize) {
+        self.position = frame.saturating_mul(2).min(self.samples.len());
+    }
+
+    /// Moves to a time in seconds without changing the play state.
+    pub fn seek_seconds(&mut self, seconds: f64) {
+        let frame = (seconds.max(0.0) * f64::from(self.sample_rate)).round() as usize;
+        self.seek_frame(frame);
     }
 
     /// Current position in frames.
@@ -149,6 +162,20 @@ impl Player {
         }
     }
 
+    /// Moves the live playback position, keeping the play state.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the playback lock is poisoned.
+    pub fn seek_seconds(&self, seconds: f64) -> Result<(), String> {
+        let mut playback = self
+            .playback
+            .lock()
+            .map_err(|_| String::from("playback lock poisoned"))?;
+        playback.seek_seconds(seconds);
+        Ok(())
+    }
+
     /// Pauses playback.
     pub fn pause(&self) {
         if let Ok(mut state) = self.playback.lock() {
@@ -209,6 +236,21 @@ mod tests {
         assert_eq!(output, [0.0, 1.0, 2.0, 3.0]);
         assert_eq!(state.frame(), 2);
         assert!(state.is_playing());
+    }
+
+    #[test]
+    fn seeking_moves_without_changing_the_play_state() {
+        let mut state = playback_with(96_000);
+        state.play();
+        state.seek_seconds(0.5);
+        assert_eq!(state.frame(), 24_000);
+        assert!(state.is_playing());
+        state.pause();
+        state.seek_frame(10);
+        assert_eq!(state.frame(), 10);
+        assert!(!state.is_playing());
+        state.seek_frame(usize::MAX);
+        assert_eq!(state.frame(), 96_000);
     }
 
     #[test]
