@@ -189,6 +189,7 @@ mod tests {
         assert!(parse_reply("not json").is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_local_assistant_command_returns_stdout() {
         let text = local_chat("printf '  local answer  '", "hello").expect("text");

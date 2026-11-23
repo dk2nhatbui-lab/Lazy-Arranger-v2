@@ -53,6 +53,7 @@ pub fn transcribe(wav: &Path, command: &str) -> Result<String, String> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn a_command_template_returns_stdout() {
         let wav = std::env::temp_dir().join("lazy-arranger-dictate-command.wav");
@@ -64,6 +65,7 @@ mod tests {
         let _ = std::fs::remove_file(wav);
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_file_placeholder_is_quoted() {
         let wav = std::env::temp_dir().join("lazy-arranger-dictate-q.wav");
