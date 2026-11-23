@@ -1918,8 +1918,10 @@ impl ShellApp {
         }
         let mut actions = Vec::new();
         let mut learned = None;
+        let mut midi_activity = false;
         if let Some(input) = &self.midi_input {
             while let Some(message) = input.next() {
+                midi_activity = true;
                 self.midi_recent.push_front(midi_label(&message));
                 self.midi_recent.truncate(16);
                 if let music_core::MidiMessage::ControlChange {
@@ -1938,6 +1940,12 @@ impl ShellApp {
                     let value = midi_devices::map::value_of(&message);
                     actions.push((action, value));
                 }
+            }
+        }
+        if midi_activity && self.settings.kids_mode && self.view == View::Perform {
+            self.kids_last_activity = Some(std::time::Instant::now());
+            if !self.playing {
+                self.toggle_playback();
             }
         }
         if let Some((control, action)) = learned {
