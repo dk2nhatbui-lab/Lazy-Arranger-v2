@@ -3352,7 +3352,9 @@ impl ShellApp {
             return;
         }
         let tracks = self.song().tracks.clone();
+        let buses = self.song().buses.clone();
         let mut edits: Vec<(TrackId, u8, u8, bool, bool, u8, bool)> = Vec::new();
+        let mut bus_edits: Vec<(u8, u8, u8)> = Vec::new();
         let mut master_gain = self.settings.master_gain_db;
         egui::TopBottomPanel::bottom("bottom-mixer")
             .resizable(true)
@@ -3523,6 +3525,58 @@ impl ShellApp {
                                 });
                             });
                         }
+                        for bus in &buses {
+                            let mut volume = f32::from(bus.volume);
+                            let mut pan = f32::from(bus.pan);
+                            let mut bus_volume = bus.volume;
+                            let mut bus_pan = bus.pan;
+                            ui.allocate_ui(egui::vec2(96.0, 220.0), |ui| {
+                                ui.vertical(|ui| {
+                                    painter_strip(ui, theme::accent());
+                                    ui.label(egui::RichText::new(&bus.name).size(11.0).strong());
+                                    ui.label(
+                                        egui::RichText::new("Bus")
+                                            .size(9.0)
+                                            .color(theme::text_dim()),
+                                    );
+                                    ui.horizontal(|ui| {
+                                        let pan_text = pan_label(pan);
+                                        if mixer_knob(ui, &mut pan, 0.0, 127.0, &pan_text, true) {
+                                            bus_pan =
+                                                u8::try_from(pan.round() as i32).unwrap_or(bus.pan);
+                                            bus_edits.push((bus.id, bus_volume, bus_pan));
+                                        }
+                                    });
+                                    ui.add_space(18.0);
+                                    ui.horizontal(|ui| {
+                                        ui.allocate_ui(egui::vec2(42.0, 88.0), |ui| {
+                                            if mixer_fader(
+                                                ui,
+                                                &mut volume,
+                                                0.0,
+                                                127.0,
+                                                88.0,
+                                                theme::accent(),
+                                                "Bus volume",
+                                                100.0,
+                                            ) {
+                                                bus_volume = u8::try_from(volume.round() as i32)
+                                                    .unwrap_or(bus.volume);
+                                                bus_edits.push((bus.id, bus_volume, bus_pan));
+                                            }
+                                        });
+                                    });
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{:.1} dB",
+                                            f32::from(bus.volume) - 100.0
+                                        ))
+                                        .size(9.0)
+                                        .color(theme::text_muted()),
+                                    );
+                                });
+                            });
+                        }
                         let master_level = self.player.as_ref().map_or_else(
                             || {
                                 if self.playing {
@@ -3591,6 +3645,19 @@ impl ShellApp {
                 });
             });
         self.settings.master_gain_db = master_gain;
+        if !bus_edits.is_empty() {
+            let mut updated = self.song().buses.clone();
+            for (id, volume, pan) in &bus_edits {
+                if let Some(bus) = updated.iter_mut().find(|bus| bus.id == *id) {
+                    bus.volume = *volume;
+                    bus.pan = *pan;
+                }
+            }
+            match self.editor.set_buses(updated) {
+                Ok(()) => self.status = Some(String::from("bus levels updated")),
+                Err(error) => self.status = Some(error),
+            }
+        }
         for (id, volume, pan, muted, soloed, send_level, armed) in edits {
             let _ = self.editor.set_track_gain(id, volume, pan);
             let _ = self.editor.set_track_flags(id, muted, soloed, armed);

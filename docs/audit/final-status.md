@@ -159,3 +159,4 @@ For the clef layout, choose either four measures per system without clefs
 - L6max mixer page controls imported takes with persisted A-D scenes, Reset and Compact; EQ/MONO/USB/device pages absent (`docs/audit/l6max-mixer.png`).
 - Mixer faders support Shift fine adjust and double-click reset.
 - MIDI monitor keeps two minutes of timestamped messages (`docs/audit/midi-monitor.png`); hardware unverified.
+- Mixer shows bus strips with pan and fader (`docs/audit/ui-bus-strips.png`).
