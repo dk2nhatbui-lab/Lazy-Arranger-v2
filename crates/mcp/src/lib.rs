@@ -195,6 +195,53 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "get_soundfonts",
+            description: "Read SoundFont presets assigned to tracks.",
+            input_schema: json!({"type": "object"}),
+        },
+        Tool {
+            name: "set_soundfont",
+            description: "Assign or clear a track's SoundFont preset.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "path": {"type": "string"},
+                    "bank": {"type": "integer"},
+                    "program": {"type": "integer"}
+                },
+                "required": ["track"]
+            }),
+        },
+        Tool {
+            name: "get_buses",
+            description: "List mix buses.",
+            input_schema: json!({"type": "object"}),
+        },
+        Tool {
+            name: "set_buses",
+            description: "Replace mix buses.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"buses": {"type": "array"}},
+                "required": ["buses"]
+            }),
+        },
+        Tool {
+            name: "set_track_routing",
+            description: "Set a track's bus, send bus and send level.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "bus": {"type": ["integer", "null"]},
+                    "send": {"type": ["integer", "null"]},
+                    "send_level": {"type": "integer"}
+                },
+                "required": ["track"]
+            }),
+        },
+        Tool {
             name: "l6max_scan",
             description: "Scan a folder of L6max WAV takes and report the import plan.",
             input_schema: json!({
@@ -520,6 +567,118 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             target.velocity = music_core::Velocity::new(velocity.clamp(1, 127))?;
             session.apply(Command::ReplaceTrackNotes { track, notes })?;
             Ok(json!({"velocity": velocity.clamp(1, 127)}))
+        }
+        "get_soundfonts" => Ok(json!({
+            "tracks": session
+                .song()
+                .tracks
+                .iter()
+                .map(|track| json!({
+                    "track": track.id.get(),
+                    "soundfont": track.soundfont.as_ref().map(|font| json!({
+                        "path": font.path,
+                        "bank": font.bank,
+                        "program": font.program
+                    }))
+                }))
+                .collect::<Vec<_>>()
+        })),
+        "set_soundfont" => {
+            use project::song::SoundFontRef;
+            let track = track_argument(arguments)?;
+            let path = arguments
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let soundfont = if path.is_empty() {
+                None
+            } else {
+                Some(SoundFontRef {
+                    path,
+                    bank: arguments.get("bank").and_then(Value::as_u64).unwrap_or(0) as u16,
+                    program: arguments
+                        .get("program")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0) as u16,
+                })
+            };
+            session.apply(Command::SetSoundFont {
+                track,
+                soundfont: soundfont.clone(),
+            })?;
+            Ok(json!({"soundfont": soundfont}))
+        }
+        "get_buses" => Ok(json!({
+            "buses": session
+                .song()
+                .buses
+                .iter()
+                .map(|bus| json!({
+                    "id": bus.id,
+                    "name": bus.name,
+                    "volume": bus.volume,
+                    "pan": bus.pan
+                }))
+                .collect::<Vec<_>>()
+        })),
+        "set_buses" => {
+            use project::song::Bus;
+            let buses = arguments
+                .get("buses")
+                .and_then(Value::as_array)
+                .ok_or_else(|| ToolError::Arguments(String::from("buses must be an array")))?;
+            let mut parsed = Vec::new();
+            for bus in buses {
+                let id = bus
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| ToolError::Arguments(String::from("bus needs an id")))?;
+                let name = bus
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| ToolError::Arguments(String::from("bus needs a name")))?;
+                parsed.push(Bus {
+                    id: u8::try_from(id).map_err(|_| {
+                        ToolError::Arguments(String::from("bus id must be 0..=255"))
+                    })?,
+                    name: name.to_string(),
+                    volume: bus.get("volume").and_then(Value::as_u64).unwrap_or(100) as u8,
+                    pan: bus.get("pan").and_then(Value::as_u64).unwrap_or(64) as u8,
+                });
+            }
+            session.apply(Command::SetBuses {
+                buses: parsed.clone(),
+            })?;
+            Ok(json!({"buses": parsed.len()}))
+        }
+        "set_track_routing" => {
+            let track = track_argument(arguments)?;
+            let bus = arguments
+                .get("bus")
+                .and_then(Value::as_u64)
+                .map(u8::try_from)
+                .transpose()
+                .map_err(|_| ToolError::Arguments(String::from("bus must be 0..=255")))?;
+            let send = arguments
+                .get("send")
+                .and_then(Value::as_u64)
+                .map(u8::try_from)
+                .transpose()
+                .map_err(|_| ToolError::Arguments(String::from("send must be 0..=255")))?;
+            let send_level = arguments
+                .get("send_level")
+                .and_then(Value::as_u64)
+                .unwrap_or(100)
+                .min(127) as u8;
+            session.apply(Command::SetTrackRouting {
+                track,
+                bus,
+                send,
+                send_level,
+            })?;
+            Ok(json!({"bus": bus, "send": send, "send_level": send_level}))
         }
         "get_plugins" => {
             let track = track_argument(arguments)?;
@@ -1185,6 +1344,37 @@ mod tests {
         assert_eq!(result["korg_marker"], true);
         assert_eq!(result["model"], "KRONOS");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn soundfont_bus_and_routing_tools_work() {
+        let mut session = session_with_track();
+        call(
+            &mut session,
+            "set_buses",
+            &json!({"buses": [{"id": 1, "name": "Reverb", "volume": 90, "pan": 64}]}),
+        )
+        .expect("buses");
+        let buses = call(&mut session, "get_buses", &json!({})).expect("get buses");
+        assert_eq!(buses["buses"][0]["name"], "Reverb");
+        call(
+            &mut session,
+            "set_track_routing",
+            &json!({"track": 1, "bus": 1, "send": 1, "send_level": 80}),
+        )
+        .expect("routing");
+        assert_eq!(session.song().tracks[0].bus, Some(1));
+        assert_eq!(session.song().tracks[0].send_level, 80);
+        call(
+            &mut session,
+            "set_soundfont",
+            &json!({"track": 1, "path": "/tmp/bank.sf2", "bank": 0, "program": 4}),
+        )
+        .expect("soundfont");
+        let fonts = call(&mut session, "get_soundfonts", &json!({})).expect("fonts");
+        assert_eq!(fonts["tracks"][0]["soundfont"]["program"], 4);
+        call(&mut session, "set_soundfont", &json!({"track": 1})).expect("clear");
+        assert!(session.song().tracks[0].soundfont.is_none());
     }
 
     #[test]

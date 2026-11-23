@@ -296,3 +296,10 @@ centibels to a linear level, then applies delay, attack, hold, decay, sustain
 and a release ending at the note boundary. A per-note biquad lowpass applies the initial filter cutoff (absolute cents
 from 8.176 Hz, clamped below Nyquist) and Q (centibels). Modulators, stereo
 samples and SF3 remain absent.
+
+### Audio-model MCP tools
+
+`get_soundfonts`/`set_soundfont`, `get_buses`/`set_buses` and
+`set_track_routing` expose the schema-v16 SoundFont preset, mix buses and
+bus/send routing through the same undoable commands as the UI and CLI. Missing
+or null path/bus/send values clear the field; the registry now holds 36 tools.
