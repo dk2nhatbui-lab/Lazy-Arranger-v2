@@ -915,3 +915,8 @@ regular plural helper (`1 note`, `2 clips`) instead of `note(s)`.
 Both windows now explain the flow: choose an action, press Learn and move a
 control; the map saves automatically on a successful learn. Empty states say no
 bindings/controller bindings and how to add one.
+
+Theory, Lessons and Songs & tutorial were captured for QA at
+`docs/audit/theory.png`, `lessons.png` and `songs.png`. Theory and Lessons use
+wider defaults and wrapped hint labels; Songs lists three named songs and four
+tutorial steps.

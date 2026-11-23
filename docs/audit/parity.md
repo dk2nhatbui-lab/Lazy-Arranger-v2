@@ -151,7 +151,7 @@ plurals, a real AI model and speech input.
 | Track volume and pan (schema v8) | `project`, `audio`, `smf` export | verified | fader/pan render tests; CC 7/10 written; defaults omitted |
 | Mixer panel (tracks, buses, master, routing) | `apps/desktop`, `SetBuses` | implemented | bus/routing tests; capture checked |
 | Song rename and meter edit (undoable) | `SetSongName`/`SetTimeSignature`, sidebar/Inspector | verified | rename/meter/undo and MCP tests |
-| Theory window and graded lessons | `theory_summary`, `music_core::lesson`, Windows menu | verified model | summary and lesson tests; UI manual |
+| Theory and Lessons windows (captures) | `theory_summary`, `music_core::lesson`, Windows menu | verified model | summary/lesson tests; `theory.png`, `lessons.png` |
 | Clip-grid headers and slot context menu | `apps/desktop`, `arranging::grid` | implemented | capture checked; slot methods tested |
 | Snap toggle (drags and insertions) | `RollState.snap`, `drag_result`, Arrange | verified | snapped/free drag test; UI manual |
 | Marker editor (add/edit/remove/Go, ruler lines) | `SetMarkers`, Markers window, ruler | verified model | add/replace/remove/undo tests; UI manual |

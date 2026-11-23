@@ -1746,7 +1746,7 @@ impl ShellApp {
         let mut answer = None;
         egui::Window::new("Lessons")
             .open(&mut open)
-            .default_width(360.0)
+            .default_width(400.0)
             .show(context, |ui| {
                 egui::ComboBox::from_id_salt("lesson-kind")
                     .selected_text(self.lesson_kind.name())
@@ -1795,7 +1795,9 @@ impl ShellApp {
                         }
                     }
                 } else {
-                    ui.label("Press New question to start a graded exercise.");
+                    ui.add(
+                        egui::Label::new("Press New question to start a graded exercise.").wrap(),
+                    );
                 }
             });
         self.lessons_open = open;
@@ -1829,7 +1831,7 @@ impl ShellApp {
         let mut open = self.theory_open;
         egui::Window::new("Theory")
             .open(&mut open)
-            .default_width(360.0)
+            .default_width(420.0)
             .show(context, |ui| {
                 for line in lines {
                     ui.label(line);
