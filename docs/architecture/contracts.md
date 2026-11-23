@@ -757,3 +757,12 @@ characters) and builds `say` arguments, optionally with a voice. The Assistant
 window has a "Speak replies" toggle stored as `speech` in settings; non-macOS
 hosts no-op. Speech input and any model-based speech (Whisper, Kitten, Kokoro)
 are not implemented, and audible output was not verified in this environment.
+
+### Plugin slots
+
+Schema v15 adds `Track.plugins`: slots with an id, name, format (VST3 or Audio
+Unit), recorded path, bypass flag and an opaque state string kept verbatim.
+`SetPlugins` replaces the list as one undo step, and validation rejects
+duplicate ids and warns on empty names. No plugin is loaded, scanned, processed
+or given an editor window; the render ignores slots, and host compatibility is
+unverified.

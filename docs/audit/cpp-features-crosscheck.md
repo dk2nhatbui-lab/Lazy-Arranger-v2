@@ -25,7 +25,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 16 | Score view | partial | MusicXML export/import plus a toolkit-independent layout engine (pages, systems, measures, positioned notes, CLI report). An egui page canvas renders staff lines, barlines, noteheads, page navigation and zoom from the layout. Key detection, spelling, accidentals, canvas, vector PDF, per-pitch ties and a lyric line (40-bar two-page acceptance test). Dynamics and articulations are marks in schema v11, exchanged as MusicXML directions and drawn by both renderers. No print dialog, grand/drum staves, beams, collision avoidance, tuplets, guitar frames or note entry |
 | 17 | Mixer and buses | partial | Tracks carry fader, pan, mute/solo and automation; buses (schema v13) have volume and pan, tracks route to a bus and can send a copy at a level, and the render sums bus buffers after the tracks. Mix view shows bus faders and a per-track routing picker. No reverb/chorus processing, meters, master effects or send-level UI |
 | 18 | Automation | partial | Volume and pan lanes with linear interpolation and held ends, applied per note in the render, edited through one undoable command. Arrange shows a volume lane for the selected track; clicking adds a point, clicking a point removes it, and each edit is one command. No pan lane UI, plugin-parameter lanes or MIDI-port automation |
-| 19 | VST3/AU plugins | missing | ADR-007 deferred |
+| 19 | VST3/AU plugins | partial | Project model only: `Track.plugins` slots (id, name, format VST3/AU, path, bypass, opaque state) in schema v15, one undoable `SetPlugins` command and duplicate/no-name validation. No plugin hosting, scanning, audio processing or editor windows; the render ignores slots |
 | 20 | SF2/SF3 SoundFont player, metronome | partial | Built-in synth now has piano, bass, organ, strings, pad and noise drums chosen from channel, program and name, with per-family attack and decay. No SoundFont loading, sampler or metronome click |
 | 21 | MIDI devices and profiles | partial | One built-in PSR-S970 voice subset with keyword matching and GM fallback; port enumeration, live input, CLI record/echo. No YAML loader, banks, drum kits, other devices, overrides or recent-MIDI buffer |
 | 22 | Synth sound editors (D-05, XioSynth, S970 XG, L6max), sysex dumps | partial | A per-track synth patch (sine/saw/square/triangle, attack, decay, sustain, release, brightness) in schema v14, honoured by the render and edited through one undoable command. No editor UI, device-specific panels or sysex dumps |
@@ -49,13 +49,14 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections at round 70: 0 fully verified beyond their Rust subset, 38 partial, 1 missing.
+39 sections at round 71: 0 fully verified beyond their Rust subset, 39 partial, 0 missing.
 The partials with the most depth are styles (open, import, compile, SFF1/SFF2 write), project files, the score layout/PDF path, audio references, the MIDI map and the MCP surface.
 
 ## State at round 60
 
 `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (438 tests) and
-`cargo doc` pass. The one missing section is VST3/AU (§19).
+`cargo doc` pass. No section is missing at the row level, but §19 is only a state model: no plugin
+is hosted, scanned or processed. Row-level completeness is not parity.
 Korg import, PSR style import, SoundFont loading, the L6max page (its 32-bit float audio
 recordings already decode), waveform audio editing,
 grand-staff/beam engraving, note entry, socket transport and a 90-tool MCP
@@ -72,5 +73,5 @@ unverified; CI builds and tests are the only continuous evidence.
 3. Korg import, PSR style import and SoundFont loading (§14, §20, §24).
 4. Grand staff, beams, tuplets and note entry in the score (§16).
 5. Speech input and the socket transport (§29, §27).
-6. Plugin hosting (§19), a synth editor UI and sysex (§22), an L6max mixer page
-   and project-file parsing (§26).
+6. Plugin hosting/scanning (§19), a synth editor UI and sysex (§22), an L6max
+   mixer page and project-file parsing (§26).

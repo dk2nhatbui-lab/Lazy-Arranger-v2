@@ -87,6 +87,24 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
             ));
         }
 
+        let mut plugin_ids = HashSet::new();
+        for plugin in &track.plugins {
+            if !plugin_ids.insert(plugin.id) {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.plugins"),
+                    format!("duplicate plugin id {}", plugin.id),
+                ));
+            }
+            if plugin.name.trim().is_empty() {
+                issues.push(issue(
+                    Severity::Warning,
+                    format!("{track_path}.plugins"),
+                    format!("plugin {} has no name", plugin.id),
+                ));
+            }
+        }
+
         let mut clips = track.clips.clone();
         clips.sort_by_key(|clip| clip.start);
         for pair in clips.windows(2) {

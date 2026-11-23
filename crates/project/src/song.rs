@@ -205,6 +205,36 @@ impl Track {
     }
 }
 
+/// A plugin format.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginFormat {
+    /// VST3.
+    Vst3,
+    /// Audio Unit.
+    AudioUnit,
+}
+
+/// One plugin slot on a track.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PluginSlot {
+    /// Identifier unique on its track.
+    pub id: u32,
+    /// Display name.
+    pub name: String,
+    /// Plugin format.
+    pub format: PluginFormat,
+    /// Path recorded when the slot was created.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub path: String,
+    /// Bypassed slot.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bypassed: bool,
+    /// Opaque preset state, preserved verbatim.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub state: String,
+}
+
 /// A synth waveform.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -416,6 +446,9 @@ pub struct Track {
     /// Reference to an audio file, for audio tracks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<AudioRef>,
+    /// Plugin slots in signal order. Carried and saved, not hosted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugins: Vec<PluginSlot>,
     /// Synth patch overriding the timbre's waveform and envelope.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub patch: Option<Patch>,
@@ -486,6 +519,7 @@ impl Track {
             send: None,
             send_level: 100,
             patch: None,
+            plugins: Vec::new(),
             volume: 100,
             pan: 64,
             audio: None,
@@ -826,6 +860,11 @@ impl ProjectFile {
                     // built-in timbre, as in version 13.
                     self.version = 14;
                 }
+                14 => {
+                    // Version 15 adds plugin slots; none is the version 14
+                    // behaviour, since no plugin is hosted either way.
+                    self.version = 15;
+                }
                 from => {
                     return Err(ProjectError::Migration {
                         from,
@@ -1081,6 +1120,48 @@ mod tests {
         assert!(track.muted && track.soloed && track.armed);
         let text = project.to_json_pretty().expect("serialize");
         assert!(text.contains("\"muted\": true"));
+    }
+
+    #[test]
+    fn plugin_slots_round_trip_and_validate() {
+        use crate::song::{PluginFormat, PluginSlot};
+        let mut song = Song::new("Plugins", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Lead");
+        track.plugins.push(PluginSlot {
+            id: 1,
+            name: String::from("Limiter"),
+            format: PluginFormat::Vst3,
+            path: String::new(),
+            bypassed: true,
+            state: String::from("opaque"),
+        });
+        song.tracks.push(track);
+        let text = ProjectFile::new(song).to_json_pretty().expect("serialize");
+        let back = ProjectFile::from_json(&text).expect("parse");
+        assert_eq!(back.song.tracks[0].plugins[0].name, "Limiter");
+        assert!(back.song.tracks[0].plugins[0].bypassed);
+        let mut duplicate = back;
+        duplicate.song.tracks[0].plugins.push(PluginSlot {
+            id: 1,
+            name: String::from("Other"),
+            format: PluginFormat::AudioUnit,
+            path: String::new(),
+            bypassed: false,
+            state: String::new(),
+        });
+        let issues = crate::validate::validate(&duplicate);
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.message.contains("duplicate plugin id"))
+        );
+        let empty = ProjectFile::new(Song::new("Empty", 120.0));
+        assert!(
+            !empty
+                .to_json_pretty()
+                .expect("serialize")
+                .contains("plugins")
+        );
     }
 
     #[test]

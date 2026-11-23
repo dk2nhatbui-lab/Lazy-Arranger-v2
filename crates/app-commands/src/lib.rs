@@ -84,6 +84,13 @@ pub enum Command {
         /// New arm state.
         armed: bool,
     },
+    /// Replace a track's plugin slots.
+    SetPlugins {
+        /// The track.
+        track: TrackId,
+        /// New slots in signal order.
+        plugins: Vec<project::song::PluginSlot>,
+    },
     /// Set a track's synth patch, or clear it.
     SetTrackPatch {
         /// The track.
@@ -204,6 +211,7 @@ impl Command {
             Self::SetAudioRef { .. } => "set audio reference",
             Self::SetBuses { .. } => "set buses",
             Self::SetTrackPatch { .. } => "set track patch",
+            Self::SetPlugins { .. } => "set plugins",
             Self::SetTrackRouting { .. } => "set track routing",
             Self::SetMarkers { .. } => "set markers",
             Self::SetSceneNames { .. } => "set scene names",
@@ -692,6 +700,10 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::SetPlugins { track, .. } => Command::SetPlugins {
+                track: *track,
+                plugins: self.track(*track)?.plugins.clone(),
+            },
             Command::SetTrackPatch { track, .. } => Command::SetTrackPatch {
                 track: *track,
                 patch: self.track(*track)?.patch.map(Box::new),
@@ -861,6 +873,9 @@ impl EditSession {
             Command::SetTrackPatch { track, patch } => {
                 self.track_mut(*track)?.patch = patch.as_deref().copied();
             }
+            Command::SetPlugins { track, plugins } => {
+                self.track_mut(*track)?.plugins = plugins.clone();
+            }
             Command::SetTrackRouting {
                 track,
                 bus,
@@ -948,6 +963,9 @@ fn describe(command: &Command) -> String {
             format!("track {track}: {} automation lane(s)", lanes.len())
         }
         Command::SetBuses { buses } => format!("set {} bus(es)", buses.len()),
+        Command::SetPlugins { track, plugins } => {
+            format!("track {track}: {} plugin slot(s)", plugins.len())
+        }
         Command::SetTrackPatch { track, patch } => match patch {
             Some(patch) => format!("track {track}: {:?} patch", patch.waveform),
             None => format!("track {track}: clear patch"),
@@ -1372,6 +1390,29 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn plugin_slots_can_be_set_and_undone() {
+        use project::song::{PluginFormat, PluginSlot};
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.apply(Command::SetPlugins {
+            track,
+            plugins: vec![PluginSlot {
+                id: 1,
+                name: String::from("Limiter"),
+                format: PluginFormat::Vst3,
+                path: String::from("/Library/Audio/Plug-Ins/VST3/Limiter.vst3"),
+                bypassed: false,
+                state: String::from("state"),
+            }],
+        })
+        .expect("plugins");
+        assert_eq!(edit.song().tracks[0].plugins.len(), 1);
+        assert_eq!(edit.song().tracks[0].plugins[0].name, "Limiter");
+        edit.undo().expect("undo");
+        assert!(edit.song().tracks[0].plugins.is_empty());
     }
 
     #[test]
