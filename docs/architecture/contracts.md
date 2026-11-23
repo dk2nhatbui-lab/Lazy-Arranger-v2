@@ -92,3 +92,13 @@ Perform view shows the current chord large, progress, Next chord and Start
 over, plus 16 big chord pads that audition through the cpal player. `Lesson::sync` rebuilds it when the chord list changes while keeping the step
 when possible, and the Perform view can load `demo::kids_song` (four slow
 chords). There is no simplified editor.
+
+### Device profiles
+
+`profiles::parse_yaml` reads a small YAML subset: `id`, `name`, and the
+`voices`, `banks` and `drum_kits` lists, each item with `name` and `program`.
+Unknown keys, missing names/programs, programs above 127 and profiles without a
+voice are rejected with line numbers. `nearest_in_profile` scores track words
+against voice names and falls back to the GM keyword guess. Banks and drum kits
+are stored but export does not use them, and no device other than the built-in
+PSR-S970 subset ships.

@@ -243,6 +243,14 @@ enum Commands {
         #[arg(long, default_value_t = 48_000)]
         sample_rate: u32,
     },
+    /// Load a device profile and optionally resolve a track name.
+    DeviceProfile {
+        /// YAML profile file.
+        file: PathBuf,
+        /// Track name to resolve.
+        #[arg(long)]
+        track: Option<String>,
+    },
     /// Convert a Music Finder CSV into a Yamaha playlist TSV.
     PlaylistFromCsv {
         /// Music Finder `.csv` file.
@@ -858,6 +866,24 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 bounce.track,
                 out.display()
             );
+            Ok(())
+        }
+        Commands::DeviceProfile { file, track } => {
+            let profile = midi_devices::profiles::load_file(&file)?;
+            println!(
+                "{} ({}): {} voice(s), {} bank(s), {} drum kit(s)",
+                profile.name,
+                profile.id,
+                profile.voices.len(),
+                profile.banks.len(),
+                profile.drum_kits.len()
+            );
+            if let Some(track) = track {
+                println!(
+                    "{track} -> program {}",
+                    midi_devices::profiles::nearest_in_profile(&profile, &track)
+                );
+            }
             Ok(())
         }
         Commands::PlaylistFromCsv { csv, folder, out } => {
