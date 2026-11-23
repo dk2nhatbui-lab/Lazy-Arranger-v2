@@ -77,4 +77,4 @@ cpal input/output, controllers and printing.
 open "dist/Lazy Arranger Midi DAW.app"
 ```
 
-The bundle is ad-hoc signed (`codesign --sign -`) and is not notarized.
+The bundle includes `AppIcon.icns`, is ad-hoc signed (`codesign --sign -`) and is not notarized.

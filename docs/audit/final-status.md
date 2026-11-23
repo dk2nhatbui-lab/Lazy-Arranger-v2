@@ -166,3 +166,4 @@ For the clef layout, choose either four measures per system without clefs
 - Audio trim row can set the front or end at the playhead (`docs/audit/ui-audio-trim.png`).
 - Smoke test draws 29 tool windows in one egui frame without panicking.
 - Score note entry accepts computer-keyboard A-W-S-E-D-F-T-G-Y-H-U-J at the playhead with octave and note-length pickers, dotted notes, rests and an entry cursor; mapping/length tested.
+- Bundle includes AppIcon.icns derived from the runtime icon asset.
