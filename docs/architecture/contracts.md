@@ -959,3 +959,10 @@ round-trip and chord recognition have tests.
 `midi_devices::map::launchkey_pad_map` binds notes 36..=51 to `Action::Pad` for
 the same note; the MIDI map window loads and saves it. A test checks all sixteen
 bindings. No Launchkey hardware was available, so the send path is unverified.
+
+### Recent clear and Save-as extension
+
+The RECENT header has Clear, which calls `project::recent::clear` and empties
+the list. Save-as normalizes an extensionless path with `normalize_save_path`
+(appends `.json`); existing extensions are kept. Both have tests or upstream
+coverage.

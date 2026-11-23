@@ -167,6 +167,16 @@ fn consume_binding(context: &Context, text: &str, fallback: &str) -> bool {
     })
 }
 
+/// Appends `.json` when a Save-as path has no extension.
+#[must_use]
+pub fn normalize_save_path(path: std::path::PathBuf) -> std::path::PathBuf {
+    if path.as_os_str().is_empty() || path.extension().is_some() {
+        path
+    } else {
+        path.with_extension("json")
+    }
+}
+
 /// Applies a clip click to the multi-selection and returns the primary clip.
 #[must_use]
 pub fn apply_clip_click(
@@ -1080,7 +1090,7 @@ impl ShellApp {
                     Err(error) => self.load_error = Some(error),
                 }
             } else {
-                self.save_to(path);
+                self.save_to(normalize_save_path(path));
                 if self.load_error.is_none() {
                     self.file_mode = None;
                 }
@@ -4183,11 +4193,22 @@ impl ShellApp {
                         });
                     }
                     if !self.recent.is_empty() {
-                        ui.label(
-                            egui::RichText::new("RECENT")
-                                .size(9.0)
-                                .color(theme::text_dim()),
-                        );
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("RECENT")
+                                    .size(9.0)
+                                    .color(theme::text_dim()),
+                            );
+                            if ui.small_button("Clear").clicked() {
+                                match project::recent::clear(&self.recent_file) {
+                                    Ok(()) => {
+                                        self.recent.clear();
+                                        self.status = Some(String::from("recent list cleared"));
+                                    }
+                                    Err(error) => self.status = Some(error),
+                                }
+                            }
+                        });
                         let entries = self.recent.clone();
                         for entry in entries {
                             let label = entry
@@ -5518,6 +5539,22 @@ mod tests {
         assert!(lines.iter().any(|line| line.starts_with("Cadence:")));
         let empty = project::song::Song::new("Empty", 120.0);
         assert_eq!(theory_summary(&empty)[2], "No chords yet");
+    }
+
+    #[test]
+    fn a_save_path_without_extension_gets_json() {
+        assert_eq!(
+            normalize_save_path(std::path::PathBuf::from("song")),
+            std::path::PathBuf::from("song.json")
+        );
+        assert_eq!(
+            normalize_save_path(std::path::PathBuf::from("song.arranger")),
+            std::path::PathBuf::from("song.arranger")
+        );
+        assert_eq!(
+            normalize_save_path(std::path::PathBuf::from("")),
+            std::path::PathBuf::from("")
+        );
     }
 
     #[test]
