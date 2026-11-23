@@ -273,6 +273,65 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "add_marker",
+            description: "Add or replace a named timeline marker.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"tick": {"type": "integer"}, "name": {"type": "string"}},
+                "required": ["tick", "name"]
+            }),
+        },
+        Tool {
+            name: "remove_marker",
+            description: "Remove the marker at a tick.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"tick": {"type": "integer"}},
+                "required": ["tick"]
+            }),
+        },
+        Tool {
+            name: "add_lyric",
+            description: "Add or replace the syllable at a tick.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"tick": {"type": "integer"}, "text": {"type": "string"}},
+                "required": ["tick", "text"]
+            }),
+        },
+        Tool {
+            name: "remove_lyric",
+            description: "Remove the syllable at a tick.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"tick": {"type": "integer"}},
+                "required": ["tick"]
+            }),
+        },
+        Tool {
+            name: "get_chord_at",
+            description: "Read the chord exactly at a tick, or null.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"tick": {"type": "integer"}},
+                "required": ["tick"]
+            }),
+        },
+        Tool {
+            name: "get_note_at",
+            description: "Read the note covering or nearest a tick on a track.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}, "tick": {"type": "integer"}},
+                "required": ["track", "tick"]
+            }),
+        },
+        Tool {
+            name: "get_time_signature",
+            description: "Read the song time signature and bar ticks.",
+            input_schema: json!({"type": "object"}),
+        },
+        Tool {
             name: "set_lyrics",
             description: "Replace all lyric syllables.",
             input_schema: json!({
@@ -1032,6 +1091,138 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
             session.apply(Command::RemoveChord { tick })?;
             Ok(json!({"removed": tick}))
+        }
+        "add_marker" => {
+            let tick = arguments
+                .get("tick")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+            let name = arguments
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("name is required")))?;
+            let mut markers: Vec<project::Marker> = session
+                .song()
+                .markers
+                .iter()
+                .filter(|marker| marker.tick != tick)
+                .cloned()
+                .collect();
+            markers.push(project::Marker {
+                tick,
+                name: name.to_string(),
+            });
+            markers.sort_by_key(|marker| marker.tick);
+            session.apply(Command::SetMarkers { markers })?;
+            Ok(json!({"tick": tick, "name": name}))
+        }
+        "remove_marker" => {
+            let tick = arguments
+                .get("tick")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+            let markers: Vec<project::Marker> = session
+                .song()
+                .markers
+                .iter()
+                .filter(|marker| marker.tick != tick)
+                .cloned()
+                .collect();
+            session.apply(Command::SetMarkers { markers })?;
+            Ok(json!({"removed": tick}))
+        }
+        "add_lyric" => {
+            let tick = arguments
+                .get("tick")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+            let text = arguments
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("text is required")))?;
+            let mut lyrics: Vec<project::song::LyricEvent> = session
+                .song()
+                .lyrics
+                .iter()
+                .filter(|event| event.tick != tick)
+                .cloned()
+                .collect();
+            lyrics.push(project::song::LyricEvent {
+                tick,
+                text: text.to_string(),
+            });
+            lyrics.sort_by_key(|event| event.tick);
+            session.apply(Command::SetLyrics { lyrics })?;
+            Ok(json!({"tick": tick, "text": text}))
+        }
+        "remove_lyric" => {
+            let tick = arguments
+                .get("tick")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+            let lyrics: Vec<project::song::LyricEvent> = session
+                .song()
+                .lyrics
+                .iter()
+                .filter(|event| event.tick != tick)
+                .cloned()
+                .collect();
+            session.apply(Command::SetLyrics { lyrics })?;
+            Ok(json!({"removed": tick}))
+        }
+        "get_chord_at" => {
+            let tick = arguments
+                .get("tick")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+            let chord = session
+                .song()
+                .chords
+                .iter()
+                .find(|event| event.tick == tick)
+                .map(|event| event.chord.format(music_core::Spelling::Sharp));
+            Ok(json!({"chord": chord}))
+        }
+        "get_note_at" => {
+            let track = track_argument(arguments)?;
+            let tick = arguments
+                .get("tick")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+            let note = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .and_then(|entry| {
+                    entry
+                        .notes
+                        .iter()
+                        .find(|note| tick >= note.start && tick < note.start + note.duration.max(1))
+                        .or_else(|| {
+                            entry
+                                .notes
+                                .iter()
+                                .min_by_key(|note| (note.start - tick).abs())
+                        })
+                })
+                .map(|note| {
+                    json!({
+                        "id": note.id.get(),
+                        "start": note.start,
+                        "duration": note.duration,
+                        "pitch": note.pitch.as_u8()
+                    })
+                });
+            Ok(json!({"note": note}))
+        }
+        "get_time_signature" => {
+            let meter = session.song().time_signature;
+            Ok(json!({
+                "numerator": meter.numerator,
+                "denominator": meter.denominator,
+                "bar_ticks": meter.bar_ticks()
+            }))
         }
         "set_lyrics" => {
             let lyrics = arguments
@@ -2590,6 +2781,46 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn marker_lyric_and_query_tools_work() {
+        let mut session = session_with_track();
+        call(
+            &mut session,
+            "add_marker",
+            &json!({"tick": 0, "name": "Intro"}),
+        )
+        .expect("marker");
+        assert_eq!(session.song().markers[0].name, "Intro");
+        call(&mut session, "remove_marker", &json!({"tick": 0})).expect("remove marker");
+        assert!(session.song().markers.is_empty());
+        call(&mut session, "add_lyric", &json!({"tick": 0, "text": "la"})).expect("lyric");
+        assert_eq!(session.song().lyrics.len(), 1);
+        call(&mut session, "remove_lyric", &json!({"tick": 0})).expect("remove lyric");
+        call(
+            &mut session,
+            "set_chord",
+            &json!({"tick": 0, "symbol": "Dm7"}),
+        )
+        .expect("chord");
+        let chord = call(&mut session, "get_chord_at", &json!({"tick": 0})).expect("chord query");
+        assert_eq!(chord["chord"], "Dm7");
+        call(
+            &mut session,
+            "add_note",
+            &json!({"track": 1, "start": 0, "pitch": 64}),
+        )
+        .expect("note");
+        let note = call(
+            &mut session,
+            "get_note_at",
+            &json!({"track": 1, "tick": 10}),
+        )
+        .expect("note query");
+        assert_eq!(note["note"]["pitch"], 64);
+        let meter = call(&mut session, "get_time_signature", &json!({})).expect("meter");
+        assert_eq!(meter["numerator"], 4);
     }
 
     #[test]
