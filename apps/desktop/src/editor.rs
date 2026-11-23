@@ -65,11 +65,26 @@ impl Editor {
         start: Tick,
         pitch: Pitch,
     ) -> Result<NoteId, CommandError> {
+        self.insert_length(track, start, pitch, PPQ)
+    }
+
+    /// Inserts one note of the given length.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CommandError`] when the track is unknown or the edit is invalid.
+    pub fn insert_length(
+        &mut self,
+        track: TrackId,
+        start: Tick,
+        pitch: Pitch,
+        length: Tick,
+    ) -> Result<NoteId, CommandError> {
         let id = self.session.next_note_id(track)?;
         self.session.add_note(
             track,
             start,
-            PPQ,
+            length.max(1),
             pitch,
             music_core::Velocity::new(100).expect("valid"),
             music_core::Channel::first(),
@@ -2270,6 +2285,26 @@ mod tests {
         assert!(editor.set_note_duration(track, note, 0).is_err());
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].notes[0].duration, PPQ);
+    }
+
+    #[test]
+    fn note_entry_uses_the_requested_length() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("track");
+        let id = editor
+            .insert_length(
+                track,
+                960,
+                Pitch::from_name("C5").expect("pitch"),
+                music_core::PPQ / 2,
+            )
+            .expect("insert");
+        let note = editor.song().tracks[0]
+            .notes
+            .iter()
+            .find(|note| note.id == id)
+            .expect("note");
+        assert_eq!(note.duration, music_core::PPQ / 2);
     }
 
     #[test]

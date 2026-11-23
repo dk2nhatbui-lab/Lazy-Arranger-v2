@@ -165,4 +165,4 @@ For the clef layout, choose either four measures per system without clefs
 - Kids circle pulse respects the reduced-motion setting.
 - Audio trim row can set the front or end at the playhead (`docs/audit/ui-audio-trim.png`).
 - Smoke test draws 29 tool windows in one egui frame without panicking.
-- Score note entry accepts computer-keyboard A-W-S-E-D-F-T-G-Y-H-U-J at the playhead with an octave picker; mapping tested.
+- Score note entry accepts computer-keyboard A-W-S-E-D-F-T-G-Y-H-U-J at the playhead with octave and note-length pickers; both tested.

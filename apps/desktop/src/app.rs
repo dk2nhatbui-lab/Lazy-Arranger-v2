@@ -901,6 +901,7 @@ pub struct ShellApp {
     help_open: bool,
     score_entry: bool,
     score_octave: i32,
+    score_note_length: music_core::Tick,
     score_page: usize,
     score_zoom: f32,
     score_grand: bool,
@@ -1212,6 +1213,7 @@ impl ShellApp {
             help_open: initial_window == "help",
             score_entry: false,
             score_octave: 4,
+            score_note_length: music_core::PPQ,
             score_page: 0,
             score_zoom: 1.0,
             score_grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
@@ -1806,7 +1808,12 @@ impl ShellApp {
                         && let Some(pitch) = score_key_pitch(key, self.score_octave)
                         && let Ok(pitch) = music_core::Pitch::new(pitch)
                     {
-                        match self.editor.insert(track, self.position.max(0), pitch) {
+                        match self.editor.insert_length(
+                            track,
+                            self.position.max(0),
+                            pitch,
+                            self.score_note_length.max(1),
+                        ) {
                             Ok(_) => {
                                 self.status =
                                     Some(format!("inserted {pitch} at {}", self.position));
@@ -11162,6 +11169,30 @@ impl eframe::App for ShellApp {
                             ui.add(
                                 egui::DragValue::new(&mut self.score_octave).range(0..=8),
                             );
+                            ui.label("Length");
+                            egui::ComboBox::from_id_salt("score-length")
+                                .selected_text(match self.score_note_length {
+                                    value if value >= music_core::PPQ * 4 => "Whole",
+                                    value if value >= music_core::PPQ * 2 => "Half",
+                                    value if value >= music_core::PPQ => "Quarter",
+                                    value if value >= music_core::PPQ / 2 => "Eighth",
+                                    _ => "16th",
+                                })
+                                .show_ui(ui, |ui| {
+                                    for (value, label) in [
+                                        (music_core::PPQ * 4, "Whole"),
+                                        (music_core::PPQ * 2, "Half"),
+                                        (music_core::PPQ, "Quarter"),
+                                        (music_core::PPQ / 2, "Eighth"),
+                                        (music_core::PPQ / 4, "16th"),
+                                    ] {
+                                        ui.selectable_value(
+                                            &mut self.score_note_length,
+                                            value,
+                                            label,
+                                        );
+                                    }
+                                });
                             ui.label("Staves: automatic");
                             ui.checkbox(&mut self.score_grand, "Grand staff");
                             if ui.button("−").clicked() {
