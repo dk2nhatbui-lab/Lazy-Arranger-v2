@@ -102,7 +102,7 @@ the wider ~90-tool MCP surface.
 | Transitions: hold chord, break, straight cut presets | — | partial | straight cut is a no-op; hold/break missing |
 | Assistant tool registry and JSON dispatch | `crates/mcp` | verified (6 tools) | get_song/add_track/add_notes/set_chords/get_undo/undo; CLI mcp-tools and mcp-call |
 | MCP stdio transport (initialize, ping, tools/list, tools/call, parse errors) | `mcp::serve`, `mcp-serve` CLI | verified | in-memory tests + real stdin/stdout run saved an added note |
-| MCP socket transport, per-start secret | — | missing | — |
+| MCP socket transport, per-start secret | `mcp::socket`, CLI `mcp-socket` | verified | loopback exchange: token accepted, wrong token rejected; token is 32 hex chars |
 | MCP tools over arranging engine (doctor, find chords, grooves, forms, reharmonize) | `crates/mcp` | verified | 12 tools total; tests per tool |
 | Remaining MCP tools (~80: styles, clips, MIDI, profiles, lyrics) | — | missing | — |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |

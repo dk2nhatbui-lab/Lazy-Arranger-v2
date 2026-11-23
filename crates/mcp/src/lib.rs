@@ -6,6 +6,8 @@
 
 pub mod assistant;
 
+pub mod socket;
+
 use app_commands::{Command, CommandError, EditSession};
 use music_core::{Channel, Chord, Pitch, Tick, Velocity};
 use project::song::{ChordEvent, Note, ProjectFile};

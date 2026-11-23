@@ -781,3 +781,11 @@ click inside a measure to a quarter-quantised tick. With Note entry enabled, a
 click in the Score canvas inserts a note on the selected track through the
 normal insert command, so it is one undo step. Rests, moving or resizing
 existing notes and grand-staff entry are not implemented.
+
+### MCP over loopback TCP
+
+`mcp::socket` binds 127.0.0.1 (port 0 picks a free one), generates a 16-byte hex
+token per start, and requires `token` on every JSON-RPC line; a mismatch gets
+error -32001 and never reaches a tool. `mcp-socket` writes the token to a file
+and saves the project after every successful `tools/call`. There is no TLS,
+authentication beyond the token, or concurrent client handling.

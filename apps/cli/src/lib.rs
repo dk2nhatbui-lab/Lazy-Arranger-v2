@@ -338,6 +338,17 @@ enum Commands {
     },
     /// Print the assistant tool list as JSON.
     McpTools {},
+    /// Serve assistant tools on loopback TCP with a per-start token.
+    McpSocket {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Port; 0 picks a free one.
+        #[arg(long, default_value_t = 0)]
+        port: u16,
+        /// File that receives the token.
+        #[arg(long, default_value = "mcp-token.txt")]
+        token_file: PathBuf,
+    },
     /// Serve assistant tools over newline-delimited JSON-RPC on stdin/stdout.
     McpServe {
         /// Project `.json` path; saved after every successful tool call.
@@ -1008,6 +1019,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             Ok(())
         }
         Commands::McpServe { project } => mcp_serve(&project),
+        Commands::McpSocket {
+            project,
+            port,
+            token_file,
+        } => mcp_socket(&project, port, &token_file),
         Commands::McpCall {
             project,
             tool,
@@ -1464,6 +1480,49 @@ fn mcp_serve(project_path: &PathBuf) -> Result<(), Box<dyn Error>> {
             }
         }
     }
+}
+
+fn mcp_socket(
+    project_path: &PathBuf,
+    port: u16,
+    token_file: &PathBuf,
+) -> Result<(), Box<dyn Error>> {
+    let project = read_project(project_path)?;
+    let mut session = mcp::session(project)?;
+    let listener = mcp::socket::bind(port)?;
+    let address = listener.local_addr()?;
+    let token = mcp::socket::new_token();
+    fs::write(token_file, &token)
+        .map_err(|error| format!("could not write {}: {error}", token_file.display()))?;
+    println!("listening on {address}; token in {}", token_file.display());
+    for stream in listener.incoming() {
+        let stream = stream?;
+        let reader = std::io::BufReader::new(stream.try_clone()?);
+        let mut writer = stream;
+        for line in std::io::BufRead::lines(reader) {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            let is_call = serde_json::from_str::<serde_json::Value>(&line)
+                .ok()
+                .and_then(|message| message.get("method").cloned())
+                .and_then(|method| method.as_str().map(str::to_string))
+                .as_deref()
+                == Some("tools/call");
+            if let Some(reply) = mcp::socket::handle_line(&mut session, &token, &line) {
+                writeln!(writer, "{reply}")?;
+                writer.flush()?;
+                if is_call && reply["result"]["isError"] == false {
+                    let json = session.project().to_json_pretty()?;
+                    fs::write(project_path, json).map_err(|error| {
+                        format!("could not save {}: {error}", project_path.display())
+                    })?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn mcp_call(
