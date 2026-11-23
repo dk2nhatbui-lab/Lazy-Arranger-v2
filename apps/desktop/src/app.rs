@@ -98,6 +98,7 @@ pub struct ShellApp {
     beat_start: Tick,
     beat_bar: Tick,
     beat_pattern: arranging::beat::BeatPattern,
+    beat_clipboard: Option<Vec<u8>>,
     launcher: arranging::grid::Launcher,
     recent: Vec<std::path::PathBuf>,
     recent_file: std::path::PathBuf,
@@ -215,6 +216,7 @@ impl ShellApp {
             beat_start: 0,
             beat_bar: 3840,
             beat_pattern: arranging::beat::BeatPattern::default(),
+            beat_clipboard: None,
             launcher: arranging::grid::Launcher::default(),
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
@@ -2362,6 +2364,22 @@ impl ShellApp {
                             if ui.small_button(text).clicked() {
                                 self.beat_pattern.cycle(row, slot);
                             }
+                        }
+                        let copied_row = self.beat_pattern.row(row).map(<[u8]>::to_vec);
+                        if ui.small_button("C").on_hover_text("Copy row").clicked() {
+                            self.beat_clipboard = copied_row;
+                        }
+                        let can_paste = self.beat_clipboard.is_some();
+                        if ui
+                            .add_enabled(can_paste, egui::Button::new("P"))
+                            .on_hover_text("Paste row")
+                            .clicked()
+                            && let Some(values) = self.beat_clipboard.clone()
+                        {
+                            self.beat_pattern.set_row(row, &values);
+                        }
+                        if ui.small_button("X").on_hover_text("Clear row").clicked() {
+                            self.beat_pattern.clear_row(row);
                         }
                     });
                 }

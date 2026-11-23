@@ -71,6 +71,21 @@ impl BeatPattern {
         self.grid[row][slot] = next;
     }
 
+    /// Copies one row's levels.
+    #[must_use]
+    pub fn row(&self, row: usize) -> Option<&[u8]> {
+        self.grid.get(row).map(Vec::as_slice)
+    }
+
+    /// Replaces one row's levels, ignoring extra values.
+    pub fn set_row(&mut self, row: usize, values: &[u8]) {
+        if let Some(line) = self.grid.get_mut(row) {
+            for (slot, value) in line.iter_mut().enumerate() {
+                *value = values.get(slot).copied().unwrap_or(0);
+            }
+        }
+    }
+
     /// Clears one row.
     pub fn clear_row(&mut self, row: usize) {
         if let Some(line) = self.grid.get_mut(row) {
@@ -186,6 +201,20 @@ mod tests {
             channel: Channel::new(9).expect("valid"),
         });
         track
+    }
+
+    #[test]
+    fn rows_copy_paste_and_clear() {
+        let mut pattern = BeatPattern::default();
+        pattern.grid[0][0] = 120;
+        pattern.grid[0][4] = 60;
+        let copied = pattern.row(0).expect("row").to_vec();
+        pattern.set_row(1, &copied);
+        assert_eq!(pattern.grid[1][0], 120);
+        assert_eq!(pattern.grid[1][4], 60);
+        pattern.clear_row(1);
+        assert!(pattern.grid[1].iter().all(|value| *value == 0));
+        assert_eq!(pattern.row(0).map(<[u8]>::len), Some(STEPS));
     }
 
     #[test]

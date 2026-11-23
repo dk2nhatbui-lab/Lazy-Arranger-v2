@@ -496,3 +496,9 @@ writes one `SetAudioRef`.
 `get_track`, `get_note` and `get_audio_ref` return one track, note or audio
 reference (including fades and stretch), or an explicit unknown-id error. The
 registry holds 62 tools.
+
+### Beat rows
+
+`BeatPattern::row` returns a row slice, `set_row` replaces its 16 steps
+(padding with zeros) and `clear_row` zeroes it. The Beat window adds C, P and X
+per row, with P disabled until a row is copied. Pattern length is still one bar.
