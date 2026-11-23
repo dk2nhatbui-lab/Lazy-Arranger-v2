@@ -226,3 +226,11 @@ second schematic staff 7.5 staff spaces below the first, and the canvas draws
 five more lines plus a brace. The split is not a true clef layout. The PDF renderer draws nine staff lines
 and a brace when `Engraved.staves` is two, matching the canvas; `score_view` maps a click below three staff spaces back by six spaces before
 `pitch_at_y`, so bass-staff entry and selection land in the lower octave.
+
+### Ties and articulation glyphs
+
+`tie_pairs` joins a note marked `tie_start` to the next `tied` note of the same
+pitch, and the canvas and PDF stroke a shallow curve for each. The canvas draws
+articulation glyphs (staccato dot, accent, tenuto, marcato, fermata) and
+dynamics at their placed positions; the PDF keeps text abbreviations. Phrase
+slurs, which are not derived from ties, are not implemented.

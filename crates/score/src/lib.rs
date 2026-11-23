@@ -91,6 +91,19 @@ pub struct Beam {
     pub sixteenth: bool,
 }
 
+/// A tie joining two notes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tie {
+    /// Page holding the tie.
+    pub page: usize,
+    /// Start notehead x.
+    pub start_x: f32,
+    /// End notehead x.
+    pub end_x: f32,
+    /// Notehead y on the starting note.
+    pub y: f32,
+}
+
 /// A tuplet bracket.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tuplet {
@@ -226,6 +239,8 @@ pub struct Engraved {
     pub tuplets: Vec<Tuplet>,
     /// One staff, or two for a grand staff.
     pub staves: usize,
+    /// Ties joining notes of the same pitch.
+    pub ties: Vec<Tie>,
 }
 
 impl Engraved {
@@ -240,6 +255,27 @@ impl Engraved {
 #[must_use]
 pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
     engrave_with(song, track, settings, &[])
+}
+
+fn tie_pairs(notes: &[PlacedNote]) -> Vec<Tie> {
+    let mut ties = Vec::new();
+    for (index, note) in notes.iter().enumerate() {
+        if !note.tie_start {
+            continue;
+        }
+        if let Some(next) = notes[index + 1..]
+            .iter()
+            .find(|next| next.tied && next.pitch == note.pitch && next.page == note.page)
+        {
+            ties.push(Tie {
+                page: note.page,
+                start_x: note.x,
+                end_x: next.x,
+                y: note.y,
+            });
+        }
+    }
+    ties
 }
 
 fn beams_and_tuplets(notes: &[PlacedNote]) -> (Vec<Beam>, Vec<Tuplet>) {
@@ -511,6 +547,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         }
     }
     let (beams, tuplets) = beams_and_tuplets(&notes);
+    let ties = tie_pairs(&notes);
     Engraved {
         pages,
         notes,
@@ -522,6 +559,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         beams,
         tuplets,
         staves: if settings.grand_staff { 2 } else { 1 },
+        ties,
     }
 }
 
@@ -946,5 +984,33 @@ mod grand_staff_tests {
                 .all(|note| (note.y - treble.y).abs() <= 2.0 * settings.staff_space),
             "single staff keeps both notes around one staff"
         );
+    }
+}
+
+#[cfg(test)]
+mod tie_tests {
+    use super::*;
+    use music_core::{Channel, PPQ, Pitch, Velocity};
+    use project::TrackId;
+    use project::song::{Note, Song, Track};
+
+    #[test]
+    fn adjacent_same_pitch_notes_get_one_tie() {
+        let mut song = Song::new("Ties", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for (index, start) in [(1_u32, 0_i64), (2, PPQ)] {
+            track.notes.push(Note {
+                id: project::NoteId::new(index).expect("valid"),
+                start,
+                duration: PPQ,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        assert_eq!(engraved.ties.len(), 1);
+        assert!(engraved.ties[0].end_x > engraved.ties[0].start_x);
     }
 }
