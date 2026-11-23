@@ -23,6 +23,15 @@ pub fn mix_channels(interleaved: &[f32], channels: usize) -> Vec<f32> {
         .collect()
 }
 
+/// Names of the available audio input devices.
+#[must_use]
+pub fn input_devices() -> Vec<String> {
+    let host = cpal::default_host();
+    host.input_devices()
+        .map(|devices| devices.filter_map(|device| device.name().ok()).collect())
+        .unwrap_or_default()
+}
+
 /// Records the default input for `seconds`, returning a stereo buffer.
 ///
 /// # Errors
@@ -30,10 +39,30 @@ pub fn mix_channels(interleaved: &[f32], channels: usize) -> Vec<f32> {
 /// Returns a message when there is no input device, the format is unsupported,
 /// the stream cannot start, or the device reports an error.
 pub fn record_seconds(seconds: f64) -> Result<RenderedAudio, String> {
+    record_seconds_from(None, seconds)
+}
+
+/// Records a named input (or the default when `device_name` is `None`).
+///
+/// # Errors
+///
+/// Returns a message when the named device is absent, the format is unsupported,
+/// the stream cannot start, or the device reports an error.
+pub fn record_seconds_from(
+    device_name: Option<&str>,
+    seconds: f64,
+) -> Result<RenderedAudio, String> {
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| String::from("no default audio input device"))?;
+    let device = match device_name {
+        Some(name) => host
+            .input_devices()
+            .map_err(|error| format!("could not list inputs: {error}"))?
+            .find(|device| device.name().ok().as_deref() == Some(name))
+            .ok_or_else(|| format!("audio input {name:?} not found"))?,
+        None => host
+            .default_input_device()
+            .ok_or_else(|| String::from("no default audio input device"))?,
+    };
     let supported = device
         .default_input_config()
         .map_err(|error| format!("default input config: {error}"))?;

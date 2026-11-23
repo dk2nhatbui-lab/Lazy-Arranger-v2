@@ -483,6 +483,7 @@ pub struct ShellApp {
     assistant_log: Vec<String>,
     waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
+    audio_inputs: Option<Vec<String>>,
     settings: crate::settings::Settings,
     settings_open: bool,
     shortcuts_open: bool,
@@ -673,6 +674,7 @@ impl ShellApp {
             assistant_log: Vec::new(),
             waveform: None,
             midi_ports: None,
+            audio_inputs: None,
             midi_map: std::fs::read_to_string("lazy-arranger-midi-map.txt")
                 .ok()
                 .and_then(|text| midi_devices::map::MidiMap::from_text(&text).ok())
@@ -3824,6 +3826,38 @@ impl ShellApp {
                             }
                         }
                     });
+                    ui.horizontal(|ui| {
+                        if ui.button("Find audio inputs").clicked() {
+                            let inputs = audio::record::input_devices();
+                            self.status = Some(format!("{} audio input(s)", inputs.len()));
+                            self.audio_inputs = Some(inputs);
+                        }
+                        if ui
+                            .selectable_label(
+                                self.settings.audio_input.is_none(),
+                                "Default input",
+                            )
+                            .clicked()
+                        {
+                            self.settings.audio_input = None;
+                            let _ = self.settings.save(&crate::settings::Settings::path());
+                        }
+                        if let Some(inputs) = &self.audio_inputs {
+                            for name in inputs {
+                                if ui
+                                    .selectable_label(
+                                        self.settings.audio_input.as_deref() == Some(name.as_str()),
+                                        name,
+                                    )
+                                    .clicked()
+                                {
+                                    self.settings.audio_input = Some(name.clone());
+                                    let _ = self.settings.save(&crate::settings::Settings::path());
+                                    self.status = Some(format!("audio input: {name}"));
+                                }
+                            }
+                        }
+                    });
                     if ui.button("Check for updates").clicked() {
                         self.status = Some(String::from(crate::settings::update_status()));
                     }
@@ -5440,6 +5474,7 @@ impl ShellApp {
                                 ));
                                 let seconds = self.audio_record_seconds;
                                 let start = self.position.max(0);
+                                let input = self.settings.audio_input.clone();
                                 let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
                                 let count_in = self.settings.record_count_in;
                                 let delay = f64::from(count_in) * 4.0 * 60.0 / bpm;
@@ -5460,13 +5495,15 @@ impl ShellApp {
                                             ));
                                         }
                                     }
-                                    let result = audio::record::record_seconds(seconds)
-                                        .and_then(|rendered| {
-                                            std::fs::write(&path, rendered.to_wav()).map_err(
-                                                |error| format!("{}: {error}", path.display()),
-                                            )
-                                        })
-                                        .map(|()| path);
+                                    let result = audio::record::record_seconds_from(
+                                        input.as_deref(),
+                                        seconds,
+                                    )
+                                    .and_then(|rendered| {
+                                        std::fs::write(&path, rendered.to_wav())
+                                            .map_err(|error| format!("{}: {error}", path.display()))
+                                    })
+                                    .map(|()| path);
                                     let _ = sender.send(result);
                                 });
                                 self.audio_recording = Some(receiver);

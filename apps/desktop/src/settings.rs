@@ -177,6 +177,8 @@ pub struct Settings {
     pub grade: u8,
     /// Preferred MIDI input name, when set.
     pub keyboard: Option<String>,
+    /// Preferred audio input name, when set.
+    pub audio_input: Option<String>,
     /// Start the metronome with playback.
     pub metronome: bool,
     /// Avoid animation.
@@ -227,6 +229,7 @@ impl Default for Settings {
             language: String::from("en"),
             grade: 5,
             keyboard: None,
+            audio_input: None,
             metronome: false,
             reduced_motion: false,
             kids_mode: false,
@@ -290,6 +293,13 @@ impl Settings {
                         Some(value.to_string())
                     };
                 }
+                "audio_input" => {
+                    settings.audio_input = if value.is_empty() {
+                        None
+                    } else {
+                        Some(value.to_string())
+                    };
+                }
                 "metronome" => settings.metronome = value == "true",
                 "reduced_motion" => settings.reduced_motion = value == "true",
                 "kids_mode" => settings.kids_mode = value == "true",
@@ -341,6 +351,9 @@ impl Settings {
         text.push_str(&format!("grade = {}\n", self.grade));
         if let Some(keyboard) = &self.keyboard {
             text.push_str(&format!("keyboard = {keyboard}\n"));
+        }
+        if let Some(input) = &self.audio_input {
+            text.push_str(&format!("audio_input = {input}\n"));
         }
         text.push_str(&format!("metronome = {}\n", self.metronome));
         text.push_str(&format!("reduced_motion = {}\n", self.reduced_motion));
@@ -405,6 +418,7 @@ mod tests {
             master_chorus: 0.2,
             grade: 3,
             keyboard: Some(String::from("PSR-S970")),
+            audio_input: Some(String::from("Camo Microphone")),
             ..Settings::default()
         };
         settings

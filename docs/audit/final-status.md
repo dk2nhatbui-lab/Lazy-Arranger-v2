@@ -76,3 +76,4 @@ For the clef layout, choose either four measures per system without clefs
 - MIDI recording supports an audible 0–2 bar count-in and appends to a record-armed track (R in the track row) or inserts a new track when none is armed; a header record button starts the same capture; the same audible count-in precedes audio-input capture, which replaces the record-armed track's audio reference or inserts a new audio track.
 - Shortcut editor detects duplicate bindings and has Reset defaults; six bindings remain editable.
 - Plugin scanning runs on a worker thread; Rescan/Scan controls disable while scanning and the cache is saved when the worker returns.
+- Settings lists audio input devices and persists a preferred input; audio capture uses it with a default fallback.
