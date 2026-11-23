@@ -93,6 +93,42 @@ mod tests {
     use project::song::Song;
 
     #[test]
+    fn edited_rules_are_written_to_casm() {
+        use arranger::chord_type::ChordType;
+        use project::song::Song;
+        let mut song = Song::new("Rules", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Bass");
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("note"),
+            start: 0,
+            duration: music_core::PPQ,
+            pitch: Pitch::from_name("C2").expect("pitch"),
+            velocity: Velocity::new(100).expect("velocity"),
+            channel: Channel::from_one_based(11).expect("channel"),
+        });
+        song.tracks.push(track);
+        let mut style = arranger::style::from_song(
+            &song,
+            "Rules",
+            arranger::chord_type::ArrangerChord::new(PitchClass::new(0), ChordType::Major),
+            music_core::PPQ,
+        );
+        style.sections[0].parts[0].rule.dest_channel = 12;
+        style.sections[0].parts[0].rule.source_root = 2;
+        style.sections[0].parts[0].rule.source_chord_type = ChordType::Minor;
+        let bytes = write_native_style(&style, SffVersion::Sff1).expect("write");
+        let rules = crate::casm::read_rules(&bytes);
+        let written = rules
+            .groups
+            .first()
+            .and_then(|group| group.rules.first())
+            .expect("rule");
+        assert_eq!(written.dest_channel, 12);
+        assert_eq!(written.source_root, 2);
+        assert_eq!(written.source_chord_type, ChordType::Minor);
+    }
+
+    #[test]
     fn a_native_style_round_trips_through_sff1() {
         let mut song = Song::new("Clips", 120.0);
         let mut track = Track::new(TrackId::new(1).expect("track"), "Bass");

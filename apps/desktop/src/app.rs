@@ -2859,6 +2859,30 @@ impl ShellApp {
                                 ui.checkbox(&mut part.rule.transpose.bass, "follow bass");
                             });
                             ui.horizontal(|ui| {
+                                ui.label("held notes");
+                                egui::ComboBox::from_id_salt(format!(
+                                    "rule-rtr-{}-{}",
+                                    section.name, part.name
+                                ))
+                                .selected_text(format!("{:?}", part.rule.transpose.rtr))
+                                .show_ui(ui, |ui| {
+                                    for value in [
+                                        arranger::rules::Rtr::Stop,
+                                        arranger::rules::Rtr::PitchShift,
+                                        arranger::rules::Rtr::PitchShiftToRoot,
+                                        arranger::rules::Rtr::Retrigger,
+                                        arranger::rules::Rtr::RetriggerToRoot,
+                                        arranger::rules::Rtr::NoteGenerator,
+                                    ] {
+                                        ui.selectable_value(
+                                            &mut part.rule.transpose.rtr,
+                                            value,
+                                            format!("{value:?}"),
+                                        );
+                                    }
+                                });
+                            });
+                            ui.horizontal(|ui| {
                                 ui.label("high key");
                                 ui.add(
                                     egui::DragValue::new(&mut part.rule.transpose.high_key)
