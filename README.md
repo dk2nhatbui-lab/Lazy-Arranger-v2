@@ -1,7 +1,7 @@
 # Lazy Arranger Rust v2
 
 A second-generation, MIDI-first arranger DAW in Rust: a five-view egui desktop
-app, a headless CLI, a versioned project format and a 90-tool MCP server.
+app, a headless CLI, a versioned project format and a 93-tool MCP server.
 
 The product plan is in [`LAZY_ARRANGER_RUST_V2_BLUEPRINT.md`](LAZY_ARRANGER_RUST_V2_BLUEPRINT.md).
 The C++ v1 feature crosscheck and evidence live in
@@ -36,7 +36,7 @@ blockers are listed at the end.
 | MIDI profiles, maps, learn, channel check, panic | verified builders; hardware unverified | `crates/midi-devices` |
 | L6max take scan/import; Korg recognition | synthetic and real-file scans | `audio::l6max`, `style-formats::korg` |
 | Library: JSON/CSV/TSV/MFD, playlists, browser | verified real MFD (1,653 rows) | `crates/library` |
-| MCP stdio/socket server, 90 tools | tool/reference tests and CLI runs | `crates/mcp` |
+| MCP stdio/socket server, 93 tools | tool/reference tests and CLI runs | `crates/mcp` |
 | Desktop shell: Perform, Arrange, Mix, Loops, Score | runs; captures in `docs/audit/` | `apps/desktop` |
 | Light/dark palettes, six languages, Kids Mode, lessons | verified tests; light capture | `theme`, `strings`, `lesson` |
 | Plugin discovery (VST3/AU) | scan only; no hosting | `crates/plugins` |
@@ -83,7 +83,7 @@ crates/audio           synth, SF2, WAV, mix, buses, automation, analysis, L6max
 crates/library         Music Finder books, playlists
 crates/midi-devices    profiles, ports, maps, SysEx, dispatch
 crates/plugins         VST3/AU discovery (no hosting)
-crates/mcp             stdio/socket MCP server, 90 tools, local assistant
+crates/mcp             stdio/socket MCP server, 93 tools, local assistant
 apps/cli               headless binary
 apps/desktop           egui 0.31 desktop app
 ```

@@ -3206,6 +3206,14 @@ mod tests {
     }
 
     #[test]
+    fn the_registry_has_the_documented_tool_count() {
+        assert_eq!(tools().len(), 93);
+        let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
+        assert!(names.contains(&"get_song"));
+        assert!(names.contains(&"set_time_signature"));
+    }
+
+    #[test]
     fn single_object_read_tools_work() {
         let mut session = session_with_track();
         let track = call(&mut session, "get_track", &json!({"track": 1})).expect("track");
