@@ -96,3 +96,4 @@ For the clef layout, choose either four measures per system without clefs
 - Style from audio is shared by CLI, MCP and a desktop dialog (`docs/audit/style-from-audio.png`); an optional onset/band-energy Drums part and onset-spacing tempo detection are heuristics, not stem separation; 95 MCP tools.
 - Groove templates can be extracted from audio (`groove-from-audio`, MCP `groove_from_audio`); fixed multi-bar extraction offsets. 96 MCP tools.
 - Audio tags are a model-free heuristic (drums/bass/pad/melodic); 97 MCP tools.
+- Language offers System default, resolved from LC_ALL/LC_MESSAGES/LANG.

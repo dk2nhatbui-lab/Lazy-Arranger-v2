@@ -4793,7 +4793,11 @@ impl ShellApp {
                     ui.horizontal(|ui| {
                         ui.label("Language");
                         egui::ComboBox::from_id_salt("settings-language")
-                            .selected_text(&self.settings.language)
+                            .selected_text(if self.settings.language == "system" {
+                                "System default"
+                            } else {
+                                &self.settings.language
+                            })
                             .show_ui(ui, |ui| {
                                 for tag in ["en", "da", "fr", "vi", "de", "es", "it", "pt"] {
                                     ui.selectable_value(
@@ -4805,7 +4809,7 @@ impl ShellApp {
                             });
                         ui.label(
                             egui::RichText::new(
-                                "English, Danish, French, Vietnamese, German and Spanish ship strings",
+                                "English, Danish, French, Vietnamese, German, Spanish, Italian, Portuguese or System default",
                             )
                             .size(9.0)
                             .color(theme::text_dim()),

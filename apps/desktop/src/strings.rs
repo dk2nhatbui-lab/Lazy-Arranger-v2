@@ -26,6 +26,38 @@ pub enum Language {
     Pt,
 }
 
+impl Language {
+    /// Uses `LC_ALL`, `LC_MESSAGES` or `LANG`, falling back to English.
+    #[must_use]
+    pub fn system() -> Self {
+        for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
+            if let Ok(value) = std::env::var(key)
+                && let Some(language) = Self::from_locale(&value)
+            {
+                return language;
+            }
+        }
+        Self::En
+    }
+
+    /// Maps a POSIX locale such as `da_DK.UTF-8`.
+    #[must_use]
+    pub fn from_locale(value: &str) -> Option<Self> {
+        let prefix = value.split(['_', '.', '@']).next()?.to_ascii_lowercase();
+        match prefix.as_str() {
+            "da" => Some(Self::Da),
+            "fr" => Some(Self::Fr),
+            "vi" => Some(Self::Vi),
+            "de" => Some(Self::De),
+            "es" => Some(Self::Es),
+            "it" => Some(Self::It),
+            "pt" => Some(Self::Pt),
+            "en" => Some(Self::En),
+            _ => None,
+        }
+    }
+}
+
 /// Noun pairs used by count labels.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Nouns {
@@ -109,6 +141,7 @@ impl Language {
             "es" | "spanish" => Self::Es,
             "it" | "italian" => Self::It,
             "pt" | "portuguese" => Self::Pt,
+            "system" | "system default" => Self::system(),
             _ => Self::En,
         }
     }
@@ -455,6 +488,17 @@ mod tests {
             text(Language::Da, Key::Arrange),
             text(Language::En, Key::Arrange)
         );
+    }
+
+    #[test]
+    fn system_locales_resolve_to_shipped_languages() {
+        assert_eq!(Language::parse("system"), Language::system());
+        assert_eq!(Language::from_locale("da_DK.UTF-8"), Some(Language::Da));
+        assert_eq!(Language::from_locale("fr_FR"), Some(Language::Fr));
+        assert_eq!(Language::from_locale("vi_VN.UTF-8"), Some(Language::Vi));
+        assert_eq!(Language::from_locale("pt_BR"), Some(Language::Pt));
+        assert_eq!(Language::from_locale("ja_JP"), None);
+        assert_eq!(Language::parse("unknown"), Language::En);
     }
 
     #[test]
