@@ -587,6 +587,8 @@ mod tests {
                     decay: -12_000,
                     sustain: 0,
                     release: -12_000,
+                    filter_cutoff: 13_500,
+                    filter_q: 0,
                 }],
             }],
             samples: vec![soundfont::Sample {

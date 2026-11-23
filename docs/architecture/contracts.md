@@ -293,5 +293,6 @@ path, bank and program, validates the bank, applies one `SetSoundFont`, loads th
 current values and clears the preset. Instrument zones carry the six volume-
 envelope generators; `render_note` converts timecents to seconds and sustain
 centibels to a linear level, then applies delay, attack, hold, decay, sustain
-and a release ending at the note boundary. Filters, modulators, stereo samples
-and SF3 remain absent.
+and a release ending at the note boundary. A per-note biquad lowpass applies the initial filter cutoff (absolute cents
+from 8.176 Hz, clamped below Nyquist) and Q (centibels). Modulators, stereo
+samples and SF3 remain absent.

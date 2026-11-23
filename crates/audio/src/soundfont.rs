@@ -61,6 +61,10 @@ pub struct InstrumentZone {
     pub sustain: u16,
     /// Volume-envelope release in timecents.
     pub release: i16,
+    /// Lowpass cutoff in absolute cents above 8.176 Hz.
+    pub filter_cutoff: i16,
+    /// Lowpass Q in centibels.
+    pub filter_q: i16,
 }
 
 /// One instrument.
@@ -256,6 +260,14 @@ fn instrument_zone(gens: &[(u16, u16)]) -> InstrumentZone {
             .find(|(op, _)| *op == 37)
             .map_or(0, |(_, amount)| *amount),
         release: timecents(gens, 38),
+        filter_cutoff: gens
+            .iter()
+            .find(|(op, _)| *op == 8)
+            .map_or(13_500, |(_, amount)| *amount as i16),
+        filter_q: gens
+            .iter()
+            .find(|(op, _)| *op == 9)
+            .map_or(0, |(_, amount)| *amount as i16),
     }
 }
 
@@ -400,6 +412,8 @@ pub fn parse(bytes: &[u8]) -> Result<SoundFont, String> {
                 decay: -12_000,
                 sustain: 0,
                 release: -12_000,
+                filter_cutoff: 13_500,
+                filter_q: 0,
             }
         });
         let zones: Vec<PresetZone> = decoded
@@ -439,6 +453,55 @@ pub fn parse(bytes: &[u8]) -> Result<SoundFont, String> {
         samples,
         pcm,
     })
+}
+
+struct Lowpass {
+    b0: f32,
+    b1: f32,
+    b2: f32,
+    a1: f32,
+    a2: f32,
+    x1: f32,
+    x2: f32,
+    y1: f32,
+    y2: f32,
+}
+
+impl Lowpass {
+    fn new(cutoff_cents: i16, q_centibels: i16, rate: u32) -> Self {
+        let nyquist = rate as f32 / 2.0;
+        let cutoff =
+            (8.176 * 2.0_f32.powf(f32::from(cutoff_cents) / 1200.0)).clamp(20.0, nyquist * 0.95);
+        let q = 10.0_f32
+            .powf(f32::from(q_centibels) / 200.0)
+            .clamp(0.5, 20.0);
+        let w0 = std::f32::consts::TAU * cutoff / rate as f32;
+        let cos = w0.cos();
+        let alpha = w0.sin() / (2.0 * q);
+        let a0 = 1.0 + alpha;
+        Self {
+            b0: (1.0 - cos) / 2.0 / a0,
+            b1: (1.0 - cos) / a0,
+            b2: (1.0 - cos) / 2.0 / a0,
+            a1: (-2.0 * cos) / a0,
+            a2: (1.0 - alpha) / a0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    fn process(&mut self, input: f32) -> f32 {
+        let output = self.b0 * input + self.b1 * self.x1 + self.b2 * self.x2
+            - self.a1 * self.y1
+            - self.a2 * self.y2;
+        self.x2 = self.x1;
+        self.x1 = input;
+        self.y2 = self.y1;
+        self.y1 = output;
+        output
+    }
 }
 
 fn timecents_to_seconds(value: i16) -> f32 {
@@ -525,6 +588,7 @@ pub fn render_note(
     let frames = (seconds * ratio) as usize;
     let gain = f32::from(velocity.min(127)) / 127.0 * 0.6;
     let mut out = Vec::with_capacity(frames);
+    let mut filter = Lowpass::new(zone.filter_cutoff, zone.filter_q, rate);
     let mut position = start as f64;
     for _ in 0..frames {
         if looped {
@@ -545,7 +609,8 @@ pub fn render_note(
         };
         let next = font.pcm.get(next_index).copied().unwrap_or(0) as f32 / 32_768.0;
         let level = envelope(zone, out.len() as f32 / ratio, seconds);
-        out.push(((first + (next - first) * fraction) * gain * level).clamp(-1.0, 1.0));
+        let filtered = filter.process(first + (next - first) * fraction);
+        out.push((filtered * gain * level).clamp(-1.0, 1.0));
         position += f64::from(step);
     }
     Some(out)
@@ -780,6 +845,30 @@ mod tests {
                 < full[(44_100.0 * 0.5) as usize].abs() * 0.7,
             "sustain attenuates"
         );
+    }
+
+    #[test]
+    fn a_low_cutoff_removes_high_frequency_energy() {
+        let mut font = parse(&build()).expect("parse");
+        for (index, value) in font.pcm.iter_mut().enumerate() {
+            *value = if index % 2 == 0 { 12_000 } else { -12_000 };
+        }
+        font.instruments[0].zones[0].sample_modes = 1;
+        font.instruments[0].zones[0].attack = -12_000;
+        font.instruments[0].zones[0].filter_cutoff = 13_500;
+        let high = render_note(&font, 0, 0, 60, 127, 0.25, 44_100).expect("high");
+        font.instruments[0].zones[0].filter_cutoff = 0;
+        let low = render_note(&font, 0, 0, 60, 127, 0.25, 44_100).expect("low");
+        let rms = |values: &[f32]| {
+            (values.iter().map(|value| value * value).sum::<f32>() / values.len() as f32).sqrt()
+        };
+        assert!(
+            rms(&low) < rms(&high) * 0.2,
+            "low cutoff filters: {} vs {}",
+            rms(&low),
+            rms(&high)
+        );
+        assert!(!low.iter().any(|value| !value.is_finite()));
     }
 
     #[test]
