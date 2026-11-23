@@ -288,5 +288,7 @@ Schema v16 adds `Track.soundfont: Option<SoundFontRef { path, bank, program }>`.
 `render_with_soundfont` loads each referenced bank once per track and renders
 notes through `soundfont::render_note`, applying the track's fader, pan, buses
 and send. A missing or malformed file falls back to the built-in timbre with no
-error surfaced; `sf2-use` validates the bank and assigns it. There is no preset
-picker UI, envelope/filter handling or SF3 decoding.
+error surfaced; `sf2-use` validates the bank and assigns it. The Mixer's SoundFont panel edits
+path, bank and program, validates the bank, applies one `SetSoundFont`, loads the
+current values and clears the preset. Envelope/filter handling and SF3 remain
+absent.

@@ -567,6 +567,23 @@ impl Editor {
         Ok(())
     }
 
+    /// Sets or clears a track's SoundFont preset.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_soundfont(
+        &mut self,
+        track: TrackId,
+        soundfont: Option<project::song::SoundFontRef>,
+    ) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::SetSoundFont { track, soundfont })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Replaces one automation lane, leaving the track's other lanes alone.
     ///
     /// # Errors
@@ -1443,6 +1460,33 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn the_editor_sets_and_clears_a_soundfont() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        editor
+            .set_soundfont(
+                track,
+                Some(project::song::SoundFontRef {
+                    path: String::from("/tmp/bank.sf2"),
+                    bank: 1,
+                    program: 2,
+                }),
+            )
+            .expect("set");
+        assert_eq!(
+            editor.song().tracks[0]
+                .soundfont
+                .as_ref()
+                .map(|font| font.bank),
+            Some(1)
+        );
+        editor.set_soundfont(track, None).expect("clear");
+        assert!(editor.song().tracks[0].soundfont.is_none());
+        assert!(editor.undo());
+        assert!(editor.song().tracks[0].soundfont.is_some());
     }
 
     #[test]

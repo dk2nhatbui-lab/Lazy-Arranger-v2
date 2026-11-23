@@ -132,6 +132,9 @@ pub struct ShellApp {
     l6max_folder: String,
     l6max_plan: Option<audio::l6max::Plan>,
     l6max_error: Option<String>,
+    sf2_path: String,
+    sf2_bank: u16,
+    sf2_program: u16,
     rename_scene: Option<usize>,
     rename_scene_input: String,
     last_bar: i64,
@@ -230,6 +233,9 @@ impl ShellApp {
             l6max_folder: String::new(),
             l6max_plan: None,
             l6max_error: None,
+            sf2_path: String::new(),
+            sf2_bank: 0,
+            sf2_program: 0,
             rename_scene: None,
             rename_scene_input: String::new(),
             last_bar: 0,
@@ -1341,6 +1347,92 @@ impl ShellApp {
                 }
             }
         });
+        if let Some(track_id) = self
+            .roll
+            .selected
+            .or_else(|| self.song().tracks.first().map(|track| track.id))
+        {
+            ui.collapsing("SoundFont", |ui| {
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.sf2_path);
+                    ui.label("bank");
+                    ui.add(egui::DragValue::new(&mut self.sf2_bank).range(0..=16383));
+                    ui.label("program");
+                    ui.add(egui::DragValue::new(&mut self.sf2_program).range(0..=127));
+                });
+                let current = self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|track| track.id == track_id)
+                    .and_then(|track| track.soundfont.as_ref())
+                    .map(|font| format!("{}:{} {}", font.bank, font.program, font.path))
+                    .unwrap_or_else(|| String::from("built-in timbre"));
+                ui.label(
+                    egui::RichText::new(format!("Track {track_id}: {current}"))
+                        .size(10.0)
+                        .color(theme::TEXT_DIM),
+                );
+                ui.horizontal(|ui| {
+                    if ui.button("Use preset").clicked() {
+                        let path = self.sf2_path.trim().to_string();
+                        let result = if path.is_empty() {
+                            Err(String::from("enter an SF2 path first"))
+                        } else {
+                            std::fs::read(&path)
+                                .map_err(|error| format!("{path}: {error}"))
+                                .and_then(|bytes| {
+                                    audio::soundfont::parse(&bytes)
+                                        .map_err(|error| format!("{path}: {error}"))
+                                })
+                                .and_then(|font| {
+                                    let preset = font
+                                        .preset(self.sf2_bank, self.sf2_program)
+                                        .map(|preset| preset.name.clone())
+                                        .unwrap_or_else(|| String::from("unknown preset"));
+                                    self.editor
+                                        .set_soundfont(
+                                            track_id,
+                                            Some(project::song::SoundFontRef {
+                                                path: path.clone(),
+                                                bank: self.sf2_bank,
+                                                program: self.sf2_program,
+                                            }),
+                                        )
+                                        .map(|()| {
+                                            format!(
+                                                "{} -> {}:{} ({preset})",
+                                                font.name, self.sf2_bank, self.sf2_program
+                                            )
+                                        })
+                                })
+                        };
+                        match result {
+                            Ok(message) => self.status = Some(message),
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                    if ui.button("Load current").clicked()
+                        && let Some(font) = self
+                            .song()
+                            .tracks
+                            .iter()
+                            .find(|track| track.id == track_id)
+                            .and_then(|track| track.soundfont.clone())
+                    {
+                        self.sf2_path = font.path;
+                        self.sf2_bank = font.bank;
+                        self.sf2_program = font.program;
+                    }
+                    if ui.button("Clear").clicked() {
+                        match self.editor.set_soundfont(track_id, None) {
+                            Ok(()) => self.status = Some(String::from("cleared soundfont")),
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                });
+            });
+        }
         let strips: Vec<(TrackId, String, u8, u8, bool, bool)> = self
             .song()
             .tracks
