@@ -152,3 +152,4 @@ For the clef layout, choose either four measures per system without clefs
 - Chords from audio window recognises WAV segments in a background thread and writes them as one undoable chord set (`docs/audit/audio-chords.png`, synthetic C major recognised).
 - Score view draws an accent playback cursor at the transport position (`docs/audit/score-cursor.png`).
 - Video import extracts a mono 48 kHz WAV with FFmpeg; extraction test creates a 1 s MP4.
+- Audio input can record one of eight channels or a mono mix (`docs/audit/audio-settings.png`); hardware unverified.

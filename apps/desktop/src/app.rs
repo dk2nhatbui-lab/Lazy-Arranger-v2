@@ -6944,6 +6944,37 @@ impl ShellApp {
                             let _ = self.settings.save(&crate::settings::Settings::path());
                         }
                     });
+                    ui.horizontal(|ui| {
+                        ui.label("Input channel");
+                        egui::ComboBox::from_id_salt("audio-input-channel")
+                            .selected_text(if self.settings.audio_input_channel == 0 {
+                                String::from("Mix")
+                            } else {
+                                format!("CH{}", self.settings.audio_input_channel)
+                            })
+                            .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_label(
+                                        self.settings.audio_input_channel == 0,
+                                        "Mix",
+                                    )
+                                    .clicked()
+                                {
+                                    self.settings.audio_input_channel = 0;
+                                }
+                                for channel in 1..=8 {
+                                    if ui
+                                        .selectable_label(
+                                            self.settings.audio_input_channel == channel,
+                                            format!("CH{channel}"),
+                                        )
+                                        .clicked()
+                                    {
+                                        self.settings.audio_input_channel = channel;
+                                    }
+                                }
+                            });
+                    });
                     if ui.button("Check for updates").clicked() {
                         match crate::update::fetch_release() {
                             Ok(release) => {

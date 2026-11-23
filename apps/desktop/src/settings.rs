@@ -181,6 +181,8 @@ pub struct Settings {
     pub auto_inputs: bool,
     /// Preferred audio input name, when set.
     pub audio_input: Option<String>,
+    /// 0 mixes all input channels; 1..=8 records that channel.
+    pub audio_input_channel: u8,
     /// Preferred audio output device.
     pub audio_output: Option<String>,
     /// Fixed output buffer in frames; zero means the device default.
@@ -259,6 +261,7 @@ impl Default for Settings {
             keyboard: None,
             auto_inputs: false,
             audio_input: None,
+            audio_input_channel: 0,
             audio_output: None,
             audio_buffer_frames: 0,
             midi_output: None,
@@ -361,6 +364,9 @@ impl Settings {
                     } else {
                         Some(value.to_string())
                     };
+                }
+                "audio_input_channel" => {
+                    settings.audio_input_channel = value.parse::<u8>().unwrap_or(0).min(8);
                 }
                 "audio_input" => {
                     settings.audio_input = if value.is_empty() {
@@ -466,6 +472,10 @@ impl Settings {
         if let Some(input) = &self.audio_input {
             text.push_str(&format!("audio_input = {input}\n"));
         }
+        text.push_str(&format!(
+            "audio_input_channel = {}\n",
+            self.audio_input_channel
+        ));
         if let Some(output) = &self.audio_output {
             text.push_str(&format!("audio_output = {output}\n"));
         }

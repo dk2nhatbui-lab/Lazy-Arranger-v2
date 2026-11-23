@@ -52,6 +52,35 @@ pub fn record_seconds_from(
     device_name: Option<&str>,
     seconds: f64,
 ) -> Result<RenderedAudio, String> {
+    record_seconds_from_channel(device_name, None, seconds)
+}
+
+/// Picks one interleaved channel, or mixes all channels when `channel` is None.
+#[must_use]
+pub fn channel_samples(interleaved: &[f32], channels: usize, channel: Option<usize>) -> Vec<f32> {
+    if channels == 0 {
+        return Vec::new();
+    }
+    match channel {
+        Some(channel) => interleaved
+            .chunks(channels)
+            .map(|frame| frame.get(channel).copied().unwrap_or(0.0))
+            .collect(),
+        None => mix_channels(interleaved, channels),
+    }
+}
+
+/// Records a named input and one channel of it (or the default/mix).
+///
+/// # Errors
+///
+/// Returns a message when the named device is absent, the format is unsupported,
+/// the stream cannot start, or the device reports an error.
+pub fn record_seconds_from_channel(
+    device_name: Option<&str>,
+    channel: Option<usize>,
+    seconds: f64,
+) -> Result<RenderedAudio, String> {
     let host = cpal::default_host();
     let device = match device_name {
         Some(name) => host
@@ -94,7 +123,7 @@ pub fn record_seconds_from(
         .lock()
         .map_err(|_| String::from("input buffer lock poisoned"))?
         .clone();
-    let mono = mix_channels(&interleaved, channels);
+    let mono = channel_samples(&interleaved, channels, channel);
     if mono.is_empty() {
         return Err(String::from("input captured no samples"));
     }
@@ -142,6 +171,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_channel_is_selected_or_all_are_mixed() {
+        let interleaved = [1.0, 2.0, 3.0, 4.0];
+        assert_eq!(channel_samples(&interleaved, 2, Some(0)), vec![1.0, 3.0]);
+        assert_eq!(channel_samples(&interleaved, 2, Some(1)), vec![2.0, 4.0]);
+        assert_eq!(channel_samples(&interleaved, 2, None), vec![1.5, 3.5]);
+        assert!(channel_samples(&interleaved, 0, Some(0)).is_empty());
+    }
 
     #[test]
     fn interleaved_channels_average_to_mono() {
