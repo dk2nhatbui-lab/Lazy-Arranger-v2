@@ -56,10 +56,21 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
         if let Some(page) = engraved.pages.get(index) {
             for system in &page.systems {
                 let top = system.y;
-                let staff_lines = if engraved.staves == 2 { 9 } else { 5 };
+                let staff_lines = if engraved.percussion {
+                    1
+                } else if engraved.staves == 2 {
+                    9
+                } else {
+                    5
+                };
                 let bottom = top + (staff_lines - 1) as f32 * settings.staff_space;
                 for line in 0..staff_lines {
-                    let y = settings.page_height - (top + (line as f32) * settings.staff_space);
+                    let line_y = if engraved.percussion {
+                        top - 2.0 * settings.staff_space
+                    } else {
+                        top + (line as f32) * settings.staff_space
+                    };
+                    let y = settings.page_height - line_y;
                     let _ = writeln!(
                         content,
                         "{:.1} {:.1} m {:.1} {:.1} l S",
@@ -170,6 +181,17 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                 let x = note.x;
                 let y = settings.page_height - note.y;
                 let radius = 0.58 * settings.staff_space;
+                if engraved.percussion {
+                    let _ = writeln!(
+                        content,
+                        "{a:.1} {b:.1} m {c:.1} {d:.1} l S {c:.1} {b:.1} m {a:.1} {d:.1} l S",
+                        a = x - radius,
+                        b = y - radius,
+                        c = x + radius,
+                        d = y + radius
+                    );
+                    continue;
+                }
                 if let Some(alter) = note.spelled.accidental {
                     accidental(&mut content, alter, x - radius * 2.6, y, radius);
                 }

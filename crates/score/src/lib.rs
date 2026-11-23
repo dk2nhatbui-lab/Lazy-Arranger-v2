@@ -288,6 +288,8 @@ pub struct Engraved {
     pub rests: Vec<PlacedRest>,
     /// Phrase slurs.
     pub slurs: Vec<SlurArc>,
+    /// True when the track is shown on a percussion staff.
+    pub percussion: bool,
 }
 
 impl Engraved {
@@ -517,6 +519,13 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
     let mut open_ties: std::collections::BTreeMap<u8, (usize, Tick)> =
         std::collections::BTreeMap::new();
     let source = song.tracks.iter().find(|entry| entry.id == track);
+    let percussion = source.is_some_and(|track| {
+        !track.notes.is_empty()
+            && track
+                .notes
+                .iter()
+                .all(|note| note.channel.zero_based() == 9)
+    });
     let mut measure_index = 0;
     while measure_index < measure_count {
         let mut page = Page {
@@ -681,10 +690,14 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
             })
         });
         if let Some(system) = system {
-            let step = (f64::from(note.pitch.as_u8()) - 60.0) / 2.0;
-            note.y = system.y - (step as f32) * settings.staff_space;
-            if grand && note.pitch.as_u8() < 60 {
-                note.y += 6.0 * settings.staff_space;
+            if percussion {
+                note.y = system.y - 2.0 * settings.staff_space;
+            } else {
+                let step = (f64::from(note.pitch.as_u8()) - 60.0) / 2.0;
+                note.y = system.y - (step as f32) * settings.staff_space;
+                if grand && note.pitch.as_u8() < 60 {
+                    note.y += 6.0 * settings.staff_space;
+                }
             }
         }
     }
@@ -709,6 +722,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         ties,
         rests,
         slurs,
+        percussion,
     }
 }
 
@@ -1235,5 +1249,57 @@ mod slur_tests {
         let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
         assert_eq!(engraved.slurs.len(), 1);
         assert!(engraved.slurs[0].end_x > engraved.slurs[0].start_x);
+    }
+}
+
+#[cfg(test)]
+mod percussion_tests {
+    use super::*;
+    use music_core::{Channel, PPQ, Pitch, Velocity};
+    use project::TrackId;
+    use project::song::{Note, Song, Track};
+
+    #[test]
+    fn a_drum_track_uses_one_line_and_equal_note_heights() {
+        let mut song = Song::new("Drums", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Drums");
+        for (index, pitch) in [36_u8, 38, 42].iter().enumerate() {
+            track.notes.push(Note {
+                id: project::NoteId::new(index as u32 + 1).expect("valid"),
+                start: index as i64 * PPQ,
+                duration: PPQ,
+                pitch: Pitch::new(*pitch).expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::drums(),
+            });
+        }
+        song.tracks.push(track);
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        assert!(engraved.percussion);
+        let first = engraved.notes[0].y;
+        assert!(
+            engraved
+                .notes
+                .iter()
+                .all(|note| (note.y - first).abs() < 0.001)
+        );
+
+        let mut pitched = Song::new("Pitched", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        pitched.tracks.push(track);
+        let engraved = engrave(
+            &pitched,
+            TrackId::new(1).expect("valid"),
+            Settings::default(),
+        );
+        assert!(!engraved.percussion);
     }
 }

@@ -86,16 +86,26 @@ pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) -> ScoreOu
     let origin = page_rect.min;
     if let Some(page) = engraved.pages.get(page_index) {
         for system in &page.systems {
-            for line in 0..5 {
-                let y = origin.y + staff_line_y(system.y, line, settings, zoom);
+            if engraved.percussion {
+                let y = origin.y + (system.y - 2.0 * settings.staff_space) * zoom;
                 let left = origin.x + settings.margin * zoom;
                 let right = page_rect.max.x - settings.margin * zoom;
                 painter.line_segment(
                     [Pos2::new(left, y), Pos2::new(right, y)],
-                    Stroke::new(0.8_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
+                    Stroke::new(1.0_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
                 );
+            } else {
+                for line in 0..5 {
+                    let y = origin.y + staff_line_y(system.y, line, settings, zoom);
+                    let left = origin.x + settings.margin * zoom;
+                    let right = page_rect.max.x - settings.margin * zoom;
+                    painter.line_segment(
+                        [Pos2::new(left, y), Pos2::new(right, y)],
+                        Stroke::new(0.8_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
+                    );
+                }
             }
-            if engraved.staves == 2 {
+            if engraved.staves == 2 && !engraved.percussion {
                 for line in 4..=8 {
                     let y = origin.y + staff_line_y(system.y, line, settings, zoom);
                     let left = origin.x + settings.margin * zoom;
@@ -117,10 +127,12 @@ pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) -> ScoreOu
             let bottom = origin.y + staff_line_y(system.y, 4, settings, zoom);
             for measure in &system.measures {
                 let x = origin.x + measure.x * zoom;
-                painter.line_segment(
-                    [Pos2::new(x, top), Pos2::new(x, bottom)],
-                    Stroke::new(1.2_f32, Color32::from_rgb(0x24, 0x24, 0x24)),
-                );
+                if !engraved.percussion {
+                    painter.line_segment(
+                        [Pos2::new(x, top), Pos2::new(x, bottom)],
+                        Stroke::new(1.2_f32, Color32::from_rgb(0x24, 0x24, 0x24)),
+                    );
+                }
                 painter.text(
                     Pos2::new(x + 2.0, top - 12.0 * zoom),
                     egui::Align2::LEFT_BOTTOM,
@@ -130,7 +142,9 @@ pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) -> ScoreOu
                 );
             }
             // Closing barline of the last measure.
-            if let Some(last) = system.measures.last() {
+            if let Some(last) = system.measures.last()
+                && !engraved.percussion
+            {
                 let x = origin.x + last.x_end * zoom;
                 painter.line_segment(
                     [Pos2::new(x, top), Pos2::new(x, bottom)],
@@ -142,6 +156,24 @@ pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) -> ScoreOu
             let x = origin.x + note.x * zoom;
             let y = origin.y + note.y * zoom;
             let radius = 0.58 * settings.staff_space * zoom;
+            if engraved.percussion {
+                let stroke = Stroke::new(1.4_f32, Color32::from_rgb(0x14, 0x14, 0x14));
+                painter.line_segment(
+                    [
+                        Pos2::new(x - radius, y - radius),
+                        Pos2::new(x + radius, y + radius),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        Pos2::new(x - radius, y + radius),
+                        Pos2::new(x + radius, y - radius),
+                    ],
+                    stroke,
+                );
+                continue;
+            }
             if let Some(alter) = note.spelled.accidental {
                 let glyph = match alter {
                     1 => "\u{266F}",

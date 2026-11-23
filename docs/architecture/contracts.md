@@ -401,3 +401,10 @@ Schema v18 adds `Track.slurs` (`start`, `end` ticks); validation requires end >
 start. `SetSlurs` is one undoable edit, and `get_slurs`/`set_slurs` expose it to
 MCP. Engraving finds the notes inside each range and draws one curve above the
 highest note on canvas and PDF. MusicXML export writes `<notations><slur type="start|stop" number="1"/>` on the boundary notes and import rebuilds `Track.slurs`; the audit compares slur counts.
+
+### Percussion staff
+
+A track whose notes are all on channel 10 is engraved as percussion: every note
+sits on one line two staff spaces above the system baseline, the canvas/PDF draw
+a single staff line and x-shaped noteheads, and barlines are omitted. Pitched
+tracks keep the five-line staff. A test checks the flag and equal note heights.

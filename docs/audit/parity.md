@@ -133,7 +133,7 @@ the wider ~90-tool MCP surface.
 | Remaining MCP tools (~80: styles, clips, MIDI, profiles, lyrics) | — | missing | — |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
-| Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/slur tests; slurs round-trip |
+| Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/slur/percussion tests; slurs round-trip |
 | UI shell (Perform/Arrange/Mix) | `apps/desktop` | implemented | themed shell, editing, audio |
 | Audio playback | `audio` | implemented | cpal; audible check pending |
 | WAV/offline render | `audio` | verified | 5.36 s real-style render |
