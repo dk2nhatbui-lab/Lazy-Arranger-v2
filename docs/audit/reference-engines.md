@@ -48,10 +48,13 @@ controller, a minimal `IHostApplication`, main-bus activation, `setupProcessing`
 `setActive`, `setProcessing` and a block `ProcessData` loop. Verified by an
 ignored test that runs R0Verb over an impulse: output is non-silent. **Track effect slots are now applied**: an offline track render sends the track
 buffer through each non-bypassed VST3 slot, before the bus/master mix; an ignored
-R0Verb integration test asserts the wet and dry renders differ. Remaining:
-parameters/automation, state, offline/realtime modes, AU v2 (AudioToolbox C
-API), instrument plugins, sandbox and editors; production scanning should move to
-a subprocess, as both references do.
+R0Verb integration test asserts the wet and dry renders differ. **AU v2 effects now work** through the AudioToolbox C API: component discovery,
+non-interleaved float format, initialize and `AudioUnitProcess`. An Apple
+`AUDynamicsProcessor` slot changes the track render; the installed Klevgrand
+R0Verb AU currently returns `-3000` from `AudioComponentInstanceNew` and is
+skipped. Remaining: parameters/automation, state, offline/realtime modes,
+instrument plug-ins, sandbox and editors; production scanning should move to a
+subprocess, as both references do.
 
 ## MIDI engine
 

@@ -9,6 +9,11 @@
 mod instance;
 pub use instance::Vst3Effect;
 
+#[cfg(target_os = "macos")]
+mod au;
+#[cfg(target_os = "macos")]
+pub use au::AuEffect;
+
 use std::path::{Path, PathBuf};
 
 /// One VST3 audio-module class read from a bundle.

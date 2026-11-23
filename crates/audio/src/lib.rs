@@ -332,20 +332,34 @@ pub fn render_with_soundfont(
 
 fn apply_track_plugins(track: &project::song::Track, buffer: &mut [f32], sample_rate: u32) {
     for slot in &track.plugins {
-        if slot.bypassed
-            || slot.format != project::song::PluginFormat::Vst3
-            || slot.identifier.is_empty()
-        {
+        if slot.bypassed || slot.identifier.is_empty() {
             continue;
         }
-        let path = std::path::Path::new(&slot.path);
-        let Ok(mut effect) =
-            plugin_host::Vst3Effect::new(path, &slot.identifier, f64::from(sample_rate), 512)
-        else {
-            continue;
-        };
-        if effect.channels() == 2 {
-            let _ = effect.process_stereo(buffer);
+        match slot.format {
+            project::song::PluginFormat::Vst3 => {
+                let Ok(mut effect) = plugin_host::Vst3Effect::new(
+                    std::path::Path::new(&slot.path),
+                    &slot.identifier,
+                    f64::from(sample_rate),
+                    512,
+                ) else {
+                    continue;
+                };
+                if effect.channels() == 2 {
+                    let _ = effect.process_stereo(buffer);
+                }
+            }
+            #[cfg(target_os = "macos")]
+            project::song::PluginFormat::AudioUnit => {
+                let Ok(mut effect) =
+                    plugin_host::AuEffect::new(&slot.identifier, f64::from(sample_rate))
+                else {
+                    continue;
+                };
+                let _ = effect.process_stereo(buffer);
+            }
+            #[cfg(not(target_os = "macos"))]
+            project::song::PluginFormat::AudioUnit => {}
         }
     }
 }
@@ -583,6 +597,34 @@ mod tests {
             .map(|(wet, dry)| (wet - dry).abs())
             .sum();
         assert!(difference > 0.01, "plugin made no audible change");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "loads the Apple dynamics Audio Unit"]
+    fn an_au_slot_changes_the_track_render() {
+        use project::song::{PluginFormat, PluginSlot};
+        let mut song = song_with_note();
+        song.tracks[0].plugins.push(PluginSlot {
+            id: 1,
+            name: String::from("AUDynamicsProcessor"),
+            format: PluginFormat::AudioUnit,
+            path: String::new(),
+            identifier: String::from("appl:dcmp"),
+            bypassed: false,
+            state: String::new(),
+        });
+        let wet = render(&song, SAMPLE_RATE);
+        song.tracks[0].plugins.clear();
+        let dry = render(&song, SAMPLE_RATE);
+        assert_eq!(wet.samples.len(), dry.samples.len());
+        let difference: f32 = wet
+            .samples
+            .iter()
+            .zip(&dry.samples)
+            .map(|(wet, dry)| (wet - dry).abs())
+            .sum();
+        assert!(difference > 0.01, "AU made no audible change");
     }
 
     #[test]
