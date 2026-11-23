@@ -151,6 +151,16 @@ pub enum Command {
         /// The new chord list, sorted by tick.
         chords: Vec<ChordEvent>,
     },
+    /// Replace the song's lyric syllables as one edit.
+    SetLyrics {
+        /// New lyrics.
+        lyrics: Vec<project::song::LyricEvent>,
+    },
+    /// Replace the song's score marks as one edit.
+    SetMarks {
+        /// New marks.
+        marks: Vec<project::song::Mark>,
+    },
     /// Replace the clip-grid scene names as one edit.
     SetSceneNames {
         /// Names by scene index.
@@ -217,6 +227,8 @@ impl Command {
             Self::SetTrackRouting { .. } => "set track routing",
             Self::SetMarkers { .. } => "set markers",
             Self::SetSceneNames { .. } => "set scene names",
+            Self::SetLyrics { .. } => "set lyrics",
+            Self::SetMarks { .. } => "set marks",
             Self::SetClips { .. } => "set clips",
             Self::ReplaceTrackNotes { .. } => "replace track notes",
             Self::SetProvenance { .. } => "set provenance",
@@ -757,6 +769,12 @@ impl EditSession {
             Command::SetSceneNames { .. } => Command::SetSceneNames {
                 names: self.song().scene_names.clone(),
             },
+            Command::SetLyrics { .. } => Command::SetLyrics {
+                lyrics: self.song().lyrics.clone(),
+            },
+            Command::SetMarks { .. } => Command::SetMarks {
+                marks: self.song().marks.clone(),
+            },
             Command::SetMarkers { .. } => Command::SetMarkers {
                 markers: self.song().markers.clone(),
             },
@@ -915,6 +933,12 @@ impl EditSession {
             Command::SetSceneNames { names } => {
                 self.project.song.scene_names = names.clone();
             }
+            Command::SetLyrics { lyrics } => {
+                self.project.song.lyrics = lyrics.clone();
+            }
+            Command::SetMarks { marks } => {
+                self.project.song.marks = marks.clone();
+            }
             Command::SetMarkers { markers } => {
                 self.project.song.markers = markers.clone();
                 self.project.song.markers.sort_by_key(|marker| marker.tick);
@@ -1000,6 +1024,8 @@ fn describe(command: &Command) -> String {
         },
         Command::SetMarkers { markers } => format!("set {} marker(s)", markers.len()),
         Command::SetSceneNames { names } => format!("set {} scene name(s)", names.len()),
+        Command::SetLyrics { lyrics } => format!("set {} lyric(s)", lyrics.len()),
+        Command::SetMarks { marks } => format!("set {} mark(s)", marks.len()),
         Command::SetClips { track, clips } => {
             format!("set {} clip(s) on track {track}", clips.len())
         }
@@ -1563,6 +1589,31 @@ mod tests {
         edit.undo().expect("undo");
         assert!(!edit.song().tracks[0].soloed);
         assert!(edit.song().tracks[0].muted);
+    }
+
+    #[test]
+    fn lyrics_and_marks_are_one_edit() {
+        let mut edit = session();
+        edit.apply(Command::SetLyrics {
+            lyrics: vec![project::song::LyricEvent {
+                tick: 0,
+                text: String::from("la"),
+            }],
+        })
+        .expect("lyrics");
+        edit.apply(Command::SetMarks {
+            marks: vec![project::song::Mark {
+                tick: 0,
+                kind: project::song::MarkKind::Dynamic(project::song::Dynamic::F),
+            }],
+        })
+        .expect("marks");
+        assert_eq!(edit.song().lyrics.len(), 1);
+        assert_eq!(edit.song().marks.len(), 1);
+        edit.undo().expect("undo marks");
+        assert!(edit.song().marks.is_empty());
+        edit.undo().expect("undo lyrics");
+        assert!(edit.song().lyrics.is_empty());
     }
 
     #[test]

@@ -148,5 +148,8 @@ accent amounts. Audio-derived grooves and Play Before/After are not implemented.
 on the first pitched track; `Transition::Break` adds no notes, and `break_range`
 plus `apply_break` remove every note starting in the bar before the join (one
 edit per affected track, undoable). `form-transition` plans or applies any kind;
-on the demo hold added 3 notes and break removed 21. Join loops and learned
-preferences are not implemented.
+on the demo hold added 3 notes and break removed 21. `join_loop` repeats a marker section in place (total copies), copying notes,
+chords, lyrics and marks inside it and shifting every later note, chord, lyric,
+mark and marker by the inserted length; clips, automation and audio references
+are not shifted. `join-loop A --times 2` added 168 notes and 8 chords to the
+demo. Learned preferences are not implemented.

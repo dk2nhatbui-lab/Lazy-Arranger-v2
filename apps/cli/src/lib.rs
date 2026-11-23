@@ -255,6 +255,20 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         device: u8,
     },
+    /// Repeat a marker-named section in place.
+    JoinLoop {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Section marker name.
+        #[arg(long)]
+        section: String,
+        /// Total copies that should exist.
+        #[arg(long, default_value_t = 2)]
+        times: usize,
+        /// Output project `.json`.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Plan or apply a song-form transition at a tick.
     FormTransition {
         /// Project `.json` path.
@@ -982,6 +996,29 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 bounce.length,
                 bounce.path.display(),
                 bounce.track,
+                out.display()
+            );
+            Ok(())
+        }
+        Commands::JoinLoop {
+            project,
+            section,
+            times,
+            out,
+        } => {
+            let project = read_project(&project)?;
+            let mut session = EditSession::new(project)?;
+            let outcome = arranging::forms::join_loop(&mut session, &section, times)?;
+            let json = session.project().to_json_pretty()?;
+            fs::write(&out, json)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!(
+                "{}: {} copy/copies of {} ticks, {} note(s), {} chord(s) added -> {}",
+                outcome.section,
+                outcome.copies,
+                outcome.length,
+                outcome.notes,
+                outcome.chords,
                 out.display()
             );
             Ok(())

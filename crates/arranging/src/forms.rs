@@ -751,3 +751,261 @@ mod transition_extra_tests {
         assert_eq!(session.song().tracks[0].notes.len(), 1);
     }
 }
+
+/// What a join loop changed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LoopOutcome {
+    /// Section that was repeated.
+    pub section: String,
+    /// Length copied, in ticks.
+    pub length: Tick,
+    /// Extra copies inserted.
+    pub copies: usize,
+    /// Notes added.
+    pub notes: usize,
+    /// Chords added.
+    pub chords: usize,
+    /// Lyrics added.
+    pub lyrics: usize,
+    /// Marks added.
+    pub marks: usize,
+}
+
+/// Repeats a section in place, shifting later material.
+///
+/// `total` is the number of copies that should exist, so `2` inserts one extra
+/// copy. Notes, chords, lyrics and marks inside the section are copied; later
+/// notes, chords, lyrics, marks and markers move by the inserted length. Clips,
+/// automation and audio references are not shifted.
+///
+/// # Errors
+///
+/// Returns a rejection for an unknown section or a total below two.
+pub fn join_loop(
+    session: &mut EditSession,
+    section_name: &str,
+    total: usize,
+) -> Result<LoopOutcome, ArrangingError> {
+    if total < 2 {
+        return Err(ArrangingError::Command(
+            app_commands::CommandError::Validation(String::from(
+                "a join loop needs at least two total copies",
+            )),
+        ));
+    }
+    let song = session.song().clone();
+    let sections = sections(&song);
+    let Some(section) = sections.iter().find(|section| section.name == section_name) else {
+        return Err(ArrangingError::Command(
+            app_commands::CommandError::Validation(format!("no section named {section_name:?}")),
+        ));
+    };
+    let start = section.start;
+    let end = start + section.length;
+    let shift = section
+        .length
+        .saturating_mul(Tick::try_from(total - 1).unwrap_or(1));
+    let copies = total - 1;
+    let mut outcome = LoopOutcome {
+        section: section.name.clone(),
+        length: section.length,
+        copies,
+        ..LoopOutcome::default()
+    };
+
+    for track in &song.tracks {
+        let mut notes = Vec::new();
+        for note in &track.notes {
+            if note.start >= end {
+                let mut moved = note.clone();
+                moved.start += shift;
+                notes.push(moved);
+            } else {
+                notes.push(note.clone());
+            }
+            if note.start >= start && note.start < end {
+                for copy in 0..copies {
+                    let mut added = note.clone();
+                    added.start =
+                        note.start + end + section.length * Tick::try_from(copy).unwrap_or(0)
+                            - start;
+                    notes.push(added);
+                    outcome.notes += 1;
+                }
+            }
+        }
+        notes.sort_by_key(|note| note.start);
+        let mut next = notes.iter().map(|note| note.id.get()).max().unwrap_or(0) + 1;
+        for note in &mut notes {
+            if let Ok(id) = project::NoteId::new(next) {
+                note.id = id;
+                next += 1;
+            }
+        }
+        if notes != track.notes {
+            session.apply(Command::ReplaceTrackNotes {
+                track: track.id,
+                notes,
+            })?;
+        }
+    }
+
+    let mut chords: Vec<ChordEvent> = Vec::new();
+    for event in &song.chords {
+        let mut kept = event.clone();
+        if event.tick >= end {
+            kept.tick += shift;
+        }
+        chords.push(kept);
+        if event.tick >= start && event.tick < end {
+            for copy in 0..copies {
+                let mut added = event.clone();
+                added.tick =
+                    event.tick + end + section.length * Tick::try_from(copy).unwrap_or(0) - start;
+                chords.push(added);
+                outcome.chords += 1;
+            }
+        }
+    }
+    chords.sort_by_key(|event| event.tick);
+    if chords != song.chords {
+        session.apply(Command::SetChords { chords })?;
+    }
+
+    let mut lyrics = Vec::new();
+    for event in &song.lyrics {
+        let mut kept = event.clone();
+        if event.tick >= end {
+            kept.tick += shift;
+        }
+        lyrics.push(kept);
+        if event.tick >= start && event.tick < end {
+            for copy in 0..copies {
+                let mut added = event.clone();
+                added.tick =
+                    event.tick + end + section.length * Tick::try_from(copy).unwrap_or(0) - start;
+                lyrics.push(added);
+                outcome.lyrics += 1;
+            }
+        }
+    }
+    lyrics.sort_by_key(|event| event.tick);
+    if lyrics != song.lyrics {
+        session.apply(Command::SetLyrics { lyrics })?;
+    }
+
+    let mut marks = Vec::new();
+    for mark in &song.marks {
+        let mut kept = mark.clone();
+        if mark.tick >= end {
+            kept.tick += shift;
+        }
+        marks.push(kept);
+        if mark.tick >= start && mark.tick < end {
+            for copy in 0..copies {
+                let mut added = mark.clone();
+                added.tick =
+                    mark.tick + end + section.length * Tick::try_from(copy).unwrap_or(0) - start;
+                marks.push(added);
+                outcome.marks += 1;
+            }
+        }
+    }
+    marks.sort_by_key(|mark| mark.tick);
+    if marks != song.marks {
+        session.apply(Command::SetMarks { marks })?;
+    }
+
+    let mut markers = Vec::new();
+    for marker in &song.markers {
+        let mut kept = marker.clone();
+        if marker.tick >= end {
+            kept.tick += shift;
+        }
+        markers.push(kept);
+    }
+    markers.sort_by_key(|marker| marker.tick);
+    if markers != song.markers {
+        session.apply(Command::SetMarkers { markers })?;
+    }
+    Ok(outcome)
+}
+
+#[cfg(test)]
+mod join_loop_tests {
+    use super::*;
+    use music_core::{Channel, Chord, PPQ, Pitch, Velocity};
+    use project::song::{LyricEvent, Mark, MarkKind, ProjectFile, Song, Track};
+    use project::{NoteId, TrackId};
+
+    fn song() -> Song {
+        let mut song = Song::new("Loop", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for (index, start) in [(1_u32, 0_i64), (2, 3840)] {
+            track.notes.push(Note {
+                id: NoteId::new(index).expect("valid"),
+                start,
+                duration: PPQ,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        song.chords.push(ChordEvent {
+            tick: 0,
+            chord: Chord::parse("C").expect("valid"),
+        });
+        song.chords.push(ChordEvent {
+            tick: 3840,
+            chord: Chord::parse("G").expect("valid"),
+        });
+        song.lyrics.push(LyricEvent {
+            tick: 0,
+            text: String::from("la"),
+        });
+        song.marks.push(Mark {
+            tick: 0,
+            kind: MarkKind::Dynamic(project::song::Dynamic::F),
+        });
+        song.markers.push(Marker {
+            tick: 0,
+            name: String::from("A"),
+        });
+        song.markers.push(Marker {
+            tick: 3840,
+            name: String::from("B"),
+        });
+        song
+    }
+
+    #[test]
+    fn joining_loops_the_section_and_shifts_later_material() {
+        let mut session = EditSession::new(ProjectFile::new(song())).expect("valid");
+        let outcome = join_loop(&mut session, "A", 2).expect("join");
+        assert_eq!(outcome.copies, 1);
+        assert_eq!(outcome.notes, 1);
+        assert_eq!(outcome.chords, 1);
+        let song = session.song();
+        assert_eq!(song.tracks[0].notes.len(), 3);
+        let starts: Vec<Tick> = song.tracks[0].notes.iter().map(|note| note.start).collect();
+        assert!(starts.contains(&3840) && starts.contains(&7680));
+        assert_eq!(song.chords.len(), 3);
+        assert_eq!(song.markers[1].tick, 7680, "the B marker moved");
+        assert_eq!(song.lyrics.len(), 2);
+        assert_eq!(song.marks.len(), 2);
+        session.undo().expect("undo marks");
+        session.undo().expect("undo lyrics");
+        session.undo().expect("undo chords");
+        session.undo().expect("undo notes");
+        session.undo().expect("undo markers");
+        assert_eq!(session.song().markers[1].tick, 3840);
+    }
+
+    #[test]
+    fn join_loop_requires_a_known_section_and_two_copies() {
+        let mut session = EditSession::new(ProjectFile::new(song())).expect("valid");
+        assert!(join_loop(&mut session, "A", 1).is_err());
+        assert!(join_loop(&mut session, "Z", 2).is_err());
+    }
+}
