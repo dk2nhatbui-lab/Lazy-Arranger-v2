@@ -49,40 +49,32 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections at round 169: 0 fully verified beyond their Rust subset, 39 partial,
+39 sections at round 397: 0 fully verified beyond their Rust subset, 39 partial,
 0 missing. No section is missing at row level, but several rows are partial
-because they need hardware, proprietary formats, plugin hosting or a model.
-The deepest partials are styles (open/import/compile/SFF1/SFF2 write), project
-files, score layout/PDF/MusicXML, audio references with fades/stretch/record,
-the MIDI map, arranging help and the 93-tool MCP surface.
+because they need hardware, proprietary formats, plugin editors or a model.
+The deepest partials are styles, full score, plugin editors, L6max device pages,
+Korg PCG, built-in speech/model services and hardware acceptance.
 
-## State at round 169
+## State at round 397
 
-`cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (605 tests) and
-rustdoc pass; the shell starts and runs for 6 s without a panic. Since the old
-round-60 state, the app gained the score engraver/PDF/MusicXML round trip,
-common-practice accidentals and chord symbols, lyric spacing, guitar frames,
-SF2 playback, clip/scene models, groove files, forms, doctor/fit with A/B,
-stem/freeze export, buses/sends/automation, 32-bit float WAV, input capture,
-waveform zoom, eight languages, Kids sidebar and a 93-tool MCP registry.
+`cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (**749 tests**) and
+rustdoc pass. A macOS bundle script creates an ad-hoc-signed
+`dist/Lazy Arranger Midi DAW.app`; the bundle was launched and captured in
+`docs/audit/app-bundle.png`.
 
-Still absent or unverified: plugin hosting/processing/editors; SF3 and
-SoundFont modulators; Korg PCG program/combi decoding; L6max project/mixer-page
-parsing and transport; audio monitoring, takes and destructive waveform
-editing; light theme; localized help/plurals; a real model, speech input and
-chat-driven tool use; hardware acceptance for MIDI keyboards, PSR-S970, cpal
-output and printing. Korg recognition, YouTube/network paths and plugin scanning
-are evidence-limited.
+Still absent or unverified: native AU/VST3 editors; full-score engraving of all
+tracks; Korg PCG program/combi decoding; L6max project-file parsing, EQ, MONO,
+USB routing, effects and transport; built-in Whisper/Kokoro and subscription
+sign-in; audio monitoring, takes/comping and destructive waveform editing;
+idle-CPU measurement; and hardware acceptance for MIDI keyboards, PSR-S970,
+cpal input/output, controllers and printing.
 
-Parity is **not** achieved. Hardware-dependent claims (real MIDI keyboards,
-PSR-S970 acceptance, cpal output on every host, printing, YouTube download)
-remain unverified; CI builds and tests are the only continuous evidence.
+## Build and bundle
 
-## Next blocks
+```sh
+./scripts/rust.sh build --release -p lazy-arranger-desktop
+./scripts/bundle-macos.sh
+open "dist/Lazy Arranger Midi DAW.app"
+```
 
-1. Score vertical collision avoidance and drag-resize; then a native print panel.
-2. Audio takes and monitoring; destructive waveform editing and slice editing.
-3. Plugin hosting/load validation and editor windows; SF3 and modulators.
-4. Korg PCG program/combi decoding; L6max project/mixer-page parsing.
-5. Light theme, localized help/plural rules.
-6. A real AI model/speech input; hardware acceptance runs.
+The bundle is ad-hoc signed (`codesign --sign -`) and is not notarized.
