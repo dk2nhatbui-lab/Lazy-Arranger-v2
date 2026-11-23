@@ -147,7 +147,7 @@ the wider ~90-tool MCP surface.
 | Audio-reference fades (schema v17) | `project::song::AudioRef`, `audio::mix`, Editor, trim row | verified | fade ramp test; set/undo test; UI manual |
 | Per-track synth patch (schema v14, waveform + ADSR + brightness) | `project::song::Patch`, `audio` render, `app-commands` | verified | square-vs-sine, slow-attack, command and round-trip tests |
 | SysEx parameter-change builder, checksum and XG System On dump | `midi-devices::sysex`, CLI `sysex-xg-on` | verified | checksum/end-byte tests; 10-byte dump written |
-| Plugin slots (schema v15) and VST3/AU discovery (no hosting) | `project::song::PluginSlot`, `plugins`, CLI/MCP | verified discovery | slot round trip/validation; synthetic bundle scan; 21 real bundles listed |
+| Plugin slots (schema v15), discovery and Mixer browser (no hosting) | `project::song::PluginSlot`, `plugins`, CLI/MCP, Mixer panel | verified discovery/state | slot round trip; synthetic scan; Editor add/toggle/remove test; 21 real bundles |
 | L6max take scan and import (32-bit float aware) | `audio::l6max`, CLI `l6max-import` | verified | scan test; two synthetic takes imported at computed lengths |
 | Volume and pan automation lanes (schema v9) | `project`, `audio`, `app-commands` | verified | interpolation/hold, per-note render, command undo |
 | Automation lane UI (click to add/remove volume points) | `apps/desktop/src/automation_view.rs` | implemented | mapping tests; UI manual |

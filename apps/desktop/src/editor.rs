@@ -567,6 +567,81 @@ impl Editor {
         Ok(())
     }
 
+    /// Adds a plug-in slot to a track and returns its id.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the edit is rejected.
+    pub fn add_plugin(
+        &mut self,
+        track: TrackId,
+        name: &str,
+        format: project::song::PluginFormat,
+        path: &str,
+    ) -> Result<u32, String> {
+        let Some(entry) = self.song().tracks.iter().find(|entry| entry.id == track) else {
+            return Err(String::from("unknown track"));
+        };
+        let mut plugins = entry.plugins.clone();
+        let id = plugins.iter().map(|plugin| plugin.id).max().unwrap_or(0) + 1;
+        plugins.push(project::song::PluginSlot {
+            id,
+            name: name.to_string(),
+            format,
+            path: path.to_string(),
+            bypassed: false,
+            state: String::new(),
+        });
+        self.session
+            .apply(app_commands::Command::SetPlugins { track, plugins })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(id)
+    }
+
+    /// Removes a plug-in slot.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn remove_plugin(&mut self, track: TrackId, id: u32) -> Result<(), String> {
+        let Some(entry) = self.song().tracks.iter().find(|entry| entry.id == track) else {
+            return Err(String::from("unknown track"));
+        };
+        let plugins: Vec<project::song::PluginSlot> = entry
+            .plugins
+            .iter()
+            .filter(|plugin| plugin.id != id)
+            .cloned()
+            .collect();
+        self.session
+            .apply(app_commands::Command::SetPlugins { track, plugins })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Toggles one slot's bypass flag.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn toggle_plugin(&mut self, track: TrackId, id: u32) -> Result<(), String> {
+        let Some(entry) = self.song().tracks.iter().find(|entry| entry.id == track) else {
+            return Err(String::from("unknown track"));
+        };
+        let mut plugins = entry.plugins.clone();
+        let Some(slot) = plugins.iter_mut().find(|plugin| plugin.id == id) else {
+            return Err(String::from("unknown plug-in"));
+        };
+        slot.bypassed = !slot.bypassed;
+        self.session
+            .apply(app_commands::Command::SetPlugins { track, plugins })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Sets or clears a track's SoundFont preset.
     ///
     /// # Errors
@@ -1499,6 +1574,36 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn plugins_add_toggle_and_remove() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let first = editor
+            .add_plugin(
+                track,
+                "Reverb",
+                project::song::PluginFormat::Vst3,
+                "/p/Reverb.vst3",
+            )
+            .expect("add");
+        let second = editor
+            .add_plugin(
+                track,
+                "Comp",
+                project::song::PluginFormat::AudioUnit,
+                "/p/Comp.component",
+            )
+            .expect("add");
+        assert_ne!(first, second);
+        assert_eq!(editor.song().tracks[0].plugins.len(), 2);
+        editor.toggle_plugin(track, first).expect("bypass");
+        assert!(editor.song().tracks[0].plugins[0].bypassed);
+        editor.remove_plugin(track, second).expect("remove");
+        assert_eq!(editor.song().tracks[0].plugins.len(), 1);
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].plugins.len(), 2);
     }
 
     #[test]

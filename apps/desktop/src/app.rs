@@ -135,6 +135,8 @@ pub struct ShellApp {
     sf2_path: String,
     sf2_bank: u16,
     sf2_program: u16,
+    plugin_scan: Option<Vec<plugins::FoundPlugin>>,
+    plugin_error: Option<String>,
     rename_scene: Option<usize>,
     rename_scene_input: String,
     last_bar: i64,
@@ -236,6 +238,8 @@ impl ShellApp {
             sf2_path: String::new(),
             sf2_bank: 0,
             sf2_program: 0,
+            plugin_scan: None,
+            plugin_error: None,
             rename_scene: None,
             rename_scene_input: String::new(),
             last_bar: 0,
@@ -1347,6 +1351,109 @@ impl ShellApp {
                 }
             }
         });
+        if let Some(track_id) = self
+            .roll
+            .selected
+            .or_else(|| self.song().tracks.first().map(|track| track.id))
+        {
+            ui.collapsing("Plugins", |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("Track {track_id}"))
+                            .size(10.0)
+                            .color(theme::TEXT_DIM),
+                    );
+                    if ui.button("Scan installed").clicked() {
+                        match plugins::scan_installed() {
+                            found if found.is_empty() => {
+                                self.plugin_scan = Some(Vec::new());
+                                self.plugin_error = Some(String::from("no bundles found"));
+                            }
+                            found => {
+                                self.plugin_error = None;
+                                self.plugin_scan = Some(found);
+                            }
+                        }
+                    }
+                });
+                if let Some(error) = &self.plugin_error {
+                    ui.label(egui::RichText::new(error).color(theme::RECORDING));
+                }
+                let slots = self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|track| track.id == track_id)
+                    .map(|track| track.plugins.clone())
+                    .unwrap_or_default();
+                for slot in slots {
+                    ui.horizontal(|ui| {
+                        ui.label(format!(
+                            "{} · {}",
+                            slot.name,
+                            match slot.format {
+                                project::song::PluginFormat::Vst3 => "VST3",
+                                project::song::PluginFormat::AudioUnit => "AU",
+                            }
+                        ));
+                        if ui
+                            .small_button(if slot.bypassed { "Enable" } else { "Bypass" })
+                            .clicked()
+                            && let Err(error) = self.editor.toggle_plugin(track_id, slot.id)
+                        {
+                            self.status = Some(error);
+                        }
+                        if ui.small_button("Remove").clicked()
+                            && let Err(error) = self.editor.remove_plugin(track_id, slot.id)
+                        {
+                            self.status = Some(error);
+                        }
+                    });
+                }
+                if let Some(found) = self.plugin_scan.clone() {
+                    ui.separator();
+                    for plugin in found.iter().take(10) {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{} · {}",
+                                    plugin.name,
+                                    plugin.format.label()
+                                ))
+                                .size(10.0)
+                                .color(theme::TEXT_MUTED),
+                            );
+                            if ui.small_button("Add").clicked() {
+                                let format = match plugin.format {
+                                    plugins::Format::Vst3 => project::song::PluginFormat::Vst3,
+                                    plugins::Format::AudioUnit => {
+                                        project::song::PluginFormat::AudioUnit
+                                    }
+                                };
+                                let path = plugin.path.display().to_string();
+                                match self
+                                    .editor
+                                    .add_plugin(track_id, &plugin.name, format, &path)
+                                {
+                                    Ok(id) => {
+                                        self.status =
+                                            Some(format!("added {} (slot {id})", plugin.name));
+                                    }
+                                    Err(error) => self.status = Some(error),
+                                }
+                            }
+                        });
+                    }
+                    if found.len() > 10 {
+                        ui.label(
+                            egui::RichText::new(format!("... {} more", found.len() - 10))
+                                .size(10.0)
+                                .color(theme::TEXT_DIM),
+                        );
+                    }
+                }
+            });
+        }
         if let Some(track_id) = self
             .roll
             .selected

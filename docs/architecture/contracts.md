@@ -319,6 +319,8 @@ buttons.
 whose extension matches the root's format (`.vst3` or `.component`, case
 insensitive), naming them by bundle stem. `default_roots` covers the macOS
 system/user folders, Windows Common Files and Linux VST3 folders; missing roots
-are skipped. `plugin-scan` and the `plugin_scan` MCP tool list the result. This
-proves discovery only: bundles are not loaded, validated or hosted, and
-processing still ignores slots.
+are skipped. `plugin-scan` and the `plugin_scan` MCP tool list the result. The Mixer's
+Plugins panel scans on demand, adds a found bundle as a slot, toggles bypass and
+removes slots (`Editor::add_plugin`, `toggle_plugin`, `remove_plugin`, each one
+`SetPlugins`). This proves discovery and stored state only: bundles are not
+loaded, validated or hosted, and processing still ignores slots.

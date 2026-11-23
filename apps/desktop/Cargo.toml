@@ -20,6 +20,7 @@ mcp = { path = "../../crates/mcp" }
 midi-devices = { path = "../../crates/midi-devices" }
 music-core = { path = "../../crates/music-core" }
 project = { path = "../../crates/project" }
+plugins = { path = "../../crates/plugins" }
 score = { path = "../../crates/score" }
 style-formats = { path = "../../crates/style-formats" }
 eframe = { version = "0.31", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11"] }
