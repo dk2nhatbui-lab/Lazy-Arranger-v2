@@ -340,6 +340,15 @@ enum Commands {
         #[arg(long, default_value_t = 1.0)]
         seconds: f64,
     },
+    /// Record the default audio input to a WAV file.
+    RecordAudio {
+        /// Output `.wav` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Seconds to record.
+        #[arg(long, default_value_t = 3.0)]
+        seconds: f64,
+    },
     /// List installed VST3 and Audio Unit bundles, without hosting them.
     PluginScan {
         /// Extra folders to scan; omitted scans the standard plug-in folders.
@@ -1264,6 +1273,18 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             println!(
                 "sent {:?} then {:?} on {}",
                 messages[0], messages[1], output
+            );
+            Ok(())
+        }
+        Commands::RecordAudio { out, seconds } => {
+            let rendered = audio::record::record_seconds(seconds.clamp(0.1, 3600.0))?;
+            fs::write(&out, rendered.to_wav())
+                .map_err(|error| format!("{}: {error}", out.display()))?;
+            println!(
+                "recorded {:.2} s at {} Hz -> {}",
+                rendered.duration_seconds(),
+                rendered.sample_rate,
+                out.display()
             );
             Ok(())
         }

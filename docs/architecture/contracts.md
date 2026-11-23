@@ -523,3 +523,11 @@ pattern from the track; reloading discards unsaved edits.
 Arrange waveform; zoom 1 shows all and position slides from start to end. The
 trim row has zoom and position sliders. This is display only: sample editing and
 recording are still absent.
+
+### Audio input capture
+
+`audio::record::record_seconds` opens the default cpal input, captures f32/i16/u16
+samples until the duration ends, mixes channels to mono with `mix_channels` and
+returns a stereo buffer; `record-audio` writes it to 16-bit WAV. Microphone
+permission, device availability and real capture are unverified on this machine;
+there is no monitoring, takes or waveform editing.
