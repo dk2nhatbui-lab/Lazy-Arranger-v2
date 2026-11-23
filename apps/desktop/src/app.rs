@@ -3663,6 +3663,8 @@ impl ShellApp {
                             .color(theme::text_dim()),
                     );
                 }
+                let slot = self.vst3_params_slot;
+                let mut automate = None;
                 if let Some(effect) = self.vst3_effect.as_mut() {
                     for (id, name, value) in &mut self.vst3_params {
                         let label = if name.is_empty() {
@@ -3670,13 +3672,30 @@ impl ShellApp {
                         } else {
                             name.clone()
                         };
-                        if ui
-                            .add(egui::Slider::new(value, 0.0..=1.0).text(label))
-                            .changed()
-                        {
-                            effect.set_parameter(*id, *value);
-                        }
+                        ui.horizontal(|ui| {
+                            let changed = ui
+                                .add(egui::Slider::new(value, 0.0..=1.0).text(label))
+                                .changed();
+                            if changed {
+                                effect.set_parameter(*id, *value);
+                            }
+                            if ui
+                                .small_button("A")
+                                .on_hover_text("Use this parameter for automation")
+                                .clicked()
+                                && let Some(slot) = slot
+                            {
+                                automate = Some((slot, *id));
+                            }
+                        });
                     }
+                }
+                if let Some((slot, parameter)) = automate {
+                    self.automation_target =
+                        project::song::AutomationTarget::PluginParam { slot, parameter };
+                    self.status = Some(format!(
+                        "automation target: slot {slot} parameter {parameter}"
+                    ));
                 }
                 ui.horizontal(|ui| {
                     if ui.button("Apply state").clicked()
@@ -3753,6 +3772,8 @@ impl ShellApp {
                             .color(theme::text_dim()),
                     );
                 }
+                let slot = self.au_editor_slot;
+                let mut automate = None;
                 if let Some(effect) = self.au_effect.as_ref() {
                     for parameter in &mut self.au_params {
                         let (id, name, value, min, max, _) = parameter;
@@ -3764,15 +3785,32 @@ impl ShellApp {
                         } else {
                             name.clone()
                         };
-                        if ui
-                            .add(egui::Slider::new(value, *min..=*max).text(label))
-                            .changed()
-                        {
-                            effect.set_parameter(*id, *value);
-                        }
+                        ui.horizontal(|ui| {
+                            let changed = ui
+                                .add(egui::Slider::new(value, *min..=*max).text(label))
+                                .changed();
+                            if changed {
+                                effect.set_parameter(*id, *value);
+                            }
+                            if ui
+                                .small_button("A")
+                                .on_hover_text("Use this parameter for automation")
+                                .clicked()
+                                && let Some(slot) = slot
+                            {
+                                automate = Some((slot, *id));
+                            }
+                        });
                     }
                 } else {
                     ui.label("No AU instance.");
+                }
+                if let Some((slot, parameter)) = automate {
+                    self.automation_target =
+                        project::song::AutomationTarget::PluginParam { slot, parameter };
+                    self.status = Some(format!(
+                        "automation target: slot {slot} parameter {parameter}"
+                    ));
                 }
                 ui.horizontal(|ui| {
                     if ui.button("Apply").clicked()
