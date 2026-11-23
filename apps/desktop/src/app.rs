@@ -937,6 +937,9 @@ pub struct ShellApp {
     audio_chords_pending:
         Option<std::sync::mpsc::Receiver<Result<Vec<audio::chords::AudioChord>, String>>>,
     audio_chords_auto: bool,
+    style_link_open: bool,
+    style_link_url: String,
+    style_link_pending: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>>,
     style_file_open: bool,
     style_file_path: String,
     style_import: Option<style_formats::ImportedStyle>,
@@ -1250,6 +1253,9 @@ impl ShellApp {
             audio_chords: Vec::new(),
             audio_chords_pending: None,
             audio_chords_auto: std::env::var("ARRANGER_CHORDS_FILE").is_ok(),
+            style_link_open: std::env::var("ARRANGER_STYLE_LINK").is_ok(),
+            style_link_url: String::new(),
+            style_link_pending: None,
             style_file_open: std::env::var("ARRANGER_STYLE").is_ok(),
             style_file_path: std::env::var("ARRANGER_STYLE_FILE").unwrap_or_default(),
             style_import: None,
@@ -5278,6 +5284,53 @@ impl ShellApp {
                 });
             });
         self.audio_chords_open = open;
+    }
+
+    fn style_link_window(&mut self, context: &Context) {
+        if !self.style_link_open {
+            return;
+        }
+        let mut open = self.style_link_open;
+        egui::Window::new("Style from link")
+            .open(&mut open)
+            .resizable(false)
+            .default_width(380.0)
+            .show(context, |ui| {
+                ui.label("Link");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.style_link_url)
+                        .hint_text("https://…")
+                        .desired_width(300.0),
+                );
+                ui.label(
+                    egui::RichText::new(
+                        "Downloads the best audio with yt-dlp and opens Style from audio. yt-dlp and FFmpeg must be installed.",
+                    )
+                    .size(9.0)
+                    .color(theme::text_dim()),
+                );
+                if ui.button("Download audio").clicked() {
+                    if self.style_link_url.trim().is_empty() {
+                        self.status = Some(String::from("enter a link first"));
+                    } else {
+                        let url = self.style_link_url.clone();
+                        let (sender, receiver) = std::sync::mpsc::channel();
+                        self.style_link_pending = Some(receiver);
+                        self.status = Some(String::from("downloading link audio…"));
+                        std::thread::spawn(move || {
+                            let _ = sender.send(crate::link::download(&url));
+                        });
+                    }
+                }
+                if self.style_link_pending.is_some() {
+                    ui.label(
+                        egui::RichText::new("Downloading…")
+                            .size(10.0)
+                            .color(theme::accent()),
+                    );
+                }
+            });
+        self.style_link_open = open;
     }
 
     fn style_file_window(&mut self, context: &Context) {
@@ -9979,6 +10032,10 @@ impl ShellApp {
                                 self.generate_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Style from link").clicked() {
+                                self.style_link_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Chords from audio").clicked() {
                                 self.audio_chords_open = true;
                                 ui.close_menu();
@@ -10412,6 +10469,24 @@ impl eframe::App for ShellApp {
         }
         self.poll_midi();
         self.poll_ai();
+        if let Some(receiver) = &self.style_link_pending {
+            match receiver.try_recv() {
+                Ok(Ok(path)) => {
+                    self.audio_style_path = path.display().to_string();
+                    self.audio_style_open = true;
+                    self.status = Some(String::from("audio downloaded; style build is ready"));
+                    self.style_link_pending = None;
+                }
+                Ok(Err(error)) => {
+                    self.status = Some(format!("link: {error}"));
+                    self.style_link_pending = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.style_link_pending = None;
+                }
+            }
+        }
         if let Some(receiver) = &self.audio_chords_pending {
             match receiver.try_recv() {
                 Ok(Ok(chords)) => {
@@ -10534,6 +10609,7 @@ impl eframe::App for ShellApp {
         self.patch_window(context);
         self.style_clips_window(context);
         self.style_file_window(context);
+        self.style_link_window(context);
         self.audio_chords_window(context);
         self.generate_window(context);
         self.l6max_mixer_window(context);

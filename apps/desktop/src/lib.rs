@@ -12,6 +12,7 @@ pub mod editor;
 pub mod help;
 pub mod kids;
 pub mod library_view;
+pub mod link;
 pub mod pads;
 pub mod persistence;
 pub mod piano_roll;
