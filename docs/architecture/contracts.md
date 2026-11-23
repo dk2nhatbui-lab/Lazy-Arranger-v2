@@ -50,7 +50,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 ## Scorecard
 
 39 sections at round 216: 0 fully verified beyond their Rust subset, 39 partial,
-0 missing; 656 tests pass. No section is missing at row level; partials need hardware,
+0 missing; 657 tests pass. No section is missing at row level; partials need hardware,
 proprietary formats, plugin hosting or a model. See
 `docs/audit/cpp-features-crosscheck.md` for row evidence.
 
@@ -1052,3 +1052,11 @@ numbers are drawn; accidentals are spelled from the detected key.
 captured take before `insert_recorded`; starts round to the nearest 1/16 and the
 take is re-sorted. A unit test covers rounding and ordering. Existing quantise
 buttons still operate on the selected track.
+
+### Localized plurals
+
+`strings::nouns(language)` supplies note/clip/automation-lane pairs and
+`strings::count(language, count, one, many)` applies the rule: French singular
+at 0/1, Vietnamese invariant, English/Danish/German/Spanish singular at 1. The
+Inspector count label uses them; a unit test covers every rule and checks all
+six noun tables. Other locales are not shipped.

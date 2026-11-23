@@ -2592,15 +2592,18 @@ impl ShellApp {
                         Err(error) => self.status = Some(error),
                     }
                 }
+                let language = crate::strings::Language::parse(&self.settings.language);
+                let nouns = crate::strings::nouns(language);
+                let counts = format!(
+                    "{} · {} · {}",
+                    crate::strings::count(language, notes, nouns.note.0, nouns.note.1),
+                    crate::strings::count(language, clips, nouns.clip.0, nouns.clip.1),
+                    crate::strings::count(language, automation, nouns.lane.0, nouns.lane.1)
+                );
                 ui.label(
-                    egui::RichText::new(format!(
-                        "{} · {} · {}",
-                        plural(notes, "note"),
-                        plural(clips, "clip"),
-                        plural(automation, "automation lane")
-                    ))
-                    .size(10.0)
-                    .color(theme::text_dim()),
+                    egui::RichText::new(counts)
+                        .size(10.0)
+                        .color(theme::text_dim()),
                 );
                 let volume_changed = ui
                     .add(

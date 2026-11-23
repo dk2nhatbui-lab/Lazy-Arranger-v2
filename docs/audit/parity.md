@@ -10,7 +10,7 @@ This table grew over many rounds and some middle rows describe earlier states.
 The reconciled view is
 [`cpp-features-crosscheck.md`](cpp-features-crosscheck.md): 39 sections, **39
 partial and 0 missing at row level**, no section fully verified. `cargo test
---workspace` passes **656 tests**; fmt, clippy with `-D warnings` and rustdoc
+--workspace` passes **657 tests**; fmt, clippy with `-D warnings` and rustdoc
 pass.
 
 Verified by tests or offline evidence: project schema v20 with migrations,
@@ -23,7 +23,7 @@ accidental spacing, canvas and PDF/MusicXML round trip; audio render with six
 timbres and SF2, references with fades/stretch/waveform zoom, mixing, buses, master reverb/chorus/peak-RMS/per-track meters,
 automation, stems/freeze, float WAV and input capture (capture unverified);
 MIDI map with learn and a Launchkey pad preset, style catalog, theory helpers,
-settings with editable shortcuts, six languages with a translated Help window, named demos and the
+settings with editable shortcuts, six languages with a translated Help window and localized plural rules, named demos and the
 **93-tool** MCP server; marquee and Shift-click multi-clip selection, lyric Go, meter/measure numbers,
 printer choice and the Songs & tutorial window.
 

@@ -1,7 +1,8 @@
 //! User-facing strings in the shipped languages.
 //!
-//! Two languages ship: English and Danish. Every key must have a non-empty
-//! entry in both tables; a missing language falls back to English.
+//! Six languages ship: English, Danish, French, Vietnamese, German and Spanish.
+//! Every key must have a non-empty entry in every table; a missing language
+//! falls back to English.
 
 /// A language the app can show.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,6 +19,65 @@ pub enum Language {
     De,
     /// Spanish.
     Es,
+}
+
+/// Noun pairs used by count labels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Nouns {
+    /// One note / many notes.
+    pub note: (&'static str, &'static str),
+    /// One clip / many clips.
+    pub clip: (&'static str, &'static str),
+    /// One automation lane / many.
+    pub lane: (&'static str, &'static str),
+}
+
+/// Noun pairs for one language.
+#[must_use]
+pub fn nouns(language: Language) -> Nouns {
+    match language {
+        Language::En => Nouns {
+            note: ("note", "notes"),
+            clip: ("clip", "clips"),
+            lane: ("automation lane", "automation lanes"),
+        },
+        Language::Da => Nouns {
+            note: ("node", "noder"),
+            clip: ("klip", "klip"),
+            lane: ("automatiseringsspor", "automatiseringsspor"),
+        },
+        Language::Fr => Nouns {
+            note: ("note", "notes"),
+            clip: ("clip", "clips"),
+            lane: ("piste d'automatisation", "pistes d'automatisation"),
+        },
+        Language::Vi => Nouns {
+            note: ("nốt", "nốt"),
+            clip: ("clip", "clip"),
+            lane: ("làn tự động hóa", "làn tự động hóa"),
+        },
+        Language::De => Nouns {
+            note: ("Note", "Noten"),
+            clip: ("Clip", "Clips"),
+            lane: ("Automationsspur", "Automationsspuren"),
+        },
+        Language::Es => Nouns {
+            note: ("nota", "notas"),
+            clip: ("clip", "clips"),
+            lane: ("pista de automatización", "pistas de automatización"),
+        },
+    }
+}
+
+/// Counts a noun with the language's plural rule.
+#[must_use]
+pub fn count(language: Language, count: usize, one: &str, many: &str) -> String {
+    let plural = match language {
+        Language::Fr => count > 1,
+        Language::Vi => false,
+        Language::En | Language::Da | Language::De | Language::Es => count != 1,
+    };
+    format!("{count} {}", if plural { many } else { one })
 }
 
 impl Language {
@@ -322,6 +382,30 @@ mod tests {
             text(Language::Da, Key::Arrange),
             text(Language::En, Key::Arrange)
         );
+    }
+
+    #[test]
+    fn plural_rules_follow_the_language() {
+        assert_eq!(count(Language::En, 0, "note", "notes"), "0 notes");
+        assert_eq!(count(Language::En, 1, "note", "notes"), "1 note");
+        assert_eq!(count(Language::Fr, 0, "note", "notes"), "0 note");
+        assert_eq!(count(Language::Fr, 2, "note", "notes"), "2 notes");
+        assert_eq!(count(Language::Vi, 3, "nốt", "nốt"), "3 nốt");
+        assert_eq!(count(Language::De, 1, "Note", "Noten"), "1 Note");
+        assert_eq!(count(Language::Es, 2, "nota", "notas"), "2 notas");
+        for language in [
+            Language::En,
+            Language::Da,
+            Language::Fr,
+            Language::Vi,
+            Language::De,
+            Language::Es,
+        ] {
+            let nouns = nouns(language);
+            assert!(!nouns.note.0.is_empty() && !nouns.note.1.is_empty());
+            assert!(!nouns.clip.0.is_empty() && !nouns.clip.1.is_empty());
+            assert!(!nouns.lane.0.is_empty() && !nouns.lane.1.is_empty());
+        }
     }
 
     #[test]
