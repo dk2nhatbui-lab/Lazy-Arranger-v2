@@ -738,3 +738,9 @@ The piano roll reserves a 14 px lyric lane below the chord lane, draws each
 syllable at its tick and returns the nearest lyric tick on click; the shell opens
 the Lyrics window with that row selected. The lane is display and selection
 only; edits still go through the Lyrics window.
+
+### Marker ruler and navigation
+
+The piano-roll ruler draws each marker as an accent line with its name. The
+Markers window adds a Go button per row that seeks the live player through the
+tempo map, like a ruler click.

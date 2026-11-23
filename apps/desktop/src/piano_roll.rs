@@ -611,6 +611,23 @@ fn draw_ruler(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song
             theme::text_dim(),
         );
     }
+    for marker in &song.markers {
+        let x = geometry.x_at(marker.tick);
+        if x < rect.left() || x > rect.right() - 4.0 {
+            continue;
+        }
+        painter.line_segment(
+            [Pos2::new(x, ruler.top()), Pos2::new(x, ruler.bottom())],
+            egui::Stroke::new(1.4_f32, theme::accent()),
+        );
+        painter.text(
+            Pos2::new(x + 2.0, ruler.bottom() - 2.0),
+            egui::Align2::LEFT_BOTTOM,
+            &marker.name,
+            egui::FontId::proportional(8.0),
+            theme::accent(),
+        );
+    }
 }
 
 fn draw_grid(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song: &Song) {

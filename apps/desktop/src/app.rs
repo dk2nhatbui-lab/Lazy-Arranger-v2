@@ -1530,6 +1530,7 @@ impl ShellApp {
         let mut add = false;
         let mut remove = None;
         let mut save = false;
+        let mut goto = None;
         egui::Window::new("Markers")
             .open(&mut open)
             .default_width(300.0)
@@ -1553,6 +1554,9 @@ impl ShellApp {
                             self.marker_selected = Some(*tick);
                             self.marker_text = name.clone();
                         }
+                        if ui.small_button("Go").clicked() {
+                            goto = Some(*tick);
+                        }
                         if ui.small_button("Remove").clicked() {
                             remove = Some(*tick);
                         }
@@ -1567,6 +1571,14 @@ impl ShellApp {
                 }
             });
         self.markers_open = open;
+        if let Some(tick) = goto {
+            if self.playing
+                && let Some(player) = &self.player
+            {
+                let _ = player.seek_seconds(self.song().tempo_map.seconds_at(tick));
+            }
+            self.position = tick;
+        }
         if add {
             match self.editor.add_marker(position, self.marker_text.trim()) {
                 Ok(()) => self.marker_selected = Some(position),
