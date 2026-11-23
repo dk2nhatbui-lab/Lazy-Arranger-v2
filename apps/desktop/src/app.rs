@@ -4007,6 +4007,7 @@ impl ShellApp {
             .unwrap_or_default();
         let mut open = self.takes_open;
         let mut action = None;
+        let mut play_take: Option<String> = None;
         egui::Window::new("Audio takes")
             .open(&mut open)
             .default_width(400.0)
@@ -4044,6 +4045,9 @@ impl ShellApp {
                             take.length,
                             if is_active { " · active" } else { "" }
                         ));
+                        if ui.small_button("Play").clicked() {
+                            play_take = Some(take.path.clone());
+                        }
                         if ui.small_button("Use").clicked() {
                             action = Some((index, 1));
                         }
@@ -4062,6 +4066,23 @@ impl ShellApp {
             match result {
                 Ok(()) => self.status = Some(String::from("audio takes updated")),
                 Err(error) => self.status = Some(error),
+            }
+        }
+        if let Some(path) = play_take {
+            let source = std::path::Path::new(&path);
+            let decoded = std::fs::read(source).ok().and_then(|bytes| {
+                if bytes.starts_with(b"RIFF") {
+                    audio::wav::decode_stereo(&bytes).ok()
+                } else {
+                    audio::decode::decode_stereo(source).ok()
+                }
+            });
+            match decoded.and_then(|audio| audio::player::Player::new(audio).ok()) {
+                Some(player) => {
+                    self.audition_player = Some(player);
+                    self.status = Some(format!("audition {path}"));
+                }
+                None => self.status = Some(format!("could not audition {path}")),
             }
         }
         self.takes_open = open;
