@@ -62,7 +62,11 @@ fn mix_one(
 ) -> Result<(), String> {
     let bytes = std::fs::read(Path::new(&reference.path))
         .map_err(|error| format!("could not read audio: {error}"))?;
-    let decoded = wav::decode_mono(&bytes)?;
+    let decoded = if bytes.starts_with(b"RIFF") {
+        wav::decode_mono(&bytes)?
+    } else {
+        crate::decode::decode_mono(Path::new(&reference.path))?
+    };
     if decoded.sample_rate == 0 || decoded.samples.is_empty() {
         return Err(String::from("audio has no samples"));
     }
@@ -169,6 +173,29 @@ mod tests {
         let silent_later = rendered.samples[(48_000 + 10) * 2];
         assert!(silent_later.abs() < 1.0e-6);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn a_flac_reference_mixes_like_a_wav() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tone.flac");
+        let mut song = song_with(path.display().to_string(), false);
+        song.tracks[0].audio = Some(AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: 9600,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        let mut rendered = RenderedAudio {
+            samples: vec![0.0; 96_000 * 2],
+            sample_rate: 48_000,
+        };
+        let problems = mix_audio_references(&mut rendered, &song, 1.0);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(rendered.samples.iter().any(|sample| sample.abs() > 0.1));
     }
 
     #[test]

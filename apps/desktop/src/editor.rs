@@ -1067,9 +1067,14 @@ impl Editor {
     pub fn import_audio(&mut self, wav: &std::path::Path, start: Tick) -> Result<TrackId, String> {
         let bytes = std::fs::read(wav)
             .map_err(|error| format!("could not read {}: {error}", wav.display()))?;
-        let info = audio::wav::info(&bytes)?;
+        let seconds = if bytes.starts_with(b"RIFF") {
+            audio::wav::info(&bytes)?.seconds
+        } else {
+            let decoded = audio::decode::decode_mono(wav)?;
+            decoded.samples.len() as f64 / f64::from(decoded.sample_rate)
+        };
         let bpm = self.song().tempo_map.bpm_at(start);
-        let length = audio::chords::to_ticks(info.seconds, bpm);
+        let length = audio::chords::to_ticks(seconds, bpm);
         let track_id = self
             .session
             .next_track_id()

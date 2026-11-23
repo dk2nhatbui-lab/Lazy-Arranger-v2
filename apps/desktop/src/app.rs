@@ -1148,7 +1148,7 @@ impl ShellApp {
         .default_width(420.0)
         .show(context, |ui| {
             ui.label(match mode {
-                FileMode::ImportAudio => "Path (.wav)",
+                FileMode::ImportAudio => "Path (WAV, FLAC, MP3, M4A, AIFF or OGG)",
                 FileMode::ExportMidi => "Path (.mid)",
                 FileMode::ExportMusicXml => "Path (.musicxml)",
                 FileMode::ExportWav => "Path (.wav)",
@@ -1509,9 +1509,16 @@ impl ShellApp {
         {
             return;
         }
-        let peaks = std::fs::read(&reference.path)
+        let path = std::path::Path::new(&reference.path);
+        let peaks = std::fs::read(path)
             .ok()
-            .and_then(|bytes| audio::wav::decode_mono(&bytes).ok())
+            .and_then(|bytes| {
+                if bytes.starts_with(b"RIFF") {
+                    audio::wav::decode_mono(&bytes).ok()
+                } else {
+                    audio::decode::decode_mono(path).ok()
+                }
+            })
             .map(|decoded| audio::waveform::peaks(&decoded.samples, 240))
             .unwrap_or_default();
         self.waveform = Some((track.id, reference.path.clone(), peaks));

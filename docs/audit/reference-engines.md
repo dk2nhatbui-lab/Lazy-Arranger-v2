@@ -79,8 +79,11 @@ Cadenza `audio-io` (~2k lines):
 - realtime-safe clip DSP (fades, crossfades, gain, regions), WAV/FLAC export
   with TPDF dither, optional MP3; tags and sidecar metadata.
 
-Ours handles WAV 16/24/32f, resampling, peaks, fades, stretch and normalize, but
-not compressed formats, FLAC/AIFF, cache or dither. Symphonia is MPL-2.0
+Ours now decodes FLAC, MP3, M4A/AAC, AIFF and OGG through symphonia in
+`audio::decode` (average-to-mono), while WAV keeps its 16/24/32f path. Compressed
+references mix and draw waveform peaks; import accepts the same formats. Still
+missing: FLAC/AIFF export, dither, decoded-audio cache and tags. Fixtures are
+`crates/audio/tests/fixtures/tone.{flac,mp3,m4a}`. Symphonia is MPL-2.0
 (file-level copyleft) and fits the permissive policy.
 
 ## Sampler engine

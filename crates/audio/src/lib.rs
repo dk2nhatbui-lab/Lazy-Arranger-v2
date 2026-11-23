@@ -6,6 +6,7 @@
 
 pub mod analysis;
 pub mod chords;
+pub mod decode;
 pub mod drums;
 pub mod edit;
 pub mod l6max;

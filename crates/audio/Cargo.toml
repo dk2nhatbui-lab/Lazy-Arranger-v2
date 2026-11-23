@@ -10,6 +10,7 @@ license.workspace = true
 arranger = { path = "../arranger" }
 cpal = "0.16"
 music-core = { path = "../music-core" }
+symphonia = { version = "0.6", features = ["all"] }
 plugin-host = { path = "../plugin-host" }
 project = { path = "../project" }
 
