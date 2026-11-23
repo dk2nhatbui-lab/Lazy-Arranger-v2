@@ -4036,7 +4036,14 @@ impl ShellApp {
                             .file_name()
                             .and_then(|name| name.to_str())
                             .unwrap_or(&take.path);
-                        ui.label(format!("{index}: {name} · {} tick(s)", take.length));
+                        let is_active = active.as_ref().is_some_and(|reference| {
+                            reference.path == take.path && reference.start == take.start
+                        });
+                        ui.label(format!(
+                            "{index}: {name} · {} tick(s){}",
+                            take.length,
+                            if is_active { " · active" } else { "" }
+                        ));
                         if ui.small_button("Use").clicked() {
                             action = Some((index, 1));
                         }
