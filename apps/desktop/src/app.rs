@@ -7104,6 +7104,36 @@ impl ShellApp {
                     self.song().tempo_map.bpm_at(self.position),
                     self.song().time_signature,
                 );
+                if self.settings.kids_mode {
+                    let settings_rect = Rect::from_center_size(
+                        egui::pos2(rect.right() - 16.0 - 40.0, rect.center().y),
+                        egui::vec2(80.0, 34.0),
+                    );
+                    let response = ui.interact(
+                        settings_rect,
+                        ui.id().with("kids-settings"),
+                        egui::Sense::click(),
+                    );
+                    ui.painter()
+                        .rect_filled(settings_rect, 4.0, theme::raised());
+                    ui.painter().rect_stroke(
+                        settings_rect,
+                        4.0,
+                        egui::Stroke::new(1.0_f32, theme::line()),
+                        egui::StrokeKind::Inside,
+                    );
+                    ui.painter().text(
+                        settings_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "Settings",
+                        egui::FontId::proportional(11.0),
+                        theme::text(),
+                    );
+                    if response.on_hover_text("Adult settings").clicked() {
+                        self.settings_open = true;
+                    }
+                    return;
+                }
                 let wide = rect.width() >= 1380.0;
                 let ai_rect = Rect::from_center_size(
                     egui::pos2(rect.right() - 16.0 - 38.0, rect.center().y),
