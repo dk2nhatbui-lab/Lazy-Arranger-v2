@@ -461,3 +461,10 @@ registry holds 55 tools.
 The Inspector lists the first five tempo-map changes and offers a BPM field, a
 Current button (loads the playhead tempo) and Set at playhead
 (`Editor::set_tempo_at`, one command). The transport has no ruler or record arm.
+
+### Languages
+
+`Language` covers English, Danish, French, Vietnamese, German and Spanish; every
+key has an entry for each, and a missing one still falls back to English. The
+Settings language list offers all six tags. Help text and plural rules remain
+English-only.

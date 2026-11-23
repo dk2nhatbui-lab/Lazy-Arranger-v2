@@ -14,6 +14,10 @@ pub enum Language {
     Fr,
     /// Vietnamese.
     Vi,
+    /// German.
+    De,
+    /// Spanish.
+    Es,
 }
 
 impl Language {
@@ -24,6 +28,8 @@ impl Language {
             "da" | "danish" => Self::Da,
             "fr" | "french" => Self::Fr,
             "vi" | "vietnamese" => Self::Vi,
+            "de" | "german" => Self::De,
+            "es" | "spanish" => Self::Es,
             _ => Self::En,
         }
     }
@@ -36,6 +42,8 @@ impl Language {
             Self::Da => "da",
             Self::Fr => "fr",
             Self::Vi => "vi",
+            Self::De => "de",
+            Self::Es => "es",
         }
     }
 }
@@ -149,6 +157,50 @@ const VI: &[(&str, &str)] = &[
     ("Stopped", "đã dừng"),
 ];
 
+const DE: &[(&str, &str)] = &[
+    ("Perform", "Spielen"),
+    ("Arrange", "Arrangieren"),
+    ("Mix", "Mischen"),
+    ("Loops", "Loops"),
+    ("Score", "Partitur"),
+    ("Save", "Speichern"),
+    ("Undo", "Rückgängig"),
+    ("Redo", "Wiederholen"),
+    ("Play", "Wiedergabe"),
+    ("Stop", "Stopp"),
+    ("Settings", "Einstellungen"),
+    ("Shortcuts", "Tastenkürzel"),
+    ("Recent", "Zuletzt"),
+    ("Tracks", "Spuren"),
+    ("Kids Mode", "KINDERMODUS"),
+    ("Open demo", "Demo öffnen"),
+    ("No project", "Kein Projekt geladen"),
+    ("Saved", "gespeichert"),
+    ("Stopped", "gestoppt"),
+];
+
+const ES: &[(&str, &str)] = &[
+    ("Perform", "Tocar"),
+    ("Arrange", "Organizar"),
+    ("Mix", "Mezcla"),
+    ("Loops", "Bucles"),
+    ("Score", "Partitura"),
+    ("Save", "Guardar"),
+    ("Undo", "Deshacer"),
+    ("Redo", "Rehacer"),
+    ("Play", "Reproducir"),
+    ("Stop", "Parar"),
+    ("Settings", "Ajustes"),
+    ("Shortcuts", "Atajos"),
+    ("Recent", "Recientes"),
+    ("Tracks", "Pistas"),
+    ("Kids Mode", "MODO NIÑOS"),
+    ("Open demo", "Abrir demo"),
+    ("No project", "Ningún proyecto cargado"),
+    ("Saved", "guardado"),
+    ("Stopped", "detenido"),
+];
+
 const DA: &[(&str, &str)] = &[
     ("Perform", "Spil"),
     ("Arrange", "Arranger"),
@@ -202,6 +254,8 @@ fn table(language: Language) -> &'static [(&'static str, &'static str)] {
         Language::Da => DA,
         Language::Fr => FR,
         Language::Vi => VI,
+        Language::De => DE,
+        Language::Es => ES,
     }
 }
 
@@ -255,9 +309,15 @@ mod tests {
             assert!(!text(Language::Da, key).is_empty(), "{key:?} in Danish");
             assert!(!text(Language::Fr, key).is_empty(), "{key:?} in French");
             assert!(!text(Language::Vi, key).is_empty(), "{key:?} in Vietnamese");
+            assert!(!text(Language::De, key).is_empty(), "{key:?} in German");
+            assert!(!text(Language::Es, key).is_empty(), "{key:?} in Spanish");
         }
         assert_eq!(text(Language::Da, Key::Save), "Gem");
         assert_eq!(text(Language::Da, Key::Score), "Partitur");
+        assert_eq!(text(Language::De, Key::Save), "Speichern");
+        assert_eq!(text(Language::Es, Key::Save), "Guardar");
+        assert_eq!(Language::parse("de"), Language::De);
+        assert_eq!(Language::parse("es"), Language::Es);
         assert_ne!(
             text(Language::Da, Key::Arrange),
             text(Language::En, Key::Arrange)

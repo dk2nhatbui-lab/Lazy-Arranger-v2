@@ -1714,7 +1714,7 @@ impl ShellApp {
                         egui::ComboBox::from_id_salt("settings-language")
                             .selected_text(&self.settings.language)
                             .show_ui(ui, |ui| {
-                                for tag in ["en", "da", "fr", "vi"] {
+                                for tag in ["en", "da", "fr", "vi", "de", "es"] {
                                     ui.selectable_value(
                                         &mut self.settings.language,
                                         tag.to_string(),
@@ -1724,7 +1724,7 @@ impl ShellApp {
                             });
                         ui.label(
                             egui::RichText::new(
-                                "English, Danish, French and Vietnamese ship strings",
+                                "English, Danish, French, Vietnamese, German and Spanish ship strings",
                             )
                             .size(9.0)
                             .color(theme::TEXT_DIM),
