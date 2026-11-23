@@ -162,3 +162,4 @@ For the clef layout, choose either four measures per system without clefs
 - Mixer shows bus strips with pan, fader, mute/solo and meters; mute and solo are render-tested (`docs/audit/ui-bus-strips.png`).
 - Inspector edits track bus, send and send level (`docs/audit/ui-routing.png`).
 - MIDI out window has a 16-channel check button; hardware unverified.
+- Kids circle pulse respects the reduced-motion setting.

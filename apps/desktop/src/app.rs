@@ -10865,7 +10865,7 @@ impl eframe::App for ShellApp {
                                 egui::vec2(ui.available_width(), 190.0),
                                 egui::Sense::hover(),
                             );
-                            let pulse = if self.playing {
+                            let pulse = if self.playing && !self.settings.reduced_motion {
                                 (time * 3.0).sin() * 6.0
                             } else {
                                 0.0
