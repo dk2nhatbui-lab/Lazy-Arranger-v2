@@ -32,7 +32,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 23 | Controller pages, MIDI Map, MIDI Learn, channel check | partial | MIDI map model with text persistence, learn capture, CLI bind/show, and live application of play/stop/undo/scene/fader. No controller pages, on-screen learn dialog or channel check |
 | 24 | PSR-S970 tools | partial | Song export with setup bar, program, volume, pan, chord markers, lyrics and drums on channel 10; numbered style catalog and `style-by-number` rendering. No remote panel, audition queue or hardware verification |
 | 25 | Music Finder and Playlists | partial | JSON, CSV, TSV and MFD import (1,653-record real file), CLI. No browser UI, AI tools or CSV→playlist writer |
-| 26 | Zoom L6max mixer page and import | missing | — |
+| 26 | Zoom L6max mixer page and import | missing | No page or import. Note for the importer: the L6max records **32-bit float** audio; the WAV path now decodes 32-bit float, 24-bit and 32-bit PCM, and a 2 s 32-bit float file imported and mixed here |
 | 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | missing | Commands already provide single undo steps |
 | 28 | MCP server, ~90 tools | partial | Stdio JSON-RPC server with 22 tools (song, tracks, notes, chords, undo, doctor, grooves, forms, reharmonise, clip grid, slots, programs, automation, lyrics/marks, style catalog, theory) and save-after-call; `mcp-tools`/`mcp-call`. No socket transport, per-start secret or most of the ~90 target tools |
 | 29 | Speech in/out (Whisper, Kitten, Kokoro) | missing | — |
@@ -58,7 +58,8 @@ The partials with the most depth are styles (open, import, compile, SFF1/SFF2 wr
 `cargo doc` pass. The eight missing sections are clipboard work (§7), the drum
 sampler/slicer (§10), VST3/AU (§19), synth editors and sysex (§22), the L6max
 page/import (§26), the AI chat UI (§27), speech (§29) and AI music tools (§30).
-Korg import, PSR style import, SoundFont loading, waveform audio editing,
+Korg import, PSR style import, SoundFont loading, the L6max page (its 32-bit float audio
+recordings already decode), waveform audio editing,
 grand-staff/beam engraving, note entry, socket transport and a 90-tool MCP
 surface are also absent.
 

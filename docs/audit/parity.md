@@ -48,7 +48,7 @@ the wider ~90-tool MCP surface.
 | Stem separation (Demucs), instrument tags (PANNs), lyrics (Whisper) | — | missing | external helpers in C++ |
 | Link audio (yt-dlp arguments, download parsing) | `audio::link` | verified offline | link/args/parse tests; real download needs yt-dlp |
 | YouTube link to MIDI end to end | `link-to-midi` CLI | implemented, not run against YouTube | needs yt-dlp + ffmpeg |
-| WAV decoding | `audio::wav` | verified | 16-bit PCM round trip |
+| WAV decoding | `audio::wav` | verified | 16-bit PCM, 24-bit PCM, 32-bit PCM and 32-bit float; L6max float file imported |
 | Style writer: CASM SFF1 and SFF2 records | `style-formats::write_casm_sff1/sff2` | verified round-trip | writer tests check every field per version |
 | Style writer: full container (MIDI + CASM) | `style-formats::write_style`, `style-save` | implemented | rewrote a real 15-section style (19,346 bytes) and re-read it |
 | Style writer: voices, setup events, keyboard acceptance | — | missing | no PSR-S970 test; voices not written |

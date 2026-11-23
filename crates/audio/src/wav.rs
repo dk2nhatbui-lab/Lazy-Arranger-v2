@@ -1,4 +1,7 @@
-//! Minimal WAV decoding for the audio-to-MIDI path (16-bit PCM, any channels).
+//! WAV decoding for analysis, import and mixing.
+//!
+//! Supported: PCM at 16, 24 and 32 bits and IEEE float at 32 bits, any channel
+//! count. The Zoom L6max records 32-bit float audio, so that path is required.
 
 use crate::RenderedAudio;
 
@@ -12,6 +15,7 @@ pub fn decode_mono(bytes: &[u8]) -> Result<RenderedAudio, String> {
         return Err(String::from("not a RIFF/WAVE file"));
     }
     let mut offset = 12;
+    let mut format_tag = 1u16;
     let mut channels = 0u16;
     let mut sample_rate = 0u32;
     let mut bits = 0u16;
@@ -29,6 +33,7 @@ pub fn decode_mono(bytes: &[u8]) -> Result<RenderedAudio, String> {
             .ok_or("truncated WAV chunk")?;
         match id {
             b"fmt " if body.len() >= 16 => {
+                format_tag = u16::from_le_bytes([body[0], body[1]]);
                 channels = u16::from_le_bytes([body[2], body[3]]);
                 sample_rate = u32::from_le_bytes([body[4], body[5], body[6], body[7]]);
                 bits = u16::from_le_bytes([body[14], body[15]]);
@@ -38,19 +43,53 @@ pub fn decode_mono(bytes: &[u8]) -> Result<RenderedAudio, String> {
         }
         offset += 8 + size + size % 2;
     }
-    if channels == 0 || sample_rate == 0 || bits != 16 {
+    if channels == 0 || sample_rate == 0 {
         return Err(String::from("unsupported WAV format"));
     }
+    if !matches!((format_tag, bits), (1, 16) | (1, 24) | (1, 32) | (3, 32)) {
+        return Err(format!(
+            "unsupported WAV format: tag {format_tag}, {bits} bits"
+        ));
+    }
     let data = data.ok_or("no data chunk")?;
-    let frame = usize::from(channels) * 2;
-    let mut samples = Vec::with_capacity(data.len() / frame);
+    let bytes_per_sample = usize::from(bits / 8);
+    let frame = usize::from(channels) * bytes_per_sample;
+    let mut samples = Vec::with_capacity(data.len() / frame.max(1));
     for chunk in data.chunks_exact(frame) {
         let mut sum = 0.0_f32;
         for channel in 0..usize::from(channels) {
-            let value = i16::from_le_bytes([chunk[channel * 2], chunk[channel * 2 + 1]]);
-            sum += f32::from(value) / f32::from(i16::MAX);
+            let start = channel * bytes_per_sample;
+            let value = match (format_tag, bits) {
+                (3, 32) => f32::from_le_bytes([
+                    chunk[start],
+                    chunk[start + 1],
+                    chunk[start + 2],
+                    chunk[start + 3],
+                ]),
+                (1, 16) => {
+                    f32::from(i16::from_le_bytes([chunk[start], chunk[start + 1]]))
+                        / f32::from(i16::MAX)
+                }
+                (1, 24) => {
+                    let raw =
+                        i32::from_le_bytes([0, chunk[start], chunk[start + 1], chunk[start + 2]])
+                            >> 8;
+                    raw as f32 / 8_388_607.0
+                }
+                (1, 32) => {
+                    let raw = i32::from_le_bytes([
+                        chunk[start],
+                        chunk[start + 1],
+                        chunk[start + 2],
+                        chunk[start + 3],
+                    ]);
+                    raw as f32 / 2_147_483_647.0
+                }
+                _ => 0.0,
+            };
+            sum += value;
         }
-        samples.push(sum / f32::from(channels));
+        samples.push((sum / f32::from(channels)).clamp(-1.0, 1.0));
     }
     Ok(RenderedAudio {
         samples,
@@ -76,6 +115,55 @@ mod tests {
         assert!((decoded.samples[3] - 1.0).abs() < 0.001);
     }
 
+    fn wav_header(format_tag: u16, channels: u16, rate: u32, bits: u16, data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&((36 + data.len()) as u32).to_le_bytes());
+        out.extend_from_slice(b"WAVEfmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&format_tag.to_le_bytes());
+        out.extend_from_slice(&channels.to_le_bytes());
+        out.extend_from_slice(&rate.to_le_bytes());
+        out.extend_from_slice(&(rate * u32::from(channels) * u32::from(bits / 8)).to_le_bytes());
+        out.extend_from_slice(&(channels * (bits / 8)).to_le_bytes());
+        out.extend_from_slice(&bits.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out.extend_from_slice(data);
+        out
+    }
+
+    #[test]
+    fn thirty_two_bit_float_decodes() {
+        let mut data = Vec::new();
+        for value in [0.0_f32, 0.5, -0.5, 1.0] {
+            data.extend_from_slice(&value.to_le_bytes());
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        let bytes = wav_header(3, 2, 48_000, 32, &data);
+        let decoded = decode_mono(&bytes).expect("float wav");
+        assert_eq!(decoded.samples.len(), 4);
+        assert!((decoded.samples[1] - 0.5).abs() < 1.0e-6);
+        assert!((decoded.samples[2] + 0.5).abs() < 1.0e-6);
+        let info = info(&bytes).expect("info");
+        assert_eq!((info.format_tag, info.bits, info.frames), (3, 32, 4));
+    }
+
+    #[test]
+    fn twenty_four_bit_pcm_decodes() {
+        let mut data = Vec::new();
+        for value in [0.5_f32, -0.25] {
+            let raw = (value * 8_388_607.0) as i32;
+            let bytes = raw.to_le_bytes();
+            data.extend_from_slice(&bytes[0..3]);
+        }
+        let bytes = wav_header(1, 1, 48_000, 24, &data);
+        let decoded = decode_mono(&bytes).expect("24-bit wav");
+        assert_eq!(decoded.samples.len(), 2);
+        assert!((decoded.samples[0] - 0.5).abs() < 1.0e-5);
+        assert!((decoded.samples[1] + 0.25).abs() < 1.0e-5);
+    }
+
     #[test]
     fn other_files_are_rejected() {
         assert!(decode_mono(b"nope").is_err());
@@ -85,6 +173,8 @@ mod tests {
 /// What a WAV header declares.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WavInfo {
+    /// WAV format tag: 1 for PCM, 3 for IEEE float.
+    pub format_tag: u16,
     /// Channel count.
     pub channels: u16,
     /// Sample rate in Hz.
@@ -107,6 +197,7 @@ pub fn info(bytes: &[u8]) -> Result<WavInfo, String> {
         return Err(String::from("not a RIFF/WAVE file"));
     }
     let mut offset = 12;
+    let mut format_tag = 1u16;
     let mut channels = 0u16;
     let mut sample_rate = 0u32;
     let mut bits = 0u16;
@@ -124,6 +215,7 @@ pub fn info(bytes: &[u8]) -> Result<WavInfo, String> {
             .ok_or("truncated WAV chunk")?;
         match id {
             b"fmt " if body.len() >= 16 => {
+                format_tag = u16::from_le_bytes([body[0], body[1]]);
                 channels = u16::from_le_bytes([body[2], body[3]]);
                 sample_rate = u32::from_le_bytes([body[4], body[5], body[6], body[7]]);
                 bits = u16::from_le_bytes([body[14], body[15]]);
@@ -142,6 +234,7 @@ pub fn info(bytes: &[u8]) -> Result<WavInfo, String> {
         .and_then(|len| len.checked_div(u64::try_from(frame_bytes).ok()?))
         .unwrap_or(0);
     Ok(WavInfo {
+        format_tag,
         channels,
         sample_rate,
         bits,
@@ -161,6 +254,7 @@ mod info_tests {
             sample_rate: 48_000,
         };
         let info = info(&audio.to_wav()).expect("info");
+        assert_eq!(info.format_tag, 1);
         assert_eq!(info.channels, 2);
         assert_eq!(info.sample_rate, 48_000);
         assert_eq!(info.bits, 16);
