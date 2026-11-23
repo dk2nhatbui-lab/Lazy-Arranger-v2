@@ -404,7 +404,7 @@ fn placed_chord_symbols(song: &Song, pages: &[Page], settings: Settings) -> Vec<
                             page: page_index,
                             x,
                             y: if frame {
-                                system.y - 10.0 * settings.staff_space
+                                system.y - 8.0 * settings.staff_space
                             } else {
                                 system.y - 2.4 * settings.staff_space
                             },
@@ -451,7 +451,7 @@ fn placed_frames(song: &Song, pages: &[Page], settings: Settings) -> Vec<ChordFr
                         placed = Some(ChordFrame {
                             page: page_index,
                             x,
-                            y: system.y - 6.0 * settings.staff_space,
+                            y: system.y - 5.0 * settings.staff_space,
                             name: shape.name.clone(),
                             frets: shape.frets,
                             base_fret: shape.base_fret,
@@ -706,7 +706,25 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
     let measure_count = usize::try_from((end + bar - 1) / bar).unwrap_or(1);
     let content_width = (settings.page_width - 2.0 * settings.margin).max(1.0);
     let content_height = (settings.page_height - 2.0 * settings.margin).max(settings.system_gap);
-    let per_page = (content_height / settings.system_gap).floor().max(1.0) as usize;
+    let has_frames = song
+        .chords
+        .iter()
+        .any(|event| guitar::shape(&event.chord).is_some());
+    let above_spaces = if has_frames {
+        8.2
+    } else if song.chords.is_empty() {
+        0.0
+    } else {
+        3.0
+    };
+    let top_reserve = if content_height / settings.system_gap >= 3.0 {
+        above_spaces * settings.staff_space
+    } else {
+        0.0
+    };
+    let per_page = ((content_height - top_reserve).max(settings.system_gap) / settings.system_gap)
+        .floor()
+        .max(1.0) as usize;
 
     let key = spelling::detect_key(song);
     let mut pages = Vec::new();
@@ -802,7 +820,9 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
                                 .find(|event| event.tick == note.start)
                                 .map(|event| event.text.as_str())
                         });
-                        if let Some(text) = text {
+                        if let Some(text) = text
+                            && !placed_lyrics.iter().any(|lyric| lyric.tick == note.start)
+                        {
                             placed_lyrics.push(Lyric {
                                 tick: note.start,
                                 text: text.to_string(),
@@ -831,6 +851,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
     for (page_index, page) in pages.iter_mut().enumerate() {
         for (system_index, system) in page.systems.iter_mut().enumerate() {
             system.y = settings.margin
+                + top_reserve
                 + 4.0 * settings.staff_space
                 + (system_index as f32) * settings.system_gap;
             system.page = page_index;
@@ -1181,7 +1202,7 @@ mod tests {
             &lyrics,
         );
         assert!(engraved.pages.len() >= 2, "40 bars need more than one page");
-        assert_eq!(engraved.lyrics.len(), 120);
+        assert_eq!(engraved.lyrics.len(), 40, "one syllable per chord tick");
         let tied = engraved.notes.iter().filter(|note| note.tied).count();
         assert!(tied > 0, "bar-to-bar notes are tied");
         let pdf = pdf::to_pdf(&engraved, Settings::default(), "Acceptance");
@@ -1668,6 +1689,29 @@ mod lyric_spacing_tests {
             engraved.notes[1].accidental_shift > 0.0,
             "the second accidental moves left"
         );
+    }
+
+    #[test]
+    fn a_chord_prints_one_lyric_per_tick() {
+        let mut song = Song::new("Lyrics", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for (index, pitch) in ["C4", "E4", "G4"].iter().enumerate() {
+            track.notes.push(Note {
+                id: project::NoteId::new(index as u32 + 1).expect("valid"),
+                start: 0,
+                duration: 960,
+                pitch: Pitch::from_name(pitch).expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        song.lyrics.push(project::song::LyricEvent {
+            tick: 0,
+            text: String::from("Lazy"),
+        });
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        assert_eq!(engraved.lyrics.len(), 1);
     }
 
     #[test]

@@ -34,7 +34,7 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
         let mut content = String::new();
         let _ = writeln!(
             content,
-            "0.98 0.97 0.94 rg 0 0 {w} {h} re f 0.2 0.2 0.2 RG 0.7 w",
+            "0.98 0.97 0.94 rg 0 0 {w} {h} re f 0.15 0.15 0.15 rg 0.2 0.2 0.2 RG 0.7 w",
             w = settings.page_width,
             h = settings.page_height
         );
@@ -142,8 +142,8 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                 );
             }
             for frame in engraved.frames.iter().filter(|frame| frame.page == index) {
-                let width = 3.2 * settings.staff_space;
-                let height = 3.6 * settings.staff_space;
+                let width = 2.8 * settings.staff_space;
+                let height = 2.6 * settings.staff_space;
                 let left = frame.x;
                 let bottom = settings.page_height - frame.y;
                 let top = bottom + height;
@@ -503,6 +503,27 @@ mod tests {
         assert_eq!(page_count(&pdf), Some(2));
         assert!(text.contains("(Test score) Tj"));
         assert!(!text.contains(" C? "), "no music glyphs from base fonts");
+    }
+
+    #[test]
+    fn chord_symbols_use_the_dark_fill_and_fit_on_the_page() {
+        let settings = Settings::default();
+        let bytes = to_pdf(&engraved(1, settings), settings, "Chord");
+        let pdf = String::from_utf8_lossy(&bytes);
+        let dark = pdf.find("0.15 0.15 0.15 rg").expect("dark fill");
+        let chord = pdf.find("(C) Tj").expect("chord text");
+        assert!(dark < chord, "the dark fill is set before the chord text");
+        let line = pdf[..chord].lines().last().expect("line");
+        let y: f32 = line
+            .split_whitespace()
+            .nth(5)
+            .expect("y coordinate")
+            .parse()
+            .expect("number");
+        assert!(
+            (0.0..=settings.page_height).contains(&y),
+            "chord y {y} on page"
+        );
     }
 
     #[test]
