@@ -1,7 +1,7 @@
-# Windows CI failures (open)
+# Windows CI failures (fixed)
 
 **Priority:** High  
-**Status:** Root cause confirmed and fixed; awaiting CI confirmation  
+**Status:** Fixed and confirmed by CI  
 **Scope:** GitHub Actions CI, not a feature implementation
 
 ### Evidence
@@ -38,3 +38,9 @@ bash -c 'ulimit -s 1024; ./target/debug/lazy-arranger demo --out /tmp/stack.mid 
 stack. Under the same 1 MiB limit, `--help` and `demo` both exit 0 and the demo
 writes a 271-byte MIDI file. The workspace gate (643 tests, clippy, fmt,
 rustdoc) is green; the Windows job should confirm the fix.
+
+## Confirmation
+
+CI run [45158544677](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45158544677)
+on `5c98cc4` passed all three jobs: ubuntu-latest 1m19s, macos-latest 1m49s,
+windows-latest 2m17s. The Windows headless demo now passes.
