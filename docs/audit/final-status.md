@@ -174,3 +174,4 @@ For the clef layout, choose either four measures per system without clefs
 - XG part mixer sends 16-part volume/pan/reverb/chorus CCs; hardware unverified (`docs/audit/xg-mixer.png`).
 - Audio references are mixed in the offline render and cpal playback with start/offset/fades/stretch; render and bounce tests cover it.
 - Audio refs now follow bus routing and track volume before bus/master plug-ins; render test covers the routed silence.
+- Compressed audio decode now preserves stereo; WAV already did, and audio refs use both.

@@ -23,6 +23,20 @@ use crate::RenderedAudio;
 /// Returns a message for an unsupported container/codec, a missing audio track
 /// or an unreadable sample rate.
 pub fn decode_mono(path: &Path) -> Result<RenderedAudio, String> {
+    decode_internal(path, false)
+}
+
+/// Decodes a supported audio file into interleaved stereo at its native rate.
+///
+/// # Errors
+///
+/// Returns a message for an unsupported container/codec, a missing audio track
+/// or an unreadable sample rate.
+pub fn decode_stereo(path: &Path) -> Result<RenderedAudio, String> {
+    decode_internal(path, true)
+}
+
+fn decode_internal(path: &Path, stereo: bool) -> Result<RenderedAudio, String> {
     let file = File::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let stream = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -75,12 +89,25 @@ pub fn decode_mono(path: &Path) -> Result<RenderedAudio, String> {
             Ok(buffer) => {
                 buffer.copy_to_vecs_planar::<f32>(&mut planes);
                 let frames = planes.first().map_or(0, Vec::len);
-                for frame in 0..frames {
-                    let mut sum = 0.0_f32;
-                    for plane in &planes {
-                        sum += plane.get(frame).copied().unwrap_or(0.0);
+                if stereo {
+                    for frame in 0..frames {
+                        let left = planes
+                            .first()
+                            .map_or(0.0, |plane| plane.get(frame).copied().unwrap_or(0.0));
+                        let right = planes
+                            .get(1)
+                            .map_or(left, |plane| plane.get(frame).copied().unwrap_or(left));
+                        samples.push(left.clamp(-1.0, 1.0));
+                        samples.push(right.clamp(-1.0, 1.0));
                     }
-                    samples.push((sum / planes.len().max(1) as f32).clamp(-1.0, 1.0));
+                } else {
+                    for frame in 0..frames {
+                        let mut sum = 0.0_f32;
+                        for plane in &planes {
+                            sum += plane.get(frame).copied().unwrap_or(0.0);
+                        }
+                        samples.push((sum / planes.len().max(1) as f32).clamp(-1.0, 1.0));
+                    }
                 }
             }
             Err(SymphoniaError::DecodeError(_)) | Err(SymphoniaError::IoError(_)) => continue,
@@ -88,7 +115,8 @@ pub fn decode_mono(path: &Path) -> Result<RenderedAudio, String> {
         }
     }
     if let Some(declared) = declared {
-        samples.truncate(usize::try_from(declared).unwrap_or(usize::MAX));
+        let channels = if stereo { 2 } else { 1 };
+        samples.truncate(usize::try_from(declared).unwrap_or(usize::MAX) * channels);
     }
     if samples.is_empty() {
         return Err(format!("{}: decoded no samples", path.display()));
@@ -102,6 +130,16 @@ pub fn decode_mono(path: &Path) -> Result<RenderedAudio, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compressed_fixtures_decode_to_stereo_samples() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tone.flac");
+        let audio = decode_stereo(&path).expect("stereo decode");
+        assert_eq!(audio.sample_rate, 48_000);
+        assert!(audio.samples.len() > 16_000);
+        assert_eq!(audio.samples.len() % 2, 0);
+        assert!(audio.samples.iter().any(|sample| sample.abs() > 0.1));
+    }
 
     #[test]
     fn compressed_fixtures_decode_to_mono_samples() {

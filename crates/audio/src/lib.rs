@@ -190,16 +190,7 @@ fn load_reference_audio(reference: &project::song::AudioRef) -> Option<RenderedA
     if bytes.starts_with(b"RIFF") {
         wav::decode_stereo(&bytes).ok()
     } else {
-        let mono = decode::decode_mono(path).ok()?;
-        let mut samples = Vec::with_capacity(mono.frames() * usize::from(CHANNELS));
-        for frame in 0..mono.frames() {
-            let value = mono.samples.get(frame).copied().unwrap_or_default();
-            samples.extend_from_slice(&[value, value]);
-        }
-        Some(RenderedAudio {
-            samples,
-            sample_rate: mono.sample_rate,
-        })
+        decode::decode_stereo(path).ok()
     }
 }
 
