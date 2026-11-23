@@ -108,7 +108,7 @@ apps/desktop           egui 0.31 desktop app
   local rule engine over the MCP registry).
 - Score clefs/key signatures, vertical rest/dot collision avoidance and a full
   print dialog.
-- Marquee clip selection, channel-count-preserving WAV edits.
+- Channel-count-preserving WAV edits.
 - Hardware acceptance: real MIDI keyboards, PSR-S970, cpal output, printers.
 
 These are tracked with row-level evidence in

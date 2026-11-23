@@ -966,3 +966,10 @@ The RECENT header has Clear, which calls `project::recent::clear` and empties
 the list. Save-as normalizes an extensionless path with `normalize_save_path`
 (appends `.json`); existing extensions are kept. Both have tests or upstream
 coverage.
+
+### Marquee clip selection
+
+Dragging across the clip lane (not on a clip) draws a rubber band and returns
+the tick band; the app selects every clip intersecting it through
+`piano_roll::clips_in_band`, replacing the previous multi-selection. The helper
+has a unit test; the Shift-click and arrow/Delete behavior is unchanged.

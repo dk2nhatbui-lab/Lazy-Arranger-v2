@@ -111,7 +111,10 @@ pub struct RollState {
     pub hover: Option<Tick>,
     /// Snap drags and insertions to a sixteenth.
     pub snap: bool,
+    /// Tick band from the last marquee drag, for the app to apply.
+    pub band: Option<(Tick, Tick)>,
     drag: Option<NoteDrag>,
+    marquee: Option<Pos2>,
 }
 
 impl Default for RollState {
@@ -122,7 +125,9 @@ impl Default for RollState {
             selected: None,
             hover: None,
             snap: true,
+            band: None,
             drag: None,
+            marquee: None,
         }
     }
 }
@@ -362,6 +367,10 @@ pub fn show(
         None
     };
 
+    let clip_lane = Rect::from_min_size(
+        Pos2::new(rect.left(), rect.top() + RULER_HEIGHT),
+        Vec2::new(rect.width(), CLIP_LANE_HEIGHT),
+    );
     if response.drag_started()
         && let Some(pointer) = response.interact_pointer_pos()
         && let Some(track_id) = state.selected
@@ -379,12 +388,33 @@ pub fn show(
             duration: found.duration,
         });
     }
-    if response.dragged() && state.drag.is_none() {
+    if response.drag_started()
+        && clip_lane.contains(response.interact_pointer_pos().unwrap_or(Pos2::ZERO))
+        && let Some(pointer) = response.interact_pointer_pos()
+        && let Some(track_id) = state.selected
+        && let Some(track) = song.tracks.iter().find(|track| track.id == track_id)
+        && !track
+            .clips
+            .iter()
+            .any(|clip| clip_rect(rect, &geometry_hint(state, song, rect), clip).contains(pointer))
+    {
+        state.marquee = Some(pointer);
+    }
+    if response.dragged() && state.drag.is_none() && state.marquee.is_none() {
         state.ticks_per_point *= 1.0 + response.drag_delta().x * 0.001;
         let scroll = response.drag_delta().y / theme::GRID;
         state.top_pitch = u8::try_from((i32::from(state.top_pitch) + scroll as i32).clamp(12, 127))
             .unwrap_or(state.top_pitch);
         state.clamp();
+    }
+    if response.drag_stopped()
+        && let Some(start) = state.marquee.take()
+    {
+        let now = response.interact_pointer_pos().unwrap_or(start);
+        let geometry = geometry_hint(state, song, rect);
+        let first = geometry.tick_at(start.x.min(now.x)).max(0);
+        let last = geometry.tick_at(start.x.max(now.x)).max(0);
+        state.band = Some((first.min(last), first.max(last)));
     }
     if let Some(hover) = response.hover_pos() {
         let scroll = ui.input(|input| input.raw_scroll_delta.y);
@@ -424,6 +454,18 @@ pub fn show(
     painter.rect_filled(rect, 0.0, theme::timeline());
     draw_ruler(&painter, rect, &geometry, song);
     let content = Rect::from_min_max(Pos2::new(rect.left(), rect.top() + RULER_HEIGHT), rect.max);
+    if let Some(start) = state.marquee
+        && let Some(now) = response.interact_pointer_pos()
+    {
+        let band = Rect::from_two_pos(start, now).intersect(clip_lane);
+        painter.rect_filled(band, 0.0, theme::accent().gamma_multiply(0.15));
+        painter.rect_stroke(
+            band,
+            0.0,
+            egui::Stroke::new(1.0_f32, theme::accent()),
+            egui::StrokeKind::Inside,
+        );
+    }
     draw_clip_lane(
         &painter,
         content,
@@ -683,6 +725,19 @@ fn draw_grid(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song:
     }
 }
 
+/// Clips intersecting a tick band, for marquee selection.
+#[must_use]
+pub fn clips_in_band(track: &Track, first: Tick, last: Tick) -> Vec<project::ClipId> {
+    let low = first.min(last);
+    let high = first.max(last);
+    track
+        .clips
+        .iter()
+        .filter(|clip| clip.start < high && clip.end() > low)
+        .map(|clip| clip.id)
+        .collect()
+}
+
 /// Rectangle of one clip in the lane above the notes.
 #[must_use]
 pub fn clip_rect(rect: Rect, geometry: &RollGeometry, clip: &Clip) -> Rect {
@@ -873,6 +928,26 @@ fn draw_pitch_guide(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_band_selects_intersecting_clips() {
+        use super::*;
+        use music_core::PPQ;
+        use project::song::Clip;
+        use project::{ClipId, TrackId};
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Clips");
+        for (id, start) in [(1, 0), (2, PPQ * 4)] {
+            track.clips.push(Clip {
+                id: ClipId::new(id).expect("valid"),
+                name: format!("Clip {id}"),
+                start,
+                length: PPQ * 4,
+            });
+        }
+        assert_eq!(clips_in_band(&track, PPQ * 2, PPQ * 6).len(), 2);
+        assert_eq!(clips_in_band(&track, 0, PPQ).len(), 1);
+        assert!(clips_in_band(&track, PPQ * 10, PPQ * 12).is_empty());
+    }
+
     use super::*;
 
     fn geometry() -> RollGeometry {

@@ -4597,6 +4597,19 @@ impl eframe::App for ShellApp {
                         let selected_clips = self.selected_clips.clone();
                         let outcome =
                             piano_roll::show(ui, &project.song, roll, position, &selected_clips);
+                        if let Some((first, last)) = roll.band.take()
+                            && let Some(track_id) = roll.selected
+                            && let Some(track) = project
+                                .song
+                                .tracks
+                                .iter()
+                                .find(|track| track.id == track_id)
+                        {
+                            let clips = piano_roll::clips_in_band(track, first, last);
+                            self.selected_clips =
+                                clips.iter().map(|clip| (track_id, *clip)).collect();
+                            self.selected_clip = clips.last().map(|clip| (track_id, *clip));
+                        }
                         clicked = outcome.click;
                         if let Some(edit) = outcome.edit {
                             scroll_edit = Some(edit);
