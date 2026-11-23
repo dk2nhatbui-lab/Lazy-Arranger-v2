@@ -750,6 +750,11 @@ enum Commands {
         #[arg(long, default_value = "sff2")]
         version: String,
     },
+    /// Guess an instrument family from audio.
+    AudioTags {
+        /// Audio file (WAV or compressed).
+        audio: PathBuf,
+    },
     /// Extract a groove template from monophonic audio.
     GrooveFromAudio {
         /// Audio file (WAV or compressed).
@@ -1508,6 +1513,23 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 println!("{} bpm at tick {}", change.bpm, change.tick);
             }
             println!("wrote {}", out.display());
+            Ok(())
+        }
+        Commands::AudioTags { audio } => {
+            let decoded = audio::decode::decode_mono(&audio).or_else(|_| {
+                let bytes =
+                    fs::read(&audio).map_err(|error| format!("{}: {error}", audio.display()))?;
+                audio::wav::decode_mono(&bytes)
+            })?;
+            match audio::analysis::tag_instrument(&decoded.samples, decoded.sample_rate) {
+                Some(tag) => println!(
+                    "{}: {} ({:.2})",
+                    audio.display(),
+                    tag.instrument.label(),
+                    tag.confidence
+                ),
+                None => println!("{}: no pitched material found", audio.display()),
+            }
             Ok(())
         }
         Commands::GrooveFromAudio {

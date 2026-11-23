@@ -193,6 +193,86 @@ pub fn estimate_tempo(samples: &[f32], sample_rate: u32) -> Option<f64> {
     (60.0..=180.0).contains(&bpm).then_some(bpm)
 }
 
+/// A coarse, model-free guess at what a monophonic clip contains.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstrumentGuess {
+    /// Dense onsets with short pitched runs.
+    Drums,
+    /// Mostly low pitches.
+    Bass,
+    /// Sustained pitches.
+    Pad,
+    /// Everything else with clear pitch.
+    Melodic,
+}
+
+impl InstrumentGuess {
+    /// Stable lowercase label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Drums => "drums",
+            Self::Bass => "bass",
+            Self::Pad => "pad",
+            Self::Melodic => "melodic",
+        }
+    }
+}
+
+/// A heuristic instrument guess with a 0..=1 confidence.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InstrumentTag {
+    /// Guessed family.
+    pub instrument: InstrumentGuess,
+    /// Confidence in the guess.
+    pub confidence: f64,
+}
+
+/// Guesses an instrument family from register, onset density and note length.
+///
+/// This is a model-free heuristic, not source separation or a trained tagger.
+#[must_use]
+pub fn tag_instrument(samples: &[f32], sample_rate: u32) -> Option<InstrumentTag> {
+    if sample_rate == 0 {
+        return None;
+    }
+    let notes = to_midi(samples, sample_rate);
+    if notes.is_empty() {
+        return None;
+    }
+    let seconds = samples.len() as f64 / f64::from(sample_rate);
+    if seconds <= 0.0 {
+        return None;
+    }
+    let onsets = crate::drums::onsets(samples, sample_rate);
+    let density = onsets.len() as f64 / seconds;
+    let mut pitches: Vec<u8> = notes.iter().map(|note| note.pitch).collect();
+    pitches.sort_unstable();
+    let median_pitch = pitches[pitches.len() / 2];
+    let mean_duration = notes.iter().map(|note| note.duration).sum::<f64>() / notes.len() as f64;
+    if density >= 1.5 && mean_duration < 0.25 {
+        Some(InstrumentTag {
+            instrument: InstrumentGuess::Drums,
+            confidence: (density / 8.0).clamp(0.54, 0.9),
+        })
+    } else if median_pitch < 48 {
+        Some(InstrumentTag {
+            instrument: InstrumentGuess::Bass,
+            confidence: 0.8,
+        })
+    } else if mean_duration >= 1.5 {
+        Some(InstrumentTag {
+            instrument: InstrumentGuess::Pad,
+            confidence: 0.7,
+        })
+    } else {
+        Some(InstrumentTag {
+            instrument: InstrumentGuess::Melodic,
+            confidence: 0.6,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,6 +285,28 @@ mod tests {
                     * 0.5
             })
             .collect()
+    }
+
+    #[test]
+    fn a_sustained_low_tone_is_guessed_as_bass() {
+        let samples = tone(80.0, 2.0, 48_000);
+        let tag = tag_instrument(&samples, 48_000).expect("tag");
+        assert_eq!(tag.instrument, InstrumentGuess::Bass);
+    }
+
+    #[test]
+    fn clicks_are_guessed_as_drums() {
+        let rate = 48_000_u32;
+        let mut samples = vec![0.0_f32; rate as usize * 2];
+        for click in 0..8 {
+            let start = click as usize * rate as usize / 4;
+            for (index, sample) in samples.iter_mut().skip(start).take(120).enumerate() {
+                let envelope = 1.0 - index as f32 / 120.0;
+                *sample = if index % 2 == 0 { envelope } else { -envelope };
+            }
+        }
+        let tag = tag_instrument(&samples, rate).expect("tag");
+        assert_eq!(tag.instrument, InstrumentGuess::Drums, "{tag:?}");
     }
 
     #[test]

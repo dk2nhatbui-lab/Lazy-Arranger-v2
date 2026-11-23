@@ -95,3 +95,4 @@ For the clef layout, choose either four measures per system without clefs
 - `style-from-audio` writes a one-part style from monophonic detected notes; `--chord auto` picks the strongest chroma chord, and the source chord is persisted in the written rules. `--split-parts` produces Bass and Chord 1 parts; `--section-bars` splits into uniform sections with clipped notes. No analysis-driven sections, stems or match scoring.
 - Style from audio is shared by CLI, MCP and a desktop dialog (`docs/audit/style-from-audio.png`); an optional onset/band-energy Drums part and onset-spacing tempo detection are heuristics, not stem separation; 95 MCP tools.
 - Groove templates can be extracted from audio (`groove-from-audio`, MCP `groove_from_audio`); fixed multi-bar extraction offsets. 96 MCP tools.
+- Audio tags are a model-free heuristic (drums/bass/pad/melodic); 97 MCP tools.

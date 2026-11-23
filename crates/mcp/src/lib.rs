@@ -878,6 +878,15 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "audio_tags",
+            description: "Guess an instrument family from monophonic audio.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"audio": {"type": "string"}},
+                "required": ["audio"]
+            }),
+        },
+        Tool {
             name: "groove_from_audio",
             description: "Extract a groove template from monophonic audio.",
             input_schema: json!({
@@ -2759,6 +2768,29 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "parts": style.sections.first().map_or(0, |entry| entry.parts.len())
             }))
         }
+        "audio_tags" => {
+            let audio_path = arguments
+                .get("audio")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("audio is required")))?;
+            let path = std::path::Path::new(audio_path);
+            let decoded = match audio::decode::decode_mono(path) {
+                Ok(decoded) => decoded,
+                Err(_) => {
+                    let bytes = std::fs::read(path).map_err(|error| {
+                        ToolError::Arguments(format!("{}: {error}", path.display()))
+                    })?;
+                    audio::wav::decode_mono(&bytes).map_err(ToolError::Arguments)?
+                }
+            };
+            match audio::analysis::tag_instrument(&decoded.samples, decoded.sample_rate) {
+                Some(tag) => Ok(json!({
+                    "instrument": tag.instrument.label(),
+                    "confidence": tag.confidence
+                })),
+                None => Ok(json!({"instrument": null, "confidence": 0.0})),
+            }
+        }
         "groove_from_audio" => {
             let audio_path = arguments
                 .get("audio")
@@ -3507,7 +3539,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 96);
+        assert_eq!(tools().len(), 97);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
