@@ -10,6 +10,7 @@
 //! is deferred to ADR-006, which also covers preview and approval for
 //! destructive model-proposed edits.
 
+pub mod audio_ref;
 pub mod clipboard;
 
 use music_core::{Channel, Chord, Pitch, TempoMap, Tick, Velocity};
@@ -81,6 +82,13 @@ pub enum Command {
         soloed: bool,
         /// New arm state.
         armed: bool,
+    },
+    /// Replace a track's audio reference.
+    SetAudioRef {
+        /// The track.
+        track: TrackId,
+        /// New reference, or none to remove it.
+        reference: Option<project::song::AudioRef>,
     },
     /// Replace a track's automation lanes.
     SetAutomation {
@@ -169,6 +177,7 @@ impl Command {
             Self::SetTrackFlags { .. } => "set track flags",
             Self::SetTrackGain { .. } => "set track gain",
             Self::SetAutomation { .. } => "set automation",
+            Self::SetAudioRef { .. } => "set audio reference",
             Self::SetMarkers { .. } => "set markers",
             Self::SetSceneNames { .. } => "set scene names",
             Self::SetClips { .. } => "set clips",
@@ -656,6 +665,10 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::SetAudioRef { track, .. } => Command::SetAudioRef {
+                track: *track,
+                reference: self.track(*track)?.audio.clone(),
+            },
             Command::SetAutomation { track, .. } => Command::SetAutomation {
                 track: *track,
                 lanes: self.track(*track)?.automation.clone(),
@@ -796,6 +809,9 @@ impl EditSession {
             Command::SetAutomation { track, lanes } => {
                 self.track_mut(*track)?.automation = lanes.clone();
             }
+            Command::SetAudioRef { track, reference } => {
+                self.track_mut(*track)?.audio = reference.clone();
+            }
             Command::SetTrackGain { track, volume, pan } => {
                 let target = self.track_mut(*track)?;
                 target.volume = (*volume).min(127);
@@ -871,6 +887,13 @@ fn describe(command: &Command) -> String {
         Command::SetAutomation { track, lanes } => {
             format!("track {track}: {} automation lane(s)", lanes.len())
         }
+        Command::SetAudioRef { track, reference } => match reference {
+            Some(reference) => format!(
+                "track {track}: audio {} from {} to {}",
+                reference.path, reference.start, reference.length
+            ),
+            None => format!("track {track}: remove audio reference"),
+        },
         Command::SetTrackGain { track, volume, pan } => {
             format!("track {track}: volume {volume}, pan {pan}")
         }
@@ -1278,6 +1301,34 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn an_audio_reference_can_be_set_and_cleared() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        let reference = project::song::AudioRef {
+            path: String::from("/tmp/take.wav"),
+            start: 0,
+            length: 3840,
+            offset: 0,
+        };
+        edit.apply(Command::SetAudioRef {
+            track,
+            reference: Some(reference.clone()),
+        })
+        .expect("set");
+        assert_eq!(edit.song().tracks[0].audio.as_ref(), Some(&reference));
+        edit.apply(Command::SetAudioRef {
+            track,
+            reference: None,
+        })
+        .expect("clear");
+        assert!(edit.song().tracks[0].audio.is_none());
+        edit.undo().expect("undo clear");
+        assert!(edit.song().tracks[0].audio.is_some());
+        edit.undo().expect("undo set");
+        assert!(edit.song().tracks[0].audio.is_none());
     }
 
     #[test]

@@ -603,7 +603,7 @@ material need the model-based pipeline the C++ app runs outside its process.
 
 ### Audio references
 
-Schema v7 adds `Track.audio: Option<AudioRef { path, start, length }>`. The file
+Schema v12 adds `Track.audio: Option<AudioRef { path, start, length, offset }>`; `offset` is the in-point and the 11 to 12 migration leaves it zero. The file
 stays outside the project, as in the C++ app; `add-audio` reads the WAV header
 (`audio::wav::info`), converts seconds to ticks at the tempo at the start tick,
 and inserts a track holding the reference. `audio::wav::decode_mono` accepts PCM at 16, 24 and 32 bits and IEEE float at 32
@@ -696,3 +696,11 @@ the recent average (narrower than a 50 ms gap is ignored), cuts the buffer at
 those points, and maps slices to the first 16 GM drum notes. `drum-slice`
 writes one WAV per pad. There is no pad UI, slice editing or time-stretch, and
 a pad is not yet wired to the keyboard or the sequencer.
+
+### Waveform and trimming
+
+`audio::waveform::peaks` reduces samples to min/max columns; Arrange draws them
+for the selected audio track and offers "Trim 1 beat", which moves start and
+in-point together and shortens the reference through `SetAudioRef` (one undo
+step). `audio_ref::set_length` changes the span. Recording, monitoring, fades,
+takes and stretching remain missing.

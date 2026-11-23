@@ -567,6 +567,18 @@ impl Editor {
         Ok(copied)
     }
 
+    /// Trims the front of a track's audio reference.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the trim is rejected.
+    pub fn trim_audio_start(&mut self, track: TrackId, delta: Tick) -> Result<(), String> {
+        app_commands::audio_ref::trim_start(&mut self.session, track, delta)
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Copies chords inside a range.
     pub fn copy_chords(&mut self, start: Tick, end: Tick) {
         self.clipboard = app_commands::clipboard::Clipboard::from_chords(self.song(), start, end);

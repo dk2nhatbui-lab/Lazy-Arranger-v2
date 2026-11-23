@@ -68,6 +68,7 @@ fn mix_one(
     }
     let rate = rendered.sample_rate;
     let start_seconds = song.tempo_map.seconds_at(reference.start);
+    let in_point = song.tempo_map.duration_seconds(0, reference.offset);
     let length_seconds = if reference.length > 0 {
         song.tempo_map
             .duration_seconds(reference.start, reference.start + reference.length)
@@ -77,12 +78,13 @@ fn mix_one(
     let start = (start_seconds * f64::from(rate)).round() as usize;
     let frames = (length_seconds * f64::from(rate)).round() as usize;
     let ratio = f64::from(decoded.sample_rate) / f64::from(rate);
+    let in_frames = (in_point * f64::from(decoded.sample_rate)).round() as usize;
     for frame in 0..frames {
         let target = start + frame;
         if target * 2 + 1 >= rendered.samples.len() {
             break;
         }
-        let source = (frame as f64 * ratio) as usize;
+        let source = in_frames + (frame as f64 * ratio) as usize;
         if source >= decoded.samples.len() {
             break;
         }
@@ -116,6 +118,7 @@ mod tests {
             path,
             start: 0,
             length: 1920,
+            offset: 0,
         });
         track.muted = muted;
         song.tracks.push(track);
@@ -135,6 +138,31 @@ mod tests {
         assert!(rendered.samples[0] > 0.1);
         let silent_later = rendered.samples[(48_000 + 10) * 2];
         assert!(silent_later.abs() < 1.0e-6);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn the_in_point_skips_into_the_file() {
+        let mut samples = vec![0.3_f32; 48_000 * 2];
+        samples.extend(vec![-0.3_f32; 48_000 * 2]);
+        let path = write_wav("lazy-arranger-mix-offset.wav", samples);
+        let mut song = song_with(path.clone(), false);
+        song.tracks[0].audio = Some(AudioRef {
+            path: path.clone(),
+            start: 0,
+            length: 960,
+            offset: 1920,
+        });
+        let mut rendered = RenderedAudio {
+            samples: vec![0.0; 96_000 * 2],
+            sample_rate: 48_000,
+        };
+        let problems = mix_audio_references(&mut rendered, &song, 1.0);
+        assert!(problems.is_empty());
+        assert!(
+            rendered.samples[0] < 0.0,
+            "the in-point starts in the quiet half"
+        );
         let _ = std::fs::remove_file(path);
     }
 

@@ -100,6 +100,7 @@ pub struct ShellApp {
     recent_file: std::path::PathBuf,
     midi_input: Option<midi_devices::devices::LiveInput>,
     midi_map: midi_devices::map::MidiMap,
+    waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
     settings: crate::settings::Settings,
     settings_open: bool,
@@ -168,6 +169,7 @@ impl ShellApp {
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
             midi_input: None,
+            waveform: None,
             midi_ports: None,
             midi_map: std::fs::read_to_string("lazy-arranger-midi-map.txt")
                 .ok()
@@ -594,6 +596,76 @@ impl ShellApp {
                 self.status = Some(format!("scene {}", scene + 1));
             }
         }
+    }
+
+    /// Loads and caches the selected audio track's waveform peaks.
+    fn refresh_waveform(&mut self) {
+        if self.view != View::Arrange {
+            return;
+        }
+        let Some(track) = self
+            .roll
+            .selected
+            .or_else(|| {
+                self.song()
+                    .tracks
+                    .iter()
+                    .find(|track| track.audio.is_some())
+                    .map(|track| track.id)
+            })
+            .and_then(|id| self.song().tracks.iter().find(|track| track.id == id))
+        else {
+            self.waveform = None;
+            return;
+        };
+        let Some(reference) = &track.audio else {
+            self.waveform = None;
+            return;
+        };
+        if self
+            .waveform
+            .as_ref()
+            .is_some_and(|(id, path, _)| *id == track.id && *path == reference.path)
+        {
+            return;
+        }
+        let peaks = std::fs::read(&reference.path)
+            .ok()
+            .and_then(|bytes| audio::wav::decode_mono(&bytes).ok())
+            .map(|decoded| audio::waveform::peaks(&decoded.samples, 240))
+            .unwrap_or_default();
+        self.waveform = Some((track.id, reference.path.clone(), peaks));
+    }
+
+    fn draw_waveform(ui: &mut egui::Ui, peaks: &[audio::waveform::Peak]) {
+        let (response, painter) = ui.allocate_painter(
+            egui::Vec2::new(ui.available_width(), 44.0),
+            egui::Sense::hover(),
+        );
+        let rect = response.rect;
+        painter.rect_filled(rect, 0.0, theme::LANE);
+        if peaks.is_empty() {
+            return;
+        }
+        let centre = rect.center().y;
+        let height = rect.height() * 0.45;
+        for (index, peak) in peaks.iter().enumerate() {
+            let x = rect.left() + rect.width() * index as f32 / peaks.len() as f32;
+            painter.line_segment(
+                [
+                    egui::Pos2::new(x, centre - peak.max * height),
+                    egui::Pos2::new(x, centre - peak.min * height),
+                ],
+                egui::Stroke::new(1.0_f32, theme::ACCENT),
+            );
+        }
+        painter.line_segment(
+            [
+                egui::Pos2::new(rect.left(), centre),
+                egui::Pos2::new(rect.right(), centre),
+            ],
+            egui::Stroke::new(0.5_f32, theme::LINE),
+        );
     }
 
     /// Opens the configured keyboard once and applies mapped controls.
@@ -1552,6 +1624,7 @@ impl eframe::App for ShellApp {
         }
         self.handle_keys(context);
         self.poll_midi();
+        self.refresh_waveform();
         if self.settings.kids_mode && self.view.index() > 1 {
             self.view = View::Arrange;
         }
@@ -1567,6 +1640,7 @@ impl eframe::App for ShellApp {
         self.windows(context);
         self.status_bar(context);
         self.sidebar(context);
+        let waveform = self.waveform.clone();
         let panel = egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::TIMELINE))
             .show(context, |ui| {
@@ -1574,11 +1648,33 @@ impl eframe::App for ShellApp {
                 let position = self.position;
                 let mut clicked = None;
                 let mut automation_edit: Option<(TrackId, project::song::Automation)> = None;
+                let mut audio_trim: Option<(TrackId, Tick)> = None;
                 let Self { editor, roll, .. } = self;
                 let selected_clip = self.selected_clip;
                 let project = editor.project();
                 match view {
                 View::Arrange => {
+                    if let Some((track_id, path, peaks)) = &waveform
+                        && roll.selected == Some(*track_id)
+                    {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(
+                                    std::path::Path::new(path)
+                                        .file_name()
+                                        .and_then(|name| name.to_str())
+                                        .unwrap_or("audio"),
+                                )
+                                .size(10.0)
+                                .color(theme::TEXT_MUTED),
+                            );
+                            if ui.button("Trim 1 beat").clicked() {
+                                let bar = project.song.time_signature.bar_ticks().max(1);
+                                audio_trim = Some((*track_id, bar / 4));
+                            }
+                        });
+                        Self::draw_waveform(ui, peaks);
+                    }
                     if let Some(click) = piano_roll::show(
                         ui,
                         &project.song,
@@ -1660,11 +1756,18 @@ impl eframe::App for ShellApp {
                     }
                 }
                 }
-                (clicked, automation_edit)
+                (clicked, automation_edit, audio_trim)
             });
-        let (clicked, automation_edit) = panel.inner;
+        let (clicked, automation_edit, audio_trim) = panel.inner;
         if let Some(click) = clicked {
             self.edit_click(click);
+        }
+        if let Some((track, delta)) = audio_trim {
+            if let Err(error) = self.editor.trim_audio_start(track, delta) {
+                self.status = Some(error);
+            } else {
+                self.status = Some(format!("trimmed {delta} tick(s)"));
+            }
         }
         if let Some((track, lane)) = automation_edit {
             let lanes = vec![lane];

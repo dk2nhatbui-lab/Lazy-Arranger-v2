@@ -567,6 +567,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 path: wav.display().to_string(),
                 start,
                 length,
+                offset: 0,
             });
             session.apply(Command::InsertTrack { track })?;
             let json = session.project().to_json_pretty()?;

@@ -11,6 +11,7 @@ pub mod link;
 pub mod mix;
 pub mod player;
 pub mod wav;
+pub mod waveform;
 
 use std::f64::consts::TAU;
 
@@ -351,6 +352,7 @@ mod tests {
             path: String::from("/tmp/unused.wav"),
             start: 0,
             length: 7680,
+            offset: 0,
         });
         song.tracks.push(take);
         let rendered = render(&song, SAMPLE_RATE);

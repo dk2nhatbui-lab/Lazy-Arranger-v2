@@ -217,6 +217,13 @@ pub struct AudioRef {
     pub start: Tick,
     /// Length in ticks at the tempo when it was imported.
     pub length: Tick,
+    /// In-point into the audio file, in ticks at the import tempo.
+    #[serde(default, skip_serializing_if = "is_zero_tick")]
+    pub offset: Tick,
+}
+
+fn is_zero_tick(tick: &Tick) -> bool {
+    *tick == 0
 }
 
 /// A named region of a track's timeline.
@@ -667,6 +674,11 @@ impl ProjectFile {
                     // behaviour.
                     self.version = 11;
                 }
+                11 => {
+                    // Version 12 adds an in-point to audio references; zero is
+                    // the version 11 behaviour.
+                    self.version = 12;
+                }
                 from => {
                     return Err(ProjectError::Migration {
                         from,
@@ -1030,6 +1042,7 @@ mod tests {
             path: String::from("/tmp/take.wav"),
             start: 0,
             length: 3840,
+            offset: 0,
         });
         song.tracks.push(track);
         let text = ProjectFile::new(song).to_json_pretty().expect("serialize");
