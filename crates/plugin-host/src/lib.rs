@@ -6,6 +6,9 @@
 
 #![allow(unsafe_code)]
 
+mod instance;
+pub use instance::Vst3Effect;
+
 use std::path::{Path, PathBuf};
 
 /// One VST3 audio-module class read from a bundle.

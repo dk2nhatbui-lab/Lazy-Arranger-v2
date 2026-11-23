@@ -43,9 +43,12 @@ sforzando and Band-in-a-Box. `plugins` uses it when `moduleinfo.json` is absent.
 The crate has no lints inheritance by design; all other crates still forbid
 `unsafe`.
 
-The next step is instantiation/processing: component + controller, setup,
-audio-bus buffers and a `ProcessData` loop, then AU v2 (AudioToolbox C API) and
-editors (main-thread event loop). Production scanning should move to a
+**Stereo effect processing now works** in `plugin-host`: component + optional
+controller, a minimal `IHostApplication`, main-bus activation, `setupProcessing`,
+`setActive`, `setProcessing` and a block `ProcessData` loop. Verified by an
+ignored test that runs R0Verb over an impulse: output is non-silent. Remaining:
+parameters/automation, state, offline/realtime modes, AU v2 (AudioToolbox C
+API) and editors (main-thread event loop); production scanning should move to a
 subprocess, as both references do.
 
 ## MIDI engine
