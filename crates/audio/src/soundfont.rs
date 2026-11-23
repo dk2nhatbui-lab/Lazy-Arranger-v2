@@ -26,6 +26,8 @@ pub struct Sample {
     pub correction: i8,
     /// 1 mono, 2 right, 4 left, 8 linked.
     pub kind: u16,
+    /// Linked sample index.
+    pub link: u16,
 }
 
 /// One instrument zone.
@@ -347,6 +349,7 @@ pub fn parse(bytes: &[u8]) -> Result<SoundFont, String> {
             root: *record.get(40).unwrap_or(&0),
             correction: *record.get(41).unwrap_or(&0) as i8,
             kind: u16_at(record, 44).unwrap_or(0),
+            link: u16_at(record, 42).unwrap_or(0),
         })
         .filter(|sample| !sample.name.is_empty())
         .collect();
@@ -536,23 +539,13 @@ fn envelope(zone: &InstrumentZone, seconds: f32, held: f32) -> f32 {
     }
 }
 
-/// Renders one note from a preset zone.
-///
-/// Samples are played mono with linear interpolation; loop mode 1 repeats the
-/// loop region. Envelopes, filters and modulators are not applied.
-#[must_use]
-pub fn render_note(
+fn resolve_zone(
     font: &SoundFont,
     bank: u16,
     program: u16,
     key: u8,
     velocity: u8,
-    seconds: f32,
-    rate: u32,
-) -> Option<Vec<f32>> {
-    if seconds <= 0.0 || rate == 0 {
-        return None;
-    }
+) -> Option<(&InstrumentZone, usize)> {
     let preset = font.preset(bank, program)?;
     let preset_zone = preset.zones.iter().find(|zone| {
         zone.instrument.is_some()
@@ -569,7 +562,18 @@ pub fn render_note(
             && velocity >= zone.vel_low
             && velocity <= zone.vel_high
     })?;
-    let sample = font.samples.get(zone.sample?)?;
+    Some((zone, zone.sample?))
+}
+
+fn render_sample(
+    font: &SoundFont,
+    zone: &InstrumentZone,
+    sample: &Sample,
+    key: u8,
+    velocity: u8,
+    seconds: f32,
+    rate: u32,
+) -> Option<Vec<f32>> {
     let pcm_len = font.pcm.len();
     let start = usize::try_from(sample.start).unwrap_or(0).min(pcm_len);
     let end = usize::try_from(sample.end).unwrap_or(0).min(pcm_len);
@@ -614,6 +618,73 @@ pub fn render_note(
         position += f64::from(step);
     }
     Some(out)
+}
+
+/// Renders one note, averaging a stereo pair to mono.
+///
+/// Samples are played with linear interpolation; loop mode 1 repeats the loop
+/// region. Envelope and filter are applied.
+#[must_use]
+pub fn render_note(
+    font: &SoundFont,
+    bank: u16,
+    program: u16,
+    key: u8,
+    velocity: u8,
+    seconds: f32,
+    rate: u32,
+) -> Option<Vec<f32>> {
+    if seconds <= 0.0 || rate == 0 {
+        return None;
+    }
+    if let Some((left, right)) = render_stereo(font, bank, program, key, velocity, seconds, rate) {
+        return Some(
+            left.iter()
+                .zip(right.iter())
+                .map(|(left, right)| (left + right) * 0.5)
+                .collect(),
+        );
+    }
+    let (zone, sample_index) = resolve_zone(font, bank, program, key, velocity)?;
+    let sample = font.samples.get(sample_index)?;
+    render_sample(font, zone, sample, key, velocity, seconds, rate)
+}
+
+/// Renders one note as two channels.
+///
+/// Returns `None` for a mono sample; use [`render_note`] for those. A stereo
+/// header links to its partner through `link` (2 right, 4 left).
+#[must_use]
+pub fn render_stereo(
+    font: &SoundFont,
+    bank: u16,
+    program: u16,
+    key: u8,
+    velocity: u8,
+    seconds: f32,
+    rate: u32,
+) -> Option<(Vec<f32>, Vec<f32>)> {
+    if seconds <= 0.0 || rate == 0 {
+        return None;
+    }
+    let (zone, index) = resolve_zone(font, bank, program, key, velocity)?;
+    let sample = font.samples.get(index)?;
+    let is_right = sample.kind & 2 != 0;
+    let is_left = sample.kind & 4 != 0;
+    if !is_right && !is_left {
+        return None;
+    }
+    let link = usize::from(sample.link);
+    let left_index = if is_left { index } else { link };
+    let right_index = if is_right { index } else { link };
+    if left_index == right_index {
+        return None;
+    }
+    let left_sample = font.samples.get(left_index)?;
+    let right_sample = font.samples.get(right_index)?;
+    let left = render_sample(font, zone, left_sample, key, velocity, seconds, rate)?;
+    let right = render_sample(font, zone, right_sample, key, velocity, seconds, rate)?;
+    Some((left, right))
 }
 
 /// One-line summary for a CLI.
@@ -782,6 +853,7 @@ mod tests {
             "ramp reaches the middle: {}",
             rendered[32]
         );
+        assert_eq!(font.samples[0].link, 0);
         assert!(render_note(&font, 0, 1, 60, 127, 0.01, 44_100).is_none());
         assert!(describe(&font).contains("1 preset"));
         assert_eq!(
@@ -869,6 +941,38 @@ mod tests {
             rms(&high)
         );
         assert!(!low.iter().any(|value| !value.is_finite()));
+    }
+
+    #[test]
+    fn a_linked_stereo_pair_renders_two_channels() {
+        let mut font = parse(&build()).expect("parse");
+        font.pcm = (0..128)
+            .map(|index| if index < 64 { 8_000 } else { -8_000 })
+            .collect();
+        font.samples[0].kind = 4;
+        font.samples[0].link = 1;
+        font.samples[0].start = 0;
+        font.samples[0].end = 64;
+        font.samples[0].loop_start = 0;
+        font.samples[0].loop_end = 64;
+        font.samples.push(Sample {
+            name: String::from("Right"),
+            start: 64,
+            end: 128,
+            loop_start: 64,
+            loop_end: 128,
+            rate: 44_100,
+            root: 60,
+            correction: 0,
+            kind: 2,
+            link: 0,
+        });
+        font.instruments[0].zones[0].sample_modes = 1;
+        let (left, right) = render_stereo(&font, 0, 0, 60, 127, 0.1, 44_100).expect("stereo");
+        assert_eq!(left.len(), right.len());
+        assert!(left[100] > 0.0 && right[100] < 0.0, "channels differ");
+        let mono = render_note(&font, 0, 0, 60, 127, 0.1, 44_100).expect("mono");
+        assert!((mono[100] - (left[100] + right[100]) * 0.5).abs() < 1.0e-6);
     }
 
     #[test]

@@ -202,8 +202,8 @@ pub fn render_with_soundfont(
             let amplitude = f64::from(note.velocity.as_u8()) / 127.0 * 0.18;
             let release = (0.08 * f64::from(sample_rate)) as usize;
             let note_seconds = (stop - start) as f64 / f64::from(sample_rate);
-            if let Some((font, bank, program)) = &sampled
-                && let Some(mono) = soundfont::render_note(
+            if let Some((font, bank, program)) = &sampled {
+                let channels = soundfont::render_stereo(
                     font,
                     *bank,
                     *program,
@@ -212,33 +212,46 @@ pub fn render_with_soundfont(
                     note_seconds as f32,
                     sample_rate,
                 )
-            {
-                for (offset, value) in mono.iter().enumerate() {
-                    let frame = start + offset;
-                    if frame >= frames {
-                        break;
+                .or_else(|| {
+                    soundfont::render_note(
+                        font,
+                        *bank,
+                        *program,
+                        note.pitch.as_u8(),
+                        note.velocity.as_u8(),
+                        note_seconds as f32,
+                        sample_rate,
+                    )
+                    .map(|mono| (mono.clone(), mono))
+                });
+                if let Some((left_audio, right_audio)) = channels {
+                    for offset in 0..left_audio.len().min(right_audio.len()) {
+                        let frame = start + offset;
+                        if frame >= frames {
+                            break;
+                        }
+                        let left = left_audio[offset] * left_gain;
+                        let right = right_audio[offset] * right_gain;
+                        if let Some(index) = track
+                            .bus
+                            .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
+                        {
+                            bus_buffers[index][frame * 2] += left;
+                            bus_buffers[index][frame * 2 + 1] += right;
+                        } else {
+                            samples[frame * 2] += left;
+                            samples[frame * 2 + 1] += right;
+                        }
+                        if let Some(index) = track
+                            .send
+                            .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
+                        {
+                            bus_buffers[index][frame * 2] += left * send_level;
+                            bus_buffers[index][frame * 2 + 1] += right * send_level;
+                        }
                     }
-                    let left = value * left_gain;
-                    let right = value * right_gain;
-                    if let Some(index) = track
-                        .bus
-                        .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
-                    {
-                        bus_buffers[index][frame * 2] += left;
-                        bus_buffers[index][frame * 2 + 1] += right;
-                    } else {
-                        samples[frame * 2] += left;
-                        samples[frame * 2 + 1] += right;
-                    }
-                    if let Some(index) = track
-                        .send
-                        .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
-                    {
-                        bus_buffers[index][frame * 2] += left * send_level;
-                        bus_buffers[index][frame * 2 + 1] += right * send_level;
-                    }
+                    continue;
                 }
-                continue;
             }
             for frame in start..stop.min(frames) {
                 let t = (frame - start) as f64 / f64::from(sample_rate);
@@ -604,6 +617,7 @@ mod tests {
                 root: 69,
                 correction: 0,
                 kind: 1,
+                link: 0,
             }],
             pcm: (0..64).map(|index| index * 400).collect(),
         };

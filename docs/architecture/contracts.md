@@ -294,8 +294,10 @@ current values and clears the preset. Instrument zones carry the six volume-
 envelope generators; `render_note` converts timecents to seconds and sustain
 centibels to a linear level, then applies delay, attack, hold, decay, sustain
 and a release ending at the note boundary. A per-note biquad lowpass applies the initial filter cutoff (absolute cents
-from 8.176 Hz, clamped below Nyquist) and Q (centibels). Modulators, stereo
-samples and SF3 remain absent.
+from 8.176 Hz, clamped below Nyquist) and Q (centibels). Linked stereo headers (kind 2 right, 4 left, `link` partner) render both
+channels with the same envelope and filter; `render_stereo` feeds them to the
+project mix separately, while `render_note` averages them to mono for the
+one-note CLI. Modulators and SF3 remain absent.
 
 ### Audio-model MCP tools
 
