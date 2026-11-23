@@ -180,3 +180,4 @@ For the clef layout, choose either four measures per system without clefs
 - Mixer strips no longer show a dead second send knob; only the wired Rev/send knob and pan remain.
 - Removed the second post-render audio mix: playback/bounce now check references without mixing them twice.
 - MCP get_buses/set_buses expose bus mute and solo; the bus test covers both.
+- Score note typing suppresses the letter shortcuts (D/F/T/Y/H/J/K/G/N) that overlap the A-J note row.

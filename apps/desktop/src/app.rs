@@ -1450,6 +1450,8 @@ impl ShellApp {
         let delete = context.input(|input| {
             input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace)
         });
+        let score_typing =
+            self.view == View::Score && self.score_entry && !context.wants_keyboard_input();
         if context.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::F1)) {
             self.shortcuts_open = true;
         }
@@ -1622,7 +1624,8 @@ impl ShellApp {
                 let _ = self.editor.delete(track, note);
             }
         }
-        if context.input(|input| input.key_pressed(egui::Key::N))
+        if !score_typing
+            && context.input(|input| input.key_pressed(egui::Key::N))
             && self.selected_clip.is_none()
             && self.selected_clips.is_empty()
             && let Some(track) = self
@@ -1691,6 +1694,7 @@ impl ShellApp {
             }
         }
         if let Some((track, clip)) = self.selected_clip
+            && !score_typing
             && context.input(|input| input.key_pressed(egui::Key::J))
             && let Some(next) = self
                 .song()
@@ -1715,7 +1719,8 @@ impl ShellApp {
             let _ = self.editor.join_clips(track, clip, next);
             self.selected_clip = Some((track, clip));
         }
-        if context.input(|input| input.key_pressed(egui::Key::G))
+        if !score_typing
+            && context.input(|input| input.key_pressed(egui::Key::G))
             && let Some(source) = self.roll.selected
         {
             match self
@@ -1727,7 +1732,7 @@ impl ShellApp {
                 Err(error) => self.status = Some(error),
             }
         }
-        if context.input(|input| input.key_pressed(egui::Key::T)) {
+        if !score_typing && context.input(|input| input.key_pressed(egui::Key::T)) {
             let bar = self.song().time_signature.bar_ticks().max(1);
             let join = snap(self.position, bar).max(bar);
             match self
@@ -1755,28 +1760,29 @@ impl ShellApp {
                 self.beat_dialog = true;
             }
         }
-        if context.input(|input| input.key_pressed(egui::Key::Y)) {
+        if !score_typing && context.input(|input| input.key_pressed(egui::Key::Y)) {
             self.form_dialog = true;
         }
-        if context.input(|input| input.key_pressed(egui::Key::D)) {
+        if !score_typing && context.input(|input| input.key_pressed(egui::Key::D)) {
             self.doctor_proposals = self.editor.proposals();
             self.doctor_proposals
                 .extend(self.editor.fit_proposals(self.synth));
             self.doctor_dialog = true;
         }
-        if context.input(|input| input.key_pressed(egui::Key::F)) {
+        if !score_typing && context.input(|input| input.key_pressed(egui::Key::F)) {
             match self.editor.find_chords() {
                 Ok(0) => self.status = Some(String::from("no chords found")),
                 Ok(count) => self.status = Some(format!("found {count} chord(s)")),
                 Err(error) => self.status = Some(error),
             }
         }
-        if context.input(|input| input.key_pressed(egui::Key::K)) {
+        if !score_typing && context.input(|input| input.key_pressed(egui::Key::K)) {
             let bar = self.song().time_signature.bar_ticks().max(1);
             self.chord_dialog_target = snap(self.position, bar);
             self.chord_dialog = true;
         }
-        if context.input(|input| input.key_pressed(egui::Key::H))
+        if !score_typing
+            && context.input(|input| input.key_pressed(egui::Key::H))
             && let Some(found) = self
                 .song()
                 .chords
