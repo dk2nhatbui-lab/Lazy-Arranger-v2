@@ -49,6 +49,19 @@ pub fn start(gain: f32) -> Result<Monitor, String> {
 /// Returns a message when the named device is absent, a device is missing, the
 /// formats or rates differ, samples are unsupported, or a stream cannot start.
 pub fn start_on(device_name: Option<&str>, gain: f32) -> Result<Monitor, String> {
+    start_on_channel(device_name, None, gain)
+}
+
+/// Starts monitoring one input channel, or a mono mix when `channel` is None.
+///
+/// # Errors
+///
+/// Returns a message when the devices, formats or sample rates do not match.
+pub fn start_on_channel(
+    device_name: Option<&str>,
+    channel: Option<usize>,
+    gain: f32,
+) -> Result<Monitor, String> {
     let host = cpal::default_host();
     let input = match device_name {
         Some(name) => host
@@ -80,7 +93,13 @@ pub fn start_on(device_name: Option<&str>, gain: f32) -> Result<Monitor, String>
         ));
     }
     let queue: Arc<Mutex<VecDeque<f32>>> = Arc::new(Mutex::new(VecDeque::new()));
-    let input_stream = build_input(&input, &input_config, input_format, Arc::clone(&queue))?;
+    let input_stream = build_input(
+        &input,
+        &input_config,
+        input_format,
+        channel,
+        Arc::clone(&queue),
+    )?;
     let output_stream = build_output(&output, &output_config, output_format, queue, gain)?;
     input_stream
         .play()
@@ -98,12 +117,13 @@ fn build_input(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     format: cpal::SampleFormat,
+    channel: Option<usize>,
     queue: Arc<Mutex<VecDeque<f32>>>,
 ) -> Result<cpal::Stream, String> {
     match format {
-        cpal::SampleFormat::F32 => input_stream::<f32>(device, config, queue),
-        cpal::SampleFormat::I16 => input_stream::<i16>(device, config, queue),
-        cpal::SampleFormat::U16 => input_stream::<u16>(device, config, queue),
+        cpal::SampleFormat::F32 => input_stream::<f32>(device, config, channel, queue),
+        cpal::SampleFormat::I16 => input_stream::<i16>(device, config, channel, queue),
+        cpal::SampleFormat::U16 => input_stream::<u16>(device, config, channel, queue),
         other => Err(format!("unsupported input sample format {other:?}")),
     }
 }
@@ -126,6 +146,7 @@ fn build_output(
 fn input_stream<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
+    channel: Option<usize>,
     queue: Arc<Mutex<VecDeque<f32>>>,
 ) -> Result<cpal::Stream, String>
 where
@@ -140,11 +161,17 @@ where
             move |data: &[T], _| {
                 if let Ok(mut queue) = queue.lock() {
                     for frame in data.chunks_exact(channels) {
-                        let mono = frame
-                            .iter()
-                            .map(|sample| sample.to_sample::<f32>())
-                            .sum::<f32>()
-                            / frame.len() as f32;
+                        let mono = if let Some(channel) = channel {
+                            frame
+                                .get(channel)
+                                .map_or(0.0, |sample| sample.to_sample::<f32>())
+                        } else {
+                            frame
+                                .iter()
+                                .map(|sample| sample.to_sample::<f32>())
+                                .sum::<f32>()
+                                / frame.len() as f32
+                        };
                         queue.push_back(mono);
                     }
                     while queue.len() > capacity {
