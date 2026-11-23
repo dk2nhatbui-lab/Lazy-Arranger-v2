@@ -39,10 +39,27 @@ pub fn mono_frame(frame: &[f32]) -> f32 {
 /// Returns a message when a device is missing, the formats differ, the rates
 /// differ, samples are unsupported, or a stream cannot start.
 pub fn start(gain: f32) -> Result<Monitor, String> {
+    start_on(None, gain)
+}
+
+/// Starts monitoring a named input (or the default) on the default output.
+///
+/// # Errors
+///
+/// Returns a message when the named device is absent, a device is missing, the
+/// formats or rates differ, samples are unsupported, or a stream cannot start.
+pub fn start_on(device_name: Option<&str>, gain: f32) -> Result<Monitor, String> {
     let host = cpal::default_host();
-    let input = host
-        .default_input_device()
-        .ok_or_else(|| String::from("no default audio input device"))?;
+    let input = match device_name {
+        Some(name) => host
+            .input_devices()
+            .map_err(|error| format!("could not list inputs: {error}"))?
+            .find(|device| device.name().ok().as_deref() == Some(name))
+            .ok_or_else(|| format!("audio input {name:?} not found"))?,
+        None => host
+            .default_input_device()
+            .ok_or_else(|| String::from("no default audio input device"))?,
+    };
     let output = host
         .default_output_device()
         .ok_or_else(|| String::from("no default audio output device"))?;

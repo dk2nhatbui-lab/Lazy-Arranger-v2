@@ -446,6 +446,7 @@ pub struct ShellApp {
     print_copies: u32,
     print_pages: String,
     monitor: Option<audio::monitor::Monitor>,
+    monitor_input: Option<Option<String>>,
     stem_levels: Vec<(TrackId, Vec<f32>)>,
     marker_text: String,
     marker_selected: Option<Tick>,
@@ -638,6 +639,7 @@ impl ShellApp {
             print_copies: 1,
             print_pages: String::new(),
             monitor: None,
+            monitor_input: None,
             stem_levels: Vec::new(),
             marker_text: String::new(),
             marker_selected: None,
@@ -1161,9 +1163,15 @@ impl ShellApp {
     }
 
     fn sync_monitor(&mut self) {
-        if self.settings.monitor && self.monitor.is_none() {
-            match audio::monitor::start(0.7) {
-                Ok(monitor) => self.monitor = Some(monitor),
+        let wanted = self.settings.audio_input.clone();
+        if self.settings.monitor && self.monitor_input.as_ref() != Some(&wanted) {
+            self.monitor = None;
+            self.monitor_input = None;
+            match audio::monitor::start_on(wanted.as_deref(), 0.7) {
+                Ok(monitor) => {
+                    self.monitor = Some(monitor);
+                    self.monitor_input = Some(wanted);
+                }
                 Err(error) => {
                     self.settings.monitor = false;
                     self.status = Some(format!("monitor: {error}"));
@@ -1171,6 +1179,7 @@ impl ShellApp {
             }
         } else if !self.settings.monitor {
             self.monitor = None;
+            self.monitor_input = None;
         }
     }
 

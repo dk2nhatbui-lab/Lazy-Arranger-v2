@@ -77,3 +77,4 @@ For the clef layout, choose either four measures per system without clefs
 - Shortcut editor detects duplicate bindings and has Reset defaults; six bindings remain editable.
 - Plugin scanning runs on a worker thread; Rescan/Scan controls disable while scanning and the cache is saved when the worker returns.
 - Settings lists audio input devices and persists a preferred input; audio capture uses it with a default fallback.
+- Input monitoring restarts when the preferred audio input changes; it uses the named device or the default.
