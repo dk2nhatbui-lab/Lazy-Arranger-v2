@@ -158,7 +158,7 @@ plurals, a real AI model and speech input.
 | Track Inspector, live ruler seek and window openers | `apps/desktop`, `audio::player` | implemented | seek unit test; tempo tests; UI manual |
 | Buses and sends (schema v13) | `project::song::Bus`, `audio` render, `app-commands` | verified | route/send/pan render tests; command undo; JSON round trip |
 | Audio references, fades/stretch, waveform zoom, import, capture, float WAV | `audio`, Editor import, CLI and sidebar | verified helpers | fade/stretch/window/mix/import tests; input hardware/permission unverified |
-| Lyric lane and syllable editor (schema v10) | `piano_roll` lane, Editor lyrics, Lyrics window | verified model | add/replace/remove/undo tests; lane UI manual |
+| Lyric lane, editor and Go navigation | `piano_roll` lane, Editor lyrics, Lyrics window | verified model | add/replace/remove/undo tests; `docs/audit/lyrics.png` |
 | Per-track synth patch (schema v14, waveform + ADSR + brightness) | `project::song::Patch`, `audio` render, `app-commands` | verified | square-vs-sine, slow-attack, command and round-trip tests |
 | SysEx parameter-change builder, checksum and XG System On dump | `midi-devices::sysex`, CLI `sysex-xg-on` | verified | checksum/end-byte tests; 10-byte dump written |
 | Plugin slots (schema v15), discovery and Mixer browser (no hosting) | `project::song::PluginSlot`, `plugins`, CLI/MCP, Mixer panel | verified discovery/state | slot round trip; synthetic scan; Editor add/toggle/remove test; 21 real bundles |

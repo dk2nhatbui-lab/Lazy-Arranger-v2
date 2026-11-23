@@ -874,6 +874,16 @@ impl ShellApp {
         }
     }
 
+    fn seek_to(&mut self, tick: Tick) {
+        let tick = tick.max(0);
+        if self.playing
+            && let Some(player) = &self.player
+        {
+            let _ = player.seek_seconds(self.song().tempo_map.seconds_at(tick));
+        }
+        self.position = tick;
+    }
+
     fn begin_save_as(&mut self) {
         self.file_path_input = self
             .project_path
@@ -1904,12 +1914,7 @@ impl ShellApp {
             });
         self.markers_open = open;
         if let Some(tick) = goto {
-            if self.playing
-                && let Some(player) = &self.player
-            {
-                let _ = player.seek_seconds(self.song().tempo_map.seconds_at(tick));
-            }
-            self.position = tick;
+            self.seek_to(tick);
         }
         if add {
             match self.editor.add_marker(position, self.marker_text.trim()) {
@@ -1948,6 +1953,7 @@ impl ShellApp {
         let mut add = false;
         let mut remove = None;
         let mut save = false;
+        let mut goto = None;
         egui::Window::new("Lyrics")
             .open(&mut open)
             .default_width(320.0)
@@ -1971,6 +1977,9 @@ impl ShellApp {
                             self.lyric_selected = Some(*tick);
                             self.lyric_text = text.clone();
                         }
+                        if ui.small_button("Go").clicked() {
+                            goto = Some(*tick);
+                        }
                         if ui.small_button("Remove").clicked() {
                             remove = Some(*tick);
                         }
@@ -1985,6 +1994,9 @@ impl ShellApp {
                 }
             });
         self.lyrics_open = open;
+        if let Some(tick) = goto {
+            self.seek_to(tick);
+        }
         if add {
             match self.editor.add_lyric(position, self.lyric_text.trim()) {
                 Ok(()) => self.lyric_selected = Some(position),
@@ -4861,13 +4873,7 @@ impl eframe::App for ShellApp {
             lyric_click,
         ) = panel.inner;
         if let Some(tick) = seek {
-            let tick = tick.max(0);
-            if self.playing
-                && let Some(player) = &self.player
-            {
-                let _ = player.seek_seconds(self.song().tempo_map.seconds_at(tick));
-            }
-            self.position = tick;
+            self.seek_to(tick);
         }
         if let Some(tick) = lyric_click {
             self.lyrics_open = true;

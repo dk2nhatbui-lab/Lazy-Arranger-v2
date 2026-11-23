@@ -920,3 +920,9 @@ Theory, Lessons and Songs & tutorial were captured for QA at
 `docs/audit/theory.png`, `lessons.png` and `songs.png`. Theory and Lessons use
 wider defaults and wrapped hint labels; Songs lists three named songs and four
 tutorial steps.
+
+### Lyric navigation
+
+Each Lyrics row has Go, which seeks the live player through the tempo map via the
+shared `seek_to` helper (also used by the ruler and Markers). The captured
+window is `docs/audit/lyrics.png`.
