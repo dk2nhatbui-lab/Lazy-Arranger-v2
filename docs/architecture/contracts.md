@@ -953,3 +953,9 @@ asserts the `(1) Tj` number.
 recorded MIDI take is inserted, replacing that bar's chords with the recognised
 ones and reporting the count. Detection covers the whole song. Settings
 round-trip and chord recognition have tests.
+
+### Launchkey pad preset
+
+`midi_devices::map::launchkey_pad_map` binds notes 36..=51 to `Action::Pad` for
+the same note; the MIDI map window loads and saves it. A test checks all sixteen
+bindings. No Launchkey hardware was available, so the send path is unverified.

@@ -2206,6 +2206,16 @@ impl ShellApp {
                             std::fs::write("lazy-arranger-midi-map.txt", self.midi_map.to_text());
                         self.status = Some(String::from("MIDI map cleared"));
                     }
+                    if ui
+                        .button("Launchkey pads")
+                        .on_hover_text("Notes 36-51 audition the matching drum pad")
+                        .clicked()
+                    {
+                        self.midi_map = midi_devices::map::launchkey_pad_map();
+                        let _ =
+                            std::fs::write("lazy-arranger-midi-map.txt", self.midi_map.to_text());
+                        self.status = Some(String::from("Launchkey pad map loaded"));
+                    }
                 });
                 if self.midi_learn.is_some() {
                     ui.label(

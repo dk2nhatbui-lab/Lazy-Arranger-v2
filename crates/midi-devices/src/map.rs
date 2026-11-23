@@ -79,6 +79,16 @@ pub struct MidiMap {
     pub bindings: Vec<Binding>,
 }
 
+/// Launchkey-style pad map: notes 36..=51 audition the matching pad.
+#[must_use]
+pub fn launchkey_pad_map() -> MidiMap {
+    let mut map = MidiMap::default();
+    for note in 36_u8..=51 {
+        map.bind(Control::Note(note), Action::Pad(note));
+    }
+    map
+}
+
 impl MidiMap {
     /// Binds a control, replacing any earlier binding for it.
     pub fn bind(&mut self, control: Control, action: Action) {
@@ -397,5 +407,20 @@ mod controller_tests {
         map.bind(Control::Controller(7), Action::Play);
         let found = map.controller_bindings();
         assert_eq!(found, vec![(7, Action::Play), (20, Action::Undo)]);
+    }
+}
+
+#[cfg(test)]
+mod launchkey_tests {
+    use super::*;
+
+    #[test]
+    fn pad_preset_covers_sixteen_notes() {
+        let map = launchkey_pad_map();
+        assert_eq!(map.bindings.len(), 16);
+        assert_eq!(map.bindings[0].control, Control::Note(36));
+        assert_eq!(map.bindings[0].action, Action::Pad(36));
+        assert_eq!(map.bindings[15].control, Control::Note(51));
+        assert_eq!(map.bindings[15].action, Action::Pad(51));
     }
 }
