@@ -684,6 +684,43 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "list_grooves",
+            description: "List groove files in a directory.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"directory": {"type": "string"}},
+                "required": ["directory"]
+            }),
+        },
+        Tool {
+            name: "save_groove",
+            description: "Extract one bar of a track to a groove file.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "directory": {"type": "string"}
+                },
+                "required": ["track", "name", "directory"]
+            }),
+        },
+        Tool {
+            name: "apply_groove_file",
+            description: "Load a groove by name and apply it to a track.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "directory": {"type": "string"},
+                    "timing": {"type": "number"},
+                    "accents": {"type": "number"}
+                },
+                "required": ["track", "name", "directory"]
+            }),
+        },
+        Tool {
             name: "apply_groove",
             description: "Apply one track's groove to the other tracks.",
             input_schema: json!({
@@ -2041,6 +2078,9 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             Ok(json!({"proposals": proposals}))
         }
         "extract_groove" => extract_groove(session, arguments),
+        "list_grooves" => list_grooves(arguments),
+        "save_groove" => save_groove(session, arguments),
+        "apply_groove_file" => apply_groove_file(session, arguments),
         "apply_groove" => apply_groove(session, arguments),
         "make_song_form" => make_song_form(session, arguments),
         "reharmonize" => reharmonize(session, arguments),
@@ -2102,6 +2142,91 @@ fn extract_groove(session: &mut EditSession, arguments: &Value) -> Result<Value,
     let groove = arranging::groove::extract(&source.notes, bar, music_core::PPQ / 4)
         .ok_or_else(|| ToolError::Arguments(String::from("no groove")))?;
     Ok(json!({"grid": groove.grid, "offsets": groove.offsets, "levels": groove.levels}))
+}
+
+fn list_grooves(arguments: &Value) -> Result<Value, ToolError> {
+    let directory = arguments
+        .get("directory")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::Arguments(String::from("directory is required")))?;
+    let entries = arranging::groove_file::list(std::path::Path::new(directory))
+        .map_err(ToolError::Arguments)?;
+    Ok(json!({
+        "grooves": entries.iter().map(|(name, path)| json!({
+            "name": name,
+            "path": path.display().to_string()
+        })).collect::<Vec<_>>()
+    }))
+}
+
+fn save_groove(session: &mut EditSession, arguments: &Value) -> Result<Value, ToolError> {
+    let track = track_argument(arguments)?;
+    let name = arguments
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::Arguments(String::from("name is required")))?;
+    let directory = arguments
+        .get("directory")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::Arguments(String::from("directory is required")))?;
+    let entry = session
+        .song()
+        .tracks
+        .iter()
+        .find(|entry| entry.id == track)
+        .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
+    let bar = session.song().time_signature.bar_ticks().max(1);
+    let groove = arranging::groove::extract(&entry.notes, bar, music_core::PPQ / 4)
+        .ok_or_else(|| ToolError::Arguments(String::from("track has no notes")))?;
+    let path = arranging::groove_file::save(std::path::Path::new(directory), name, &groove)
+        .map_err(ToolError::Arguments)?;
+    Ok(json!({"path": path.display().to_string()}))
+}
+
+fn apply_groove_file(session: &mut EditSession, arguments: &Value) -> Result<Value, ToolError> {
+    let track = track_argument(arguments)?;
+    let name = arguments
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::Arguments(String::from("name is required")))?;
+    let directory = arguments
+        .get("directory")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::Arguments(String::from("directory is required")))?;
+    let timing = arguments
+        .get("timing")
+        .and_then(Value::as_f64)
+        .unwrap_or(1.0) as f32;
+    let accents = arguments
+        .get("accents")
+        .and_then(Value::as_f64)
+        .unwrap_or(1.0) as f32;
+    let entries = arranging::groove_file::list(std::path::Path::new(directory))
+        .map_err(ToolError::Arguments)?;
+    let (_, path) = entries
+        .into_iter()
+        .find(|(found, _)| found == name)
+        .ok_or_else(|| ToolError::Arguments(format!("no groove named {name:?} in {directory}")))?;
+    let (_, groove) = arranging::groove_file::load(&path).map_err(ToolError::Arguments)?;
+    let notes = session
+        .song()
+        .tracks
+        .iter()
+        .find(|entry| entry.id == track)
+        .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?
+        .notes
+        .clone();
+    let applied = arranging::groove::apply(
+        &notes,
+        &groove,
+        arranging::groove::Amounts { timing, accents },
+    );
+    let count = applied.len();
+    session.apply(Command::ReplaceTrackNotes {
+        track,
+        notes: applied,
+    })?;
+    Ok(json!({"applied": count}))
 }
 
 fn apply_groove(session: &mut EditSession, arguments: &Value) -> Result<Value, ToolError> {
@@ -2465,6 +2590,39 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn groove_file_tools_round_trip() {
+        let directory = std::env::temp_dir().join("lazy-arranger-mcp-grooves");
+        let _ = std::fs::remove_dir_all(&directory);
+        let mut session = session_with_track();
+        call(
+            &mut session,
+            "add_note",
+            &json!({"track": 1, "start": 0, "pitch": 60}),
+        )
+        .expect("note");
+        call(
+            &mut session,
+            "save_groove",
+            &json!({"track": 1, "name": "Test", "directory": directory.display().to_string()}),
+        )
+        .expect("save");
+        let listed = call(
+            &mut session,
+            "list_grooves",
+            &json!({"directory": directory.display().to_string()}),
+        )
+        .expect("list");
+        assert_eq!(listed["grooves"][0]["name"], "Test");
+        call(
+            &mut session,
+            "apply_groove_file",
+            &json!({"track": 1, "name": "Test", "directory": directory.display().to_string()}),
+        )
+        .expect("apply");
+        let _ = std::fs::remove_dir_all(directory);
     }
 
     #[test]
