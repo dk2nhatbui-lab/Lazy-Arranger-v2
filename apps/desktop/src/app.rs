@@ -9153,6 +9153,62 @@ fn metronome_button(ui: &mut egui::Ui, rect: Rect, active: bool) -> bool {
     response.clicked()
 }
 
+fn draw_transport_icon(painter: &egui::Painter, rect: Rect, glyph: &str, color: egui::Color32) {
+    let c = rect.center();
+    let s = rect.width().min(rect.height());
+    match glyph {
+        "\u{25A0}" => {
+            painter.rect_filled(
+                Rect::from_center_size(c, egui::vec2(s * 0.42, s * 0.42)),
+                2.0,
+                color,
+            );
+        }
+        "\u{25B6}" => {
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    egui::pos2(c.x - s * 0.22, c.y - s * 0.30),
+                    egui::pos2(c.x - s * 0.22, c.y + s * 0.30),
+                    egui::pos2(c.x + s * 0.30, c.y),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        "\u{2016}" => {
+            for offset in [-1.0_f32, 1.0] {
+                painter.rect_filled(
+                    Rect::from_center_size(
+                        egui::pos2(c.x + offset * s * 0.13, c.y),
+                        egui::vec2(s * 0.12, s * 0.44),
+                    ),
+                    1.0,
+                    color,
+                );
+            }
+        }
+        "\u{25CF}" => {
+            painter.circle_filled(c, s * 0.28, color);
+        }
+        "\u{21B6}" => {
+            let stroke = egui::Stroke::new((s * 0.09).max(1.2), color);
+            let tip = egui::pos2(c.x - s * 0.02, c.y + s * 0.30);
+            painter.line_segment([tip, egui::pos2(c.x + s * 0.32, c.y + s * 0.30)], stroke);
+            painter.line_segment([tip, egui::pos2(c.x + s * 0.08, c.y - s * 0.02)], stroke);
+            painter.line_segment([tip, egui::pos2(c.x - s * 0.12, c.y + s * 0.16)], stroke);
+        }
+        _ => {
+            painter.text(
+                c,
+                egui::Align2::CENTER_CENTER,
+                glyph,
+                egui::FontId::proportional(s * 0.32),
+                color,
+            );
+        }
+    }
+}
+
 fn transport_button(ui: &mut egui::Ui, rect: Rect, glyph: &str, active: bool) -> bool {
     let response = ui.interact(rect, ui.id().with(glyph), egui::Sense::click());
     let fill = if active {
@@ -9176,11 +9232,10 @@ fn transport_button(ui: &mut egui::Ui, rect: Rect, glyph: &str, active: bool) ->
         ),
         egui::StrokeKind::Inside,
     );
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
+    draw_transport_icon(
+        ui.painter(),
+        rect,
         glyph,
-        egui::FontId::proportional(rect.width() * 0.32),
         if active {
             theme::accent()
         } else {
