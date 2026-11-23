@@ -294,6 +294,32 @@ impl Default for Settings {
     }
 }
 
+/// Path of the private AI-key file beside the settings file.
+fn ai_key_path(settings_path: &Path) -> PathBuf {
+    settings_path.with_extension("ai-keys")
+}
+
+fn load_ai_key(settings_path: &Path) -> String {
+    std::fs::read_to_string(ai_key_path(settings_path))
+        .map(|key| key.trim().to_string())
+        .unwrap_or_default()
+}
+
+fn save_ai_key(settings_path: &Path, key: &str) -> Result<(), String> {
+    let path = ai_key_path(settings_path);
+    if key.trim().is_empty() {
+        let _ = std::fs::remove_file(&path);
+        return Ok(());
+    }
+    std::fs::write(&path, key.trim()).map_err(|error| format!("{}: {error}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
 impl Settings {
     /// Path of the settings file in the current directory.
     #[must_use]
@@ -414,6 +440,9 @@ impl Settings {
                 }
             }
         }
+        if settings.ai_api_key.is_empty() {
+            settings.ai_api_key = load_ai_key(path);
+        }
         settings
     }
 
@@ -445,7 +474,6 @@ impl Settings {
         }
         text.push_str(&format!("ai_url = {}\n", self.ai_url));
         text.push_str(&format!("ai_model = {}\n", self.ai_model));
-        text.push_str(&format!("ai_api_key = {}\n", self.ai_api_key));
         text.push_str(&format!("skipped_update = {}\n", self.skipped_update));
         text.push_str(&format!("speech_command = {}\n", self.speech_command));
         text.push_str(&format!("assistant_command = {}\n", self.assistant_command));
@@ -485,7 +513,8 @@ impl Settings {
         for (key, value) in &self.extra {
             text.push_str(&format!("{key} = {value}\n"));
         }
-        std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))
+        std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+        save_ai_key(path, &self.ai_api_key)
     }
 }
 
@@ -548,6 +577,38 @@ mod tests {
             "kids pause clamps to five seconds"
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ai_keys_live_in_a_private_sibling_file() {
+        let path = temp("lazy-arranger-settings-key.txt");
+        let key_path = path.with_extension("ai-keys");
+        let _ = std::fs::remove_file(&key_path);
+        let settings = Settings {
+            ai_api_key: String::from("secret-token"),
+            ..Settings::default()
+        };
+        settings.save(&path).expect("save");
+        assert_eq!(
+            std::fs::read_to_string(&key_path).expect("key"),
+            "secret-token"
+        );
+        let text = std::fs::read_to_string(&path).expect("settings");
+        assert!(!text.contains("secret-token"), "key is not in settings");
+        let back = Settings::load(&path);
+        assert_eq!(back.ai_api_key, "secret-token");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&key_path)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&key_path);
     }
 
     #[test]

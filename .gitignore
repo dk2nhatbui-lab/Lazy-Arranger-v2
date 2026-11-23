@@ -4,3 +4,4 @@
 *.mid
 !tests/fixtures/*.mid
 .DS_Store
+*.ai-keys
