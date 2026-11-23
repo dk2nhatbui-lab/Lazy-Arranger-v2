@@ -45,7 +45,7 @@ accidental spacing, canvas and PDF/MusicXML round trip; audio render with six
 timbres and SF2, references with fades/stretch/waveform zoom, mixing, buses,
 automation, stems/freeze, float WAV and input capture (capture unverified);
 MIDI map with learn, style catalog, theory helpers, settings, six languages,
-the sixteen-bar demo and the **92-tool** MCP server.
+the sixteen-bar demo and the **93-tool** MCP server.
 
 Unverified: real MIDI hardware, PSR-S970 acceptance, audible cpal output on
 every host, microphone capture, printing, YouTube download, and visual
@@ -120,7 +120,7 @@ plurals, a real AI model and speech input.
 | MIDI control map (notes/CC to actions) with text persistence and learn capture | `midi-devices::map`, CLI `midi-map-*` | verified | 6 tests + CLI bind/show run |
 | Live MIDI input, MIDI map/Controllers windows, channel-check messages, desktop record | `midi-devices`, shell, CLI | implemented | map/learn/controller/byte and recorded-insert tests; no MIDI ports, hardware untested |
 | Numbered style catalog, resolution and by-number rendering | `style-formats::catalog`, CLI `style-catalog`/`style-resolve`/`style-by-number` | verified | resolve test; real library matched 'ABBA Fernando'; number 2 rendered 124 notes |
-| MCP tools for automation, lyrics/marks, style catalog, theory, generation, plugins, L6max, Korg scan, quantise, velocity, tempo, SoundFonts, buses and routing, plus track/note/chord/marker/clip/scene and track-property edits, note/chord edits, single-object reads, lyrics/marks/patches, groove files, markers/lyrics/queries, clips, buses, plugins and PDF | `crates/mcp` | verified | tool tests and CLI calls; 92 tools total |
+| MCP tools for automation, lyrics/marks, style catalog, theory, generation, plugins, L6max, Korg scan, quantise, velocity, tempo, SoundFonts, buses and routing, plus track/note/chord/marker/clip/scene and track-property edits, note/chord edits, single-object reads, lyrics/marks/patches, groove files, markers/lyrics/queries, clips, buses, plugins and PDF | `crates/mcp` | verified | tool tests and CLI calls; 93 tools total |
 | Local assistant panel (help/song/undo/tool commands over the registry) | `mcp::assistant`, shell window | verified core | parse and dispatch tests; UI manual |
 | Speech output for replies (macOS `say`) | `apps/desktop/src/speech.rs` | verified builder | cleaning, truncation and argument tests; audible speech unverified |
 | Synth families: piano, bass, organ, strings, pad, drums (with noise percussion) | `audio::Timbre` | verified | timbre tests, pad swell, drum energy; demo RMS 0.129 |
@@ -134,7 +134,7 @@ plurals, a real AI model and speech input.
 | Assistant tool registry and JSON dispatch | `crates/mcp` | verified (6 tools) | get_song/add_track/add_notes/set_chords/get_undo/undo; CLI mcp-tools and mcp-call |
 | MCP stdio transport (initialize, ping, tools/list, tools/call, parse errors) | `mcp::serve`, `mcp-serve` CLI | verified | in-memory tests + real stdin/stdout run saved an added note |
 | MCP socket transport, per-start secret | `mcp::socket`, CLI `mcp-socket` | verified | loopback exchange: token accepted, wrong token rejected; token is 32 hex chars |
-| MCP tools (song, score, audio, arranging, files) | `crates/mcp` | verified | 92 tools; per-tool tests and CLI calls |
+| MCP tools (song, score, audio, arranging, files) | `crates/mcp` | verified | 93 tools; per-tool tests and CLI calls |
 | Setup events, voices, CSEG children | `style-formats` | partial | SFF write verified; voices/setup events not written |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/slur/percussion/lyric/accidental-spacing/frame/chord-symbol/PDF tests; slurs round-trip; Save PDF, Print via lp (unverified) and score drag-move |
@@ -147,7 +147,7 @@ plurals, a real AI model and speech input.
 | Mute / solo / arm (schema v5) | `project`, `app-commands`, `sequencer`, `audio` | verified | mix rules tested; render/sequencer honor them; M/S in the track list |
 | Track volume and pan (schema v8) | `project`, `audio`, `smf` export | verified | fader/pan render tests; CC 7/10 written; defaults omitted |
 | Mixer panel (per-track fader, pan, mute, solo, bus routing) | `apps/desktop` | implemented | bus strip and routing tests; UI manual |
-| Song rename (sidebar field, undoable) | `SetSongName`, sidebar | verified | rename/undo and MCP tests |
+| Song rename and meter edit (undoable) | `SetSongName`/`SetTimeSignature`, sidebar/Inspector | verified | rename/meter/undo and MCP tests |
 | Marker editor (add/edit/remove) | `SetMarkers`, Markers window | verified model | add/replace/remove/undo tests; UI manual |
 | Track Inspector, live ruler seek and window openers | `apps/desktop`, `audio::player` | implemented | seek unit test; tempo tests; UI manual |
 | Buses and sends (schema v13) | `project::song::Bus`, `audio` render, `app-commands` | verified | route/send/pan render tests; command undo; JSON round trip |
@@ -167,7 +167,7 @@ plurals, a real AI model and speech input.
 | Scene names (schema v6) and rename | `project`, `app-commands`, `apps/desktop` | verified | migration round trip, command undo, rename test |
 | Slot editing: set length, clear, copy to a tick | `arranging::grid`, MCP `edit_slot`, right-click Loops menu | verified | 4 grid tests + tool + editor wrapper test |
 | Device profiles: YAML loader, banks, drum kits, other devices, editors, mixer maps | `midi-devices::profiles` | partial | loader/banks/kits tested; no other devices, editors or mixer maps |
-| AI/MCP | `mcp`, `assistant` | partial | local assistant + 92 tools; no model, network or keys |
+| AI/MCP | `mcp`, `assistant` | partial | local assistant + 93 tools; no model, network or keys |
 | Korg Pa import | `arranger` PCG scanner | partial | recognition only; no program/combi import |
 | Plugin hosting (VST3/CLAP) | — | missing | ADR-007, deferred |
 

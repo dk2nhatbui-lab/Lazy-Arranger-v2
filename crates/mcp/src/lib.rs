@@ -341,6 +341,18 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "set_time_signature",
+            description: "Set the song meter (numerator and power-of-two denominator).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "numerator": {"type": "integer"},
+                    "denominator": {"type": "integer"}
+                },
+                "required": ["numerator", "denominator"]
+            }),
+        },
+        Tool {
             name: "get_time_signature",
             description: "Read the song time signature and bar ticks.",
             input_schema: json!({"type": "object"}),
@@ -1382,6 +1394,24 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     })
                 });
             Ok(json!({"note": note}))
+        }
+        "set_time_signature" => {
+            let numerator = arguments
+                .get("numerator")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("numerator is required")))?;
+            let denominator = arguments
+                .get("denominator")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("denominator is required")))?;
+            let numerator = u8::try_from(numerator)
+                .map_err(|_| ToolError::Arguments(String::from("numerator too large")))?;
+            let denominator = u8::try_from(denominator)
+                .map_err(|_| ToolError::Arguments(String::from("denominator too large")))?;
+            let time_signature = music_core::TimeSignature::new(numerator, denominator)
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            session.apply(Command::SetTimeSignature { time_signature })?;
+            Ok(json!({"numerator": numerator, "denominator": denominator}))
         }
         "get_time_signature" => {
             let meter = session.song().time_signature;
@@ -3241,6 +3271,28 @@ mod tests {
                 &mut session,
                 "set_chord",
                 &json!({"tick": 0, "symbol": "H"})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn time_signature_tool_changes_meter() {
+        let mut session = session_with_track();
+        call(
+            &mut session,
+            "set_time_signature",
+            &json!({"numerator": 6, "denominator": 8}),
+        )
+        .expect("meter");
+        let meter = call(&mut session, "get_time_signature", &json!({})).expect("get");
+        assert_eq!(meter["numerator"], 6);
+        assert_eq!(meter["bar_ticks"], 2880);
+        assert!(
+            call(
+                &mut session,
+                "set_time_signature",
+                &json!({"numerator": 4, "denominator": 3})
             )
             .is_err()
         );

@@ -1418,7 +1418,7 @@ impl ShellApp {
                 }
                 ui.label(
                     egui::RichText::new(
-                        "Local commands over the same 92 tools; no network or model.\
+                        "Local commands over the same 93 tools; no network or model.\
                          Speech out uses the macOS say command; speech input is not implemented.",
                     )
                     .size(9.0)
@@ -1887,6 +1887,32 @@ impl ShellApp {
                             .color(theme::TEXT_MUTED),
                     );
                 }
+                let meter = self.song().time_signature;
+                let mut numerator = meter.numerator as u32;
+                let mut denominator = meter.denominator as u32;
+                ui.horizontal(|ui| {
+                    ui.label("meter");
+                    ui.add(egui::DragValue::new(&mut numerator).range(1..=32));
+                    ui.label("/");
+                    egui::ComboBox::from_id_salt("meter-denominator")
+                        .selected_text(denominator.to_string())
+                        .show_ui(ui, |ui| {
+                            for choice in [1_u32, 2, 4, 8, 16, 32] {
+                                ui.selectable_value(&mut denominator, choice, choice.to_string());
+                            }
+                        });
+                    if ui.button("Set meter").clicked() {
+                        match self.editor.set_time_signature(
+                            u8::try_from(numerator).unwrap_or(4),
+                            u8::try_from(denominator).unwrap_or(4),
+                        ) {
+                            Ok(()) => {
+                                self.status = Some(format!("meter {numerator}/{denominator}"));
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                });
                 ui.horizontal(|ui| {
                     ui.add(
                         egui::DragValue::new(&mut self.tempo_input)

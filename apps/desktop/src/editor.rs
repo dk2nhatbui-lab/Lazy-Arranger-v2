@@ -799,6 +799,21 @@ impl Editor {
         Ok(track_id)
     }
 
+    /// Sets the song meter.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the signature or edit is rejected.
+    pub fn set_time_signature(&mut self, numerator: u8, denominator: u8) -> Result<(), String> {
+        let time_signature = music_core::TimeSignature::new(numerator, denominator)
+            .map_err(|error| error.to_string())?;
+        self.session
+            .apply(app_commands::Command::SetTimeSignature { time_signature })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Renames the song.
     ///
     /// # Errors
@@ -1845,6 +1860,17 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn meter_change_is_validated_and_undoable() {
+        let mut editor = editor();
+        editor.set_time_signature(3, 4).expect("3/4");
+        assert_eq!(editor.song().time_signature.numerator, 3);
+        assert!(editor.set_time_signature(0, 4).is_err());
+        assert!(editor.set_time_signature(4, 3).is_err());
+        assert!(editor.undo());
+        assert_eq!(editor.song().time_signature.numerator, 4);
     }
 
     #[test]

@@ -66,6 +66,11 @@ pub enum Command {
         /// New name.
         name: String,
     },
+    /// Set the song meter.
+    SetTimeSignature {
+        /// New signature.
+        time_signature: music_core::TimeSignature,
+    },
     /// Rename the song.
     SetSongName {
         /// New name.
@@ -250,6 +255,7 @@ impl Command {
             Self::SetTempo { .. } => "set tempo",
             Self::RenameTrack { .. } => "rename track",
             Self::SetSongName { .. } => "set song name",
+            Self::SetTimeSignature { .. } => "set time signature",
             Self::InsertTrack { .. } => "insert track",
             Self::RemoveTrack { .. } => "remove track",
             Self::SetChords { .. } => "set chords",
@@ -892,6 +898,9 @@ impl EditSession {
             Command::SetSongName { .. } => Command::SetSongName {
                 name: self.song().name.clone(),
             },
+            Command::SetTimeSignature { .. } => Command::SetTimeSignature {
+                time_signature: self.song().time_signature,
+            },
             Command::InsertTrack { track } => {
                 if self
                     .song()
@@ -1106,6 +1115,14 @@ impl EditSession {
             Command::SetSongName { name } => {
                 self.project.song.name = name.clone();
             }
+            Command::SetTimeSignature { time_signature } => {
+                music_core::TimeSignature::new(
+                    time_signature.numerator,
+                    time_signature.denominator,
+                )
+                .map_err(|error| CommandError::Validation(error.to_string()))?;
+                self.project.song.time_signature = *time_signature;
+            }
             Command::InsertTrack { track } => {
                 self.project.song.tracks.push(track.clone());
             }
@@ -1131,6 +1148,10 @@ fn describe(command: &Command) -> String {
         Command::SetTempo { tick, bpm } => format!("set tempo {bpm} bpm at tick {tick}"),
         Command::RenameTrack { track, name } => format!("rename track {track} to {name:?}"),
         Command::SetSongName { name } => format!("rename song to {name:?}"),
+        Command::SetTimeSignature { time_signature } => format!(
+            "set meter {}/{}",
+            time_signature.numerator, time_signature.denominator
+        ),
         Command::InsertTrack { track } => format!("insert track {} ({})", track.id, track.name),
         Command::RemoveTrack { track } => format!("remove track {track}"),
         Command::SetChords { chords } => format!("set {} chord(s)", chords.len()),
