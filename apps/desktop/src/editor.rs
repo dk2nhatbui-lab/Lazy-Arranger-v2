@@ -32,6 +32,11 @@ impl Editor {
 
     /// The song being edited.
     #[must_use]
+    #[cfg(test)]
+    pub(crate) fn session_for_test(&mut self) -> &mut app_commands::EditSession {
+        &mut self.session
+    }
+
     pub fn song(&self) -> &Song {
         self.session.song()
     }

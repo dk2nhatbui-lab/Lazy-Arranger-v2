@@ -13385,7 +13385,30 @@ mod tests {
     fn the_tool_windows_draw_without_panicking() {
         let context = egui::Context::default();
         let mut app = ShellApp::new(&context, demo_project(), None);
-        app.roll.selected = app.song().tracks.first().map(|track| track.id);
+        let audio_id = project::TrackId::new(99).expect("track");
+        let mut audio = project::song::Track::new(audio_id, "Audio Takes");
+        audio.audio = Some(project::song::AudioRef {
+            path: String::from("take.wav"),
+            start: 0,
+            length: music_core::PPQ,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        if let Some(take) = audio.audio.clone() {
+            audio.takes.push(take);
+            audio.comps.push(project::song::AudioComp {
+                take: 0,
+                start: 0,
+                length: music_core::PPQ / 2,
+            });
+        }
+        app.editor
+            .session_for_test()
+            .apply(app_commands::Command::InsertTrack { track: audio })
+            .expect("audio track");
+        app.roll.selected = Some(audio_id);
         app.file_mode = Some(FileMode::Open);
         app.file_path_input = String::from("");
         app.print_dialog = true;

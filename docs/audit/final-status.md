@@ -165,7 +165,7 @@ For the clef layout, choose either four measures per system without clefs
 - MIDI out window has a 16-channel check button; hardware unverified.
 - Kids circle pulse respects the reduced-motion setting.
 - Audio trim row can set the front or end at the playhead (`docs/audit/ui-audio-trim.png`).
-- Smoke test draws 31 tool windows in one egui frame without panicking.
+- Smoke test draws 31 tool windows, including an audio track with a take and comp span in one egui frame without panicking.
 - Score note entry accepts computer-keyboard A-W-S-E-D-F-T-G-Y-H-U-J at the playhead with octave and note-length pickers, dotted notes, rests and an entry cursor; mapping/length tested.
 - Bundle includes AppIcon.icns derived from the runtime icon asset.
 - Style from link downloads yt-dlp audio and opens Style from audio; network unverified (`docs/audit/style-link.png`).
