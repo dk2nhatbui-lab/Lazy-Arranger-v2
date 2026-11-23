@@ -191,6 +191,8 @@ pub struct Settings {
     pub reduced_motion: bool,
     /// Large text and a simpler header.
     pub kids_mode: bool,
+    /// Seconds without input before Kids Mode pauses.
+    pub kids_pause_seconds: f32,
     /// Light palette instead of the default dark one.
     pub light_theme: bool,
     /// Speak assistant replies with the local `say` command.
@@ -242,6 +244,7 @@ impl Default for Settings {
             metronome_accent: 1.0,
             reduced_motion: false,
             kids_mode: false,
+            kids_pause_seconds: 1.5,
             light_theme: false,
             speech: false,
             record_chords: false,
@@ -329,6 +332,10 @@ impl Settings {
                 }
                 "reduced_motion" => settings.reduced_motion = value == "true",
                 "kids_mode" => settings.kids_mode = value == "true",
+                "kids_pause_seconds" => {
+                    settings.kids_pause_seconds =
+                        value.parse::<f32>().unwrap_or(1.5).clamp(0.5, 5.0);
+                }
                 "light_theme" => settings.light_theme = value == "true",
                 "speech" => settings.speech = value == "true",
                 "record_chords" => settings.record_chords = value == "true",
@@ -394,6 +401,10 @@ impl Settings {
         ));
         text.push_str(&format!("reduced_motion = {}\n", self.reduced_motion));
         text.push_str(&format!("kids_mode = {}\n", self.kids_mode));
+        text.push_str(&format!(
+            "kids_pause_seconds = {:.2}\n",
+            self.kids_pause_seconds
+        ));
         text.push_str(&format!("light_theme = {}\n", self.light_theme));
         text.push_str(&format!("speech = {}\n", self.speech));
         text.push_str(&format!("record_chords = {}\n", self.record_chords));

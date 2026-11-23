@@ -119,3 +119,4 @@ For the clef layout, choose either four measures per system without clefs
 - Mixer meters follow active notes at the playhead; master meter takes the loudest track (`docs/audit/ui-meters.png`).
 - Undo glyph redrawn as a left arrow with a curved tail (`docs/audit/ui-undo.png`).
 - Tracks default to the first row; M/S/R clicks no longer change row selection; inspector key has Find.
+- Transport uses green play, red record and an undo arrow rotated 10° CCW (`docs/audit/ui-transport-colors.png`).

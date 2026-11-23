@@ -559,6 +559,7 @@ pub struct ShellApp {
     shortcuts_open: bool,
     about_open: bool,
     mixer_visible: bool,
+    kids_last_activity: Option<std::time::Instant>,
     timeline_mode: bool,
     timeline_zoom: f32,
     inspector_name_track: Option<TrackId>,
@@ -817,6 +818,7 @@ impl ShellApp {
             shortcuts_open: initial_window == "shortcuts",
             about_open: initial_window == "about",
             mixer_visible: true,
+            kids_last_activity: None,
             timeline_mode: true,
             timeline_zoom: 1.0,
             inspector_name_track: None,
@@ -980,6 +982,19 @@ impl ShellApp {
 
     /// Undo, redo, delete and save, from the keyboard.
     fn handle_keys(&mut self, context: &Context) {
+        if context.input_mut(|input| {
+            input.consume_key(
+                egui::Modifiers::COMMAND | egui::Modifiers::ALT,
+                egui::Key::K,
+            )
+        }) {
+            self.settings.kids_mode = !self.settings.kids_mode;
+            self.view = if self.settings.kids_mode {
+                View::Perform
+            } else {
+                View::Arrange
+            };
+        }
         let undo = consume_binding(context, &self.settings.undo_keys, "cmd+z");
         let redo = consume_binding(context, &self.settings.redo_keys, "cmd+shift+z");
         let save_as = consume_binding(context, &self.settings.save_as_keys, "cmd+shift+s");
@@ -5555,6 +5570,12 @@ impl ShellApp {
                     );
                     ui.checkbox(&mut self.settings.reduced_motion, "reduced motion");
                     ui.checkbox(&mut self.settings.kids_mode, "Kids Mode");
+                    if self.settings.kids_mode {
+                        ui.add(
+                            egui::Slider::new(&mut self.settings.kids_pause_seconds, 0.5..=5.0)
+                                .text("Kids pause (s)"),
+                        );
+                    }
                     let mut light_theme = self.settings.light_theme;
                     if ui.checkbox(&mut light_theme, "Light theme").changed() {
                         self.settings.light_theme = light_theme;
@@ -7909,6 +7930,28 @@ impl eframe::App for ShellApp {
         if self.settings.kids_mode && self.view.index() > 1 {
             self.view = View::Arrange;
         }
+        if self.settings.kids_mode && self.view == View::Perform {
+            let active =
+                context.input(|input| !input.keys_down.is_empty() || input.pointer.any_down());
+            if active {
+                self.kids_last_activity = Some(std::time::Instant::now());
+                if !self.playing {
+                    self.toggle_playback();
+                }
+            } else if self.playing
+                && self.kids_last_activity.is_some_and(|last| {
+                    last.elapsed().as_secs_f32() >= self.settings.kids_pause_seconds
+                })
+            {
+                self.toggle_playback();
+                self.kids_last_activity = None;
+            }
+            if !self.loop_enabled {
+                let end = self.song().end_tick().max(1);
+                self.loop_region = Some((0, end));
+                self.loop_enabled = true;
+            }
+        }
         if self.view == View::Drums
             && (self.beat_track.is_none()
                 || (self.roll.selected.is_some() && self.roll.selected != self.beat_track))
@@ -8357,6 +8400,36 @@ impl eframe::App for ShellApp {
                         }
                     }
                     View::Perform => {
+                        if kids {
+                            let time = ui.input(|input| input.time) as f32;
+                            let (rect, _) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width().min(360.0), 190.0),
+                                egui::Sense::hover(),
+                            );
+                            let pulse = if self.playing {
+                                (time * 3.0).sin() * 6.0
+                            } else {
+                                0.0
+                            };
+                            let center = rect.center();
+                            ui.painter().circle_filled(
+                                center,
+                                72.0 + pulse,
+                                theme::accent().gamma_multiply(if self.playing { 0.30 } else { 0.14 }),
+                            );
+                            ui.painter().circle_stroke(
+                                center,
+                                72.0 + pulse,
+                                egui::Stroke::new(2.0_f32, theme::accent()),
+                            );
+                            ui.painter().text(
+                                center,
+                                egui::Align2::CENTER_CENTER,
+                                if self.playing { "Playing" } else { "Press any key" },
+                                egui::FontId::proportional(20.0),
+                                theme::text(),
+                            );
+                        }
                         if !kids {
                             let current = project
                                 .song
@@ -9301,18 +9374,24 @@ fn draw_transport_icon(painter: &egui::Painter, rect: Rect, glyph: &str, color: 
         }
         "\u{21B6}" => {
             let stroke = egui::Stroke::new((s * 0.09).max(1.2), color);
-            let tip = egui::pos2(c.x - s * 0.34, c.y + s * 0.02);
+            let (sin, cos) = (-10.0_f32).to_radians().sin_cos();
+            let rotate = |point: egui::Pos2| {
+                let x = point.x - c.x;
+                let y = point.y - c.y;
+                egui::pos2(c.x + x * cos - y * sin, c.y + x * sin + y * cos)
+            };
+            let tip = rotate(egui::pos2(c.x - s * 0.34, c.y + s * 0.02));
             painter.line_segment(
-                [tip, egui::pos2(tip.x + s * 0.20, tip.y - s * 0.15)],
+                [tip, rotate(egui::pos2(tip.x + s * 0.20, tip.y - s * 0.15))],
                 stroke,
             );
             painter.line_segment(
-                [tip, egui::pos2(tip.x + s * 0.20, tip.y + s * 0.15)],
+                [tip, rotate(egui::pos2(tip.x + s * 0.20, tip.y + s * 0.15))],
                 stroke,
             );
-            let start = egui::pos2(tip.x + s * 0.18, tip.y);
-            let control = egui::pos2(c.x + s * 0.16, c.y - s * 0.34);
-            let end = egui::pos2(c.x + s * 0.32, c.y + s * 0.18);
+            let start = rotate(egui::pos2(tip.x + s * 0.18, tip.y));
+            let control = rotate(egui::pos2(c.x + s * 0.16, c.y - s * 0.34));
+            let end = rotate(egui::pos2(c.x + s * 0.32, c.y + s * 0.18));
             let points: Vec<egui::Pos2> = (0..=16)
                 .map(|index| {
                     let t = index as f32 / 16.0;
@@ -9360,16 +9439,19 @@ fn transport_button(ui: &mut egui::Ui, rect: Rect, glyph: &str, active: bool) ->
         ),
         egui::StrokeKind::Inside,
     );
-    draw_transport_icon(
-        ui.painter(),
-        rect,
-        glyph,
-        if active {
-            theme::accent()
-        } else {
-            theme::text()
-        },
-    );
+    let icon_colour = match glyph {
+        "\u{25CF}" => theme::recording(),
+        "\u{25B6}" => theme::playing(),
+        "\u{2016}" => theme::accent(),
+        _ => {
+            if active {
+                theme::accent()
+            } else {
+                theme::text()
+            }
+        }
+    };
+    draw_transport_icon(ui.painter(), rect, glyph, icon_colour);
     let hint = match glyph {
         "\u{25A0}" => "Stop",
         "\u{25B6}" => "Play",
