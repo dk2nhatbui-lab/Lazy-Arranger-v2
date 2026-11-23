@@ -162,6 +162,15 @@ pub enum Command {
         /// New reference, or none to remove it.
         reference: Option<project::song::AudioRef>,
     },
+    /// Replace a track's active audio reference and stored takes together.
+    SetAudioState {
+        /// The track.
+        track: TrackId,
+        /// Active reference, or none.
+        reference: Option<project::song::AudioRef>,
+        /// Stored takes.
+        takes: Vec<project::song::AudioRef>,
+    },
     /// Replace a track's stored audio takes.
     SetAudioTakes {
         /// The track.
@@ -294,6 +303,7 @@ impl Command {
             Self::SetTrackGain { .. } => "set track gain",
             Self::SetAutomation { .. } => "set automation",
             Self::SetAudioRef { .. } => "set audio reference",
+            Self::SetAudioState { .. } => "set audio state",
             Self::SetAudioTakes { .. } => "set audio takes",
             Self::FreezeTrack { .. } => "freeze track",
             Self::RestoreTrack { .. } => "restore track",
@@ -885,6 +895,11 @@ impl EditSession {
                 track: *track,
                 reference: self.track(*track)?.audio.clone(),
             },
+            Command::SetAudioState { track, .. } => Command::SetAudioState {
+                track: *track,
+                reference: self.track(*track)?.audio.clone(),
+                takes: self.track(*track)?.takes.clone(),
+            },
             Command::SetAudioTakes { track, .. } => Command::SetAudioTakes {
                 track: *track,
                 takes: self.track(*track)?.takes.clone(),
@@ -1097,6 +1112,15 @@ impl EditSession {
             Command::SetAudioRef { track, reference } => {
                 self.track_mut(*track)?.audio = reference.clone();
             }
+            Command::SetAudioState {
+                track,
+                reference,
+                takes,
+            } => {
+                let track = self.track_mut(*track)?;
+                track.audio = reference.clone();
+                track.takes = takes.clone();
+            }
             Command::SetAudioTakes { track, takes } => {
                 self.track_mut(*track)?.takes = takes.clone();
             }
@@ -1281,6 +1305,9 @@ fn describe(command: &Command) -> String {
             format!("freeze track to {}", reference.path)
         }
         Command::RestoreTrack { track, .. } => format!("restore track {track}"),
+        Command::SetAudioState { track, takes, .. } => {
+            format!("track {track}: audio state with {} take(s)", takes.len())
+        }
         Command::SetAudioTakes { track, takes } => {
             format!("track {track}: {} audio take(s)", takes.len())
         }

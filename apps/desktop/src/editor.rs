@@ -1529,16 +1529,27 @@ impl Editor {
         let info = audio::wav::info(&bytes)?;
         let bpm = self.song().tempo_map.bpm_at(start);
         let length = audio::chords::to_ticks(info.seconds, bpm);
-        if self
+        let mut takes = self
             .song()
             .tracks
             .iter()
-            .any(|entry| entry.id == track && entry.audio.is_some())
+            .find(|entry| entry.id == track)
+            .map(|entry| entry.takes.clone())
+            .unwrap_or_default();
+        if let Some(previous) = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.audio.clone())
+            && !takes
+                .iter()
+                .any(|take| take.path == previous.path && take.start == previous.start)
         {
-            let _ = self.store_audio_take(track);
+            takes.push(previous);
         }
         self.session
-            .apply(app_commands::Command::SetAudioRef {
+            .apply(app_commands::Command::SetAudioState {
                 track,
                 reference: Some(project::song::AudioRef {
                     path: wav.display().to_string(),
@@ -1549,6 +1560,7 @@ impl Editor {
                     fade_out: 0,
                     stretch: false,
                 }),
+                takes,
             })
             .map_err(|error| error.to_string())?;
         self.dirty = true;
