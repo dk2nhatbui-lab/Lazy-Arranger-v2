@@ -2992,7 +2992,7 @@ fn export_audio(
     }
     let project = read_project(project)?;
     let mut rendered = audio::render(&project.song, sample_rate);
-    for problem in audio::mix::mix_audio_references(&mut rendered, &project.song, 0.9) {
+    for problem in audio::mix::check_audio_references(&project.song) {
         eprintln!(
             "audio {} on track {}: {}",
             problem.path, problem.track, problem.reason

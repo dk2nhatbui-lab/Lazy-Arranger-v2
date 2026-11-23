@@ -9169,8 +9169,8 @@ impl ShellApp {
         {
             project = session.project().clone();
         }
-        let mut rendered = audio::render(&project.song, audio::SAMPLE_RATE);
-        let _ = audio::mix::mix_audio_references(&mut rendered, &project.song, 0.9);
+        let rendered = audio::render(&project.song, audio::SAMPLE_RATE);
+        let _ = audio::mix::check_audio_references(&project.song);
         self.audition_player = audio::player::Player::new(rendered).ok();
         self.status = Some(String::from(if after {
             "audition: after"
@@ -9393,7 +9393,7 @@ impl ShellApp {
             return;
         }
         let mut audio = audio::render(self.song(), audio::SAMPLE_RATE);
-        let problems = audio::mix::mix_audio_references(&mut audio, self.song(), 0.9);
+        let problems = audio::mix::check_audio_references(self.song());
         if self.settings.metronome {
             audio::metronome::mix_accent(
                 &mut audio,
@@ -12483,8 +12483,8 @@ pub fn export_wav_file(
     song: &project::song::Song,
     path: &std::path::Path,
 ) -> Result<(f64, usize), String> {
-    let mut rendered = audio::render(song, audio::SAMPLE_RATE);
-    let problems = audio::mix::mix_audio_references(&mut rendered, song, 0.9).len();
+    let rendered = audio::render(song, audio::SAMPLE_RATE);
+    let problems = audio::mix::check_audio_references(song).len();
     std::fs::write(path, rendered.to_wav24())
         .map_err(|error| format!("{}: {error}", path.display()))?;
     Ok((rendered.duration_seconds(), problems))

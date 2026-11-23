@@ -23,8 +23,40 @@ pub struct AudioProblem {
     pub reason: String,
 }
 
-/// Mixes every audible track's audio reference into `rendered`.
+/// Reports unreadable audio references without changing a buffer.
+#[must_use]
+pub fn check_audio_references(song: &Song) -> Vec<AudioProblem> {
+    let mut problems = Vec::new();
+    for track in song.tracks.iter().filter(|track| song.is_audible(track)) {
+        let Some(reference) = &track.audio else {
+            continue;
+        };
+        let path = Path::new(&reference.path);
+        let result: Result<(), String> = match std::fs::read(path) {
+            Ok(bytes) => {
+                if bytes.starts_with(b"RIFF") {
+                    wav::decode_stereo(&bytes).map(|_| ())
+                } else {
+                    crate::decode::decode_mono(path).map(|_| ())
+                }
+            }
+            Err(error) => Err(format!("could not read audio: {error}")),
+        };
+        if let Err(reason) = result {
+            problems.push(AudioProblem {
+                track: track.id,
+                path: reference.path.clone(),
+                reason,
+            });
+        }
+    }
+    problems
+}
+
+/// Standalone legacy mixer for a buffer that has no audio references yet.
 ///
+/// `render_with_soundfont` already mixes references, so callers must not pass
+/// its output here. Use [`check_audio_references`] only to report bad files.
 /// Returns the problems found; the mix still contains everything that worked.
 #[must_use]
 pub fn mix_audio_references(
@@ -157,6 +189,15 @@ mod tests {
         track.muted = muted;
         song.tracks.push(track);
         song
+    }
+
+    #[test]
+    fn a_missing_reference_is_reported_without_mixing() {
+        let mut song = song_with(String::from("/no/such/lazy-arranger.wav"), false);
+        song.tracks[0].id = TrackId::new(1).expect("track");
+        let problems = check_audio_references(&song);
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].track.get(), 1);
     }
 
     #[test]

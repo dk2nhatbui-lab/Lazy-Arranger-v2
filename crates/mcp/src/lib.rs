@@ -1938,8 +1938,8 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .unwrap_or(48_000)
                 .clamp(8_000, 192_000) as u32;
             let bits = arguments.get("bits").and_then(Value::as_u64).unwrap_or(16);
-            let mut rendered = audio::render(session.song(), sample_rate);
-            let problems = audio::mix::mix_audio_references(&mut rendered, session.song(), 0.9);
+            let rendered = audio::render(session.song(), sample_rate);
+            let problems = audio::mix::check_audio_references(session.song());
             let wav = match bits {
                 24 => rendered.to_wav24(),
                 32 => rendered.to_wav32f(),

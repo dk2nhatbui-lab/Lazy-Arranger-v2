@@ -178,3 +178,4 @@ For the clef layout, choose either four measures per system without clefs
 - Audio references follow volume/pan automation in 64-frame blocks; a zero-volume lane test covers it.
 - Sends are applied once after track plug-ins, so audio references feed sends and send lanes move in 64-frame blocks.
 - Mixer strips no longer show a dead second send knob; only the wired Rev/send knob and pan remain.
+- Removed the second post-render audio mix: playback/bounce now check references without mixing them twice.

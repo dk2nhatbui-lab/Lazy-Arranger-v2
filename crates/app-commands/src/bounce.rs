@@ -32,8 +32,7 @@ pub fn bounce_to_track(
     name: &str,
     sample_rate: u32,
 ) -> Result<Bounce, CommandError> {
-    let mut rendered = audio::render(session.song(), sample_rate);
-    let _ = audio::mix::mix_audio_references(&mut rendered, session.song(), 0.9);
+    let rendered = audio::render(session.song(), sample_rate);
     std::fs::write(path, rendered.to_wav())
         .map_err(|error| CommandError::Validation(format!("{}: {error}", path.display())))?;
     let bpm = session.song().tempo_map.bpm_at(0);
