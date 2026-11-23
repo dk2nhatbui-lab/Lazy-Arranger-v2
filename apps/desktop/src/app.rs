@@ -2468,6 +2468,8 @@ impl ShellApp {
         let mut midi_activity = false;
         let mut detected_chord = None;
         let mut preview_keys = Vec::new();
+        let mut score_note_ons = Vec::new();
+        let mut score_chord_done = false;
         if let Some(input) = &self.midi_input {
             while let Some(message) = input.next() {
                 midi_activity = true;
@@ -2479,10 +2481,19 @@ impl ShellApp {
                         if self.settings.kids_mode && self.settings.kids_keys_play {
                             preview_keys.push(key.as_u8());
                         }
+                        if self.view == View::Score && self.score_entry {
+                            score_note_ons.push(key.as_u8());
+                        }
                     }
                     music_core::MidiMessage::NoteOff { key, .. }
                     | music_core::MidiMessage::NoteOn { key, .. } => {
                         self.style_held[usize::from(key.as_u8())] = false;
+                        if self.view == View::Score
+                            && self.score_entry
+                            && !self.style_held.iter().any(|held| *held)
+                        {
+                            score_chord_done = true;
+                        }
                     }
                     _ => {}
                 }
@@ -2521,6 +2532,29 @@ impl ShellApp {
                     actions.push((action, value));
                 }
             }
+        }
+        if !score_note_ons.is_empty() {
+            let track = self
+                .score_track
+                .or(self.roll.selected)
+                .or_else(|| self.song().tracks.first().map(|track| track.id));
+            if let Some(track) = track {
+                let length = entry_length(self.score_note_length.max(1), self.score_dotted);
+                for pitch in score_note_ons {
+                    if let Ok(pitch) = music_core::Pitch::new(pitch) {
+                        let _ = self.editor.insert_length(
+                            track,
+                            self.score_cursor.max(0),
+                            pitch,
+                            length,
+                        );
+                    }
+                }
+            }
+        }
+        if score_chord_done {
+            let length = entry_length(self.score_note_length.max(1), self.score_dotted);
+            self.score_cursor += length;
         }
         for pitch in preview_keys {
             self.preview_pitch(pitch);
