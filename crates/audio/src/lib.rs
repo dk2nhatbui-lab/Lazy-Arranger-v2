@@ -65,6 +65,29 @@ impl RenderedAudio {
         self.frames() as f64 / f64::from(self.sample_rate)
     }
 
+    /// Encodes the buffer as a 32-bit IEEE float WAV file.
+    #[must_use]
+    pub fn to_wav32f(&self) -> Vec<u8> {
+        let data_len = self.samples.len() * 4;
+        let mut out = Vec::with_capacity(44 + data_len);
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&((36 + data_len) as u32).to_le_bytes());
+        out.extend_from_slice(b"WAVEfmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&3u16.to_le_bytes());
+        out.extend_from_slice(&CHANNELS.to_le_bytes());
+        out.extend_from_slice(&self.sample_rate.to_le_bytes());
+        out.extend_from_slice(&(self.sample_rate * u32::from(CHANNELS) * 4).to_le_bytes());
+        out.extend_from_slice(&(CHANNELS * 4).to_le_bytes());
+        out.extend_from_slice(&32u16.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&(data_len as u32).to_le_bytes());
+        for sample in &self.samples {
+            out.extend_from_slice(&sample.to_le_bytes());
+        }
+        out
+    }
+
     /// Encodes the buffer as a 24-bit PCM WAV file.
     #[must_use]
     pub fn to_wav24(&self) -> Vec<u8> {
@@ -930,6 +953,24 @@ mod tests {
         assert_eq!(sliced.samples, vec![4.0, 5.0, 6.0, 7.0]);
         assert_eq!(audio.slice(0.75, 9.0).samples.len(), 2);
         assert!(audio.slice(-1.0, 0.0).samples.is_empty());
+    }
+
+    #[test]
+    fn a_float_wav_reports_and_decodes_32_bit_float() {
+        let audio = RenderedAudio {
+            samples: vec![0.5, -0.25, 0.0, 1.0],
+            sample_rate: 48_000,
+        };
+        let bytes = audio.to_wav32f();
+        assert_eq!(&bytes[0..4], b"RIFF");
+        assert_eq!(u16::from_le_bytes([bytes[20], bytes[21]]), 3);
+        assert_eq!(u16::from_le_bytes([bytes[34], bytes[35]]), 32);
+        assert_eq!(
+            u32::from_le_bytes([bytes[40], bytes[41], bytes[42], bytes[43]]),
+            16
+        );
+        let decoded = wav::decode_mono(&bytes).expect("decode");
+        assert_eq!(decoded.samples, vec![0.125, 0.5]);
     }
 
     #[test]

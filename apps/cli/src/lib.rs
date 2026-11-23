@@ -686,7 +686,7 @@ enum Commands {
         /// Sample rate; defaults to 48000.
         #[arg(long, default_value_t = audio::SAMPLE_RATE)]
         sample_rate: u32,
-        /// Bit depth: 16 or 24 (default 16).
+        /// Bit depth: 16, 24 or 32 (float; default 16).
         #[arg(long, default_value_t = 16)]
         bits: u16,
         /// Mix a metronome click track.
@@ -2578,8 +2578,8 @@ fn export_audio(
     metronome: bool,
     master: audio::master::Master,
 ) -> Result<(), Box<dyn Error>> {
-    if !matches!(bits, 16 | 24) {
-        return Err(format!("--bits must be 16 or 24, found {bits}").into());
+    if !matches!(bits, 16 | 24 | 32) {
+        return Err(format!("--bits must be 16, 24 or 32, found {bits}").into());
     }
     if !(8_000..=192_000).contains(&sample_rate) {
         return Err(
@@ -2599,10 +2599,10 @@ fn export_audio(
     }
     audio::master::apply(&mut rendered, master);
     let levels = audio::master::meter(&rendered);
-    let wav = if bits == 24 {
-        rendered.to_wav24()
-    } else {
-        rendered.to_wav()
+    let wav = match bits {
+        24 => rendered.to_wav24(),
+        32 => rendered.to_wav32f(),
+        _ => rendered.to_wav(),
     };
     fs::write(out, &wav).map_err(|error| format!("could not write {}: {error}", out.display()))?;
     println!(

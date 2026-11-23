@@ -531,3 +531,9 @@ samples until the duration ends, mixes channels to mono with `mix_channels` and
 returns a stereo buffer; `record-audio` writes it to 16-bit WAV. Microphone
 permission, device availability and real capture are unverified on this machine;
 there is no monitoring, takes or waveform editing.
+
+### Float WAV export
+
+`RenderedAudio::to_wav32f` writes a WAVE format-3 (IEEE float) file at 32 bits;
+`export-audio --bits 32` and MCP `render_wav {bits:32}` use it, and
+`wav::decode_mono` reads it back. The demo exported a format-3, 32-bit file.

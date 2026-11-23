@@ -348,12 +348,13 @@ pub fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "render_wav",
-            description: "Render the song to a 16-bit WAV.",
+            description: "Render the song to a WAV (16, 24 or 32-bit float).",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "path": {"type": "string"},
-                    "sample_rate": {"type": "integer"}
+                    "sample_rate": {"type": "integer"},
+                    "bits": {"type": "integer"}
                 },
                 "required": ["path"]
             }),
@@ -1185,14 +1186,26 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .and_then(Value::as_u64)
                 .unwrap_or(48_000)
                 .clamp(8_000, 192_000) as u32;
+            let bits = arguments.get("bits").and_then(Value::as_u64).unwrap_or(16);
             let mut rendered = audio::render(session.song(), sample_rate);
             let problems = audio::mix::mix_audio_references(&mut rendered, session.song(), 0.9);
-            std::fs::write(path, rendered.to_wav())
+            let wav = match bits {
+                24 => rendered.to_wav24(),
+                32 => rendered.to_wav32f(),
+                16 => rendered.to_wav(),
+                other => {
+                    return Err(ToolError::Arguments(format!(
+                        "bits must be 16, 24 or 32, found {other}"
+                    )));
+                }
+            };
+            std::fs::write(path, wav)
                 .map_err(|error| ToolError::Arguments(format!("{path}: {error}")))?;
             Ok(json!({
                 "path": path,
                 "seconds": rendered.duration_seconds(),
-                "problems": problems.len()
+                "problems": problems.len(),
+                "bits": bits
             }))
         }
         "export_stems" => {
