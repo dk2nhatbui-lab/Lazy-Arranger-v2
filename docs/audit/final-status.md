@@ -67,3 +67,4 @@ For the clef layout, choose either four measures per system without clefs
 - Audio decode now covers WAV and symphonia formats (FLAC/MP3/M4A/AIFF/OGG); compressed references mix and draw peaks.
 - A generic Synth patch window edits waveform, ADSR and brightness as one undoable command (`docs/audit/synth-patch.png`); device-specific D-05/XioSynth/S970 panels remain absent.
 - AU parameter enumeration and setting work in `plugin-host` (Apple AU readback test); no parameter UI or project persistence yet.
+- AU parameters can be edited in a generic window, applied with Defaults, and saved as `id=value;` slot state that the render restores; VST3 parameter automation is absent.

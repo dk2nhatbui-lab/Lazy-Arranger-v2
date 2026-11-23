@@ -316,6 +316,22 @@ impl AuEffect {
         }
     }
 
+    /// Applies a persisted `id=value;id=value` parameter state.
+    ///
+    /// Unknown or malformed entries are skipped; this is a best-effort restore
+    /// of values saved by the generic editor.
+    pub fn apply_state(&self, state: &str) {
+        for entry in state.split(';') {
+            let Some((id, value)) = entry.split_once('=') else {
+                continue;
+            };
+            let (Ok(id), Ok(value)) = (id.parse::<u32>(), value.parse::<f32>()) else {
+                continue;
+            };
+            let _ = self.set_parameter(id, value);
+        }
+    }
+
     /// Processes interleaved stereo samples in place.
     ///
     /// # Errors
@@ -422,6 +438,23 @@ mod tests {
                 "parameter did not retain the value: {readback} vs {target}"
             );
         }
+    }
+
+    #[test]
+    #[ignore = "loads the Apple dynamics Audio Unit"]
+    fn parameter_state_restores_values() {
+        let effect = AuEffect::new("appl:dcmp", 48_000.0).expect("au");
+        let parameters = effect.parameters();
+        let (id, _, _, min, max, _) = parameters[0];
+        let target = (min + max) / 2.0;
+        effect.apply_state(&format!("{id}={target};"));
+        let value = effect
+            .parameters()
+            .into_iter()
+            .find(|parameter| parameter.0 == id)
+            .map(|parameter| parameter.2)
+            .unwrap_or_default();
+        assert!((value - target).abs() < 1.0e-3);
     }
 
     #[test]

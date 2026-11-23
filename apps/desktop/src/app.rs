@@ -440,6 +440,11 @@ pub struct ShellApp {
     patch_open: bool,
     patch_track: Option<TrackId>,
     patch_draft: Option<project::song::Patch>,
+    au_editor_open: bool,
+    au_editor_track: Option<TrackId>,
+    au_editor_slot: Option<u32>,
+    au_effect: Option<plugin_host::AuEffect>,
+    au_params: Vec<(u32, String, f32, f32, f32, f32)>,
     score_pdf_path: String,
     score_track: Option<TrackId>,
     score_state: crate::score_view::ScoreState,
@@ -625,6 +630,11 @@ impl ShellApp {
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
             patch_track: None,
             patch_draft: None,
+            au_editor_open: false,
+            au_editor_track: None,
+            au_editor_slot: None,
+            au_effect: None,
+            au_params: Vec::new(),
             score_pdf_path: String::from("score.pdf"),
             score_track: None,
             score_state: crate::score_view::ScoreState::default(),
@@ -2472,6 +2482,103 @@ impl ShellApp {
         self.patch_open = open;
     }
 
+    fn open_au_parameters(&mut self, track: TrackId, slot: u32) {
+        let Some(plugin) = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.plugins.iter().find(|entry| entry.id == slot))
+            .cloned()
+        else {
+            self.status = Some(String::from("plug-in slot not found"));
+            return;
+        };
+        if plugin.format != project::song::PluginFormat::AudioUnit {
+            self.status = Some(String::from("only AU parameters are supported"));
+            return;
+        }
+        let effect = match plugin_host::AuEffect::new(&plugin.identifier, 48_000.0) {
+            Ok(effect) => effect,
+            Err(error) => {
+                self.status = Some(format!("AU: {error}"));
+                return;
+            }
+        };
+        effect.apply_state(&plugin.state);
+        self.au_params = effect.parameters();
+        self.au_effect = Some(effect);
+        self.au_editor_track = Some(track);
+        self.au_editor_slot = Some(slot);
+        self.au_editor_open = true;
+    }
+
+    fn au_parameters_window(&mut self, context: &Context) {
+        let mut open = self.au_editor_open;
+        egui::Window::new("AU parameters")
+            .open(&mut open)
+            .resizable(false)
+            .show(context, |ui| {
+                if let (Some(track), Some(slot)) = (self.au_editor_track, self.au_editor_slot) {
+                    ui.label(
+                        egui::RichText::new(format!("track {track} · slot {slot}"))
+                            .size(10.0)
+                            .color(theme::text_dim()),
+                    );
+                }
+                if let Some(effect) = self.au_effect.as_ref() {
+                    for parameter in &mut self.au_params {
+                        let (id, name, value, min, max, _) = parameter;
+                        if *min >= *max {
+                            continue;
+                        }
+                        let label = if name.is_empty() {
+                            format!("Param {id}")
+                        } else {
+                            name.clone()
+                        };
+                        if ui
+                            .add(egui::Slider::new(value, *min..=*max).text(label))
+                            .changed()
+                        {
+                            let _ = effect.set_parameter(*id, *value);
+                        }
+                    }
+                } else {
+                    ui.label("No AU instance.");
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("Apply").clicked()
+                        && let (Some(track), Some(slot)) =
+                            (self.au_editor_track, self.au_editor_slot)
+                    {
+                        let state: String = self
+                            .au_params
+                            .iter()
+                            .map(|(id, _, value, _, _, _)| format!("{id}={value};"))
+                            .collect();
+                        match self.editor.set_plugin_state(track, slot, &state) {
+                            Ok(()) => self.status = Some(String::from("AU parameter state saved")),
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                    if ui.button("Defaults").clicked()
+                        && let Some(effect) = self.au_effect.as_ref()
+                    {
+                        for (id, _, value, _, _, default) in &mut self.au_params {
+                            *value = *default;
+                            let _ = effect.set_parameter(*id, *default);
+                        }
+                    }
+                });
+            });
+        self.au_editor_open = open;
+        if !open {
+            self.au_effect = None;
+            self.au_params.clear();
+        }
+    }
+
     fn right_inspector(&mut self, context: &egui::Context) {
         if self.settings.kids_mode {
             return;
@@ -3846,6 +3953,11 @@ impl ShellApp {
                                 project::song::PluginFormat::AudioUnit => "AU",
                             }
                         ));
+                        if slot.format == project::song::PluginFormat::AudioUnit
+                            && ui.small_button("Params").clicked()
+                        {
+                            self.open_au_parameters(track_id, slot.id);
+                        }
                         if ui
                             .small_button(if slot.bypassed { "Enable" } else { "Bypass" })
                             .clicked()
@@ -5481,6 +5593,7 @@ impl eframe::App for ShellApp {
         self.help_window(context);
         self.plugins_window(context);
         self.patch_window(context);
+        self.au_parameters_window(context);
         self.print_window(context);
         self.file_window(context);
         self.midi_map_window(context);

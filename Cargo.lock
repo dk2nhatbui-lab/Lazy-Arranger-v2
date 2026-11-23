@@ -1576,6 +1576,7 @@ dependencies = [
  "midi-devices",
  "music-core",
  "musicxml",
+ "plugin-host",
  "plugins",
  "project",
  "score",

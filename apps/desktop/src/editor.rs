@@ -598,6 +598,37 @@ impl Editor {
         Ok(())
     }
 
+    /// Stores opaque state on one plug-in slot.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track or slot is unknown.
+    pub fn set_plugin_state(
+        &mut self,
+        track: TrackId,
+        slot: u32,
+        state: &str,
+    ) -> Result<(), String> {
+        let plugins = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map(|entry| entry.plugins.clone())
+            .ok_or_else(|| String::from("unknown track"))?;
+        let mut plugins = plugins;
+        let entry = plugins
+            .iter_mut()
+            .find(|entry| entry.id == slot)
+            .ok_or_else(|| String::from("unknown plug-in slot"))?;
+        entry.state = state.to_string();
+        self.session
+            .apply(app_commands::Command::SetPlugins { track, plugins })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Sets or clears a track's synth patch.
     ///
     /// # Errors
@@ -2124,6 +2155,27 @@ mod tests {
         assert_eq!(editor.song().tracks[0].plugins.len(), 1);
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].plugins.len(), 2);
+    }
+
+    #[test]
+    fn a_plugin_state_is_stored_and_undoable() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let slot = editor
+            .add_plugin(
+                track,
+                "Dynamics",
+                project::song::PluginFormat::AudioUnit,
+                "",
+                "appl:dcmp",
+            )
+            .expect("add");
+        editor
+            .set_plugin_state(track, slot, "0=0.5;")
+            .expect("state");
+        assert_eq!(editor.song().tracks[0].plugins[0].state, "0=0.5;");
+        assert!(editor.undo());
+        assert!(editor.song().tracks[0].plugins[0].state.is_empty());
     }
 
     #[test]
