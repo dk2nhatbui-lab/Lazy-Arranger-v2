@@ -413,6 +413,18 @@ fn style_preview_song(style: &arranger::style::Style) -> Result<project::Song, S
     Ok(song)
 }
 
+fn held_chord_name(held: &[bool; 128]) -> Option<String> {
+    let pitches: Vec<u8> = held
+        .iter()
+        .enumerate()
+        .filter_map(|(pitch, down)| down.then_some(u8::try_from(pitch).ok()?))
+        .collect();
+    if pitches.len() < 3 {
+        return None;
+    }
+    arranger::recognize_symbol(&pitches, pitches.first().copied())
+}
+
 fn next_bar_seconds(now: f64, bar_seconds: f64) -> f64 {
     (now / bar_seconds.max(0.001))
         .floor()
@@ -757,6 +769,8 @@ pub struct ShellApp {
     style_auto_load: bool,
     style_queued_section: Option<usize>,
     style_queued_chord: Option<String>,
+    style_held: [bool; 128],
+    style_last_chord: String,
     style_queue_at: f64,
     audio_style_open: bool,
     audio_style_path: String,
@@ -1044,6 +1058,8 @@ impl ShellApp {
             style_auto_load: std::env::var("ARRANGER_STYLE_FILE").is_ok(),
             style_queued_section: None,
             style_queued_chord: None,
+            style_held: [false; 128],
+            style_last_chord: String::new(),
             style_queue_at: 0.0,
             audio_style_open: std::env::var("ARRANGER_AUDIO_STYLE").is_ok(),
             audio_style_path: String::new(),
@@ -2131,9 +2147,29 @@ impl ShellApp {
         let mut actions = Vec::new();
         let mut learned = None;
         let mut midi_activity = false;
+        let mut detected_chord = None;
         if let Some(input) = &self.midi_input {
             while let Some(message) = input.next() {
                 midi_activity = true;
+                if self.style_file_open {
+                    match &message {
+                        music_core::MidiMessage::NoteOn { key, velocity, .. }
+                            if velocity.as_u8() > 0 =>
+                        {
+                            self.style_held[usize::from(key.as_u8())] = true;
+                        }
+                        music_core::MidiMessage::NoteOff { key, .. }
+                        | music_core::MidiMessage::NoteOn { key, .. } => {
+                            self.style_held[usize::from(key.as_u8())] = false;
+                        }
+                        _ => {}
+                    }
+                    if let Some(name) = held_chord_name(&self.style_held)
+                        && name != self.style_last_chord
+                    {
+                        detected_chord = Some(name);
+                    }
+                }
                 self.midi_recent.push_front(midi_label(&message));
                 self.midi_recent.truncate(16);
                 if let music_core::MidiMessage::ControlChange {
@@ -2153,6 +2189,10 @@ impl ShellApp {
                     actions.push((action, value));
                 }
             }
+        }
+        if let Some(name) = detected_chord {
+            self.style_last_chord = name.clone();
+            self.queue_style_chord(&name);
         }
         if midi_activity && self.settings.kids_mode && self.view == View::Perform {
             self.kids_last_activity = Some(std::time::Instant::now());
@@ -4273,7 +4313,7 @@ impl ShellApp {
                 });
                 ui.label(
                     egui::RichText::new(
-                        "Section and chord changes queue at the next bar; keyboard chord input and fill/ending transitions are not implemented.",
+                        "Section and chord changes queue at the next bar; held MIDI notes are recognised as chords. Fill/ending transitions are not implemented.",
                     )
                     .size(9.0)
                     .color(theme::text_dim()),
@@ -10969,6 +11009,24 @@ mod tests {
         quantise_recorded(&mut notes, music_core::PPQ / 4);
         assert_eq!(notes[0].start, 0);
         assert_eq!(notes[1].start, 960);
+    }
+
+    #[test]
+    fn held_midi_notes_name_a_chord() {
+        let mut held = [false; 128];
+        held[60] = true;
+        held[64] = true;
+        held[67] = true;
+        assert_eq!(held_chord_name(&held).as_deref(), Some("C"));
+        held[60] = false;
+        held[57] = true;
+        held[64] = true;
+        held[67] = false;
+        held[60] = true;
+        assert_eq!(held_chord_name(&held).as_deref(), Some("Am"));
+        held[60] = false;
+        held[57] = false;
+        assert!(held_chord_name(&held).is_none());
     }
 
     #[test]
