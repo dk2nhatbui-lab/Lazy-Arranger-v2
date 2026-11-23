@@ -114,6 +114,18 @@ impl AuEditorUnit {
 }
 
 /// One row of the track list, snapshotted before drawing so the borrow ends.
+#[derive(Clone, Copy, Debug, Default)]
+struct PsrRegistration {
+    channel: u8,
+    bank_msb: u8,
+    bank_lsb: u8,
+    program: u8,
+    volume: u8,
+    pan: u8,
+    reverb: u8,
+    chorus: u8,
+}
+
 struct Row {
     index: usize,
     id: TrackId,
@@ -627,6 +639,7 @@ pub struct ShellApp {
     psr_pan: u8,
     psr_reverb: u8,
     psr_chorus: u8,
+    psr_regs: [PsrRegistration; 8],
     midi_out_cc_value: u8,
     midi_out_bank_msb: u8,
     midi_out_bank_lsb: u8,
@@ -900,6 +913,7 @@ impl ShellApp {
             psr_pan: 64,
             psr_reverb: 40,
             psr_chorus: 0,
+            psr_regs: [PsrRegistration::default(); 8],
             midi_out_cc_value: 100,
             midi_out_bank_msb: 0,
             midi_out_bank_lsb: 0,
@@ -2924,6 +2938,77 @@ impl ShellApp {
         });
     }
 
+    fn psr_send_state(&mut self) {
+        let Ok(channel) = music_core::Channel::from_one_based(self.psr_channel) else {
+            return;
+        };
+        if let (Ok(msb), Ok(lsb)) = (
+            music_core::ControlNumber::new(0),
+            music_core::ControlNumber::new(32),
+        ) {
+            self.send_midi(music_core::MidiMessage::ControlChange {
+                channel,
+                controller: msb,
+                value: self.psr_bank_msb,
+            });
+            self.send_midi(music_core::MidiMessage::ControlChange {
+                channel,
+                controller: lsb,
+                value: self.psr_bank_lsb,
+            });
+        }
+        self.send_midi(music_core::MidiMessage::ProgramChange {
+            channel,
+            program: self.psr_program,
+        });
+        for (value, controller) in [
+            (self.psr_volume, 7_u8),
+            (self.psr_pan, 10),
+            (self.psr_reverb, 91),
+            (self.psr_chorus, 93),
+        ] {
+            if let Ok(control) = music_core::ControlNumber::new(controller) {
+                self.send_midi(music_core::MidiMessage::ControlChange {
+                    channel,
+                    controller: control,
+                    value,
+                });
+            }
+        }
+    }
+
+    fn psr_store(&mut self, index: usize) {
+        if index >= self.psr_regs.len() {
+            return;
+        }
+        self.psr_regs[index] = PsrRegistration {
+            channel: self.psr_channel,
+            bank_msb: self.psr_bank_msb,
+            bank_lsb: self.psr_bank_lsb,
+            program: self.psr_program,
+            volume: self.psr_volume,
+            pan: self.psr_pan,
+            reverb: self.psr_reverb,
+            chorus: self.psr_chorus,
+        };
+        self.status = Some(format!("PSR registration {}", index + 1));
+    }
+
+    fn psr_recall(&mut self, index: usize) {
+        let Some(reg) = self.psr_regs.get(index).copied() else {
+            return;
+        };
+        self.psr_channel = reg.channel.max(1);
+        self.psr_bank_msb = reg.bank_msb;
+        self.psr_bank_lsb = reg.bank_lsb;
+        self.psr_program = reg.program;
+        self.psr_volume = reg.volume;
+        self.psr_pan = reg.pan;
+        self.psr_reverb = reg.reverb;
+        self.psr_chorus = reg.chorus;
+        self.psr_send_state();
+    }
+
     fn psr_window(&mut self, context: &Context) {
         if !self.psr_open {
             return;
@@ -2998,6 +3083,28 @@ impl ShellApp {
                             });
                         }
                     }
+                }
+                ui.separator();
+                ui.label(egui::RichText::new("Registrations").strong());
+                ui.horizontal(|ui| {
+                    for index in 0..8 {
+                        let response =
+                            ui.add_sized([34.0, 30.0], egui::Button::new((index + 1).to_string()));
+                        if response.clicked() {
+                            self.psr_recall(index);
+                        }
+                        if response.secondary_clicked() {
+                            self.psr_store(index);
+                        }
+                        response.on_hover_text("Click to recall; right-click to store");
+                    }
+                });
+                if ui
+                    .button("Store current in slot 1")
+                    .on_hover_text("Right-click a number above to store in that slot")
+                    .clicked()
+                {
+                    self.psr_store(0);
                 }
                 ui.separator();
                 ui.label(egui::RichText::new("Chord audition").strong());
