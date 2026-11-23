@@ -19,9 +19,11 @@ use crate::widgets;
 enum View {
     Perform,
     Arrange,
-    Mix,
+    Drums,
     Loops,
     Score,
+    Map,
+    Mix,
 }
 
 impl View {
@@ -32,19 +34,21 @@ impl View {
             "perform" => Some(Self::Perform),
             "arrange" => Some(Self::Arrange),
             "mix" => Some(Self::Mix),
+            "drums" => Some(Self::Drums),
             "loops" => Some(Self::Loops),
             "score" => Some(Self::Score),
+            "map" => Some(Self::Map),
             _ => None,
         }
     }
 
     /// Every view, in tab order.
     const ALL: [Self; 5] = [
-        Self::Perform,
         Self::Arrange,
-        Self::Mix,
-        Self::Loops,
         Self::Score,
+        Self::Drums,
+        Self::Loops,
+        Self::Map,
     ];
 
     /// The views Kids Mode offers.
@@ -62,9 +66,11 @@ impl View {
         match self {
             Self::Perform => crate::strings::Key::Perform,
             Self::Arrange => crate::strings::Key::Arrange,
+            Self::Drums => crate::strings::Key::Arrange,
             Self::Mix => crate::strings::Key::Mix,
             Self::Loops => crate::strings::Key::Loops,
             Self::Score => crate::strings::Key::Score,
+            Self::Map => crate::strings::Key::Arrange,
         }
     }
 
@@ -72,9 +78,11 @@ impl View {
         match self {
             Self::Perform => 0,
             Self::Arrange => 1,
-            Self::Mix => 2,
-            Self::Loops => 3,
-            Self::Score => 4,
+            Self::Score => 2,
+            Self::Drums => 3,
+            Self::Loops => 4,
+            Self::Map => 5,
+            Self::Mix => 6,
         }
     }
 }
@@ -4054,184 +4062,259 @@ impl ShellApp {
                     .inner_margin(egui::Margin::same(10)),
             )
             .show(context, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new("TRACK")
-                            .size(9.0)
-                            .color(theme::text_dim()),
-                    );
-                    let Some(track) = &track else {
-                        ui.label("No track");
-                        return;
-                    };
-                    if self.inspector_name_track != Some(track.id) {
-                        self.inspector_name_track = Some(track.id);
-                        self.inspector_name = track.name.clone();
-                    }
-                    ui.horizontal(|ui| {
-                        let response = ui.add(
-                            egui::TextEdit::singleline(&mut self.inspector_name)
-                                .desired_width(150.0)
-                                .font(egui::TextStyle::Heading),
-                        );
-                        if response.lost_focus()
-                            && ui.input(|input| input.key_pressed(egui::Key::Enter))
-                        {
-                            let name = self.inspector_name.trim().to_string();
-                            match self.editor.rename_track(track.id, &name) {
-                                Ok(()) => self.status = Some(format!("track renamed to {name:?}")),
-                                Err(error) => self.status = Some(error),
+                let chat_height = 180.0_f32.min((ui.available_height() - 160.0).max(90.0));
+                let top_height = (ui.available_height() - chat_height - 8.0).max(120.0);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), top_height),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new("TRACK")
+                                    .size(9.0)
+                                    .color(theme::text_dim()),
+                            );
+                            let Some(track) = &track else {
+                                ui.label("No track");
+                                return;
+                            };
+                            if self.inspector_name_track != Some(track.id) {
+                                self.inspector_name_track = Some(track.id);
+                                self.inspector_name = track.name.clone();
                             }
-                        }
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "ch {}",
-                                track
-                                    .notes
-                                    .first()
-                                    .map_or(1, |note| note.channel.one_based())
-                            ))
-                            .size(9.0)
-                            .color(theme::text_dim()),
-                        );
-                    });
-                    let instrument = track.soundfont.as_ref().map_or_else(
-                        || {
-                            track.program.map_or_else(
-                                || String::from("Built-in SoundFont"),
-                                |program| format!("Program {program}"),
-                            )
-                        },
-                        |font| format!("{}:{} {}", font.bank, font.program, font.path),
-                    );
-                    ui.label(
-                        egui::RichText::new(instrument)
-                            .size(10.0)
-                            .color(theme::text_muted()),
-                    );
-                    if track.soundfont.is_none() {
-                        let selected = track
-                            .program
-                            .map_or("Built-in SoundFont", midi_devices::programs::name);
-                        egui::ComboBox::from_id_salt("track-program")
-                            .selected_text(selected)
-                            .show_ui(ui, |ui| {
-                                if ui
-                                    .selectable_label(track.program.is_none(), "Built-in SoundFont")
-                                    .clicked()
+                            ui.horizontal(|ui| {
+                                let response = ui.add(
+                                    egui::TextEdit::singleline(&mut self.inspector_name)
+                                        .desired_width(150.0)
+                                        .font(egui::TextStyle::Heading),
+                                );
+                                if response.lost_focus()
+                                    && ui.input(|input| input.key_pressed(egui::Key::Enter))
                                 {
-                                    let _ = self.editor.set_track_program(track.id, None);
-                                }
-                                for (value, name) in
-                                    midi_devices::programs::GM_NAMES.iter().enumerate()
-                                {
-                                    let program = u8::try_from(value).unwrap_or(0);
-                                    if ui
-                                        .selectable_label(track.program == Some(program), *name)
-                                        .clicked()
-                                    {
-                                        let _ =
-                                            self.editor.set_track_program(track.id, Some(program));
+                                    let name = self.inspector_name.trim().to_string();
+                                    match self.editor.rename_track(track.id, &name) {
+                                        Ok(()) => {
+                                            self.status = Some(format!("track renamed to {name:?}"))
+                                        }
+                                        Err(error) => self.status = Some(error),
                                     }
                                 }
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "ch {}",
+                                        track
+                                            .notes
+                                            .first()
+                                            .map_or(1, |note| note.channel.one_based())
+                                    ))
+                                    .size(9.0)
+                                    .color(theme::text_dim()),
+                                );
                             });
-                    }
-                    ui.horizontal(|ui| {
-                        let mut muted = track.muted;
-                        let mut soloed = track.soloed;
-                        let mut armed = track.armed;
-                        let changed = ui.checkbox(&mut muted, "M").changed()
-                            | ui.checkbox(&mut soloed, "S").changed()
-                            | ui.checkbox(&mut armed, "R").changed();
-                        if changed
-                            && let Err(error) =
-                                self.editor.set_track_flags(track.id, muted, soloed, armed)
-                        {
-                            self.status = Some(error);
-                        }
-                    });
-                    if ui.button("Effects…").clicked() {
-                        self.view = View::Mix;
-                    }
-                    if ui.button("SoundFont…").clicked() {
-                        self.view = View::Mix;
-                        self.status =
-                            Some(String::from("SoundFont controls are in the Mixer view"));
-                    }
-                    ui.separator();
-                    ui.label(
-                        egui::RichText::new("SONG")
-                            .size(9.0)
-                            .color(theme::text_dim()),
-                    );
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut self.song_name_input)
-                                .desired_width(160.0),
-                        )
-                        .lost_focus()
-                        && ui.input(|input| input.key_pressed(egui::Key::Enter))
-                    {
-                        let name = self.song_name_input.trim().to_string();
-                        match self.editor.rename_song(&name) {
-                            Ok(()) => self.status = Some(format!("song renamed to {name:?}")),
-                            Err(error) => self.status = Some(error),
-                        }
-                    }
-                    let key = score::spelling::detect_key(self.song());
-                    ui.label(format!(
-                        "{} {}",
-                        if key.minor {
-                            key.tonic.name_flat()
-                        } else {
-                            key.tonic.name_sharp()
-                        },
-                        if key.minor { "minor" } else { "major" }
-                    ));
-                    ui.separator();
-                    ui.label(
-                        egui::RichText::new("METRONOME")
-                            .size(9.0)
-                            .color(theme::text_dim()),
-                    );
-                    ui.checkbox(&mut self.settings.metronome, "Click on");
-                    ui.separator();
-                    ui.label(
-                        egui::RichText::new("AUDIO OUTPUT")
-                            .size(9.0)
-                            .color(theme::text_dim()),
-                    );
-                    ui.label(audio_engine_label());
-                    if ui.button("Audio and MIDI settings").clicked() {
-                        self.settings_open = true;
-                    }
-                    ui.separator();
-                    ui.label(
-                        egui::RichText::new("MIDI INPUTS")
-                            .size(9.0)
-                            .color(theme::text_dim()),
-                    );
-                    let inputs = self
-                        .midi_ports
-                        .as_ref()
-                        .map(|(inputs, _)| inputs.clone())
-                        .unwrap_or_default();
-                    if inputs.is_empty() {
-                        ui.label(
-                            egui::RichText::new("No MIDI inputs found")
-                                .size(10.0)
-                                .color(theme::text_dim()),
-                        );
-                    }
-                    for input in inputs.iter().take(4) {
-                        ui.label(
-                            egui::RichText::new(input)
-                                .size(10.0)
-                                .color(theme::text_muted()),
-                        );
-                    }
-                });
+                            let instrument = track.soundfont.as_ref().map_or_else(
+                                || {
+                                    track.program.map_or_else(
+                                        || String::from("Built-in SoundFont"),
+                                        |program| format!("Program {program}"),
+                                    )
+                                },
+                                |font| format!("{}:{} {}", font.bank, font.program, font.path),
+                            );
+                            ui.label(
+                                egui::RichText::new(instrument)
+                                    .size(10.0)
+                                    .color(theme::text_muted()),
+                            );
+                            if track.soundfont.is_none() {
+                                let selected = track
+                                    .program
+                                    .map_or("Built-in SoundFont", midi_devices::programs::name);
+                                egui::ComboBox::from_id_salt("track-program")
+                                    .selected_text(selected)
+                                    .show_ui(ui, |ui| {
+                                        if ui
+                                            .selectable_label(
+                                                track.program.is_none(),
+                                                "Built-in SoundFont",
+                                            )
+                                            .clicked()
+                                        {
+                                            let _ = self.editor.set_track_program(track.id, None);
+                                        }
+                                        for (value, name) in
+                                            midi_devices::programs::GM_NAMES.iter().enumerate()
+                                        {
+                                            let program = u8::try_from(value).unwrap_or(0);
+                                            if ui
+                                                .selectable_label(
+                                                    track.program == Some(program),
+                                                    *name,
+                                                )
+                                                .clicked()
+                                            {
+                                                let _ = self
+                                                    .editor
+                                                    .set_track_program(track.id, Some(program));
+                                            }
+                                        }
+                                    });
+                            }
+                            ui.horizontal(|ui| {
+                                let mut muted = track.muted;
+                                let mut soloed = track.soloed;
+                                let mut armed = track.armed;
+                                let changed = ui.checkbox(&mut muted, "M").changed()
+                                    | ui.checkbox(&mut soloed, "S").changed()
+                                    | ui.checkbox(&mut armed, "R").changed();
+                                if changed
+                                    && let Err(error) =
+                                        self.editor.set_track_flags(track.id, muted, soloed, armed)
+                                {
+                                    self.status = Some(error);
+                                }
+                            });
+                            if ui.button("Effects…").clicked() {
+                                self.view = View::Mix;
+                            }
+                            if ui.button("SoundFont…").clicked() {
+                                self.view = View::Mix;
+                                self.status =
+                                    Some(String::from("SoundFont controls are in the Mixer view"));
+                            }
+                            ui.separator();
+                            ui.label(
+                                egui::RichText::new("SONG")
+                                    .size(9.0)
+                                    .color(theme::text_dim()),
+                            );
+                            if ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut self.song_name_input)
+                                        .desired_width(160.0),
+                                )
+                                .lost_focus()
+                                && ui.input(|input| input.key_pressed(egui::Key::Enter))
+                            {
+                                let name = self.song_name_input.trim().to_string();
+                                match self.editor.rename_song(&name) {
+                                    Ok(()) => {
+                                        self.status = Some(format!("song renamed to {name:?}"))
+                                    }
+                                    Err(error) => self.status = Some(error),
+                                }
+                            }
+                            let key = score::spelling::detect_key(self.song());
+                            ui.label(format!(
+                                "{} {}",
+                                if key.minor {
+                                    key.tonic.name_flat()
+                                } else {
+                                    key.tonic.name_sharp()
+                                },
+                                if key.minor { "minor" } else { "major" }
+                            ));
+                            ui.separator();
+                            ui.label(
+                                egui::RichText::new("METRONOME")
+                                    .size(9.0)
+                                    .color(theme::text_dim()),
+                            );
+                            ui.checkbox(&mut self.settings.metronome, "Click on");
+                            ui.separator();
+                            ui.label(
+                                egui::RichText::new("AUDIO OUTPUT")
+                                    .size(9.0)
+                                    .color(theme::text_dim()),
+                            );
+                            ui.label(audio_engine_label());
+                            if ui.button("Audio and MIDI settings").clicked() {
+                                self.settings_open = true;
+                            }
+                            ui.separator();
+                            ui.label(
+                                egui::RichText::new("MIDI INPUTS")
+                                    .size(9.0)
+                                    .color(theme::text_dim()),
+                            );
+                            let inputs = self
+                                .midi_ports
+                                .as_ref()
+                                .map(|(inputs, _)| inputs.clone())
+                                .unwrap_or_default();
+                            if inputs.is_empty() {
+                                ui.label(
+                                    egui::RichText::new("No MIDI inputs found")
+                                        .size(10.0)
+                                        .color(theme::text_dim()),
+                                );
+                            }
+                            for input in inputs.iter().take(4) {
+                                ui.label(
+                                    egui::RichText::new(input)
+                                        .size(10.0)
+                                        .color(theme::text_muted()),
+                                );
+                            }
+                        });
+                    },
+                );
+                ui.separator();
+                self.assistant_inline(ui, chat_height);
             });
+    }
+
+    fn assistant_inline(&mut self, ui: &mut egui::Ui, height: f32) {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("ASSISTANT")
+                    .size(9.0)
+                    .color(theme::text_dim()),
+            );
+            if ui
+                .small_button("Open")
+                .on_hover_text("Open the larger chat window")
+                .clicked()
+            {
+                self.assistant_open = true;
+            }
+        });
+        egui::ScrollArea::vertical()
+            .id_salt("inspector-chat")
+            .max_height((height - 62.0).max(40.0))
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                if self.assistant_log.is_empty() {
+                    ui.label(
+                        egui::RichText::new("Ask for help or run a tool.")
+                            .size(10.0)
+                            .color(theme::text_dim()),
+                    );
+                }
+                for line in &self.assistant_log {
+                    ui.label(egui::RichText::new(line).monospace().size(9.0));
+                }
+            });
+        ui.horizontal(|ui| {
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut self.assistant_input)
+                    .hint_text("help")
+                    .desired_width(150.0),
+            );
+            let enter =
+                response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+            if (ui.small_button("Send").clicked() || enter) && !self.assistant_input.is_empty() {
+                let input = self.assistant_input.trim().to_string();
+                if input == "undo" || input.starts_with("tool ") {
+                    self.selected_note = None;
+                    self.selected_clip = None;
+                    self.selected_clips.clear();
+                }
+                let reply = self.editor.assistant(&input);
+                self.assistant_log.push(format!("> {input}"));
+                self.assistant_log.push(reply.text);
+                self.assistant_input.clear();
+            }
+        });
     }
 
     fn help_window(&mut self, context: &egui::Context) {
@@ -6354,6 +6437,24 @@ impl ShellApp {
     }
 
     /// The Beat view: four drum rows of sixteen steps for one bar.
+    fn load_beat(&mut self) {
+        let Some(track) = self
+            .roll
+            .selected
+            .or_else(|| self.song().tracks.first().map(|track| track.id))
+        else {
+            return;
+        };
+        let bar = self.song().time_signature.bar_ticks().max(1);
+        let start = snap(self.position, bar);
+        if let Some((bar, pattern)) = self.editor.beat_pattern(track, start) {
+            self.beat_track = Some(track);
+            self.beat_start = start;
+            self.beat_bar = bar;
+            self.beat_pattern = pattern;
+        }
+    }
+
     fn beat_dialog(&mut self, context: &Context) {
         if !self.beat_dialog {
             return;
@@ -6976,6 +7077,8 @@ impl ShellApp {
                     .map(|view| match view {
                         View::Arrange => "Timeline",
                         View::Mix => "Mixer",
+                        View::Drums => "Drums",
+                        View::Map => "Map",
                         other => crate::strings::text(
                             crate::strings::Language::parse(&self.settings.language),
                             other.key(),
@@ -6990,6 +7093,9 @@ impl ShellApp {
                     && let Some(view) = views.get(index)
                 {
                     self.view = *view;
+                    if *view == View::Drums {
+                        self.load_beat();
+                    }
                 }
                 if let (Some(audio_rect), Some(minus_rect), Some(plus_rect)) =
                     (audio_rect, minus_rect, plus_rect)
@@ -8029,6 +8135,141 @@ impl eframe::App for ShellApp {
                             ) {
                                 automation_edit = Some((track_id, edited));
                             }
+                        }
+                    }
+                    View::Drums => {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Beat").size(16.0).strong());
+                            if ui
+                                .button("Open floating editor")
+                                .on_hover_text("Open the same grid in a window")
+                                .clicked()
+                            {
+                                self.beat_dialog = true;
+                            }
+                            if let Some(track) = self.beat_track {
+                                ui.label(
+                                    egui::RichText::new(format!("track {track}"))
+                                        .size(10.0)
+                                        .color(theme::text_dim()),
+                                );
+                            }
+                        });
+                        if self.beat_track.is_none() {
+                            ui.label("Select a track to edit its beat.");
+                        } else {
+                            let mut reload = None;
+                            ui.horizontal(|ui| {
+                                for bars in [1_usize, 2, 4] {
+                                    if ui
+                                        .selectable_label(
+                                            self.beat_bars == bars,
+                                            format!("{bars} bar"),
+                                        )
+                                        .clicked()
+                                    {
+                                        reload = Some(bars);
+                                    }
+                                }
+                            });
+                            for (row, (_, label)) in arranging::beat::ROWS.iter().enumerate() {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(*label)
+                                            .size(11.0)
+                                            .color(theme::text_dim()),
+                                    );
+                                    let steps = self.beat_pattern.grid[row].len();
+                                    for slot in 0..steps {
+                                        let level = self.beat_pattern.grid[row][slot];
+                                        let text = if level == 0 {
+                                            String::from("·")
+                                        } else {
+                                            level.to_string()
+                                        };
+                                        if ui
+                                            .add_sized([24.0, 24.0], egui::Button::new(text))
+                                            .clicked()
+                                        {
+                                            self.beat_pattern.cycle(row, slot);
+                                        }
+                                    }
+                                });
+                            }
+                            if let Some(bars) = reload
+                                && let Some(track) = self.beat_track
+                                && let Some((bar, pattern)) = self.editor.beat_pattern_bars(
+                                    track,
+                                    self.beat_start,
+                                    bars,
+                                )
+                            {
+                                self.beat_bar = bar;
+                                self.beat_pattern = pattern;
+                                self.beat_bars = bars;
+                            }
+                            if ui.button("Apply beat").clicked()
+                                && let Some(track) = self.beat_track
+                            {
+                                match self.editor.apply_beat(
+                                    track,
+                                    self.beat_start,
+                                    self.beat_bar,
+                                    &self.beat_pattern,
+                                ) {
+                                    Ok(added) => {
+                                        self.status = Some(format!("beat: {added} hit(s)"))
+                                    }
+                                    Err(error) => self.status = Some(error),
+                                }
+                            }
+                        }
+                    }
+                    View::Map => {
+                        ui.heading("MIDI Map");
+                        ui.label(
+                            egui::RichText::new(
+                                "Controller bindings and track controls. Learn bindings in Windows > Controllers.",
+                            )
+                            .size(10.0)
+                            .color(theme::text_dim()),
+                        );
+                        if ui.button("Open Controllers").clicked() {
+                            self.controller_open = true;
+                        }
+                        ui.separator();
+                        egui::Grid::new("midi-map-grid")
+                            .striped(true)
+                            .num_columns(4)
+                            .show(ui, |ui| {
+                                ui.label(egui::RichText::new("Track").strong());
+                                ui.label(egui::RichText::new("Volume").strong());
+                                ui.label(egui::RichText::new("Pan").strong());
+                                ui.label(egui::RichText::new("Send").strong());
+                                ui.end_row();
+                                for track in &project.song.tracks {
+                                    ui.label(if track.name.is_empty() {
+                                        "untitled"
+                                    } else {
+                                        &track.name
+                                    });
+                                    ui.label(track.volume.to_string());
+                                    ui.label(track.pan.to_string());
+                                    ui.label(track.send_level.to_string());
+                                    ui.end_row();
+                                }
+                            });
+                        ui.separator();
+                        ui.label(egui::RichText::new("Controller bindings").strong());
+                        if self.midi_map.controller_bindings().is_empty() {
+                            ui.label(
+                                egui::RichText::new("no controller bindings yet")
+                                    .size(10.0)
+                                    .color(theme::text_dim()),
+                            );
+                        }
+                        for (number, action) in self.midi_map.controller_bindings() {
+                            ui.label(format!("CC {number}  →  {}", action.label()));
                         }
                     }
                     View::Perform => {
