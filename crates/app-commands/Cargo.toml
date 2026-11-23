@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+audio = { path = "../audio" }
 music-core = { path = "../music-core" }
 project = { path = "../project" }
 thiserror.workspace = true

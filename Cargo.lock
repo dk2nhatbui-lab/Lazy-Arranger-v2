@@ -147,6 +147,7 @@ dependencies = [
 name = "app-commands"
 version = "0.1.0"
 dependencies = [
+ "audio",
  "music-core",
  "project",
  "thiserror 2.0.21",

@@ -11,6 +11,7 @@
 //! destructive model-proposed edits.
 
 pub mod audio_ref;
+pub mod bounce;
 pub mod clipboard;
 
 use music_core::{Channel, Chord, Pitch, TempoMap, Tick, Velocity};

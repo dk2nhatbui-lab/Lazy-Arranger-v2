@@ -221,6 +221,23 @@ enum Commands {
         /// Action, e.g. `play`, `stop`, `scene 1`, `fader track-2`.
         action: String,
     },
+    /// Render the mix to a WAV and insert it as an audio track.
+    Bounce {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Output `.wav`.
+        #[arg(long)]
+        wav: PathBuf,
+        /// Output project `.json`.
+        #[arg(long)]
+        out: PathBuf,
+        /// Name for the new track.
+        #[arg(long, default_value = "Bounce")]
+        name: String,
+        /// Sample rate.
+        #[arg(long, default_value_t = 48_000)]
+        sample_rate: u32,
+    },
     /// Import Zoom L6max takes as audio tracks and report the plan.
     L6maxImport {
         /// Folder holding the recorded `.wav` takes.
@@ -726,6 +743,29 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 entry.path.display()
             );
             style_command(&entry.path, section.as_deref(), out.as_ref(), &[], false)
+        }
+        Commands::Bounce {
+            project,
+            wav,
+            out,
+            name,
+            sample_rate,
+        } => {
+            let project = read_project(&project)?;
+            let mut session = EditSession::new(project)?;
+            let bounce =
+                app_commands::bounce::bounce_to_track(&mut session, &wav, &name, sample_rate)?;
+            let json = session.project().to_json_pretty()?;
+            fs::write(&out, json)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!(
+                "bounced {} ticks to {} on track {} -> {}",
+                bounce.length,
+                bounce.path.display(),
+                bounce.track,
+                out.display()
+            );
+            Ok(())
         }
         Commands::L6maxImport {
             folder,

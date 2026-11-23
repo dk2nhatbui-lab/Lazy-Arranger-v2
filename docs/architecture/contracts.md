@@ -789,3 +789,11 @@ token per start, and requires `token` on every JSON-RPC line; a mismatch gets
 error -32001 and never reaches a tool. `mcp-socket` writes the token to a file
 and saves the project after every successful `tools/call`. There is no TLS,
 authentication beyond the token, or concurrent client handling.
+
+### Bounce
+
+`app_commands::bounce::bounce_to_track` renders the song, mixes audio
+references, writes a 16-bit WAV and inserts it as an audio track whose span is
+derived at the tempo. The insert is one undo step; re-bouncing without muting
+the bounce track doubles the mix. There is no input recording, monitoring or
+take comping.
