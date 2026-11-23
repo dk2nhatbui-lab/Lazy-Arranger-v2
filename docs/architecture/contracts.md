@@ -773,3 +773,11 @@ The P-key Drum pads window loads a WAV loop, slices it with `audio::drums`, and
 shows a 4x4 grid of the first 16 GM pad notes with their lengths. Clicking a pad
 plays its audition buffer through the cpal player. Pads are not triggered by an
 external keyboard, slice bounds cannot be edited and there is no time-stretch.
+
+### Score note entry
+
+`score::pitch_at_y` inverts the staff placement and `score::tick_at_x` maps a
+click inside a measure to a quarter-quantised tick. With Note entry enabled, a
+click in the Score canvas inserts a note on the selected track through the
+normal insert command, so it is one undo step. Rests, moving or resizing
+existing notes and grand-staff entry are not implemented.

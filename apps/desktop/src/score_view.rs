@@ -4,7 +4,7 @@
 //! makes no musical decisions, so a PDF renderer can reuse the same layout.
 
 use egui::{Color32, Pos2, Rect, Stroke, Ui, Vec2};
-use score::{Engraved, Settings};
+use score::{Engraved, ScoreHit, Settings};
 
 use crate::theme;
 
@@ -29,11 +29,12 @@ pub fn clamp_page(engraved: &Engraved, page: usize) -> usize {
     page.min(engraved.pages.len().saturating_sub(1))
 }
 
-/// Draws one page of the engraved document.
-pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) {
+/// Draws one page and maps a click to a note position.
+pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) -> Option<ScoreHit> {
     let settings = Settings::default();
     let page_index = clamp_page(engraved, page);
-    let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
+    let (response, painter) =
+        ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
     let centre = response.rect.center();
     let page_rect = page_rect(centre, settings, zoom);
     painter.rect_filled(page_rect, 0.0, Color32::from_rgb(0xF4, 0xF1, 0xEA));
@@ -115,7 +116,44 @@ pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) {
             egui::FontId::proportional(10.0),
             Color32::from_rgb(0x55, 0x55, 0x55),
         );
+        if let Some(position) = response.interact_pointer_pos()
+            && response.clicked()
+        {
+            return hit_test(engraved, page_index, &settings, zoom, origin, position);
+        }
     }
+    None
+}
+
+fn hit_test(
+    engraved: &Engraved,
+    page_index: usize,
+    settings: &Settings,
+    zoom: f32,
+    origin: Pos2,
+    position: Pos2,
+) -> Option<ScoreHit> {
+    let page = engraved.pages.get(page_index)?;
+    let local_x = (position.x - origin.x) / zoom;
+    let local_y = (position.y - origin.y) / zoom;
+    for system in &page.systems {
+        let height = 4.0 * settings.staff_space;
+        if local_y < system.y - 2.5 * settings.staff_space
+            || local_y > system.y + height + 2.5 * settings.staff_space
+        {
+            continue;
+        }
+        for measure in &system.measures {
+            if local_x < measure.x || local_x > measure.x_end {
+                continue;
+            }
+            return Some(ScoreHit {
+                tick: score::tick_at_x(measure, local_x, music_core::PPQ / 4),
+                pitch: score::pitch_at_y(system.y, local_y, *settings),
+            });
+        }
+    }
+    None
 }
 
 #[cfg(test)]

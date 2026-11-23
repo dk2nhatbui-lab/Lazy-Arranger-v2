@@ -134,6 +134,32 @@ pub struct Page {
     pub systems: Vec<System>,
 }
 
+/// A click position turned into a note position.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScoreHit {
+    /// Quantised tick.
+    pub tick: Tick,
+    /// MIDI pitch from the vertical position.
+    pub pitch: u8,
+}
+
+/// The pitch a click at `y` means on a system whose staff starts at `system_y`.
+#[must_use]
+pub fn pitch_at_y(system_y: f32, y: f32, settings: Settings) -> u8 {
+    let step = ((system_y - y) / settings.staff_space.max(1.0)).round();
+    (60.0 + 2.0 * step).clamp(0.0, 127.0) as u8
+}
+
+/// The tick a click at `x` means inside a measure, quantised.
+#[must_use]
+pub fn tick_at_x(measure: &Measure, x: f32, quantum: Tick) -> Tick {
+    let width = (measure.x_end - measure.x).max(1.0);
+    let ratio = ((x - measure.x) / width).clamp(0.0, 1.0);
+    let tick = measure.start + (ratio * measure.length as f32).round() as Tick;
+    let quantum = quantum.max(1);
+    (tick / quantum) * quantum
+}
+
 /// The engraved layout.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Engraved {
@@ -578,6 +604,25 @@ mod tests {
         assert!(tied > 0, "bar-to-bar notes are tied");
         let pdf = pdf::to_pdf(&engraved, Settings::default(), "Acceptance");
         assert_eq!(pdf::page_count(&pdf), Some(engraved.pages.len()));
+    }
+
+    #[test]
+    fn entry_mapping_inverts_placement() {
+        let settings = Settings::default();
+        let score = song(1);
+        let engraved = engrave(&score, TrackId::new(1).expect("valid"), settings);
+        let system = &engraved.pages[0].systems[0];
+        let note = &engraved.notes[0];
+        assert_eq!(
+            pitch_at_y(system.y, note.y, settings),
+            60,
+            "C4 sits seven steps above the bottom line"
+        );
+        let measure = &system.measures[0];
+        let middle = (measure.x + measure.x_end) / 2.0;
+        let tick = tick_at_x(measure, middle, music_core::PPQ / 4);
+        assert!(tick > measure.start && tick < measure.start + measure.length);
+        assert_eq!(tick % (music_core::PPQ / 4), 0);
     }
 
     #[test]

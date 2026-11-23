@@ -112,6 +112,7 @@ pub struct ShellApp {
     settings: crate::settings::Settings,
     settings_open: bool,
     shortcuts_open: bool,
+    score_entry: bool,
     score_page: usize,
     score_zoom: f32,
     rename_scene: Option<usize>,
@@ -192,6 +193,7 @@ impl ShellApp {
             settings: crate::settings::Settings::load(&crate::settings::Settings::path()),
             settings_open: false,
             shortcuts_open: false,
+            score_entry: false,
             score_page: 0,
             score_zoom: 1.0,
             rename_scene: None,
@@ -1843,6 +1845,7 @@ impl eframe::App for ShellApp {
                 let mut clicked = None;
                 let mut automation_edit: Option<(TrackId, project::song::Automation)> = None;
                 let mut audio_trim: Option<(TrackId, Tick)> = None;
+                let mut score_status: Option<String> = None;
                 let Self { editor, roll, .. } = self;
                 let selected_clip = self.selected_clip;
                 let project = editor.project();
@@ -1917,6 +1920,7 @@ impl eframe::App for ShellApp {
                 }
                 View::Score => {
                     ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.score_entry, "Note entry");
                         if ui.button("◀ Page").clicked() {
                             self.score_page = self.score_page.saturating_sub(1);
                         }
@@ -1929,17 +1933,32 @@ impl eframe::App for ShellApp {
                                 .fixed_decimals(1),
                         );
                     });
-                    if let Some(track) = self
-                        .roll
+                    if let Some(track) = roll
                         .selected
-                        .or_else(|| self.song().tracks.first().map(|track| track.id))
+                        .or_else(|| project.song.tracks.first().map(|track| track.id))
                     {
                         let engraved =
-                            score::engrave(self.song(), track, score::Settings::default());
+                            score::engrave(&project.song, track, score::Settings::default());
                         self.score_page = crate::score_view::clamp_page(&engraved, self.score_page);
                         let zoom = self.score_zoom;
                         let page = self.score_page;
-                        crate::score_view::show(ui, &engraved, page, zoom);
+                        if let Some(hit) = crate::score_view::show(ui, &engraved, page, zoom)
+                            && self.score_entry
+                        {
+                            match music_core::Pitch::new(hit.pitch) {
+                                Ok(pitch) => match editor.insert(track, hit.tick, pitch) {
+                                    Ok(_) => {
+                                        score_status = Some(format!(
+                                            "inserted {} at tick {}",
+                                            pitch.as_u8(),
+                                            hit.tick
+                                        ));
+                                    }
+                                    Err(error) => score_status = Some(error.to_string()),
+                                },
+                                Err(error) => score_status = Some(error.to_string()),
+                            }
+                        }
                     } else {
                         ui.centered_and_justified(|ui| {
                             ui.label(
@@ -1950,11 +1969,14 @@ impl eframe::App for ShellApp {
                     }
                 }
                 }
-                (clicked, automation_edit, audio_trim)
+                (clicked, automation_edit, audio_trim, score_status)
             });
-        let (clicked, automation_edit, audio_trim) = panel.inner;
+        let (clicked, automation_edit, audio_trim, score_status) = panel.inner;
         if let Some(click) = clicked {
             self.edit_click(click);
+        }
+        if let Some(status) = score_status {
+            self.status = Some(status);
         }
         if let Some((track, delta)) = audio_trim {
             if let Err(error) = self.editor.trim_audio_start(track, delta) {

@@ -78,7 +78,7 @@ the wider ~90-tool MCP surface.
 | MusicXML export (partwise, rests, drum clef) | `crates/musicxml` | verified | 4 tests + valid XML from a real project |
 | MusicXML import (parts, measures, notes, rests, chords, drums, tempo/meter, lyrics, marks, ties) | `musicxml::import` | verified | round trips for notes, lyrics, marks and ties; drum pitch/velocity lost |
 | Score layout engine (pages, systems, measures, positioned notes) | `crates/score` | verified core | 4 tests + real project layout |
-| Score canvas renderer (staff, barlines, noteheads, page nav, zoom) | `apps/desktop/src/score_view.rs` | implemented | geometry tests; UI manual |
+| Score canvas renderer, click note entry (quantised tick and staff pitch) | `apps/desktop/src/score_view.rs`, `score` mapping | verified mapping | entry mapping test; UI manual |
 | Key detection, spelling and accidentals | `score::spelling` | verified | 6 tests: scales, chromatic, signatures, flat keys, key detection |
 | Vector PDF score export | `score::pdf`, CLI `score-pdf` | verified | pdfinfo: 3 pages A4, title/page text extractable; xref test |
 | Ties and lyrics in the layout and both renderers | `score::engrave_with` | verified | per-pitch tie tracking; 40-bar two-page acceptance test |
