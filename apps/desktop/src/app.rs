@@ -703,6 +703,7 @@ pub struct ShellApp {
     assistant_log: Vec<String>,
     ai_pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     assistant_proposal: Option<AssistantProposal>,
+    available_update: Option<crate::update::Release>,
     waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
     audio_inputs: Option<Vec<String>>,
@@ -985,6 +986,7 @@ impl ShellApp {
             assistant_log: Vec::new(),
             ai_pending: None,
             assistant_proposal: None,
+            available_update: None,
             waveform: None,
             midi_ports: None,
             audio_inputs: None,
@@ -6386,7 +6388,51 @@ impl ShellApp {
                         }
                     });
                     if ui.button("Check for updates").clicked() {
-                        self.status = Some(crate::update::check_status());
+                        match crate::update::fetch_release() {
+                            Ok(release) => {
+                                let current = env!("CARGO_PKG_VERSION");
+                                if crate::update::should_offer(
+                                    &release.tag,
+                                    current,
+                                    &self.settings.skipped_update,
+                                ) {
+                                    self.status = Some(crate::update::describe_release(
+                                        current,
+                                        &release.tag,
+                                        &release.url,
+                                    ));
+                                    self.available_update = Some(release);
+                                } else if release.tag == self.settings.skipped_update {
+                                    self.status = Some(format!(
+                                        "Update {} skipped in Settings",
+                                        release.tag
+                                    ));
+                                } else {
+                                    self.status = Some(crate::update::describe_release(
+                                        current,
+                                        &release.tag,
+                                        &release.url,
+                                    ));
+                                }
+                            }
+                            Err(error) => {
+                                self.status = Some(format!("Update check failed: {error}"));
+                            }
+                        }
+                    }
+                    if let Some(release) = self.available_update.clone() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Release {}", release.tag));
+                            if ui.button("Open release page").clicked() {
+                                crate::update::open_url(&release.url);
+                            }
+                            if ui.button("Skip this version").clicked() {
+                                self.settings.skipped_update = release.tag.clone();
+                                let _ = self.settings.save(&crate::settings::Settings::path());
+                                self.available_update = None;
+                                self.status = Some(format!("Update {} skipped", release.tag));
+                            }
+                        });
                     }
                     if ui.button("Show device profiles folder").clicked() {
                         let folder = crate::settings::Settings::path()

@@ -134,5 +134,5 @@ For the clef layout, choose either four measures per system without clefs
 - Timeline lanes fill the panel; track names live only in the sidebar (`docs/audit/ui-no-labels.png`).
 - Timeline clips drag to move or resize on a 1/16 grid with a live ghost preview.
 - Settings can auto-open all MIDI inputs; no hardware verification yet.
-- Check for updates reads the GitHub latest release and compares versions; no download/install; external endpoint unverified.
+- Check for updates reads the GitHub latest release and compares versions; Open release page and Skip this version; no download/install; external endpoint unverified.
 - Style file player loads a Yamaha style and auditions selected sections at an entered chord with optional loop; new section selections and chord pads queue at the next bar; no keyboard chord input or fill/ending transitions (`docs/audit/style-file.png`).

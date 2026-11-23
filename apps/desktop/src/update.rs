@@ -32,6 +32,63 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
     false
 }
 
+/// One published release.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Release {
+    /// Release tag.
+    pub tag: String,
+    /// Release page.
+    pub url: String,
+}
+
+/// True when the release should be offered.
+#[must_use]
+pub fn should_offer(tag: &str, current: &str, skipped: &str) -> bool {
+    is_newer(tag, current) && tag != skipped
+}
+
+/// Fetches the latest release.
+///
+/// # Errors
+///
+/// Returns a message when curl, the request or the JSON fails.
+pub fn fetch_release() -> Result<Release, String> {
+    let output = std::process::Command::new("curl")
+        .args([
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "10",
+            "-H",
+            "Accept: application/vnd.github+json",
+            RELEASE_URL,
+        ])
+        .output()
+        .map_err(|error| format!("curl: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "endpoint: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let (tag, url) = parse_release(&String::from_utf8_lossy(&output.stdout))?;
+    Ok(Release { tag, url })
+}
+
+/// Opens an HTTP(S) release page in the browser.
+pub fn open_url(url: &str) {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(target_os = "linux")]
+    let program = "xdg-open";
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let program = "open";
+    let _ = std::process::Command::new(program).arg(url).spawn();
+}
+
 /// Text for a release response.
 #[must_use]
 pub fn describe_release(current: &str, tag: &str, url: &str) -> String {
@@ -67,29 +124,8 @@ pub fn parse_release(body: &str) -> Result<(String, String), String> {
 /// Fetches the latest release and formats one status line.
 #[must_use]
 pub fn check_status() -> String {
-    let output = std::process::Command::new("curl")
-        .args([
-            "--silent",
-            "--show-error",
-            "--max-time",
-            "10",
-            "-H",
-            "Accept: application/vnd.github+json",
-            RELEASE_URL,
-        ])
-        .output();
-    let output = match output {
-        Ok(output) => output,
-        Err(error) => return format!("Update check failed: {error}"),
-    };
-    if !output.status.success() {
-        return format!(
-            "Update check failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    match parse_release(&String::from_utf8_lossy(&output.stdout)) {
-        Ok((tag, url)) => describe_release(env!("CARGO_PKG_VERSION"), &tag, &url),
+    match fetch_release() {
+        Ok(release) => describe_release(env!("CARGO_PKG_VERSION"), &release.tag, &release.url),
         Err(error) => format!("Update check failed: {error}"),
     }
 }
@@ -104,6 +140,13 @@ mod tests {
         assert!(!is_newer("1.1.9", "1.2.0"));
         assert!(!is_newer("v1.2.0", "1.2.0"));
         assert!(is_newer("2.0", "1.9.9"));
+    }
+
+    #[test]
+    fn skipped_releases_are_not_offered() {
+        assert!(should_offer("v1.1.0", "1.0.0", ""));
+        assert!(!should_offer("v1.1.0", "1.0.0", "v1.1.0"));
+        assert!(!should_offer("v1.0.0", "1.0.0", ""));
     }
 
     #[test]
