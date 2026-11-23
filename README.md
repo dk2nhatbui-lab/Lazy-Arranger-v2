@@ -80,7 +80,7 @@ crates/arranger        chord rules, sections, style conversion
 crates/arranging       grooves, forms, doctor, fit, clip grid, beat, demo songs
 crates/performance     intent/rendered capture, provenance, freeze
 crates/score           engraving, pages/systems, PDF
-crates/audio           synth, SF2, WAV/FLAC/MP3/M4A/AIFF/OGG decode, mix, buses, automation, analysis, L6max
+crates/audio           synth, SF2 (loop crossfade), WAV/FLAC/MP3/M4A/AIFF/OGG decode, mix, buses, automation, analysis, L6max
 crates/library         Music Finder books, playlists
 crates/midi-devices    profiles, ports, maps, SysEx, dispatch
 crates/plugins         VST3/AU metadata, catalog cache and browser (no hosting)

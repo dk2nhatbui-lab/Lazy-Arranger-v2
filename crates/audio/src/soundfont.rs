@@ -594,15 +594,16 @@ fn render_sample(
     let mut out = Vec::with_capacity(frames);
     let mut filter = Lowpass::new(zone.filter_cutoff, zone.filter_q, rate);
     let mut position = start as f64;
-    for _ in 0..frames {
-        if looped {
-            if position >= loop_end as f64 {
-                let length = (loop_end - loop_start) as f64;
-                position = loop_start as f64 + (position - loop_end as f64) % length;
-            }
-        } else if position >= end as f64 {
-            break;
-        }
+    let loop_length = (loop_end.saturating_sub(loop_start)) as f64;
+    // A short equal-power-ish crossfade around the loop seam hides a click when
+    // the sample end and loop start do not match. It never spans more than half
+    // the loop.
+    let crossfade = if looped {
+        (0.005 * f64::from(rate) * f64::from(step)).min(loop_length * 0.5)
+    } else {
+        0.0
+    };
+    let read = |position: f64| -> f32 {
         let base = position.floor() as usize;
         let fraction = (position - base as f64) as f32;
         let first = font.pcm.get(base).copied().unwrap_or(0) as f32 / 32_768.0;
@@ -612,10 +613,27 @@ fn render_sample(
             base + 1
         };
         let next = font.pcm.get(next_index).copied().unwrap_or(0) as f32 / 32_768.0;
+        first + (next - first) * fraction
+    };
+    for _ in 0..frames {
+        if looped {
+            if position >= loop_end as f64 {
+                position = loop_start as f64 + (position - loop_end as f64) % loop_length;
+            }
+        } else if position >= end as f64 {
+            break;
+        }
+        let mut sample = read(position);
+        if looped && crossfade > 0.0 && position >= loop_end as f64 - crossfade {
+            let into = position - (loop_end as f64 - crossfade);
+            let head = loop_start as f64 + into;
+            let blend = (into / crossfade).clamp(0.0, 1.0) as f32;
+            sample = sample * (1.0 - blend) + read(head) * blend;
+        }
         let level = envelope(zone, out.len() as f32 / ratio, seconds);
-        let filtered = filter.process(first + (next - first) * fraction);
+        let filtered = filter.process(sample);
         out.push((filtered * gain * level).clamp(-1.0, 1.0));
-        position += f64::from(step);
+        position += step as f64;
     }
     Some(out)
 }
@@ -859,6 +877,27 @@ mod tests {
         assert_eq!(
             font.preset(0, 0).map(|preset| preset.name.as_str()),
             Some("Test")
+        );
+    }
+
+    #[test]
+    fn a_discontinuous_loop_is_crossfaded() {
+        let mut font = parse(&build()).expect("parse");
+        font.instruments[0].zones[0].sample_modes = 1;
+        font.samples[0].loop_start = 0;
+        font.samples[0].loop_end = 64;
+        for (index, sample) in font.pcm.iter_mut().enumerate() {
+            *sample = if index < 32 { 16_384 } else { -16_384 };
+        }
+        let output = render_note(&font, 0, 0, 60, 100, 200.0 / 44_100.0, 44_100).expect("loop");
+        let largest = output
+            .windows(2)
+            .take(80)
+            .map(|pair| (pair[1] - pair[0]).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            largest < 0.8,
+            "loop seam should be softened, largest jump {largest}"
         );
     }
 

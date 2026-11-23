@@ -96,10 +96,10 @@ Vibez `vibez-instruments` (~5.4k lines):
 - per-voice amp and filter envelopes, LFO, glide, SVF filter;
 - 64-pad drum rack with per-pad sampler state and choke groups.
 
-Ours has SF2 presets and a built-in synth but no loop/crossfade region model,
-velocity layers, per-voice filter or streamed sample cache. A clean-room region
-model (start/end/loop/crossfade/reverse/root/tune) is the first step, then
-velocity zones and drum choke groups.
+Ours has SF2 presets, velocity zones, envelope/filter and loop playback; a
+short equal-power-ish crossfade now softens a discontinuous loop seam (tested).
+Still missing: reverse playback, tune/region editing, drum choke groups and a
+streamed sample cache.
 
 ## Engine graph (not adopted yet)
 
