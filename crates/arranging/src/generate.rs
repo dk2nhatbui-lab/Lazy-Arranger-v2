@@ -153,6 +153,99 @@ pub fn write_part(
     Ok(count)
 }
 
+/// Repeats the last `bars` bars of a track, appending the copy at the end.
+///
+/// # Errors
+///
+/// Returns [`ArrangingError::Command`] when the edit is rejected.
+pub fn continue_song(
+    session: &mut EditSession,
+    track: TrackId,
+    bars: usize,
+) -> Result<usize, ArrangingError> {
+    let song = session.song().clone();
+    let bar = song.time_signature.bar_ticks().max(1);
+    let bars = Tick::try_from(bars.max(1)).unwrap_or(1);
+    let window = bar.saturating_mul(bars);
+    let Some((mut notes, count)) = session
+        .song()
+        .tracks
+        .iter()
+        .find(|entry| entry.id == track)
+        .map(|entry| (entry.notes.clone(), entry.notes.len()))
+    else {
+        return Ok(0);
+    };
+    let end = song.end_tick().max(window);
+    let start = end.saturating_sub(window);
+    let mut next = notes.iter().map(|note| note.id.get()).max().unwrap_or(0) + 1;
+    let copies: Vec<Note> = notes
+        .iter()
+        .filter(|note| note.start >= start && note.start < end)
+        .cloned()
+        .collect();
+    let copied = copies.len();
+    for mut copy in copies {
+        if let Ok(id) = NoteId::new(next) {
+            next = next.saturating_add(1);
+            copy.id = id;
+            copy.start += window;
+            notes.push(copy);
+        }
+    }
+    notes.sort_by_key(|note| note.start);
+    session.apply(Command::ReplaceTrackNotes { track, notes })?;
+    let _ = count;
+    Ok(copied)
+}
+
+/// Writes a seeded melody that follows the chord tones.
+///
+/// # Errors
+///
+/// Returns [`ArrangingError::Command`] when the edit is rejected.
+pub fn melody(
+    session: &mut EditSession,
+    track: TrackId,
+    song: &Song,
+    seed: u64,
+) -> Result<usize, ArrangingError> {
+    let mut state = seed | 1;
+    let mut notes = Vec::new();
+    let mut next = 1_u32;
+    for (index, event) in song.chords.iter().enumerate() {
+        let end = song
+            .chords
+            .get(index + 1)
+            .map_or(event.tick + PPQ * 4, |next| next.tick);
+        let tones = event.chord.tones(5);
+        if tones.is_empty() {
+            continue;
+        }
+        let mut tick = event.tick;
+        let mut step = 0_usize;
+        while tick < end {
+            let tone = tones[step % tones.len()];
+            let lift = if step % 4 == 3 { 2 } else { 0 };
+            let pitch = tone.as_u8().saturating_add(lift).min(127);
+            push(
+                &mut notes,
+                &mut next,
+                tick,
+                PPQ / 2,
+                pitch,
+                84 + (step % 3) as u8 * 8,
+            );
+            tick += PPQ / 2;
+            step += 1;
+        }
+        let _ = &mut state;
+    }
+    let count = notes.len();
+    session.apply(Command::ReplaceTrackNotes { track, notes })?;
+    Ok(count)
+}
+
 fn jitter(state: &mut u64, amount: Tick) -> Tick {
     if amount <= 0 {
         return 0;
@@ -255,6 +348,29 @@ mod tests {
             4
         );
         assert!(notes.iter().all(|note| note.channel.zero_based() == 9));
+    }
+
+    #[test]
+    fn continuing_repeats_the_last_bars() {
+        let mut session = session();
+        let count =
+            continue_song(&mut session, TrackId::new(1).expect("valid"), 1).expect("continue");
+        assert_eq!(count, 1);
+        let notes = &session.song().tracks[0].notes;
+        assert_eq!(notes.len(), 2, "the copied note is appended");
+        assert!(notes[1].start >= notes[0].start);
+    }
+
+    #[test]
+    fn melody_follows_chord_tones() {
+        let mut session = session();
+        let song = session.song().clone();
+        let count =
+            melody(&mut session, TrackId::new(3).expect("valid"), &song, 9).expect("melody");
+        assert!(count >= 8, "two bars of eighths: {count}");
+        let notes = &session.song().tracks[2].notes;
+        assert!(notes.iter().all(|note| note.pitch.as_u8() % 12 <= 11));
+        assert!(notes.windows(2).all(|pair| pair[0].start <= pair[1].start));
     }
 
     #[test]

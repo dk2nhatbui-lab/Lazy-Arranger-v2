@@ -59,7 +59,7 @@ the wider ~90-tool MCP surface.
 | Clip join command | `app-commands::join_clips` | verified | spans both, one undo step |
 | Note clipboard (copy, cut, paste at playhead; chord range copy/paste) | `app-commands::clipboard` | verified | 3 clipboard tests + editor test; Cmd/Ctrl+C/X/V |
 | Drum onset detection, slicing and GM pad mapping | `audio::drums`, CLI `drum-slice` | verified | click-loop test; 3 slices written as pad 36-38 |
-| Seeded generators: humanise, drumify, bass/pad/arp parts | `arranging::generate`, CLI `generate` | verified | bounds, drum counts, chord-following tests; CLI runs wrote 128 drums and 16 bass notes |
+| Seeded generators: humanise, drumify, bass/pad/arp, continue, melody | `arranging::generate`, CLI and MCP `generate` | verified | 5 generator tests + tool test; CLI wrote a melody and a continuation |
 | Chord progression text parser (`\|` bar, `%` repeat, `/` hold) | `music-core::progression` | verified | 6 parser tests |
 | Chord lane: draw and K dialog writing through commands | `apps/desktop` | implemented | editor progression test; UI manual |
 | Roman numerals in the song key | `music-core::roman` | verified | 5 tests, key transposition, suffix rejection |

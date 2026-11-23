@@ -122,6 +122,22 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "generate",
+            description: "Rule-based generation: humanize, drumify, bass, pad, arp, continue, melody.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "op": {"type": "string"},
+                    "timing": {"type": "integer"},
+                    "velocity": {"type": "integer"},
+                    "seed": {"type": "integer"},
+                    "bars": {"type": "integer"}
+                },
+                "required": ["track", "op"]
+            }),
+        },
+        Tool {
             name: "get_automation",
             description: "Read a track's volume and pan automation lanes.",
             input_schema: json!({
@@ -351,6 +367,35 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "tracks": grid.tracks.iter().map(|track| track.get()).collect::<Vec<_>>(),
                 "scenes": scenes,
             }))
+        }
+        "generate" => {
+            use arranging::generate::Part;
+            let track = track_argument(arguments)?;
+            let op = arguments
+                .get("op")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("op is required")))?;
+            let seed = arguments.get("seed").and_then(Value::as_u64).unwrap_or(1);
+            let timing = arguments.get("timing").and_then(Value::as_i64).unwrap_or(8);
+            let velocity = arguments
+                .get("velocity")
+                .and_then(Value::as_u64)
+                .unwrap_or(4) as u8;
+            let bars = arguments.get("bars").and_then(Value::as_u64).unwrap_or(1) as usize;
+            let song = session.song().clone();
+            let count = match op {
+                "humanize" => {
+                    arranging::generate::humanize(session, track, timing, velocity, seed)?
+                }
+                "drumify" => arranging::generate::drumify(session, track, &song)?,
+                "bass" => arranging::generate::write_part(session, track, Part::Bass, &song)?,
+                "pad" => arranging::generate::write_part(session, track, Part::Pad, &song)?,
+                "arp" => arranging::generate::write_part(session, track, Part::Arpeggio, &song)?,
+                "continue" => arranging::generate::continue_song(session, track, bars)?,
+                "melody" => arranging::generate::melody(session, track, &song, seed)?,
+                other => return Err(ToolError::Arguments(format!("unknown op {other}"))),
+            };
+            Ok(json!({"op": op, "notes": count}))
         }
         "get_automation" => {
             let track = track_argument(arguments)?;
@@ -866,6 +911,26 @@ mod tests {
                 &mut session,
                 "set_automation",
                 &json!({"track": 1, "lanes": [{"target": "tempo"}]})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn generation_tools_drive_the_generators() {
+        let mut session = session_with_track();
+        let result = call(
+            &mut session,
+            "generate",
+            &json!({"track": 1, "op": "melody", "seed": 3}),
+        )
+        .expect("melody without chords writes nothing");
+        assert_eq!(result["notes"], 0);
+        assert!(
+            call(
+                &mut session,
+                "generate",
+                &json!({"track": 1, "op": "explode"})
             )
             .is_err()
         );

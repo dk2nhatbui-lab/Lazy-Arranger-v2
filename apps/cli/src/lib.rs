@@ -243,6 +243,9 @@ enum Commands {
         /// Random seed.
         #[arg(long, default_value_t = 1)]
         seed: u64,
+        /// Bars to repeat for continue.
+        #[arg(long, default_value_t = 1)]
+        bars: usize,
     },
     /// Slice a drum loop at its attacks and write one WAV per pad.
     DrumSlice {
@@ -707,6 +710,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             timing,
             velocity,
             seed,
+            bars,
         } => {
             let project = read_project(&project)?;
             let mut session = EditSession::new(project)?;
@@ -729,6 +733,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                     arranging::generate::Part::Pad,
                     &song,
                 )?,
+                "continue" => arranging::generate::continue_song(&mut session, track, bars)?,
+                "melody" => arranging::generate::melody(&mut session, track, &song, seed)?,
                 "arp" => arranging::generate::write_part(
                     &mut session,
                     track,

@@ -36,7 +36,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | missing | Commands already provide single undo steps |
 | 28 | MCP server, ~90 tools | partial | Stdio JSON-RPC server with 22 tools (song, tracks, notes, chords, undo, doctor, grooves, forms, reharmonise, clip grid, slots, programs, automation, lyrics/marks, style catalog, theory) and save-after-call; `mcp-tools`/`mcp-call`. No socket transport, per-start secret or most of the ~90 target tools |
 | 29 | Speech in/out (Whisper, Kitten, Kokoro) | missing | — |
-| 30 | AI music tools (humanize, drumify, continue, write part, melody) | partial | Rule-based, seeded generators: humanise timing/velocity within bounds, drumify every chord bar with a basic kit, and write bass, pad or arpeggio parts from the chord timeline, each one undoable edit (`generate` CLI). No learned or model-based generation, continue/melody, UI or MCP tools |
+| 30 | AI music tools (humanize, drumify, continue, write part, melody) | partial | Rule-based, seeded generators: humanise, drumify, bass/pad/arp parts, continue the last bars and a chord-following melody, each one undoable edit. Exposed by the `generate` CLI and MCP tool. No learned or model-based generation, UI or chat-driven tool use |
 | 31 | Theory: keys, roman numerals, scales, voice-leading, skill packs | partial | Nine scale modes, roman labels, cadence classification and voice-leading cost, as CLI and MCP tools; key detection in the score. No skill packs, graded lessons or theory panel |
 | 32 | Arranging help | partial | Arrangement Doctor (crowded bars, repeats) and Fit to My Synths (range octaves, polyphony removal, drum-kit warning) with proposal cards and undo. No A/B audition |
 | 33 | Groove | partial | Timing offset and velocity level per 1/16 slot, extract/apply with timing and accent amounts, feel-match score, G applies the selected track's groove to the others. No audio groove, words, library files or Play Before/After |
@@ -72,6 +72,5 @@ unverified; CI builds and tests are the only continuous evidence.
 2. Waveform audio editing and recording takes (§8), then buses/sends/effects (§17).
 3. Korg import, PSR style import and SoundFont loading (§14, §20, §24).
 4. Grand staff, beams, tuplets and note entry in the score (§16).
-5. AI chat UI, speech and the remaining music tools (continue, melody), plus
-the socket transport (§27, §29, §30).
+5. AI chat UI, speech and the socket transport (§27, §29).
 6. Plugin hosting (§19), synth editors (§22), L6max (§26).
