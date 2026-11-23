@@ -5651,7 +5651,7 @@ impl ShellApp {
                 ));
                 let mut reload_bars = None;
                 ui.horizontal(|ui| {
-                    for bars in [1_usize, 2] {
+                    for bars in [1_usize, 2, 4] {
                         if ui
                             .selectable_label(self.beat_bars == bars, format!("{bars} bar"))
                             .clicked()
@@ -5660,39 +5660,43 @@ impl ShellApp {
                         }
                     }
                 });
-                for (row, (_, label)) in arranging::beat::ROWS.iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(*label).size(10.0));
-                        let steps = self.beat_pattern.grid[row].len();
-                        for slot in 0..steps {
-                            let level = self.beat_pattern.grid[row][slot];
-                            let text = if level == 0 {
-                                String::from("·")
-                            } else {
-                                level.to_string()
-                            };
-                            if ui.small_button(text).clicked() {
-                                self.beat_pattern.cycle(row, slot);
-                            }
-                        }
-                        let copied_row = self.beat_pattern.row(row).map(<[u8]>::to_vec);
-                        if ui.small_button("C").on_hover_text("Copy row").clicked() {
-                            self.beat_clipboard = copied_row;
-                        }
-                        let can_paste = self.beat_clipboard.is_some();
-                        if ui
-                            .add_enabled(can_paste, egui::Button::new("P"))
-                            .on_hover_text("Paste row")
-                            .clicked()
-                            && let Some(values) = self.beat_clipboard.clone()
-                        {
-                            self.beat_pattern.set_row(row, &values);
-                        }
-                        if ui.small_button("X").on_hover_text("Clear row").clicked() {
-                            self.beat_pattern.clear_row(row);
+                egui::ScrollArea::horizontal()
+                    .id_salt("beat-grid")
+                    .show(ui, |ui| {
+                        for (row, (_, label)) in arranging::beat::ROWS.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(*label).size(10.0));
+                                let steps = self.beat_pattern.grid[row].len();
+                                for slot in 0..steps {
+                                    let level = self.beat_pattern.grid[row][slot];
+                                    let text = if level == 0 {
+                                        String::from("·")
+                                    } else {
+                                        level.to_string()
+                                    };
+                                    if ui.small_button(text).clicked() {
+                                        self.beat_pattern.cycle(row, slot);
+                                    }
+                                }
+                                let copied_row = self.beat_pattern.row(row).map(<[u8]>::to_vec);
+                                if ui.small_button("C").on_hover_text("Copy row").clicked() {
+                                    self.beat_clipboard = copied_row;
+                                }
+                                let can_paste = self.beat_clipboard.is_some();
+                                if ui
+                                    .add_enabled(can_paste, egui::Button::new("P"))
+                                    .on_hover_text("Paste row")
+                                    .clicked()
+                                    && let Some(values) = self.beat_clipboard.clone()
+                                {
+                                    self.beat_pattern.set_row(row, &values);
+                                }
+                                if ui.small_button("X").on_hover_text("Clear row").clicked() {
+                                    self.beat_pattern.clear_row(row);
+                                }
+                            });
                         }
                     });
-                }
                 if let Some(bars) = reload_bars
                     && let (Some(track), Some(_)) = (self.beat_track, Some(self.beat_start))
                     && let Some((bar, pattern)) =

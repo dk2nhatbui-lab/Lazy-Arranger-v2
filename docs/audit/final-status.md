@@ -91,3 +91,4 @@ For the clef layout, choose either four measures per system without clefs
 - Windows > MIDI out sends program changes, bank select, CC, test notes, chords and panic to a selected output, persists the output choice (capture `docs/audit/midi-out.png`); sends remain hardware-unverified.
 - Failed isolated VST3 scans are blocklisted persistently and shown/clearable in My Plug-Ins.
 - Style from clips has Audition/Stop, compiling the section(s) to a temporary song and playing it.
+- Beat view offers 1/2/4-bar patterns in a horizontal scroller.
