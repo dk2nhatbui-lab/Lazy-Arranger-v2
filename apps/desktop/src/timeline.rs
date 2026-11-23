@@ -304,6 +304,33 @@ fn draw(
         ui.data_mut(|data| data.insert_temp(edit_id, edit));
     }
 
+    if let Some(drag) = ui.data(|data| data.get_temp::<ClipDrag>(drag_id))
+        && let Some(pointer) = ui.input(|input| input.pointer.latest_pos())
+        && let Some(index) = song.tracks.iter().position(|track| track.id == drag.track)
+    {
+        let edit = dragged_edit(&drag, tick_for(pointer.x));
+        let top = rect.top() + RULER_HEIGHT + CHORD_HEIGHT + index as f32 * LANE_HEIGHT;
+        let start = match edit.kind {
+            ClipEditKind::Move => edit.start,
+            ClipEditKind::Resize => drag.start,
+        };
+        let length = match edit.kind {
+            ClipEditKind::Move => drag.length,
+            ClipEditKind::Resize => edit.length,
+        };
+        let ghost = Rect::from_min_max(
+            pos2(x_for(start), top + 4.0),
+            pos2(x_for(start + length), top + LANE_HEIGHT - 4.0),
+        );
+        painter.rect_filled(ghost, 3.0, theme::accent().gamma_multiply(0.18));
+        painter.rect_stroke(
+            ghost,
+            3.0,
+            Stroke::new(1.5_f32, theme::accent()),
+            StrokeKind::Inside,
+        );
+    }
+
     let playhead_x = x_for(position);
     painter.line_segment(
         [
