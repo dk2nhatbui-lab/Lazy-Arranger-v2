@@ -116,7 +116,7 @@ impl AuEditorUnit {
 /// One row of the track list, snapshotted before drawing so the borrow ends.
 #[derive(Clone, Debug, Default)]
 struct L6Scene {
-    values: Vec<(TrackId, u8, u8, bool, u8)>,
+    channels: Vec<(u8, u8, bool, u8)>,
 }
 
 #[derive(Clone, Debug)]
@@ -389,6 +389,67 @@ fn profile_for_port(
                 || (!name.is_empty() && (port.contains(&name) || name.contains(&port)))
         })
         .map(|profile| profile.id.clone())
+}
+
+fn l6_scene_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("lazy-arranger-l6-scenes.txt")
+}
+
+fn encode_l6_scenes(scenes: &[Option<L6Scene>; 4]) -> String {
+    let mut text = String::new();
+    for (index, scene) in scenes.iter().enumerate() {
+        let Some(scene) = scene else {
+            continue;
+        };
+        let values: Vec<String> = scene
+            .channels
+            .iter()
+            .map(|(volume, pan, muted, send)| format!("{volume},{pan},{},{send}", u8::from(*muted)))
+            .collect();
+        text.push_str(&format!("{index}:{}\n", values.join("|")));
+    }
+    text
+}
+
+fn decode_l6_scenes(text: &str) -> [Option<L6Scene>; 4] {
+    let mut scenes: [Option<L6Scene>; 4] = [None, None, None, None];
+    for line in text.lines() {
+        let Some((index, values)) = line.split_once(':') else {
+            continue;
+        };
+        let Ok(index) = index.parse::<usize>() else {
+            continue;
+        };
+        if index >= 4 {
+            continue;
+        }
+        let mut channels = Vec::new();
+        for value in values.split('|').filter(|value| !value.is_empty()) {
+            let mut parts = value.split(',');
+            let (Some(volume), Some(pan), Some(muted), Some(send)) =
+                (parts.next(), parts.next(), parts.next(), parts.next())
+            else {
+                continue;
+            };
+            if let (Ok(volume), Ok(pan), Ok(send)) =
+                (volume.parse::<u8>(), pan.parse::<u8>(), send.parse::<u8>())
+            {
+                channels.push((volume.min(127), pan.min(127), muted == "1", send.min(127)));
+            }
+        }
+        scenes[index] = Some(L6Scene { channels });
+    }
+    scenes
+}
+
+fn load_l6_scenes() -> [Option<L6Scene>; 4] {
+    std::fs::read_to_string(l6_scene_path())
+        .map(|text| decode_l6_scenes(&text))
+        .unwrap_or([None, None, None, None])
+}
+
+fn save_l6_scenes(scenes: &[Option<L6Scene>; 4]) {
+    let _ = std::fs::write(l6_scene_path(), encode_l6_scenes(scenes));
 }
 
 fn seed_default_device_profiles(folder: &std::path::Path) {
@@ -1230,7 +1291,7 @@ impl ShellApp {
             l6max_selected: Vec::new(),
             l6max_mixer_open: std::env::var("ARRANGER_L6MIX").is_ok(),
             l6max_compact: false,
-            l6max_scenes: [None, None, None, None],
+            l6max_scenes: load_l6_scenes(),
             sf2_path: String::new(),
             sf2_bank: 0,
             sf2_program: 0,
@@ -4776,7 +4837,7 @@ impl ShellApp {
             });
         if let Some(index) = scene_save {
             let scene = L6Scene {
-                values: self
+                channels: self
                     .song()
                     .tracks
                     .iter()
@@ -4784,7 +4845,6 @@ impl ShellApp {
                     .take(8)
                     .map(|track| {
                         (
-                            track.id,
                             track.volume,
                             track.pan.clamp(0, 127),
                             track.muted,
@@ -4794,12 +4854,23 @@ impl ShellApp {
                     .collect(),
             };
             self.l6max_scenes[index] = Some(scene);
+            save_l6_scenes(&self.l6max_scenes);
             self.status = Some(format!("saved L6max scene {}", ["A", "B", "C", "D"][index]));
         }
         if let Some(index) = scene_recall
             && let Some(scene) = self.l6max_scenes[index].clone()
         {
-            edits.extend(scene.values);
+            let audio_tracks: Vec<TrackId> = self
+                .song()
+                .tracks
+                .iter()
+                .filter(|track| track.audio.is_some())
+                .take(8)
+                .map(|track| track.id)
+                .collect();
+            for (track, (volume, pan, muted, send)) in audio_tracks.iter().zip(&scene.channels) {
+                edits.push((*track, *volume, *pan, *muted, *send));
+            }
             self.status = Some(format!(
                 "recalled L6max scene {}",
                 ["A", "B", "C", "D"][index]
@@ -11922,6 +11993,20 @@ mod tests {
         let info = audio::wav::info(&bytes).expect("info");
         assert!(info.frames > 0);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn l6_scenes_round_trip_as_lines() {
+        let mut scenes: [Option<L6Scene>; 4] = [None, None, None, None];
+        scenes[1] = Some(L6Scene {
+            channels: vec![(100, 64, false, 0), (90, 40, true, 30)],
+        });
+        let back = decode_l6_scenes(&encode_l6_scenes(&scenes));
+        assert_eq!(back[1].as_ref().expect("scene").channels.len(), 2);
+        assert_eq!(
+            back[1].as_ref().expect("scene").channels[1],
+            (90, 40, true, 30)
+        );
     }
 
     #[test]
