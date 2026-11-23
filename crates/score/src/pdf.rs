@@ -56,8 +56,9 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
         if let Some(page) = engraved.pages.get(index) {
             for system in &page.systems {
                 let top = system.y;
-                let bottom = top + 4.0 * settings.staff_space;
-                for line in 0..5 {
+                let staff_lines = if engraved.staves == 2 { 9 } else { 5 };
+                let bottom = top + (staff_lines - 1) as f32 * settings.staff_space;
+                for line in 0..staff_lines {
                     let y = settings.page_height - (top + (line as f32) * settings.staff_space);
                     let _ = writeln!(
                         content,
@@ -66,6 +67,15 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                         y,
                         settings.page_width - settings.margin,
                         y
+                    );
+                }
+                if engraved.staves == 2 {
+                    let x = settings.margin - 10.0;
+                    let _ = writeln!(
+                        content,
+                        "{x:.1} {:.1} m {x:.1} {:.1} l S",
+                        settings.page_height - top,
+                        settings.page_height - bottom
                     );
                 }
                 for measure in &system.measures {
@@ -363,6 +373,33 @@ mod tests {
             .parse()
             .expect("number");
         assert!(pdf[offset..].starts_with(b"xref"));
+    }
+
+    #[test]
+    fn a_grand_staff_page_draws_extra_lines_and_a_brace() {
+        let settings = Settings {
+            page_width: 320.0,
+            page_height: 200.0,
+            margin: 20.0,
+            staff_space: 6.0,
+            system_gap: 60.0,
+            quarter_width: 20.0,
+            measure_gap: 8.0,
+            grand_staff: true,
+        };
+        let engraved = engraved(1, settings);
+        let pdf = String::from_utf8_lossy(&to_pdf(&engraved, settings, "Grand")).to_string();
+        let top = 20.0 + 4.0 * 6.0;
+        let bottom = top + 8.0 * 6.0;
+        let low = 200.0 - bottom;
+        assert!(
+            pdf.contains(&format!("20.0 {low:.1} m 300.0 {low:.1} l S")),
+            "the lowest second-staff line is stroked"
+        );
+        assert!(
+            pdf.contains(&format!("10.0 {:.1} m 10.0 {:.1} l S", 200.0 - top, low)),
+            "a brace joins the staves"
+        );
     }
 
     #[test]

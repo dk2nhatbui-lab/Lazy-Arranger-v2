@@ -223,6 +223,6 @@ implemented.
 
 `Settings.grand_staff` splits a track at middle C: notes below MIDI 60 sit on a
 second schematic staff 7.5 staff spaces below the first, and the canvas draws
-five more lines plus a brace. The split is not a true clef layout; the PDF
-renderer and score click editing still assume one staff, so both remain
-single-staff.
+five more lines plus a brace. The split is not a true clef layout. The PDF renderer draws nine staff lines
+and a brace when `Engraved.staves` is two, matching the canvas; score click
+editing still assumes one staff.
