@@ -887,3 +887,10 @@ when one is chosen. The parser has a unit test; no job was sent.
 The status bar reports `audio 48 kHz (cpal)` instead of the stale
 `no audio engine (shell only)` claim; the schema/track/note counts stay. The
 refreshed light-theme capture is `docs/audit/light-theme.png`.
+
+### Time signature
+
+`Engraved.time_signature` carries the song meter. Canvas and PDF draw the
+numerator and denominator in the left margin at every system start; the canvas
+text test and PDF header test assert both digits. Clefs and key signatures are
+still absent.

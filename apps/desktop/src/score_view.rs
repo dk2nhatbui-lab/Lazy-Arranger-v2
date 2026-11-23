@@ -196,6 +196,23 @@ pub fn show(
                     Stroke::new(1.6_f32, Color32::from_rgb(0x14, 0x14, 0x14)),
                 );
             }
+            let signature_x = origin.x + (settings.margin - 16.0) * zoom;
+            let numerator_y = origin.y + staff_line_y(system.y, 1, settings, zoom);
+            let denominator_y = origin.y + staff_line_y(system.y, 3, settings, zoom);
+            painter.text(
+                Pos2::new(signature_x, numerator_y),
+                egui::Align2::CENTER_CENTER,
+                engraved.time_signature.numerator.to_string(),
+                egui::FontId::proportional(10.0 * zoom),
+                Color32::from_rgb(0x14, 0x14, 0x14),
+            );
+            painter.text(
+                Pos2::new(signature_x, denominator_y),
+                egui::Align2::CENTER_CENTER,
+                engraved.time_signature.denominator.to_string(),
+                egui::FontId::proportional(10.0 * zoom),
+                Color32::from_rgb(0x14, 0x14, 0x14),
+            );
             let top = origin.y + staff_line_y(system.y, 0, settings, zoom);
             let bottom = origin.y + staff_line_y(system.y, 4, settings, zoom);
             for measure in &system.measures {

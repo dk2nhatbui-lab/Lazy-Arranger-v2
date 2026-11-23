@@ -80,6 +80,19 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                         y
                     );
                 }
+                let signature_x = settings.margin - 16.0;
+                let numerator_y = settings.page_height - (top + settings.staff_space);
+                let denominator_y = settings.page_height - (top + 3.0 * settings.staff_space);
+                let _ = writeln!(
+                    content,
+                    "BT /F1 10 Tf {signature_x:.1} {numerator_y:.1} Td ({}) Tj ET",
+                    engraved.time_signature.numerator
+                );
+                let _ = writeln!(
+                    content,
+                    "BT /F1 10 Tf {signature_x:.1} {denominator_y:.1} Td ({}) Tj ET",
+                    engraved.time_signature.denominator
+                );
                 if engraved.staves == 2 {
                     let x = settings.margin - 10.0;
                     let _ = writeln!(
@@ -502,6 +515,7 @@ mod tests {
         assert!(text.contains("/Type /Catalog"));
         assert_eq!(page_count(&pdf), Some(2));
         assert!(text.contains("(Test score) Tj"));
+        assert!(text.contains("(4) Tj"), "time signature digits");
         assert!(!text.contains(" C? "), "no music glyphs from base fonts");
     }
 

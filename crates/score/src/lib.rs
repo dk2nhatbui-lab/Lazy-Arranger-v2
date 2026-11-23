@@ -309,6 +309,8 @@ pub struct Engraved {
     pub measures: usize,
     /// Detected key, from the chords or the notes.
     pub key: spelling::Key,
+    /// Song meter, drawn at each system start.
+    pub time_signature: music_core::TimeSignature,
     /// Lyrics, one syllable per placed note.
     pub lyrics: Vec<Lyric>,
     /// Dynamics and articulations.
@@ -941,6 +943,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         track,
         measures: measure_count,
         key,
+        time_signature: song.time_signature,
         lyrics: placed_lyrics,
         marks: placed_marks,
         beams,
