@@ -4013,7 +4013,7 @@ impl ShellApp {
             .unwrap_or_default();
         let mut open = self.takes_open;
         let mut action = None;
-        let mut comp_edit: Option<(usize, Tick, Tick)> = None;
+        let mut comp_edit: Option<(usize, usize, Tick, Tick)> = None;
         let mut play_take: Option<String> = None;
         egui::Window::new("Audio takes")
             .open(&mut open)
@@ -4082,7 +4082,20 @@ impl ShellApp {
                 }
                 for (index, comp) in comps.iter().enumerate() {
                     ui.horizontal(|ui| {
-                        ui.label(format!("{index}: take {}", comp.take));
+                        ui.label(format!("{index}"));
+                        let mut take = comp.take;
+                        egui::ComboBox::from_id_salt(format!("comp-take-{index}"))
+                            .width(80.0)
+                            .selected_text(format!("take {take}"))
+                            .show_ui(ui, |ui| {
+                                for (choice, _) in takes.iter().enumerate() {
+                                    ui.selectable_value(
+                                        &mut take,
+                                        choice,
+                                        format!("take {choice}"),
+                                    );
+                                }
+                            });
                         let mut start = comp.start;
                         let mut length = comp.length;
                         let start_changed = ui
@@ -4099,8 +4112,8 @@ impl ShellApp {
                                     .speed(10.0),
                             )
                             .changed();
-                        if start_changed || length_changed {
-                            comp_edit = Some((index, start, length.max(1)));
+                        if take != comp.take || start_changed || length_changed {
+                            comp_edit = Some((index, take, start, length.max(1)));
                         }
                         if ui.small_button("Remove").clicked() {
                             action = Some((index, 4));
@@ -4125,8 +4138,10 @@ impl ShellApp {
                 Err(error) => self.status = Some(error),
             }
         }
-        if let Some((index, start, length)) = comp_edit
-            && let Err(error) = self.editor.set_audio_comp(track_id, index, start, length)
+        if let Some((index, take, start, length)) = comp_edit
+            && let Err(error) = self
+                .editor
+                .set_audio_comp(track_id, index, take, start, length)
         {
             self.status = Some(error);
         }

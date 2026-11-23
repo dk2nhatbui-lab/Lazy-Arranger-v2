@@ -49,13 +49,13 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections at round 448: 0 fully verified beyond their Rust subset, 39 partial,
+39 sections at round 449: 0 fully verified beyond their Rust subset, 39 partial,
 0 missing. No section is missing at row level, but several rows are partial
 because they need hardware, proprietary formats, plugin editors or a model.
 The deepest partials are styles, full score, plugin editors, L6max device pages,
 Korg PCG, built-in speech/model services and hardware acceptance.
 
-## State at round 448
+## State at round 449
 
 `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (**773 tests**) and
 rustdoc pass. A macOS bundle script creates an ad-hoc-signed

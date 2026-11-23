@@ -1477,6 +1477,7 @@ impl Editor {
         &mut self,
         track: TrackId,
         index: usize,
+        take: usize,
         start: Tick,
         length: Tick,
     ) -> Result<(), String> {
@@ -1490,6 +1491,15 @@ impl Editor {
         if index >= comps.len() {
             return Err(String::from("unknown comp span"));
         }
+        if self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .is_none_or(|entry| take >= entry.takes.len())
+        {
+            return Err(String::from("unknown audio take"));
+        }
         if length <= 0 {
             return Err(String::from("comp length must be positive"));
         }
@@ -1500,6 +1510,7 @@ impl Editor {
         }) {
             return Err(String::from("comp span overlaps another span"));
         }
+        comps[index].take = take;
         comps[index].start = start;
         comps[index].length = length;
         self.session
@@ -2562,6 +2573,7 @@ mod tests {
         editor
             .set_audio_comp(
                 TrackId::new(1).expect("track"),
+                0,
                 0,
                 music_core::PPQ,
                 music_core::PPQ / 2,
