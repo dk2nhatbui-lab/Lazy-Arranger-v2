@@ -550,6 +550,7 @@ pub struct ShellApp {
     shortcuts_open: bool,
     about_open: bool,
     mixer_visible: bool,
+    timeline_mode: bool,
     device_profiles: Vec<midi_devices::profiles::LoadedProfile>,
     device_editor_open: bool,
     device_editor_profile: usize,
@@ -804,6 +805,7 @@ impl ShellApp {
             shortcuts_open: initial_window == "shortcuts",
             about_open: initial_window == "about",
             mixer_visible: true,
+            timeline_mode: true,
             device_profiles: load_device_profiles(),
             device_editor_open: initial_window == "device",
             device_editor_profile: 0,
@@ -7497,11 +7499,26 @@ impl eframe::App for ShellApp {
                 let mut chord_click: Option<Tick> = None;
                 let mut lyric_click: Option<Tick> = None;
                 let mut seek: Option<Tick> = None;
+                let timeline_mode = self.timeline_mode;
                 let Self { editor, roll, .. } = self;
                 let project = editor.project();
                 match view {
                     View::Arrange => {
                         ui.horizontal(|ui| {
+                            if ui
+                                .selectable_label(self.timeline_mode, "Timeline")
+                                .on_hover_text("Coloured track lanes")
+                                .clicked()
+                            {
+                                self.timeline_mode = true;
+                            }
+                            if ui
+                                .selectable_label(!self.timeline_mode, "Piano roll")
+                                .on_hover_text("Edit notes on the grid")
+                                .clicked()
+                            {
+                                self.timeline_mode = false;
+                            }
                             ui.checkbox(&mut roll.snap, "Snap 1/16")
                                 .on_hover_text("Snap note drags and insertions to a sixteenth");
                         });
@@ -7591,8 +7608,23 @@ impl eframe::App for ShellApp {
                             );
                         }
                         let selected_clips = self.selected_clips.clone();
-                        let outcome =
-                            piano_roll::show(ui, &project.song, roll, position, &selected_clips);
+                        let (outcome, timeline_track) = if timeline_mode {
+                            crate::timeline::show(ui, &project.song, position, roll.selected)
+                        } else {
+                            (
+                                piano_roll::show(
+                                    ui,
+                                    &project.song,
+                                    roll,
+                                    position,
+                                    &selected_clips,
+                                ),
+                                None,
+                            )
+                        };
+                        if let Some(track) = timeline_track {
+                            roll.selected = Some(track);
+                        }
                         if let Some((first, last)) = roll.band.take()
                             && let Some(track_id) = roll.selected
                             && let Some(track) = project

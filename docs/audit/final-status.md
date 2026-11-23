@@ -103,3 +103,4 @@ For the clef layout, choose either four measures per system without clefs
 - L6max take scan supports per-take selection; no mixer page/transport or project parsing.
 - MIDI out sends transport realtime messages; Device editor can send SysEx; both hardware-unverified.
 - UI pass started: C++-style square transport, light tabs, Mixer toggle, Ask AI and resizable left/right/mixer panels.
+- Timeline lane view added as the Arrange default, with a Piano roll toggle (`docs/audit/ui-timeline.png`).

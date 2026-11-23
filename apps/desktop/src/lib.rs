@@ -18,6 +18,7 @@ pub mod settings;
 pub mod speech;
 pub mod strings;
 pub mod theme;
+pub mod timeline;
 pub mod transport;
 pub mod widgets;
 
