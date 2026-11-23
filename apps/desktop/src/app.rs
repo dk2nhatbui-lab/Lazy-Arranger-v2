@@ -97,6 +97,7 @@ pub struct ShellApp {
     fit_high: u8,
     fit_polyphony: usize,
     fit_drum_kit: bool,
+    audition_player: Option<audio::player::Player>,
     form_dialog: bool,
     beat_dialog: bool,
     beat_track: Option<TrackId>,
@@ -223,6 +224,7 @@ impl ShellApp {
             fit_high: 108,
             fit_polyphony: 16,
             fit_drum_kit: true,
+            audition_player: None,
             form_dialog: false,
             beat_dialog: false,
             beat_track: None,
@@ -2556,14 +2558,41 @@ impl ShellApp {
                     self.fit_proposals = arranging::fit_to_synth(self.song(), spec);
                 }
                 let mut use_fit = None;
+                let mut audition_fit: Option<(usize, bool)> = None;
                 for (index, proposal) in self.fit_proposals.iter().enumerate() {
                     ui.group(|ui| {
                         ui.label(egui::RichText::new(&proposal.title).strong());
                         ui.label(&proposal.detail);
-                        if ui.button("Use").clicked() {
-                            use_fit = Some(index);
-                        }
+                        ui.horizontal(|ui| {
+                            if ui.button("Use").clicked() {
+                                use_fit = Some(index);
+                            }
+                            if ui.small_button("A").on_hover_text("Hear before").clicked() {
+                                audition_fit = Some((index, false));
+                            }
+                            if ui.small_button("B").on_hover_text("Hear after").clicked() {
+                                audition_fit = Some((index, true));
+                            }
+                        });
                     });
+                }
+                if let Some((index, after)) = audition_fit {
+                    let proposal = self.fit_proposals[index].clone();
+                    let mut project = self.editor.project().clone();
+                    if after
+                        && let Ok(mut session) = app_commands::EditSession::new(project.clone())
+                        && arranging::apply(&mut session, &proposal).is_ok()
+                    {
+                        project = session.project().clone();
+                    }
+                    let mut rendered = audio::render(&project.song, audio::SAMPLE_RATE);
+                    let _ = audio::mix::mix_audio_references(&mut rendered, &project.song, 0.9);
+                    self.audition_player = audio::player::Player::new(rendered).ok();
+                    self.status = Some(String::from(if after {
+                        "audition: after"
+                    } else {
+                        "audition: before"
+                    }));
                 }
                 if let Some(index) = use_fit {
                     let proposal = self.fit_proposals[index].clone();
