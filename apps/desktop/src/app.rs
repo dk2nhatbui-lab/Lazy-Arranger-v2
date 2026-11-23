@@ -9486,11 +9486,33 @@ impl ShellApp {
                             }
                         }
                     }
-                    if ui.button("Open project…").clicked()
-                        && let Some(path) = rfd_pick()
-                    {
-                        self.open(&path);
-                    }
+                    ui.horizontal_wrapped(|ui| {
+                        if ui
+                            .button("New")
+                            .on_hover_text("Start an empty project")
+                            .clicked()
+                        {
+                            self.replace_project(
+                                ProjectFile::new(project::song::Song::new("Untitled", 120.0)),
+                                "new project",
+                            );
+                        }
+                        if ui.button("Open project…").clicked()
+                            && let Some(path) = rfd_pick()
+                        {
+                            self.open(&path);
+                        }
+                        if ui.button("Save").clicked() {
+                            if let Some(path) = self.project_path.clone() {
+                                self.save_to(path);
+                            } else {
+                                self.begin_save_as();
+                            }
+                        }
+                        if ui.button("Save as…").clicked() {
+                            self.begin_save_as();
+                        }
+                    });
                 });
             });
         if let Some(error) = self.load_error.clone() {
