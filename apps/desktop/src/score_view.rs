@@ -567,6 +567,69 @@ mod tests {
         assert!((line - (200.0 + 4.0 * settings.staff_space * 2.0)).abs() < 0.01);
     }
 
+    fn collect_text(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => out.push(text.galley.text().to_string()),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect_text(shape, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn the_canvas_draws_the_title_chords_and_measure_numbers() {
+        use project::song::{ChordEvent, Note, Song, Track};
+        let mut song = Song::new("Canvas", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: music_core::PPQ,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        song.tracks.push(track);
+        song.chords.push(ChordEvent {
+            tick: 0,
+            chord: music_core::Chord::parse("C").expect("valid"),
+        });
+        let engraved = score::engrave(
+            &song,
+            project::TrackId::new(1).expect("valid"),
+            Settings::default(),
+        );
+        let context = egui::Context::default();
+        let mut state = ScoreState::default();
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0))),
+                ..egui::RawInput::default()
+            },
+            |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    let _ = show(ui, &engraved, 0, 1.0, "Canvas & Test", &mut state);
+                });
+            },
+        );
+        let mut text = Vec::new();
+        for clipped in &output.shapes {
+            collect_text(&clipped.shape, &mut text);
+        }
+        assert!(
+            text.iter().any(|value| value == "Canvas & Test"),
+            "title drawn"
+        );
+        assert!(text.iter().any(|value| value == "C"), "chord name drawn");
+        assert!(
+            text.iter().any(|value| value == "1"),
+            "measure number drawn"
+        );
+    }
+
     #[test]
     fn dragging_maps_to_a_quantized_tick_and_pitch() {
         let settings = Settings::default();

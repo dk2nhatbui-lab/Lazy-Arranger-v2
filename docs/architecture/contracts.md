@@ -815,3 +815,10 @@ captured result.
 The Score canvas also draws the song title inside the page margin; the title is
 passed from the shell. `ARRANGER_VIEW` and the captured canvas are used for
 visual checks.
+
+### Headless canvas test
+
+`score_view` tests run one frame in an `egui::Context`, collect `Shape::Text`
+galleys and assert that the song title, chord name and measure number are
+present. This checks canvas drawing without a window capture. The macOS capture
+that still showed the older frame is therefore not the authority; the test is.
