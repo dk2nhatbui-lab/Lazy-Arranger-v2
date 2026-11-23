@@ -61,13 +61,13 @@ pub fn show(ui: &mut Ui, lane: &Automation, end: Tick) -> Option<Automation> {
         height: rect.height() - 12.0,
         end: end.max(1),
     };
-    painter.rect_filled(rect, 0.0, theme::LANE);
+    painter.rect_filled(rect, 0.0, theme::lane());
     painter.line_segment(
         [
             Pos2::new(mapping.x, mapping.y + mapping.height),
             Pos2::new(mapping.x + mapping.width, mapping.y + mapping.height),
         ],
-        Stroke::new(1.0_f32, theme::LINE),
+        Stroke::new(1.0_f32, theme::line()),
     );
     let mut points = lane.points.clone();
     points.sort_by_key(|point| point.tick);
@@ -75,9 +75,9 @@ pub fn show(ui: &mut Ui, lane: &Automation, end: Tick) -> Option<Automation> {
     for point in &points {
         let position = mapping.position(point);
         if let Some(last) = previous {
-            painter.line_segment([last, position], Stroke::new(1.4_f32, theme::ACCENT));
+            painter.line_segment([last, position], Stroke::new(1.4_f32, theme::accent()));
         }
-        painter.circle_filled(position, 3.5, theme::ACCENT);
+        painter.circle_filled(position, 3.5, theme::accent());
         previous = Some(position);
     }
     painter.text(
@@ -85,7 +85,7 @@ pub fn show(ui: &mut Ui, lane: &Automation, end: Tick) -> Option<Automation> {
         egui::Align2::LEFT_TOP,
         "volume automation",
         egui::FontId::proportional(9.0),
-        theme::TEXT_DIM,
+        theme::text_dim(),
     );
     let pointer = response.interact_pointer_pos()?;
     if !response.clicked() {

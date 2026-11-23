@@ -137,7 +137,7 @@ pub fn show(
     painter.rect_stroke(
         page_rect,
         0.0,
-        Stroke::new(1.0_f32, theme::LINE_STRONG),
+        Stroke::new(1.0_f32, theme::line_strong()),
         egui::StrokeKind::Inside,
     );
 

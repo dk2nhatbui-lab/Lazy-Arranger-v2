@@ -142,7 +142,7 @@ pub fn show(ui: &mut egui::Ui, browser: &Browser, query: &mut String) -> Option<
         ui.label(
             egui::RichText::new(&browser.kind)
                 .size(10.0)
-                .color(theme::TEXT_DIM),
+                .color(theme::text_dim()),
         );
         ui.add(
             egui::TextEdit::singleline(query)
@@ -159,7 +159,7 @@ pub fn show(ui: &mut egui::Ui, browser: &Browser, query: &mut String) -> Option<
                 ui.label(
                     egui::RichText::new("no matches")
                         .size(10.0)
-                        .color(theme::TEXT_DIM),
+                        .color(theme::text_dim()),
                 );
             }
             for index in matches {
@@ -179,7 +179,7 @@ pub fn show(ui: &mut egui::Ui, browser: &Browser, query: &mut String) -> Option<
                     ui.label(
                         egui::RichText::new(&row.detail)
                             .size(9.0)
-                            .color(theme::TEXT_MUTED),
+                            .color(theme::text_muted()),
                     );
                 });
             }

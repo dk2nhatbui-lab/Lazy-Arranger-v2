@@ -685,3 +685,12 @@ to a target (silence stays silent); CLI `wav-gain` and `wav-normalize` write
 32-bit float. They decode through `decode_stereo`, which duplicates mono frames,
 so a 36.31 s demo stays 36.31 s instead of halving. Tests cover the dB factor,
 peak target and silence.
+
+### Light palette
+
+`theme` exposes color accessors (`panel()`, `text()`, `accent()`, ...) that read
+a process-wide light/dark switch; `set_light` flips it and `refresh` reapplies
+the visuals. The Settings window has a Light theme checkbox that applies
+immediately and persists as `light_theme`. Track colours switch to a deeper
+seven-colour set for contrast. The dark palette values are unchanged, and a test
+covers both palettes, track cycling and font binding.

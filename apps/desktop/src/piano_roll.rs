@@ -308,7 +308,7 @@ pub fn show(
     let (lane_response, lane_painter) =
         ui.allocate_painter(lane.size(), egui::Sense::click_and_drag());
     let lane = lane_response.rect;
-    lane_painter.rect_filled(lane, 0.0, theme::LANE);
+    lane_painter.rect_filled(lane, 0.0, theme::lane());
     if let Some(track_id) = state.selected
         && let Some(track) = song.tracks.iter().find(|track| track.id == track_id)
     {
@@ -323,7 +323,7 @@ pub fn show(
                     Pos2::new(x, lane.bottom() - 2.0),
                     Pos2::new(x, lane.bottom() - 2.0 - height),
                 ],
-                egui::Stroke::new(2.0_f32, theme::ACCENT),
+                egui::Stroke::new(2.0_f32, theme::accent()),
             );
         }
     }
@@ -398,7 +398,7 @@ pub fn show(
         meter: song.time_signature,
     };
 
-    painter.rect_filled(rect, 0.0, theme::TIMELINE);
+    painter.rect_filled(rect, 0.0, theme::timeline());
     draw_ruler(&painter, rect, &geometry, song);
     let content = Rect::from_min_max(Pos2::new(rect.left(), rect.top() + RULER_HEIGHT), rect.max);
     draw_clip_lane(
@@ -554,7 +554,7 @@ pub fn show(
 
 fn draw_ruler(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song: &Song) {
     let ruler = Rect::from_min_size(rect.min, Vec2::new(rect.width(), RULER_HEIGHT));
-    painter.rect_filled(ruler, 0.0, theme::PANEL);
+    painter.rect_filled(ruler, 0.0, theme::panel());
     let bar = song.time_signature.bar_ticks().max(1);
     let first = geometry.tick_at(rect.left()).div_euclid(bar);
     let last = geometry.tick_at(rect.right()).div_euclid(bar);
@@ -568,14 +568,14 @@ fn draw_ruler(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song
                 Pos2::new(x, ruler.bottom() - 5.0),
                 Pos2::new(x, ruler.bottom()),
             ],
-            egui::Stroke::new(0.8_f32, theme::GRID_BAR),
+            egui::Stroke::new(0.8_f32, theme::grid_bar()),
         );
         painter.text(
             Pos2::new(x + 3.0, ruler.top() + 2.0),
             egui::Align2::LEFT_TOP,
             format!("{}", index + 1),
             egui::FontId::proportional(9.0),
-            theme::TEXT_DIM,
+            theme::text_dim(),
         );
     }
 }
@@ -594,7 +594,7 @@ fn draw_grid(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song:
         }
         painter.line_segment(
             [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
-            egui::Stroke::new(1.0_f32, theme::GRID_BAR),
+            egui::Stroke::new(1.0_f32, theme::grid_bar()),
         );
         if width <= 24.0 {
             painter.text(
@@ -602,7 +602,7 @@ fn draw_grid(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song:
                 egui::Align2::LEFT_TOP,
                 format!("{}", index + 1),
                 egui::FontId::proportional(10.0),
-                theme::TEXT_DIM,
+                theme::text_dim(),
             );
         }
         for beat_index in 1..i64::from(song.time_signature.numerator) {
@@ -613,7 +613,7 @@ fn draw_grid(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song:
                         Pos2::new(beat_x, rect.top()),
                         Pos2::new(beat_x, rect.bottom()),
                     ],
-                    egui::Stroke::new(1.0_f32, theme::GRID_BEAT),
+                    egui::Stroke::new(1.0_f32, theme::grid_beat()),
                 );
             }
         }
@@ -646,7 +646,7 @@ fn draw_clip_lane(
     painter.rect_filled(
         Rect::from_min_size(rect.min, Vec2::new(rect.width(), CLIP_LANE_HEIGHT)),
         0.0,
-        theme::LANE_ALT,
+        theme::lane_alt(),
     );
     for clip in &track.clips {
         let clip_rect = clip_rect(rect, geometry, clip);
@@ -654,13 +654,13 @@ fn draw_clip_lane(
         painter.rect_filled(
             clip_rect,
             0.0,
-            theme::ACCENT.gamma_multiply(if selected { 0.35 } else { 0.18 }),
+            theme::accent().gamma_multiply(if selected { 0.35 } else { 0.18 }),
         );
         if selected {
             painter.rect_stroke(
                 clip_rect,
                 0.0,
-                egui::Stroke::new(1.0_f32, theme::ACCENT),
+                egui::Stroke::new(1.0_f32, theme::accent()),
                 egui::StrokeKind::Inside,
             );
         }
@@ -670,7 +670,7 @@ fn draw_clip_lane(
                 egui::Align2::LEFT_CENTER,
                 &clip.name,
                 egui::FontId::proportional(9.0),
-                theme::TEXT_MUTED,
+                theme::text_muted(),
             );
         }
     }
@@ -684,7 +684,7 @@ fn draw_chord_lane(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry,
             Vec2::new(rect.width(), CHORD_LANE_HEIGHT),
         ),
         0.0,
-        theme::PANEL,
+        theme::panel(),
     );
     for event in &song.chords {
         let x = geometry.x_at(event.tick);
@@ -696,7 +696,7 @@ fn draw_chord_lane(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry,
             egui::Align2::LEFT_CENTER,
             event.chord.format(music_core::Spelling::Sharp),
             egui::FontId::proportional(10.0),
-            theme::ACCENT,
+            theme::accent(),
         );
     }
 }
@@ -724,7 +724,7 @@ fn draw_track(
             painter.rect_stroke(
                 note_rect,
                 0.0,
-                egui::Stroke::new(1.0_f32, theme::TEXT),
+                egui::Stroke::new(1.0_f32, theme::text()),
                 egui::StrokeKind::Inside,
             );
         }
@@ -736,7 +736,7 @@ fn draw_playhead(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, t
     if x >= rect.left() && x <= rect.right() {
         painter.line_segment(
             [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
-            egui::Stroke::new(1.5_f32, theme::PLAYHEAD),
+            egui::Stroke::new(1.5_f32, theme::playhead()),
         );
     }
 }
@@ -777,7 +777,7 @@ fn draw_pitch_guide(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry
                 egui::Align2::LEFT_CENTER,
                 name,
                 egui::FontId::proportional(10.0),
-                theme::TEXT_DIM,
+                theme::text_dim(),
             );
         }
     }

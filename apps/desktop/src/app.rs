@@ -204,6 +204,8 @@ pub struct ShellApp {
 impl ShellApp {
     #[must_use]
     pub fn new(context: &Context, project: ProjectFile, project_path: Option<PathBuf>) -> Self {
+        let settings = crate::settings::Settings::load(&crate::settings::Settings::path());
+        theme::set_light(settings.light_theme);
         theme::install(context);
         let icon = context.load_texture(
             "app-icon",
@@ -291,7 +293,7 @@ impl ShellApp {
                 .ok()
                 .and_then(|text| midi_devices::map::MidiMap::from_text(&text).ok())
                 .unwrap_or_default(),
-            settings: crate::settings::Settings::load(&crate::settings::Settings::path()),
+            settings,
             settings_open: false,
             shortcuts_open: false,
             score_entry: false,
@@ -1065,7 +1067,7 @@ impl ShellApp {
             egui::Sense::hover(),
         );
         let rect = response.rect;
-        painter.rect_filled(rect, 0.0, theme::LANE);
+        painter.rect_filled(rect, 0.0, theme::lane());
         if peaks.is_empty() {
             return;
         }
@@ -1080,7 +1082,7 @@ impl ShellApp {
                     egui::Pos2::new(x, centre - peak.max * height),
                     egui::Pos2::new(x, centre - peak.min * height),
                 ],
-                egui::Stroke::new(1.0_f32, theme::ACCENT),
+                egui::Stroke::new(1.0_f32, theme::accent()),
             );
         }
         painter.line_segment(
@@ -1088,7 +1090,7 @@ impl ShellApp {
                 egui::Pos2::new(rect.left(), centre),
                 egui::Pos2::new(rect.right(), centre),
             ],
-            egui::Stroke::new(0.5_f32, theme::LINE),
+            egui::Stroke::new(0.5_f32, theme::line()),
         );
     }
 
@@ -1303,7 +1305,7 @@ impl ShellApp {
                     ui.label(
                         egui::RichText::new("Load a book to browse it.")
                             .size(10.0)
-                            .color(theme::TEXT_DIM),
+                            .color(theme::text_dim()),
                     );
                 }
             });
@@ -1350,7 +1352,7 @@ impl ShellApp {
                     ui.label(
                         egui::RichText::new("Load a loop to slice it into pads.")
                             .size(10.0)
-                            .color(theme::TEXT_DIM),
+                            .color(theme::text_dim()),
                     );
                 }
             });
@@ -1379,7 +1381,7 @@ impl ShellApp {
                                     "Ask for help, a song summary, undo, or run any tool:\n                                     tool add_track {\"name\":\"Bass\"}",
                                 )
                                 .size(10.0)
-                                .color(theme::TEXT_DIM),
+                                .color(theme::text_dim()),
                             );
                         }
                         for line in &self.assistant_log {
@@ -1422,7 +1424,7 @@ impl ShellApp {
                          Speech out uses the macOS say command; speech input is not implemented.",
                     )
                     .size(9.0)
-                    .color(theme::TEXT_DIM),
+                    .color(theme::text_dim()),
                 );
             });
         if !open {
@@ -1453,7 +1455,7 @@ impl ShellApp {
                 ui.label(
                     egui::RichText::new(format!("playhead at tick {position}"))
                         .size(10.0)
-                        .color(theme::TEXT_DIM),
+                        .color(theme::text_dim()),
                 );
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.marker_text);
@@ -1527,7 +1529,7 @@ impl ShellApp {
                 ui.label(
                     egui::RichText::new(format!("playhead at tick {position}"))
                         .size(10.0)
-                        .color(theme::TEXT_DIM),
+                        .color(theme::text_dim()),
                 );
                 ui.horizontal(|ui| {
                     ui.text_edit_singleline(&mut self.lyric_text);
@@ -1623,7 +1625,7 @@ impl ShellApp {
                 if self.midi_learn.is_some() {
                     ui.label(
                         egui::RichText::new("Waiting for the next note or control change…")
-                            .color(theme::ACCENT),
+                            .color(theme::accent()),
                     );
                 }
                 ui.separator();
@@ -1643,7 +1645,7 @@ impl ShellApp {
                     ui.label(
                         egui::RichText::new("no controller bindings")
                             .size(10.0)
-                            .color(theme::TEXT_DIM),
+                            .color(theme::text_dim()),
                     );
                 }
             });
@@ -1706,12 +1708,12 @@ impl ShellApp {
                 if self.midi_learn.is_some() {
                     ui.label(
                         egui::RichText::new("Waiting for the next note or control change…")
-                            .color(theme::ACCENT),
+                            .color(theme::accent()),
                     );
                 }
                 ui.separator();
                 if self.midi_map.bindings.is_empty() {
-                    ui.label(egui::RichText::new("no bindings").color(theme::TEXT_DIM));
+                    ui.label(egui::RichText::new("no bindings").color(theme::text_dim()));
                 }
                 for binding in &self.midi_map.bindings {
                     ui.label(format!(
@@ -1828,7 +1830,7 @@ impl ShellApp {
                         "{notes} note(s) · {clips} clip(s) · {automation} automation lane(s)"
                     ))
                     .size(10.0)
-                    .color(theme::TEXT_DIM),
+                    .color(theme::text_dim()),
                 );
                 let volume_changed = ui
                     .add(
@@ -1878,13 +1880,13 @@ impl ShellApp {
                 ui.label(
                     egui::RichText::new("Tempo changes")
                         .size(10.0)
-                        .color(theme::TEXT_DIM),
+                        .color(theme::text_dim()),
                 );
                 for change in self.song().tempo_map.changes().iter().take(5) {
                     ui.label(
                         egui::RichText::new(format!("{} bpm at tick {}", change.bpm, change.tick))
                             .size(10.0)
-                            .color(theme::TEXT_MUTED),
+                            .color(theme::text_muted()),
                     );
                 }
                 let meter = self.song().time_signature;
@@ -1945,7 +1947,7 @@ impl ShellApp {
                             reference.path, reference.fade_in, reference.fade_out
                         ))
                         .size(10.0)
-                        .color(theme::TEXT_MUTED),
+                        .color(theme::text_muted()),
                     );
                 }
                 if let Some(font) = &soundfont {
@@ -1955,13 +1957,13 @@ impl ShellApp {
                             font.bank, font.program, font.path
                         ))
                         .size(10.0)
-                        .color(theme::TEXT_MUTED),
+                        .color(theme::text_muted()),
                     );
                 }
                 ui.label(
                     egui::RichText::new(format!("{plugins} plug-in slot(s)"))
                         .size(10.0)
-                        .color(theme::TEXT_MUTED),
+                        .color(theme::text_muted()),
                 );
             });
         self.inspector_open = open;
@@ -1992,7 +1994,7 @@ impl ShellApp {
                                 "English, Danish, French, Vietnamese, German and Spanish ship strings",
                             )
                             .size(9.0)
-                            .color(theme::TEXT_DIM),
+                            .color(theme::text_dim()),
                         );
                     });
                     ui.add(egui::Slider::new(&mut self.settings.grade, 1..=9).text("chord grade"));
@@ -2043,6 +2045,12 @@ impl ShellApp {
                     ui.checkbox(&mut self.settings.metronome, "metronome with playback");
                     ui.checkbox(&mut self.settings.reduced_motion, "reduced motion");
                     ui.checkbox(&mut self.settings.kids_mode, "Kids Mode");
+                    let mut light_theme = self.settings.light_theme;
+                    if ui.checkbox(&mut light_theme, "Light theme").changed() {
+                        self.settings.light_theme = light_theme;
+                        theme::set_light(light_theme);
+                        theme::refresh(ui.ctx());
+                    }
                     if ui.button("Save settings").clicked() {
                         match self.settings.save(&crate::settings::Settings::path()) {
                             Ok(()) => {
@@ -2070,7 +2078,7 @@ impl ShellApp {
                             ui.label(
                                 egui::RichText::new(shortcut.context)
                                     .size(9.0)
-                                    .color(theme::TEXT_DIM),
+                                    .color(theme::text_dim()),
                             );
                         });
                     }
@@ -2110,7 +2118,7 @@ impl ShellApp {
                 }
             });
             if let Some(error) = &self.l6max_error {
-                ui.label(egui::RichText::new(error).color(theme::RECORDING));
+                ui.label(egui::RichText::new(error).color(theme::recording()));
             }
             if let Some(plan) = &self.l6max_plan {
                 ui.label(format!(
@@ -2126,7 +2134,7 @@ impl ShellApp {
                             take.name, take.seconds, take.channels
                         ))
                         .size(10.0)
-                        .color(theme::TEXT_DIM),
+                        .color(theme::text_dim()),
                     );
                 }
                 if ui.button("Import takes at playhead").clicked() {
@@ -2149,7 +2157,7 @@ impl ShellApp {
                     ui.label(
                         egui::RichText::new(format!("Track {track_id}"))
                             .size(10.0)
-                            .color(theme::TEXT_DIM),
+                            .color(theme::text_dim()),
                     );
                     if ui.button("Scan installed").clicked() {
                         match plugins::scan_installed() {
@@ -2165,7 +2173,7 @@ impl ShellApp {
                     }
                 });
                 if let Some(error) = &self.plugin_error {
-                    ui.label(egui::RichText::new(error).color(theme::RECORDING));
+                    ui.label(egui::RichText::new(error).color(theme::recording()));
                 }
                 let slots = self
                     .song()
@@ -2209,7 +2217,7 @@ impl ShellApp {
                                     plugin.format.label()
                                 ))
                                 .size(10.0)
-                                .color(theme::TEXT_MUTED),
+                                .color(theme::text_muted()),
                             );
                             if ui.small_button("Add").clicked() {
                                 let format = match plugin.format {
@@ -2236,7 +2244,7 @@ impl ShellApp {
                         ui.label(
                             egui::RichText::new(format!("... {} more", found.len() - 10))
                                 .size(10.0)
-                                .color(theme::TEXT_DIM),
+                                .color(theme::text_dim()),
                         );
                     }
                 }
@@ -2266,7 +2274,7 @@ impl ShellApp {
                 ui.label(
                     egui::RichText::new(format!("Track {track_id}: {current}"))
                         .size(10.0)
-                        .color(theme::TEXT_DIM),
+                        .color(theme::text_dim()),
                 );
                 ui.horizontal(|ui| {
                     if ui.button("Use preset").clicked() {
@@ -2344,7 +2352,7 @@ impl ShellApp {
             })
             .collect();
         if strips.is_empty() {
-            ui.label(egui::RichText::new("No tracks to mix.").color(theme::TEXT_MUTED));
+            ui.label(egui::RichText::new("No tracks to mix.").color(theme::text_muted()));
             return;
         }
         let buses = self.song().buses.clone();
@@ -2353,7 +2361,7 @@ impl ShellApp {
                 ui.label(
                     egui::RichText::new(format!("BUS {}", bus.name))
                         .size(11.0)
-                        .color(theme::ACCENT),
+                        .color(theme::accent()),
                 );
                 let mut level = i32::from(bus.volume);
                 if ui
@@ -2496,7 +2504,7 @@ impl ShellApp {
         ui.label(
             egui::RichText::new("Fader and pan write through one undoable command each.")
                 .size(10.0)
-                .color(theme::TEXT_DIM),
+                .color(theme::text_dim()),
         );
     }
 
@@ -2574,7 +2582,7 @@ impl ShellApp {
                 "Click a scene to queue it; right-click a slot to clear, resize or copy it.",
             )
             .size(10.0)
-            .color(theme::TEXT_DIM),
+            .color(theme::text_dim()),
         );
         if let Some(index) = self.rename_scene {
             let mut open = true;
@@ -3023,7 +3031,7 @@ impl ShellApp {
     fn top_bar(&mut self, context: &Context) {
         egui::TopBottomPanel::top("header")
             .exact_height(theme::HEADER_HEIGHT)
-            .frame(egui::Frame::NONE.fill(theme::PANEL))
+            .frame(egui::Frame::NONE.fill(theme::panel()))
             .show(context, |ui| {
                 if self.settings.kids_mode {
                     ui.spacing_mut().button_padding = egui::Vec2::new(10.0, 7.0);
@@ -3031,7 +3039,7 @@ impl ShellApp {
                 let rect = ui.max_rect();
                 ui.painter().line_segment(
                     [rect.left_bottom(), rect.right_bottom()],
-                    egui::Stroke::new(1.0_f32, theme::LINE),
+                    egui::Stroke::new(1.0_f32, theme::line()),
                 );
                 let mut area = rect.shrink2(egui::vec2(16.0, 0.0));
                 // Title area: badge, title, subtitle (HeaderBar::paint).
@@ -3061,7 +3069,7 @@ impl ShellApp {
                     egui::Align2::LEFT_BOTTOM,
                     name,
                     egui::FontId::proportional(16.0),
-                    theme::TEXT,
+                    theme::text(),
                 );
                 let subtitle = format!(
                     "{} BPM \u{b7} {}/{}",
@@ -3074,7 +3082,7 @@ impl ShellApp {
                     egui::Align2::LEFT_TOP,
                     subtitle,
                     egui::FontId::proportional(12.5),
-                    theme::TEXT_MUTED,
+                    theme::text_muted(),
                 );
 
                 // Transport buttons: stop 44, play 54, 8 px gaps.
@@ -3174,12 +3182,16 @@ impl ShellApp {
             .exact_width(theme::SIDEBAR_WIDTH)
             .frame(
                 egui::Frame::new()
-                    .fill(theme::PANEL)
+                    .fill(theme::panel())
                     .inner_margin(egui::Margin::same(8)),
             )
             .show(context, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("SONG").size(9.0).color(theme::TEXT_DIM));
+                    ui.label(
+                        egui::RichText::new("SONG")
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                    );
                     ui.add(
                         egui::TextEdit::singleline(&mut self.song_name_input).desired_width(110.0),
                     );
@@ -3195,7 +3207,7 @@ impl ShellApp {
                 ui.label(
                     egui::RichText::new("TRACKS")
                         .size(10.0)
-                        .color(theme::TEXT_MUTED),
+                        .color(theme::text_muted()),
                 );
                 ui.add_space(4.0);
                 let rows: Vec<Row> = self
@@ -3217,7 +3229,7 @@ impl ShellApp {
                     self.track_row(ui, &row);
                 }
                 if self.song().tracks.is_empty() {
-                    ui.label(egui::RichText::new("no tracks").color(theme::TEXT_DIM));
+                    ui.label(egui::RichText::new("no tracks").color(theme::text_dim()));
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     if self.settings.kids_mode {
@@ -3353,7 +3365,7 @@ impl ShellApp {
                         ui.label(
                             egui::RichText::new("RECENT")
                                 .size(9.0)
-                                .color(theme::TEXT_DIM),
+                                .color(theme::text_dim()),
                         );
                         let entries = self.recent.clone();
                         for entry in entries {
@@ -3422,15 +3434,19 @@ impl ShellApp {
                         row.name.as_str()
                     };
                     ui.label(egui::RichText::new(name).size(12.0).color(if selected {
-                        theme::TEXT
+                        theme::text()
                     } else {
-                        theme::TEXT_MUTED
+                        theme::text_muted()
                     }));
                     let detail = match row.program {
                         Some(program) => format!("{} notes · prog {program}", row.notes),
                         None => format!("{} notes", row.notes),
                     };
-                    ui.label(egui::RichText::new(detail).size(9.0).color(theme::TEXT_DIM));
+                    ui.label(
+                        egui::RichText::new(detail)
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                    );
                 });
             })
             .response;
@@ -3444,7 +3460,7 @@ impl ShellApp {
             .exact_height(theme::STATUS_HEIGHT)
             .frame(
                 egui::Frame::new()
-                    .fill(theme::PANEL)
+                    .fill(theme::panel())
                     .inner_margin(egui::Margin::symmetric(12, 4)),
             )
             .show(context, |ui| {
@@ -3464,12 +3480,12 @@ impl ShellApp {
                     } else {
                         format!("{errors} validation error(s)")
                     };
-                    ui.label(egui::RichText::new(label).size(10.0).color(if errors == 0 { theme::TEXT_MUTED } else { theme::RECORDING }));
+                    ui.label(egui::RichText::new(label).size(10.0).color(if errors == 0 { theme::text_muted() } else { theme::recording() }));
                     if let Some(status) = &self.status {
                         ui.label(
                             egui::RichText::new(status)
                                 .size(10.0)
-                                .color(theme::TEXT_MUTED),
+                                .color(theme::text_muted()),
                         );
                     }
                     if let Some(path) = &self.project_path {
@@ -3477,7 +3493,7 @@ impl ShellApp {
                             ui.label(
                                 egui::RichText::new(path.display().to_string())
                                     .size(10.0)
-                                    .color(theme::TEXT_DIM),
+                                    .color(theme::text_dim()),
                             );
                         });
                     }
@@ -3537,7 +3553,7 @@ impl eframe::App for ShellApp {
         let _ = frame;
         // ADR-011: paint the first themed frame before the window becomes visible.
         let mut style = (*context.style()).clone();
-        if style.visuals.panel_fill != theme::PANEL {
+        if style.visuals.panel_fill != theme::panel() {
             style.visuals = theme::visuals();
             context.set_style(style);
         }
@@ -3577,7 +3593,7 @@ impl eframe::App for ShellApp {
         let pads = music_core::roman::pads(self.key);
         let waveform = self.waveform.clone();
         let panel = egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::TIMELINE))
+            .frame(egui::Frame::new().fill(theme::timeline()))
             .show(context, |ui| {
                 let view = self.view;
                 let position = self.position;
@@ -3614,7 +3630,7 @@ impl eframe::App for ShellApp {
                                             .unwrap_or("audio"),
                                     )
                                     .size(10.0)
-                                    .color(theme::TEXT_MUTED),
+                                    .color(theme::text_muted()),
                                 );
                                 if ui.button("Trim 1 beat").clicked() {
                                     let bar = project.song.time_signature.bar_ticks().max(1);
@@ -3660,7 +3676,7 @@ impl eframe::App for ShellApp {
                                 ui.label(
                                     egui::RichText::new("waveform")
                                         .size(10.0)
-                                        .color(theme::TEXT_DIM),
+                                        .color(theme::text_dim()),
                                 );
                                 ui.add(
                                     egui::Slider::new(&mut self.waveform_zoom, 1.0..=8.0)
@@ -3714,7 +3730,7 @@ impl eframe::App for ShellApp {
                                 ui.label(
                                     egui::RichText::new("Automation")
                                         .size(10.0)
-                                        .color(theme::TEXT_DIM),
+                                        .color(theme::text_dim()),
                                 );
                                 let mut target = self.automation_target;
                                 egui::ComboBox::from_id_salt("automation-target")
@@ -3761,7 +3777,7 @@ impl eframe::App for ShellApp {
                                 ui.label(
                                     egui::RichText::new("Play the next chord")
                                         .size(14.0)
-                                        .color(theme::TEXT_MUTED),
+                                        .color(theme::text_muted()),
                                 );
                                 let current = lesson
                                     .current()
@@ -3799,7 +3815,7 @@ impl eframe::App for ShellApp {
                         ui.label(
                             egui::RichText::new("Chord pads")
                                 .size(12.0)
-                                .color(theme::TEXT_DIM),
+                                .color(theme::text_dim()),
                         );
                         for row in 0..4 {
                             ui.horizontal(|ui| {
@@ -4012,7 +4028,7 @@ impl eframe::App for ShellApp {
                             ui.centered_and_justified(|ui| {
                                 ui.label(
                                     egui::RichText::new("Add a track to see a score.")
-                                        .color(theme::TEXT_MUTED),
+                                        .color(theme::text_muted()),
                                 );
                             });
                         }
@@ -4185,25 +4201,36 @@ impl eframe::App for ShellApp {
 fn transport_button(ui: &mut egui::Ui, rect: Rect, glyph: &str, active: bool) -> bool {
     let response = ui.interact(rect, ui.id().with(glyph), egui::Sense::click());
     let fill = if active {
-        theme::ACCENT.gamma_multiply(0.25)
+        theme::accent().gamma_multiply(0.25)
     } else if response.hovered() {
-        theme::LINE
+        theme::line()
     } else {
-        theme::RAISED
+        theme::raised()
     };
     ui.painter()
         .circle_filled(rect.center(), rect.width() * 0.5, fill);
     ui.painter().circle_stroke(
         rect.center(),
         rect.width() * 0.5,
-        egui::Stroke::new(1.0_f32, if active { theme::ACCENT } else { theme::LINE }),
+        egui::Stroke::new(
+            1.0_f32,
+            if active {
+                theme::accent()
+            } else {
+                theme::line()
+            },
+        ),
     );
     ui.painter().text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
         glyph,
         egui::FontId::proportional(rect.width() * 0.32),
-        if active { theme::ACCENT } else { theme::TEXT },
+        if active {
+            theme::accent()
+        } else {
+            theme::text()
+        },
     );
     response.clicked()
 }

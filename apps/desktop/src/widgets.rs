@@ -55,20 +55,20 @@ pub fn lcd(ui: &mut Ui, position: Tick, bpm: f64, meter: TimeSignature) -> Respo
     let radius = 0.0_f32;
 
     // Bezel and its outline.
-    painter.rect_filled(outer, radius, theme::LCD_BEZEL);
+    painter.rect_filled(outer, radius, theme::lcd_bezel());
     painter.rect_stroke(
         outer,
         radius,
-        Stroke::new(1.0_f32, theme::LINE_STRONG.gamma_multiply(0.8)),
+        Stroke::new(1.0_f32, theme::line_strong().gamma_multiply(0.8)),
         StrokeKind::Inside,
     );
 
     // Glass: three bands approximate the top-brighter/bottom-darker gradient
     // the JUCE code builds with ColourGradient.
     let bands = [
-        (0.00, 0.40, lighten(theme::LCD_BACK, 0.05)),
-        (0.40, 0.75, theme::LCD_BACK),
-        (0.75, 1.00, darken(theme::LCD_BACK, 0.14)),
+        (0.00, 0.40, lighten(theme::lcd_back(), 0.05)),
+        (0.40, 0.75, theme::lcd_back()),
+        (0.75, 1.00, darken(theme::lcd_back(), 0.14)),
     ];
     for (from, to, colour) in bands {
         let band = Rect::from_min_max(
@@ -103,7 +103,7 @@ pub fn lcd(ui: &mut Ui, position: Tick, bpm: f64, meter: TimeSignature) -> Respo
                     Pos2::new(x, outer.top() + 12.0),
                     Pos2::new(x, outer.bottom() - 10.0),
                 ],
-                Stroke::new(1.0_f32, theme::LCD_DIM.gamma_multiply(0.35)),
+                Stroke::new(1.0_f32, theme::lcd_dim().gamma_multiply(0.35)),
             );
         }
     }
@@ -127,14 +127,14 @@ pub fn lcd(ui: &mut Ui, position: Tick, bpm: f64, meter: TimeSignature) -> Respo
             label_rect.left_top(),
             labels[index],
             FontId::proportional(9.5),
-            theme::LCD_DIM,
+            theme::lcd_dim(),
             1.4,
         );
         let value_rect = Rect::from_min_max(Pos2::new(cell.left(), cell.top() + 11.0), cell.max);
         let font = FontId::proportional(20.0);
-        let galley = painter.layout_no_wrap(values[index].clone(), font.clone(), theme::LCD_INK);
+        let galley = painter.layout_no_wrap(values[index].clone(), font.clone(), theme::lcd_ink());
         let y = value_rect.center().y - galley.size().y * 0.5;
-        painter.galley(Pos2::new(value_rect.left(), y), galley, theme::LCD_INK);
+        painter.galley(Pos2::new(value_rect.left(), y), galley, theme::lcd_ink());
         left += width;
     }
     response
@@ -144,11 +144,11 @@ pub fn lcd(ui: &mut Ui, position: Tick, bpm: f64, meter: TimeSignature) -> Respo
 pub fn view_tabs(ui: &mut Ui, current: usize, names: &[&str]) -> Option<usize> {
     let (response, painter) = ui.allocate_painter(TABS_SIZE, Sense::click());
     let rect = response.rect;
-    painter.rect_filled(rect, 0.0, theme::LCD);
+    painter.rect_filled(rect, 0.0, theme::lcd());
     painter.rect_stroke(
         rect,
         0.0,
-        Stroke::new(1.0_f32, theme::LINE),
+        Stroke::new(1.0_f32, theme::line()),
         StrokeKind::Inside,
     );
 
@@ -157,7 +157,11 @@ pub fn view_tabs(ui: &mut Ui, current: usize, names: &[&str]) -> Option<usize> {
     let mut used = 0.0_f32;
     for name in names {
         let width = painter
-            .layout_no_wrap(String::from(*name), FontId::proportional(10.5), theme::TEXT)
+            .layout_no_wrap(
+                String::from(*name),
+                FontId::proportional(10.5),
+                theme::text(),
+            )
             .size()
             .x
             + 10.0;
@@ -186,11 +190,15 @@ pub fn view_tabs(ui: &mut Ui, current: usize, names: &[&str]) -> Option<usize> {
             clicked = Some(index);
         }
         if index == current {
-            painter.rect_filled(tab, theme::RADIUS_SMALL, theme::ACCENT.gamma_multiply(0.14));
+            painter.rect_filled(
+                tab,
+                theme::RADIUS_SMALL,
+                theme::accent().gamma_multiply(0.14),
+            );
             painter.rect_stroke(
                 tab.shrink(0.5),
                 theme::RADIUS_SMALL,
-                Stroke::new(1.0_f32, theme::ACCENT.gamma_multiply(0.4)),
+                Stroke::new(1.0_f32, theme::accent().gamma_multiply(0.4)),
                 StrokeKind::Inside,
             );
             let width = 26.0_f32.min(tab.width() * 0.4);
@@ -198,12 +206,12 @@ pub fn view_tabs(ui: &mut Ui, current: usize, names: &[&str]) -> Option<usize> {
                 Pos2::new(tab.center().x, tab.bottom() - 7.0),
                 Vec2::new(width, 2.0),
             );
-            painter.rect_filled(underline, 0.0, theme::ACCENT);
+            painter.rect_filled(underline, 0.0, theme::accent());
         }
         let colour = if index == current {
-            theme::TEXT
+            theme::text()
         } else {
-            theme::TEXT_MUTED
+            theme::text_muted()
         };
         painter.text(
             tab.center(),

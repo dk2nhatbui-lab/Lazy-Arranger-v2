@@ -120,6 +120,8 @@ pub struct Settings {
     pub reduced_motion: bool,
     /// Large text and a simpler header.
     pub kids_mode: bool,
+    /// Light palette instead of the default dark one.
+    pub light_theme: bool,
     /// Speak assistant replies with the local `say` command.
     pub speech: bool,
     /// Folder holding the style library, empty when not configured.
@@ -141,6 +143,7 @@ impl Default for Settings {
             metronome: false,
             reduced_motion: false,
             kids_mode: false,
+            light_theme: false,
             speech: false,
             style_library: String::new(),
             master_gain_db: 0.0,
@@ -191,6 +194,7 @@ impl Settings {
                 "metronome" => settings.metronome = value == "true",
                 "reduced_motion" => settings.reduced_motion = value == "true",
                 "kids_mode" => settings.kids_mode = value == "true",
+                "light_theme" => settings.light_theme = value == "true",
                 "speech" => settings.speech = value == "true",
                 "style_library" => settings.style_library = value.to_string(),
                 "master_gain_db" => {
@@ -222,6 +226,7 @@ impl Settings {
         text.push_str(&format!("metronome = {}\n", self.metronome));
         text.push_str(&format!("reduced_motion = {}\n", self.reduced_motion));
         text.push_str(&format!("kids_mode = {}\n", self.kids_mode));
+        text.push_str(&format!("light_theme = {}\n", self.light_theme));
         text.push_str(&format!("speech = {}\n", self.speech));
         if !self.style_library.is_empty() {
             text.push_str(&format!("style_library = {}\n", self.style_library));
@@ -260,6 +265,7 @@ mod tests {
         let path = temp("lazy-arranger-settings-test.txt");
         let mut settings = Settings {
             kids_mode: true,
+            light_theme: true,
             grade: 3,
             keyboard: Some(String::from("PSR-S970")),
             ..Settings::default()

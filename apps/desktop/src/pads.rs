@@ -107,7 +107,7 @@ pub fn show(ui: &mut egui::Ui, pads: &Pads) -> Option<Pad> {
         ui.label(
             egui::RichText::new(format!("Auditioning {}", label(pad.note)))
                 .size(10.0)
-                .color(theme::ACCENT),
+                .color(theme::accent()),
         );
     }
     hit
