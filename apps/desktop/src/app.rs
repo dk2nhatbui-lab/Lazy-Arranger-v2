@@ -2108,6 +2108,7 @@ impl eframe::App for ShellApp {
                 let mut lesson_reset = false;
                 let mut kids_load = false;
                 let mut scroll_edit: Option<crate::piano_roll::RollEdit> = None;
+                let mut velocity_edit: Option<(TrackId, project::NoteId, u8)> = None;
                 let Self { editor, roll, .. } = self;
                 let selected_clip = self.selected_clip;
                 let project = editor.project();
@@ -2144,6 +2145,9 @@ impl eframe::App for ShellApp {
                         clicked = outcome.click;
                         if let Some(edit) = outcome.edit {
                             scroll_edit = Some(edit);
+                        }
+                        if let Some(velocity) = outcome.velocity {
+                            velocity_edit = Some(velocity);
                         }
                         if let Some(track_id) = roll.selected
                             && let Some(track) = project
@@ -2307,6 +2311,7 @@ impl eframe::App for ShellApp {
                     lesson_reset,
                     kids_load,
                     scroll_edit,
+                    velocity_edit,
                 )
             });
         let (
@@ -2319,9 +2324,15 @@ impl eframe::App for ShellApp {
             lesson_reset,
             kids_load,
             scroll_edit,
+            velocity_edit,
         ) = panel.inner;
         if let Some(click) = clicked {
             self.edit_click(click);
+        }
+        if let Some((track, note, velocity)) = velocity_edit
+            && let Err(error) = self.editor.set_velocity(track, note, velocity)
+        {
+            self.status = Some(error);
         }
         if let Some(edit) = scroll_edit {
             let result = match edit.mode {

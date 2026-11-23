@@ -178,3 +178,10 @@ snapped start plus row pitch, or a snapped duration with an eighth-note floor.
 The roll returns a `RollEdit` on drag release and the shell applies it through
 `Editor::move_note`/`resize_note` (one command each). A drag preview is not
 drawn and panning is suppressed while a note drag is active.
+
+### Velocity lane
+
+A 44 px lane under the roll draws a bar per note of the selected track (height
+proportional to velocity) and maps a click or drag to 1..127, top to bottom,
+through `velocity_at`; `note_at_tick` picks the covering note or the nearest one
+and the shell writes it with `set_velocity` as one edit.

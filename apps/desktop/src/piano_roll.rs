@@ -168,6 +168,8 @@ pub struct RollOutcome {
     pub click: Option<RollClick>,
     /// Note change from a finished drag.
     pub edit: Option<RollEdit>,
+    /// Velocity change clicked in the lane.
+    pub velocity: Option<(TrackId, project::NoteId, u8)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -179,6 +181,32 @@ struct NoteDrag {
     start: Tick,
     pitch: u8,
     duration: Tick,
+}
+
+/// Height of the velocity lane below the roll.
+pub const VELOCITY_LANE_HEIGHT: f32 = 44.0;
+
+/// Velocity from a y position inside the lane: top is 127, bottom is 1.
+#[must_use]
+pub fn velocity_at(lane_top: f32, lane_height: f32, y: f32) -> u8 {
+    let ratio = ((lane_top + lane_height - y) / lane_height.max(1.0)).clamp(0.0, 1.0);
+    (1.0 + ratio * 126.0).round() as u8
+}
+
+/// The note whose span covers a tick, else the nearest note by start.
+#[must_use]
+pub fn note_at_tick(track: &Track, tick: Tick) -> Option<project::NoteId> {
+    track
+        .notes
+        .iter()
+        .find(|note| tick >= note.start && tick < note.start + note.duration.max(1))
+        .or_else(|| {
+            track
+                .notes
+                .iter()
+                .min_by_key(|note| (note.start - tick).abs())
+        })
+        .map(|note| note.id)
 }
 
 /// The note under a pointer on the selected track, with its drag mode.
@@ -256,8 +284,54 @@ pub fn show(
     selected_clip: Option<project::ClipId>,
 ) -> RollOutcome {
     let available = ui.available_size();
-    let (response, painter) = ui.allocate_painter(available, egui::Sense::click_and_drag());
+    let main_height = (available.y - VELOCITY_LANE_HEIGHT).max(60.0);
+    let (response, painter) = ui.allocate_painter(
+        egui::Vec2::new(available.x, main_height),
+        egui::Sense::click_and_drag(),
+    );
     let rect = response.rect;
+    let lane = Rect::from_min_size(
+        Pos2::new(rect.left(), rect.bottom()),
+        Vec2::new(rect.width(), VELOCITY_LANE_HEIGHT),
+    );
+    let (lane_response, lane_painter) =
+        ui.allocate_painter(lane.size(), egui::Sense::click_and_drag());
+    let lane = lane_response.rect;
+    lane_painter.rect_filled(lane, 0.0, theme::LANE);
+    if let Some(track_id) = state.selected
+        && let Some(track) = song.tracks.iter().find(|track| track.id == track_id)
+    {
+        for note in &track.notes {
+            let x = geometry_hint(state, song, rect).x_at(note.start);
+            if x < lane.left() || x > lane.right() {
+                continue;
+            }
+            let height = f32::from(note.velocity.as_u8()) / 127.0 * (lane.height() - 4.0);
+            lane_painter.line_segment(
+                [
+                    Pos2::new(x, lane.bottom() - 2.0),
+                    Pos2::new(x, lane.bottom() - 2.0 - height),
+                ],
+                egui::Stroke::new(2.0_f32, theme::ACCENT),
+            );
+        }
+    }
+    let velocity = if lane_response.dragged() || lane_response.clicked() {
+        lane_response.interact_pointer_pos().and_then(|pointer| {
+            let track_id = state.selected?;
+            let track = song.tracks.iter().find(|track| track.id == track_id)?;
+            let geometry = geometry_hint(state, song, rect);
+            let tick = geometry.tick_at(pointer.x);
+            let note = note_at_tick(track, tick)?;
+            Some((
+                track_id,
+                note,
+                velocity_at(lane.top(), lane.height(), pointer.y),
+            ))
+        })
+    } else {
+        None
+    };
 
     if response.drag_started()
         && let Some(pointer) = response.interact_pointer_pos()
@@ -387,6 +461,7 @@ pub fn show(
                         clip: Some((track.id, clip.id)),
                     }),
                     edit: None,
+                    velocity: None,
                 };
             }
         }
@@ -413,6 +488,7 @@ pub fn show(
                         clip: None,
                     }),
                     edit: None,
+                    velocity: None,
                 };
             }
         }
@@ -422,6 +498,7 @@ pub fn show(
     RollOutcome {
         click: Some(click),
         edit: None,
+        velocity,
     }
 }
 
@@ -799,5 +876,44 @@ mod drag_tests {
             origin,
         );
         assert_eq!(tiny.2, music_core::PPQ / 8);
+    }
+}
+
+#[cfg(test)]
+mod lane_tests {
+    use super::*;
+    use music_core::{Channel, Pitch, Velocity};
+    use project::song::{Note, Track};
+    use project::{NoteId, TrackId};
+
+    #[test]
+    fn velocity_maps_from_the_lane_edges() {
+        assert_eq!(velocity_at(0.0, 40.0, 0.0), 127);
+        assert_eq!(velocity_at(0.0, 40.0, 40.0), 1);
+        assert_eq!(velocity_at(0.0, 40.0, 20.0), 64);
+        assert_eq!(velocity_at(0.0, 40.0, 999.0), 1, "below the lane clamps");
+    }
+
+    #[test]
+    fn the_note_under_a_tick_is_found_or_nearest() {
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 200,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        assert_eq!(
+            note_at_tick(&track, 100),
+            Some(NoteId::new(1).expect("valid"))
+        );
+        assert_eq!(
+            note_at_tick(&track, 5000),
+            Some(NoteId::new(1).expect("valid"))
+        );
+        let empty = Track::new(TrackId::new(2).expect("valid"), "Empty");
+        assert!(note_at_tick(&empty, 0).is_none());
     }
 }
