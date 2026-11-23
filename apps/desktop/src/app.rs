@@ -4219,15 +4219,20 @@ impl ShellApp {
                         }
                     }
                     let key = score::spelling::detect_key(self.song());
-                    ui.label(format!(
-                        "{} {}",
-                        if key.minor {
-                            key.tonic.name_flat()
-                        } else {
-                            key.tonic.name_sharp()
-                        },
-                        if key.minor { "minor" } else { "major" }
-                    ));
+                    ui.horizontal(|ui| {
+                        ui.label(format!(
+                            "{} {}",
+                            if key.minor {
+                                key.tonic.name_flat()
+                            } else {
+                                key.tonic.name_sharp()
+                            },
+                            if key.minor { "minor" } else { "major" }
+                        ));
+                        if ui.small_button("Find").on_hover_text("Find songs").clicked() {
+                            self.songs_open = true;
+                        }
+                    });
                     ui.separator();
                     ui.label(
                         egui::RichText::new("METRONOME")
@@ -7685,6 +7690,7 @@ impl ShellApp {
     fn track_row(&mut self, ui: &mut egui::Ui, row: &Row) {
         let selected = self.roll.selected == Some(row.id);
         let colour = theme::track_colour(row.index);
+        let mut flags_changed = false;
         let response = egui::Frame::new()
             .fill(if selected {
                 theme::raised()
@@ -7734,6 +7740,7 @@ impl ShellApp {
                             .on_hover_text("Record-arm this track")
                             .clicked()
                         {
+                            flags_changed = true;
                             let _ = self
                                 .editor
                                 .set_track_flags(row.id, row.muted, row.soloed, !row.armed);
@@ -7743,6 +7750,7 @@ impl ShellApp {
                             .on_hover_text("Solo")
                             .clicked()
                         {
+                            flags_changed = true;
                             let _ =
                                 self.editor
                                     .set_track_flags(row.id, row.muted, !row.soloed, false);
@@ -7752,6 +7760,7 @@ impl ShellApp {
                             .on_hover_text("Mute")
                             .clicked()
                         {
+                            flags_changed = true;
                             let _ = self
                                 .editor
                                 .set_track_flags(row.id, !row.muted, row.soloed, false);
@@ -7760,7 +7769,7 @@ impl ShellApp {
                 });
             })
             .response;
-        if response.interact(egui::Sense::click()).clicked() {
+        if !flags_changed && response.interact(egui::Sense::click()).clicked() {
             self.roll.selected = if selected { None } else { Some(row.id) };
         }
     }
