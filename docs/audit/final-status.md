@@ -97,3 +97,4 @@ For the clef layout, choose either four measures per system without clefs
 - Groove templates can be extracted from audio (`groove-from-audio`, MCP `groove_from_audio`); fixed multi-bar extraction offsets. 96 MCP tools.
 - Audio tags are a model-free heuristic (drums/bass/pad/melodic); 97 MCP tools.
 - Language offers System default, resolved from LC_ALL/LC_MESSAGES/LANG.
+- Track plug-in parameter automation lanes render block-by-block; VST3 test gain verifies 0→127 gain over time. Bus/master lanes remain absent.

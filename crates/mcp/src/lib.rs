@@ -2631,10 +2631,13 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "pan": found.pan,
                 "lanes": found.automation.iter().map(|lane| json!({
                     "target": match lane.target {
-                        project::song::AutomationTarget::Volume => "volume",
-                        project::song::AutomationTarget::Pan => "pan",
-                        project::song::AutomationTarget::Send => "send",
-                        project::song::AutomationTarget::Brightness => "brightness",
+                        project::song::AutomationTarget::Volume => String::from("volume"),
+                        project::song::AutomationTarget::Pan => String::from("pan"),
+                        project::song::AutomationTarget::Send => String::from("send"),
+                        project::song::AutomationTarget::Brightness => String::from("brightness"),
+                        project::song::AutomationTarget::PluginParam { slot, parameter } => {
+                            format!("plugin:{slot}:{parameter}")
+                        }
                     },
                     "points": lane.points.iter().map(|point| json!({"tick": point.tick, "value": point.value})).collect::<Vec<_>>()
                 })).collect::<Vec<_>>()
@@ -2654,6 +2657,21 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     Some("pan") => AutomationTarget::Pan,
                     Some("send") => AutomationTarget::Send,
                     Some("brightness") => AutomationTarget::Brightness,
+                    Some(value) if value.starts_with("plugin:") => {
+                        let mut parts = value.split(':').skip(1);
+                        let slot = parts.next().and_then(|part| part.parse().ok());
+                        let parameter = parts.next().and_then(|part| part.parse().ok());
+                        match (slot, parameter) {
+                            (Some(slot), Some(parameter)) => {
+                                AutomationTarget::PluginParam { slot, parameter }
+                            }
+                            _ => {
+                                return Err(ToolError::Arguments(format!(
+                                    "bad plug-in target {value:?}; use plugin:slot:param"
+                                )));
+                            }
+                        }
+                    }
                     _ => {
                         return Err(ToolError::Arguments(String::from(
                             "lane target must be volume or pan",

@@ -327,7 +327,7 @@ pub fn render_with_soundfont(
                 }
             }
         }
-        apply_track_plugins(track, &mut track_buffer, sample_rate);
+        apply_track_plugins(song, track, &mut track_buffer, sample_rate);
         delay_buffer(
             &mut track_buffer,
             max_track_latency.saturating_sub(track_latencies[track_index]),
@@ -556,8 +556,92 @@ fn delay_buffer(buffer: &mut [f32], frames: usize) {
     buffer[..samples].fill(0.0);
 }
 
-fn apply_track_plugins(track: &project::song::Track, buffer: &mut [f32], sample_rate: u32) {
-    apply_plugins(&track.plugins, buffer, sample_rate);
+fn apply_track_plugins(
+    song: &Song,
+    track: &project::song::Track,
+    buffer: &mut [f32],
+    sample_rate: u32,
+) {
+    for slot in &track.plugins {
+        if slot.bypassed || slot.identifier.is_empty() {
+            continue;
+        }
+        let lanes: Vec<&project::song::Automation> = track
+            .automation
+            .iter()
+            .filter(|lane| {
+                matches!(
+                    lane.target,
+                    project::song::AutomationTarget::PluginParam { slot: id, .. } if id == slot.id
+                )
+            })
+            .collect();
+        match slot.format {
+            project::song::PluginFormat::Vst3 => {
+                let Ok(mut effect) = plugin_host::Vst3Effect::new(
+                    std::path::Path::new(&slot.path),
+                    &slot.identifier,
+                    f64::from(sample_rate),
+                    512,
+                ) else {
+                    continue;
+                };
+                if !slot.state.is_empty() {
+                    let _ = effect.load_state_base64(&slot.state);
+                }
+                if lanes.is_empty() {
+                    let _ = effect.process_stereo(buffer);
+                    continue;
+                }
+                let mut frame = 0_usize;
+                for block in buffer.chunks_mut(512 * 2) {
+                    let tick = song.tempo_map.tick_at_samples(frame as i64, sample_rate);
+                    for lane in &lanes {
+                        if let project::song::AutomationTarget::PluginParam { parameter, .. } =
+                            lane.target
+                            && let Some(value) = lane.value_at(tick)
+                        {
+                            effect.set_parameter(parameter, f64::from(value / 127.0));
+                        }
+                    }
+                    let _ = effect.process_stereo(block);
+                    frame += block.len() / 2;
+                }
+            }
+            #[cfg(target_os = "macos")]
+            project::song::PluginFormat::AudioUnit => {
+                let Ok(mut effect) =
+                    plugin_host::AuEffect::new(&slot.identifier, f64::from(sample_rate))
+                else {
+                    continue;
+                };
+                if lanes.is_empty() {
+                    let _ = effect.process_stereo(buffer);
+                    continue;
+                }
+                let ranges = effect.parameters();
+                let mut frame = 0_usize;
+                for block in buffer.chunks_mut(512 * 2) {
+                    let tick = song.tempo_map.tick_at_samples(frame as i64, sample_rate);
+                    for lane in &lanes {
+                        if let project::song::AutomationTarget::PluginParam { parameter, .. } =
+                            lane.target
+                            && let Some(value) = lane.value_at(tick)
+                            && let Some((_, _, min, max, _, _)) =
+                                ranges.iter().find(|entry| entry.0 == parameter)
+                        {
+                            let raw = min + (max - min) * value / 127.0;
+                            let _ = effect.set_parameter(parameter, raw);
+                        }
+                    }
+                    let _ = effect.process_stereo(block);
+                    frame += block.len() / 2;
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            project::song::PluginFormat::AudioUnit => {}
+        }
+    }
 }
 
 fn apply_plugins(slots: &[project::song::PluginSlot], buffer: &mut [f32], sample_rate: u32) {
@@ -844,6 +928,55 @@ mod tests {
             "compensation should delay both tracks: {early}"
         );
         assert!(rendered.samples.iter().any(|sample| sample.abs() > 0.01));
+        let _ = std::fs::remove_dir_all(bundle.parent().expect("root"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn plugin_parameter_automation_changes_gain_over_time() {
+        use project::song::{
+            Automation, AutomationPoint, AutomationTarget, PluginFormat, PluginSlot,
+        };
+        let Some(bundle) = test_gain_bundle() else {
+            return;
+        };
+        let classes = plugin_host::scan_vst3(&bundle).expect("scan");
+        let mut song = song_with_note();
+        song.tracks[0].plugins.push(PluginSlot {
+            id: 1,
+            name: String::from("Test Gain"),
+            format: PluginFormat::Vst3,
+            path: bundle.display().to_string(),
+            identifier: classes[0].cid.clone(),
+            bypassed: false,
+            state: String::new(),
+        });
+        song.tracks[0].automation.push(Automation {
+            target: AutomationTarget::PluginParam {
+                slot: 1,
+                parameter: 0,
+            },
+            points: vec![
+                AutomationPoint {
+                    tick: 0,
+                    value: 0.0,
+                },
+                AutomationPoint {
+                    tick: 960,
+                    value: 127.0,
+                },
+            ],
+        });
+        let rendered = render(&song, SAMPLE_RATE);
+        let energy = |range: std::ops::Range<usize>| {
+            rendered.samples[range]
+                .iter()
+                .map(|sample| sample.abs())
+                .sum::<f32>()
+        };
+        let early = energy(0..512);
+        let late = energy(1_000 * 2..2_000 * 2);
+        assert!(late > early * 4.0, "early {early}, late {late}");
         let _ = std::fs::remove_dir_all(bundle.parent().expect("root"));
     }
 

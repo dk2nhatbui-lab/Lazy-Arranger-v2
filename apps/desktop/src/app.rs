@@ -581,6 +581,8 @@ pub struct ShellApp {
     lyric_selected: Option<Tick>,
     tempo_input: f64,
     automation_target: project::song::AutomationTarget,
+    automation_plugin_slot: u32,
+    automation_plugin_param: u32,
     l6max_folder: String,
     l6max_plan: Option<audio::l6max::Plan>,
     l6max_error: Option<String>,
@@ -819,6 +821,8 @@ impl ShellApp {
             lyric_selected: None,
             tempo_input: 120.0,
             automation_target: project::song::AutomationTarget::Volume,
+            automation_plugin_slot: 1,
+            automation_plugin_param: 0,
             l6max_folder: String::new(),
             l6max_plan: None,
             l6max_error: None,
@@ -7179,6 +7183,23 @@ impl eframe::App for ShellApp {
                                         }
                                     });
                                 self.automation_target = target;
+                                ui.label("slot");
+                                ui.add(
+                                    egui::DragValue::new(&mut self.automation_plugin_slot)
+                                        .range(0..=9999),
+                                );
+                                ui.label("param");
+                                ui.add(
+                                    egui::DragValue::new(&mut self.automation_plugin_param)
+                                        .range(0..=9999),
+                                );
+                                if ui.button("Plugin").clicked() {
+                                    self.automation_target =
+                                        project::song::AutomationTarget::PluginParam {
+                                            slot: self.automation_plugin_slot,
+                                            parameter: self.automation_plugin_param,
+                                        };
+                                }
                             });
                             let target = self.automation_target;
                             let lane = track

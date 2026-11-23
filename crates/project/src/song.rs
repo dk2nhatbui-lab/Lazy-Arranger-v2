@@ -153,6 +153,13 @@ pub enum AutomationTarget {
     Send,
     /// Patch brightness.
     Brightness,
+    /// One parameter of a track plug-in slot.
+    PluginParam {
+        /// Plug-in slot id.
+        slot: u32,
+        /// Plug-in parameter id.
+        parameter: u32,
+    },
 }
 
 /// One automation point.
@@ -1002,6 +1009,17 @@ mod tests {
             velocity: Velocity::new(100).expect("valid velocity"),
             channel: Channel::first(),
         }
+    }
+
+    #[test]
+    fn plugin_parameter_automation_round_trips() {
+        let target = AutomationTarget::PluginParam {
+            slot: 3,
+            parameter: 7,
+        };
+        let json = serde_json::to_string(&target).expect("json");
+        let back: AutomationTarget = serde_json::from_str(&json).expect("parse");
+        assert_eq!(back, target);
     }
 
     #[test]
