@@ -425,6 +425,24 @@ fn held_chord_name(held: &[bool; 128]) -> Option<String> {
     arranger::recognize_symbol(&pitches, pitches.first().copied())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StyleSectionRole {
+    Main,
+    Fill,
+    Ending,
+}
+
+fn style_section_role(name: &str) -> StyleSectionRole {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("fill") {
+        StyleSectionRole::Fill
+    } else if lower.contains("ending") {
+        StyleSectionRole::Ending
+    } else {
+        StyleSectionRole::Main
+    }
+}
+
 fn next_bar_seconds(now: f64, bar_seconds: f64) -> f64 {
     (now / bar_seconds.max(0.001))
         .floor()
@@ -769,6 +787,8 @@ pub struct ShellApp {
     style_auto_load: bool,
     style_queued_section: Option<usize>,
     style_queued_chord: Option<String>,
+    style_fill_return: Option<usize>,
+    style_ending: bool,
     style_held: [bool; 128],
     style_last_chord: String,
     style_queue_at: f64,
@@ -1058,6 +1078,8 @@ impl ShellApp {
             style_auto_load: std::env::var("ARRANGER_STYLE_FILE").is_ok(),
             style_queued_section: None,
             style_queued_chord: None,
+            style_fill_return: None,
+            style_ending: false,
             style_held: [false; 128],
             style_last_chord: String::new(),
             style_queue_at: 0.0,
@@ -4168,13 +4190,37 @@ impl ShellApp {
         let Some(imported) = self.style_import.as_ref() else {
             return;
         };
+        let current_role = imported
+            .section_names()
+            .get(self.style_section)
+            .map_or(StyleSectionRole::Main, |name| style_section_role(name));
+        let role = imported
+            .section_names()
+            .get(index)
+            .map_or(StyleSectionRole::Main, |name| style_section_role(name));
+        match role {
+            StyleSectionRole::Fill => {
+                if current_role == StyleSectionRole::Main {
+                    self.style_fill_return = Some(self.style_section);
+                }
+                self.style_ending = false;
+            }
+            StyleSectionRole::Ending => {
+                self.style_fill_return = None;
+                self.style_ending = true;
+            }
+            StyleSectionRole::Main => {
+                self.style_fill_return = None;
+                self.style_ending = false;
+            }
+        }
         let Some(player) = self.style_preview.as_ref() else {
             self.style_section = index;
             self.audition_style_section();
             return;
         };
+        self.style_section = index;
         if !player.is_playing() {
-            self.style_section = index;
             self.audition_style_section();
             return;
         }
@@ -4219,6 +4265,8 @@ impl ShellApp {
             }) {
             Ok(imported) => {
                 self.style_section = 0;
+                self.style_fill_return = None;
+                self.style_ending = false;
                 self.status = Some(format!(
                     "style loaded: {} section(s)",
                     imported.sections.len()
@@ -4278,7 +4326,6 @@ impl ShellApp {
                                 .clicked()
                                 && self.style_section != index
                             {
-                                self.style_section = index;
                                 queue_choice = Some(index);
                             }
                         }
@@ -4304,6 +4351,8 @@ impl ShellApp {
                     if ui.button("Audition").clicked() {
                         self.style_queued_section = None;
                         self.style_queued_chord = None;
+                        self.style_fill_return = None;
+                        self.style_ending = false;
                         self.audition_style_section();
                     }
                     if ui.button("Stop").clicked() {
@@ -4313,7 +4362,7 @@ impl ShellApp {
                 });
                 ui.label(
                     egui::RichText::new(
-                        "Section and chord changes queue at the next bar; held MIDI notes are recognised as chords. Fill/ending transitions are not implemented.",
+                        "Section and chord changes queue at the next bar; held MIDI notes are recognised; fills return to the main section and endings stop looping.",
                     )
                     .size(9.0)
                     .color(theme::text_dim()),
@@ -8976,7 +9025,18 @@ impl eframe::App for ShellApp {
             }
             self.audition_style_section();
         }
+        if let Some(return_index) = self.style_fill_return
+            && self.style_queued_section.is_none()
+            && let Some(player) = &self.style_preview
+            && !player.is_playing()
+        {
+            self.style_fill_return = None;
+            self.style_section = return_index;
+            self.audition_style_section();
+        }
         if self.style_file_loop
+            && !self.style_ending
+            && self.style_fill_return.is_none()
             && self.style_queued_section.is_none()
             && self.style_queued_chord.is_none()
             && let Some(player) = &self.style_preview
@@ -11009,6 +11069,14 @@ mod tests {
         quantise_recorded(&mut notes, music_core::PPQ / 4);
         assert_eq!(notes[0].start, 0);
         assert_eq!(notes[1].start, 960);
+    }
+
+    #[test]
+    fn style_section_names_choose_fill_and_ending_roles() {
+        assert_eq!(style_section_role("Main A"), StyleSectionRole::Main);
+        assert_eq!(style_section_role("Fill In AA"), StyleSectionRole::Fill);
+        assert_eq!(style_section_role("Ending A"), StyleSectionRole::Ending);
+        assert_eq!(style_section_role("Intro"), StyleSectionRole::Main);
     }
 
     #[test]

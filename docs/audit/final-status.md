@@ -135,4 +135,4 @@ For the clef layout, choose either four measures per system without clefs
 - Timeline clips drag to move or resize on a 1/16 grid with a live ghost preview.
 - Settings can auto-open all MIDI inputs; no hardware verification yet.
 - Check for updates reads the GitHub latest release and compares versions; Open release page and Skip this version; no download/install; external endpoint unverified.
-- Style file player loads a Yamaha style and auditions selected sections at an entered chord with optional loop; new section selections and chord pads queue at the next bar; held MIDI notes are recognised as chord changes; no fill/ending transitions (`docs/audit/style-file.png`).
+- Style file player loads a Yamaha style and auditions selected sections at an entered chord with optional loop; new section selections and chord pads queue at the next bar; held MIDI notes are recognised as chord changes; fills return to the main section and endings stop looping (`docs/audit/style-file.png`).
