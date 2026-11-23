@@ -205,6 +205,96 @@ impl Track {
     }
 }
 
+/// A synth waveform.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Waveform {
+    /// Pure sine.
+    Sine,
+    /// Sawtooth.
+    Saw,
+    /// Square.
+    Square,
+    /// Triangle.
+    Triangle,
+}
+
+/// A per-track synth patch.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Patch {
+    /// Oscillator waveform.
+    pub waveform: Waveform,
+    /// Attack in seconds.
+    pub attack: f32,
+    /// Decay in seconds.
+    pub decay: f32,
+    /// Sustain level, 0..=1.
+    pub sustain: f32,
+    /// Release in seconds; 0 uses the renderer's fixed release.
+    pub release: f32,
+    /// Harmonic brightness, 0..=1.
+    pub brightness: f32,
+}
+
+impl Default for Patch {
+    fn default() -> Self {
+        Self {
+            waveform: Waveform::Sine,
+            attack: 0.005,
+            decay: 0.2,
+            sustain: 0.7,
+            release: 0.08,
+            brightness: 0.4,
+        }
+    }
+}
+
+impl Patch {
+    /// Amplitude at a time into the note, with the note's total length.
+    #[must_use]
+    pub fn envelope(&self, seconds: f32, note_seconds: f32) -> f32 {
+        let attack = self.attack.max(0.001);
+        let decay = self.decay.max(0.001);
+        let sustain = self.sustain.clamp(0.0, 1.0);
+        let release_start = (note_seconds - self.release.max(0.0)).max(0.0);
+        let level = if seconds < attack {
+            seconds / attack
+        } else if seconds < attack + decay {
+            1.0 - (1.0 - sustain) * ((seconds - attack) / decay)
+        } else {
+            sustain
+        };
+        if self.release > 0.0 && seconds > release_start && note_seconds > release_start {
+            level * (1.0 - (seconds - release_start) / (note_seconds - release_start))
+        } else {
+            level
+        }
+    }
+
+    /// One sample of the patch's oscillator and envelope.
+    #[must_use]
+    pub fn sample(&self, frequency: f64, seconds: f32, note_seconds: f32) -> f64 {
+        let phase = std::f64::consts::TAU * frequency * f64::from(seconds);
+        let fundamental = match self.waveform {
+            Waveform::Sine => phase.sin(),
+            Waveform::Saw => 2.0 * (phase / std::f64::consts::TAU).fract() - 1.0,
+            Waveform::Square => {
+                if phase.sin() >= 0.0 {
+                    1.0
+                } else {
+                    -1.0
+                }
+            }
+            Waveform::Triangle => {
+                2.0 * (2.0 * (phase / std::f64::consts::TAU).fract() - 1.0).abs() - 1.0
+            }
+        };
+        let brightness = f64::from(self.brightness.clamp(0.0, 1.0));
+        let harmonics = brightness * (0.5 * (2.0 * phase).sin() + 0.25 * (3.0 * phase).sin());
+        (fundamental + harmonics) * f64::from(self.envelope(seconds, note_seconds))
+    }
+}
+
 /// A mix bus.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Bus {
@@ -326,6 +416,9 @@ pub struct Track {
     /// Reference to an audio file, for audio tracks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<AudioRef>,
+    /// Synth patch overriding the timbre's waveform and envelope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patch: Option<Patch>,
     /// Keyboard voice (General MIDI program) chosen for this track.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<u8>,
@@ -392,6 +485,7 @@ impl Track {
             bus: None,
             send: None,
             send_level: 100,
+            patch: None,
             volume: 100,
             pan: 64,
             audio: None,
@@ -727,6 +821,11 @@ impl ProjectFile {
                     // means everything goes to the master, as in version 12.
                     self.version = 13;
                 }
+                13 => {
+                    // Version 14 adds optional synth patches; none keeps the
+                    // built-in timbre, as in version 13.
+                    self.version = 14;
+                }
                 from => {
                     return Err(ProjectError::Migration {
                         from,
@@ -982,6 +1081,27 @@ mod tests {
         assert!(track.muted && track.soloed && track.armed);
         let text = project.to_json_pretty().expect("serialize");
         assert!(text.contains("\"muted\": true"));
+    }
+
+    #[test]
+    fn a_synth_patch_round_trips() {
+        use crate::song::{Patch, Waveform};
+        let mut song = Song::new("Patch", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Lead");
+        track.patch = Some(Patch {
+            waveform: Waveform::Saw,
+            attack: 0.1,
+            ..Patch::default()
+        });
+        song.tracks.push(track);
+        let text = ProjectFile::new(song).to_json_pretty().expect("serialize");
+        let back = ProjectFile::from_json(&text).expect("parse");
+        assert_eq!(
+            back.song.tracks[0].patch.expect("patch").waveform,
+            Waveform::Saw
+        );
+        let empty = ProjectFile::new(Song::new("Empty", 120.0));
+        assert!(!empty.to_json_pretty().expect("serialize").contains("patch"));
     }
 
     #[test]

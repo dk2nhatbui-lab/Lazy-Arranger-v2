@@ -724,3 +724,11 @@ pad or arpeggio notes from the chord timeline. Each call is one
 `ReplaceTrackNotes` edit. The `generate` CLI exposes them. `continue_song` repeats the last bars after the song end, and `melody` writes
 seeded eighth notes from chord tones. The `generate` MCP tool exposes all
 seven operations. There is no learned generation and no chat or UI for them.
+
+### Synth patches
+
+Schema v14 adds `Track.patch`: waveform (sine, saw, square, triangle), attack,
+decay, sustain, release and brightness. The render uses the patch instead of the
+timbre's fixed envelope when one is set, with an amplitude envelope computed from
+the note length. `SetTrackPatch` sets or clears it as one undo step. There is no
+editor UI, per-device panel (D-05, XioSynth, S970 XG, L6max) or sysex dump.

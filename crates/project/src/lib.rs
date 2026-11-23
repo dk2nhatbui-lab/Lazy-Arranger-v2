@@ -38,7 +38,7 @@ pub use validate::{Severity, ValidationIssue};
 pub const PROJECT_FORMAT: &str = "lazy-arranger-project";
 
 /// Schema version this crate writes.
-pub const SCHEMA_VERSION: u32 = 13;
+pub const SCHEMA_VERSION: u32 = 14;
 
 use thiserror::Error;
 

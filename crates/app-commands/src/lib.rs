@@ -21,6 +21,7 @@ use thiserror::Error;
 
 /// One edit in the shared command vocabulary.
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum Command {
     /// Insert a note with a caller-chosen identifier.
     InsertNote {
@@ -82,6 +83,13 @@ pub enum Command {
         soloed: bool,
         /// New arm state.
         armed: bool,
+    },
+    /// Set a track's synth patch, or clear it.
+    SetTrackPatch {
+        /// The track.
+        track: TrackId,
+        /// New patch.
+        patch: Option<Box<project::song::Patch>>,
     },
     /// Replace the mix buses.
     SetBuses {
@@ -195,6 +203,7 @@ impl Command {
             Self::SetAutomation { .. } => "set automation",
             Self::SetAudioRef { .. } => "set audio reference",
             Self::SetBuses { .. } => "set buses",
+            Self::SetTrackPatch { .. } => "set track patch",
             Self::SetTrackRouting { .. } => "set track routing",
             Self::SetMarkers { .. } => "set markers",
             Self::SetSceneNames { .. } => "set scene names",
@@ -683,6 +692,10 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::SetTrackPatch { track, .. } => Command::SetTrackPatch {
+                track: *track,
+                patch: self.track(*track)?.patch.map(Box::new),
+            },
             Command::SetBuses { .. } => Command::SetBuses {
                 buses: self.song().buses.clone(),
             },
@@ -845,6 +858,9 @@ impl EditSession {
             Command::SetBuses { buses } => {
                 self.project.song.buses = buses.clone();
             }
+            Command::SetTrackPatch { track, patch } => {
+                self.track_mut(*track)?.patch = patch.as_deref().copied();
+            }
             Command::SetTrackRouting {
                 track,
                 bus,
@@ -932,6 +948,10 @@ fn describe(command: &Command) -> String {
             format!("track {track}: {} automation lane(s)", lanes.len())
         }
         Command::SetBuses { buses } => format!("set {} bus(es)", buses.len()),
+        Command::SetTrackPatch { track, patch } => match patch {
+            Some(patch) => format!("track {track}: {:?} patch", patch.waveform),
+            None => format!("track {track}: clear patch"),
+        },
         Command::SetTrackRouting {
             track,
             bus,
@@ -1352,6 +1372,28 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn a_synth_patch_can_be_set_and_cleared() {
+        use project::song::{Patch, Waveform};
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        let patch = Patch {
+            waveform: Waveform::Square,
+            ..Patch::default()
+        };
+        edit.apply(Command::SetTrackPatch {
+            track,
+            patch: Some(Box::new(patch)),
+        })
+        .expect("patch");
+        assert_eq!(edit.song().tracks[0].patch, Some(patch));
+        edit.apply(Command::SetTrackPatch { track, patch: None })
+            .expect("clear");
+        assert!(edit.song().tracks[0].patch.is_none());
+        edit.undo().expect("undo clear");
+        assert_eq!(edit.song().tracks[0].patch, Some(patch));
     }
 
     #[test]

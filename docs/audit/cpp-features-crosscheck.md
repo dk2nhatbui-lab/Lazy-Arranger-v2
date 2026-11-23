@@ -28,7 +28,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 19 | VST3/AU plugins | missing | ADR-007 deferred |
 | 20 | SF2/SF3 SoundFont player, metronome | partial | Built-in synth now has piano, bass, organ, strings, pad and noise drums chosen from channel, program and name, with per-family attack and decay. No SoundFont loading, sampler or metronome click |
 | 21 | MIDI devices and profiles | partial | One built-in PSR-S970 voice subset with keyword matching and GM fallback; port enumeration, live input, CLI record/echo. No YAML loader, banks, drum kits, other devices, overrides or recent-MIDI buffer |
-| 22 | Synth sound editors (D-05, XioSynth, S970 XG, L6max), sysex dumps | missing | — |
+| 22 | Synth sound editors (D-05, XioSynth, S970 XG, L6max), sysex dumps | partial | A per-track synth patch (sine/saw/square/triangle, attack, decay, sustain, release, brightness) in schema v14, honoured by the render and edited through one undoable command. No editor UI, device-specific panels or sysex dumps |
 | 23 | Controller pages, MIDI Map, MIDI Learn, channel check | partial | MIDI map model with text persistence, learn capture, CLI bind/show, and live application of play/stop/undo/scene/fader. No controller pages, on-screen learn dialog or channel check |
 | 24 | PSR-S970 tools | partial | Song export with setup bar, program, volume, pan, chord markers, lyrics and drums on channel 10; numbered style catalog and `style-by-number` rendering. No remote panel, audition queue or hardware verification |
 | 25 | Music Finder and Playlists | partial | JSON, CSV, TSV and MFD import (1,653-record real file), CLI. No browser UI, AI tools or CSV→playlist writer |
@@ -49,14 +49,14 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections at round 65: 0 fully verified beyond their Rust subset, 34 partial, 5 missing.
+39 sections at round 67: 0 fully verified beyond their Rust subset, 35 partial, 4 missing.
 The partials with the most depth are styles (open, import, compile, SFF1/SFF2 write), project files, the score layout/PDF path, audio references, the MIDI map and the MCP surface.
 
 ## State at round 60
 
 `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (438 tests) and
-`cargo doc` pass. The five missing sections are VST3/AU (§19), synth editors and sysex (§22),
-the L6max page/import (§26), the AI chat UI (§27) and speech (§29).
+`cargo doc` pass. The four missing sections are VST3/AU (§19), the L6max page/import (§26), the
+AI chat UI (§27) and speech (§29).
 Korg import, PSR style import, SoundFont loading, the L6max page (its 32-bit float audio
 recordings already decode), waveform audio editing,
 grand-staff/beam engraving, note entry, socket transport and a 90-tool MCP
@@ -73,4 +73,4 @@ unverified; CI builds and tests are the only continuous evidence.
 3. Korg import, PSR style import and SoundFont loading (§14, §20, §24).
 4. Grand staff, beams, tuplets and note entry in the score (§16).
 5. AI chat UI, speech and the socket transport (§27, §29).
-6. Plugin hosting (§19), synth editors (§22), L6max (§26).
+6. Plugin hosting (§19), a synth editor UI and sysex (§22), L6max (§26).

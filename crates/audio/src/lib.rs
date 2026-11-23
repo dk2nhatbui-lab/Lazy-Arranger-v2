@@ -117,6 +117,7 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
 
     for track in song.tracks.iter().filter(|track| song.is_audible(track)) {
         let timbre = timbre_for(track);
+        let patch = track.patch;
         for note in &track.notes {
             let (left_gain, right_gain) = gains_at(track, note.start);
             let start_seconds = song.tempo_map.seconds_at(note.start);
@@ -137,9 +138,11 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
                 } else {
                     1.0
                 };
-                let value = (sample(timbre, frequency, t, note_seconds, note.pitch.as_u8())
-                    * amplitude
-                    * envelope) as f32;
+                let voice = match patch {
+                    Some(patch) => patch.sample(frequency, t as f32, note_seconds as f32),
+                    None => sample(timbre, frequency, t, note_seconds, note.pitch.as_u8()),
+                };
+                let value = (voice * amplitude * envelope) as f32;
                 let left = value * left_gain;
                 let right = value * right_gain;
                 if let Some(index) = track
@@ -461,6 +464,34 @@ mod tests {
         let second_frame = rendered.samples[(24_000 + 1000) * 2].abs();
         assert!(first > 0.001, "first note sounds");
         assert!(second_frame < first * 0.5, "fade reached the second note");
+    }
+
+    #[test]
+    fn a_patch_overrides_waveform_and_attack() {
+        use project::song::{Patch, Waveform};
+        let mut square = song_with_note();
+        square.tracks[0].patch = Some(Patch {
+            waveform: Waveform::Square,
+            attack: 0.005,
+            ..Patch::default()
+        });
+        let square = render(&square, SAMPLE_RATE);
+        let sine = render(&song_with_note(), SAMPLE_RATE);
+        assert_ne!(square.samples, sine.samples);
+
+        let mut slow = song_with_note();
+        slow.tracks[0].patch = Some(Patch {
+            attack: 0.25,
+            ..Patch::default()
+        });
+        let padded = render(&slow, SAMPLE_RATE);
+        let peak = |audio: &RenderedAudio, start: usize, frames: usize| {
+            audio.samples[start * 2..(start + frames) * 2]
+                .iter()
+                .step_by(2)
+                .fold(0.0_f32, |peak, sample| peak.max(sample.abs()))
+        };
+        assert!(peak(&padded, 100, 200) < peak(&padded, 10_000, 200));
     }
 
     #[test]
