@@ -567,6 +567,31 @@ impl Editor {
         Ok(())
     }
 
+    /// Replaces one automation lane, leaving the track's other lanes alone.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn merge_automation(
+        &mut self,
+        track: TrackId,
+        lane: project::song::Automation,
+    ) -> Result<(), String> {
+        let Some(entry) = self.song().tracks.iter().find(|entry| entry.id == track) else {
+            return Err(String::from("unknown track"));
+        };
+        let mut lanes: Vec<project::song::Automation> = entry
+            .automation
+            .iter()
+            .filter(|existing| existing.target != lane.target)
+            .cloned()
+            .collect();
+        if !lane.points.is_empty() {
+            lanes.push(lane);
+        }
+        self.set_automation(track, lanes)
+    }
+
     /// Copies several notes of one track into the clipboard.
     pub fn copy_notes(&mut self, track: TrackId, notes: &[NoteId]) {
         self.clipboard = app_commands::clipboard::Clipboard::from_notes(self.song(), track, notes);
@@ -1342,6 +1367,59 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn merging_one_lane_keeps_the_others() {
+        use project::song::{Automation, AutomationPoint, AutomationTarget};
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        editor
+            .set_automation(
+                track,
+                vec![
+                    Automation {
+                        target: AutomationTarget::Volume,
+                        points: vec![AutomationPoint {
+                            tick: 0,
+                            value: 10.0,
+                        }],
+                    },
+                    Automation {
+                        target: AutomationTarget::Pan,
+                        points: vec![AutomationPoint {
+                            tick: 0,
+                            value: 90.0,
+                        }],
+                    },
+                ],
+            )
+            .expect("lanes");
+        editor
+            .merge_automation(
+                track,
+                Automation {
+                    target: AutomationTarget::Volume,
+                    points: vec![AutomationPoint {
+                        tick: 480,
+                        value: 50.0,
+                    }],
+                },
+            )
+            .expect("merge");
+        let lanes = &editor.song().tracks[0].automation;
+        assert_eq!(lanes.len(), 2);
+        assert!(
+            lanes
+                .iter()
+                .any(|lane| lane.target == AutomationTarget::Pan)
+        );
+        assert!(
+            lanes
+                .iter()
+                .find(|lane| lane.target == AutomationTarget::Volume)
+                .is_some_and(|lane| lane.points[0].tick == 480)
+        );
     }
 
     #[test]

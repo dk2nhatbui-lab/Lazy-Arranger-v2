@@ -128,6 +128,7 @@ pub struct ShellApp {
     score_page: usize,
     score_zoom: f32,
     score_grand: bool,
+    automation_target: project::song::AutomationTarget,
     rename_scene: Option<usize>,
     rename_scene_input: String,
     last_bar: i64,
@@ -222,6 +223,7 @@ impl ShellApp {
             score_page: 0,
             score_zoom: 1.0,
             score_grand: false,
+            automation_target: project::song::AutomationTarget::Volume,
             rename_scene: None,
             rename_scene_input: String::new(),
             last_bar: 0,
@@ -2308,13 +2310,40 @@ impl eframe::App for ShellApp {
                                 .iter()
                                 .find(|track| track.id == track_id)
                         {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("Automation")
+                                        .size(10.0)
+                                        .color(theme::TEXT_DIM),
+                                );
+                                let mut target = self.automation_target;
+                                egui::ComboBox::from_id_salt("automation-target")
+                                    .selected_text(format!("{target:?}"))
+                                    .show_ui(ui, |ui| {
+                                        use project::song::AutomationTarget;
+                                        for option in [
+                                            AutomationTarget::Volume,
+                                            AutomationTarget::Pan,
+                                            AutomationTarget::Send,
+                                            AutomationTarget::Brightness,
+                                        ] {
+                                            ui.selectable_value(
+                                                &mut target,
+                                                option,
+                                                format!("{option:?}"),
+                                            );
+                                        }
+                                    });
+                                self.automation_target = target;
+                            });
+                            let target = self.automation_target;
                             let lane = track
                                 .automation
                                 .iter()
-                                .find(|lane| lane.target == project::song::AutomationTarget::Volume)
+                                .find(|lane| lane.target == target)
                                 .cloned()
                                 .unwrap_or(project::song::Automation {
-                                    target: project::song::AutomationTarget::Volume,
+                                    target,
                                     points: Vec::new(),
                                 });
                             if let Some(edited) = crate::automation_view::show(
@@ -2595,11 +2624,10 @@ impl eframe::App for ShellApp {
                 self.status = Some(format!("trimmed {delta} tick(s)"));
             }
         }
-        if let Some((track, lane)) = automation_edit {
-            let lanes = vec![lane];
-            if let Err(error) = self.editor.set_automation(track, lanes) {
-                self.status = Some(error);
-            }
+        if let Some((track, lane)) = automation_edit
+            && let Err(error) = self.editor.merge_automation(track, lane)
+        {
+            self.status = Some(error);
         }
         if !self.shown {
             self.shown = true;

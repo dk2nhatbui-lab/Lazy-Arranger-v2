@@ -1,4 +1,4 @@
-//! The automation lane: a volume curve for the selected track.
+//! The automation lane: one target's curve for the selected track.
 //!
 //! Click empty space to add a point, click a point to remove it. The edit is
 //! returned to the caller, which applies it as one command.
