@@ -255,6 +255,23 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         device: u8,
     },
+    /// Plan or apply a song-form transition at a tick.
+    FormTransition {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Join tick.
+        #[arg(long)]
+        tick: i64,
+        /// straight, fill, lead, automatic, hold or break.
+        #[arg(long, default_value = "automatic")]
+        kind: String,
+        /// Apply the plan and write `--out`.
+        #[arg(long)]
+        apply: bool,
+        /// Output project when applying.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Save, list or apply groove files.
     GrooveLibrary {
         /// `save`, `list` or `apply`.
@@ -967,6 +984,48 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 bounce.track,
                 out.display()
             );
+            Ok(())
+        }
+        Commands::FormTransition {
+            project,
+            tick,
+            kind,
+            apply,
+            out,
+        } => {
+            use arranging::forms::{Transition, apply_break, break_range, transition};
+            let project = read_project(&project)?;
+            let kind = match kind.as_str() {
+                "straight" => Transition::Straight,
+                "fill" => Transition::DrumFill,
+                "lead" => Transition::LeadIn,
+                "automatic" => Transition::Automatic,
+                "hold" => Transition::Hold,
+                "break" => Transition::Break,
+                other => return Err(format!("unknown transition {other}").into()),
+            };
+            let plan = transition(&project.song, tick, kind);
+            println!("{}: {} added note(s)", plan.description, plan.notes.len());
+            let mut session = EditSession::new(project)?;
+            if kind == Transition::Break {
+                let bar = session.song().time_signature.bar_ticks();
+                let (from, to) = break_range(tick, bar);
+                println!("break silences {from}..{to}");
+                if apply {
+                    let removed = apply_break(&mut session, from, to)?;
+                    println!("removed {removed} note(s)");
+                }
+            } else if apply {
+                let added = arranging::forms::apply_transition(&mut session, &plan)?;
+                println!("added {added} note(s)");
+            }
+            if apply {
+                let out = out.ok_or("--apply needs --out")?;
+                let json = session.project().to_json_pretty()?;
+                fs::write(&out, json)
+                    .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+                println!("wrote {}", out.display());
+            }
             Ok(())
         }
         Commands::GrooveLibrary {

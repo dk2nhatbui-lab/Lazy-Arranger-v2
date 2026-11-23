@@ -369,6 +369,10 @@ pub enum Transition {
     LeadIn,
     /// Drum fill when the song has drums, otherwise a lead-in.
     Automatic,
+    /// Holds the last chord through the bar before the join.
+    Hold,
+    /// Silences the bar before the join.
+    Break,
 }
 
 /// Notes a transition adds, before identifiers are assigned.
@@ -378,6 +382,61 @@ pub struct TransitionPlan {
     pub notes: Vec<(TrackId, Note)>,
     /// What was chosen, for a status line.
     pub description: String,
+}
+
+/// The bar a break silences, ending at `join_tick`.
+#[must_use]
+pub fn break_range(join_tick: Tick, bar: Tick) -> (Tick, Tick) {
+    ((join_tick - bar.max(1)).max(0), join_tick)
+}
+
+/// Removes every note starting in `from..to` on all tracks, as one edit per
+/// track, and returns how many were removed.
+///
+/// # Errors
+///
+/// Returns [`ArrangingError::Command`] when a track edit is rejected.
+pub fn apply_break(
+    session: &mut EditSession,
+    from: Tick,
+    to: Tick,
+) -> Result<usize, ArrangingError> {
+    let tracks: Vec<TrackId> = session.song().tracks.iter().map(|track| track.id).collect();
+    let mut removed = 0;
+    for track in tracks {
+        let notes: Vec<Note> = session
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map(|entry| {
+                entry
+                    .notes
+                    .iter()
+                    .filter(|note| note.start < from || note.start >= to)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let before = session
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map_or(0, |entry| entry.notes.len());
+        if notes.len() == before {
+            continue;
+        }
+        session.apply(Command::ReplaceTrackNotes { track, notes })?;
+        removed += before
+            - session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .map_or(before, |entry| entry.notes.len());
+    }
+    Ok(removed)
 }
 
 /// Plans a transition ending exactly at `join_tick`.
@@ -401,6 +460,37 @@ pub fn transition(song: &Song, join_tick: Tick, kind: Transition) -> TransitionP
     };
     let mut notes = Vec::new();
     match chosen {
+        Transition::Break => {}
+        Transition::Hold => {
+            let bar = song.time_signature.bar_ticks().max(1);
+            let chord = song
+                .chords
+                .iter()
+                .filter(|event| event.tick <= join_tick)
+                .max_by_key(|event| event.tick)
+                .map(|event| event.chord);
+            let track = song.tracks.iter().find(|track| {
+                track
+                    .notes
+                    .iter()
+                    .any(|note| note.channel.zero_based() != 9)
+            });
+            if let (Some(chord), Some(track)) = (chord, track) {
+                for (index, pitch) in chord.tones(4).iter().enumerate() {
+                    notes.push((
+                        track.id,
+                        Note {
+                            id: project::NoteId::new(index as u32 + 1).expect("valid"),
+                            start: (join_tick - bar).max(0),
+                            duration: bar,
+                            pitch: *pitch,
+                            velocity: music_core::Velocity::new(90).expect("valid"),
+                            channel: music_core::Channel::first(),
+                        },
+                    ));
+                }
+            }
+        }
         Transition::DrumFill => {
             if let Some(track) = drums {
                 for (index, velocity) in [70_u8, 85, 100, 115].into_iter().enumerate() {
@@ -465,6 +555,8 @@ pub fn transition(song: &Song, join_tick: Tick, kind: Transition) -> TransitionP
             Transition::LeadIn => String::from("lead-in chord"),
             Transition::Straight => String::from("straight cut"),
             Transition::Automatic => String::from("automatic"),
+            Transition::Hold => String::from("hold"),
+            Transition::Break => String::from("break"),
         },
         notes,
     }
@@ -603,5 +695,59 @@ mod transition_tests {
         assert_eq!(session.song().tracks[0].notes.len(), before + 4);
         session.undo().expect("undo");
         assert_eq!(session.song().tracks[0].notes.len(), before);
+    }
+}
+
+#[cfg(test)]
+mod transition_extra_tests {
+    use super::*;
+    use app_commands::EditSession;
+    use music_core::{Channel, Chord, PPQ, Pitch, Velocity};
+    use project::song::{ChordEvent, Note, ProjectFile, Song, Track};
+    use project::{NoteId, TrackId};
+
+    fn song() -> Song {
+        let mut song = Song::new("Forms", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        song.tracks.push(track);
+        song.chords.push(ChordEvent {
+            tick: 0,
+            chord: Chord::parse("C").expect("valid"),
+        });
+        song
+    }
+
+    #[test]
+    fn hold_sustains_the_last_chord_for_a_bar() {
+        let song = song();
+        let plan = transition(&song, 3840, Transition::Hold);
+        assert_eq!(plan.description, "hold");
+        assert_eq!(plan.notes.len(), 3);
+        assert!(
+            plan.notes
+                .iter()
+                .all(|(_, note)| note.start == 0 && note.duration == 3840)
+        );
+    }
+
+    #[test]
+    fn break_range_and_apply_remove_the_bar() {
+        let mut session = EditSession::new(ProjectFile::new(song())).expect("valid");
+        let bar = session.song().time_signature.bar_ticks();
+        let (from, to) = break_range(bar, bar);
+        assert_eq!((from, to), (0, bar));
+        let removed = apply_break(&mut session, from, to).expect("break");
+        assert_eq!(removed, 1);
+        assert!(session.song().tracks[0].notes.is_empty());
+        session.undo().expect("undo");
+        assert_eq!(session.song().tracks[0].notes.len(), 1);
     }
 }

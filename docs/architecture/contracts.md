@@ -141,3 +141,12 @@ parsing rejects missing keys, unequal lists and bad numbers. `groove-library
 save` extracts one bar at a 1/16 grid from a track, `list` shows names and paths,
 and `apply` loads a groove by name and writes adjusted notes with timing and
 accent amounts. Audio-derived grooves and Play Before/After are not implemented.
+
+### Hold and break transitions
+
+`Transition::Hold` plans the last chord at or before the join as a one-bar hold
+on the first pitched track; `Transition::Break` adds no notes, and `break_range`
+plus `apply_break` remove every note starting in the bar before the join (one
+edit per affected track, undoable). `form-transition` plans or applies any kind;
+on the demo hold added 3 notes and break removed 21. Join loops and learned
+preferences are not implemented.
