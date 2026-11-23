@@ -1,7 +1,7 @@
 # Windows CI failures (open)
 
 **Priority:** High  
-**Status:** Needs investigation; root cause unconfirmed  
+**Status:** Root cause confirmed and fixed; awaiting CI confirmation  
 **Scope:** GitHub Actions CI, not a feature implementation
 
 ### Evidence
@@ -19,3 +19,22 @@
 5. Fix the underlying source/test/workflow issue; do not remove Windows from the CI matrix or mask failures with `continue-on-error`.
 6. Confirm Linux, Windows and macOS jobs pass on the same commit. Add a regression test if applicable.
 7. Record the exact failure, fix, and successful run link in this cross-check document.
+
+## Root cause and fix (2026-11-23)
+
+The Windows job failed in the headless demo with
+`thread 'main' has overflowed its stack`. The clap command tree is large in
+debug builds and exceeds the 1 MiB default main-thread stack on Windows; even
+`--help` overflowed.
+
+Reproduced on macOS by lowering the main stack:
+
+```sh
+bash -c 'ulimit -s 1024; ./target/debug/lazy-arranger --help'   # overflowed
+bash -c 'ulimit -s 1024; ./target/debug/lazy-arranger demo --out /tmp/stack.mid --verbose'
+```
+
+`apps/cli/src/main.rs` now runs `cli_main` on a named thread with a 32 MiB
+stack. Under the same 1 MiB limit, `--help` and `demo` both exit 0 and the demo
+writes a 271-byte MIDI file. The workspace gate (643 tests, clippy, fmt,
+rustdoc) is green; the Windows job should confirm the fix.
