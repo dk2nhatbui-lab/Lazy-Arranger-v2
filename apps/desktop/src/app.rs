@@ -2679,6 +2679,50 @@ impl ShellApp {
         }
     }
 
+    fn start_midi_recording(&mut self) {
+        if self.recording.is_some() {
+            return;
+        }
+        let Some(keyboard) = self.settings.keyboard.clone() else {
+            self.status = Some(String::from("choose a MIDI keyboard in Settings first"));
+            return;
+        };
+        let tempo = self.song().tempo_map.clone();
+        let seconds = self.record_seconds;
+        let count_in = self.settings.record_count_in;
+        let bpm = tempo.bpm_at(0).max(1.0);
+        let delay = f64::from(count_in) * 4.0 * 60.0 / bpm;
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            if delay > 0.0 {
+                if let Ok(player) = audio::player::Player::new(count_in_audio(bpm, count_in)) {
+                    player.play();
+                    std::thread::sleep(std::time::Duration::from_secs_f64(delay));
+                    player.release();
+                } else {
+                    std::thread::sleep(std::time::Duration::from_secs_f64(delay));
+                }
+            }
+            let result =
+                midi_devices::devices::record_to_song(&keyboard, seconds, &tempo, "Recorded")
+                    .map(|(song, _, _)| song)
+                    .map_err(|error| error.to_string());
+            let _ = sender.send(result);
+        });
+        self.record_target = self
+            .song()
+            .tracks
+            .iter()
+            .find(|track| track.armed)
+            .map(|track| track.id);
+        self.recording = Some(receiver);
+        self.status = Some(if count_in == 0 {
+            format!("recording {seconds} s")
+        } else {
+            format!("count-in {count_in} bar(s), then {seconds} s")
+        });
+    }
+
     fn right_inspector(&mut self, context: &egui::Context) {
         if self.settings.kids_mode {
             return;
@@ -5108,6 +5152,14 @@ impl ShellApp {
                     self.toggle_playback();
                     context.request_repaint_after(std::time::Duration::from_millis(16));
                 }
+                x += 60.0;
+                let record = Rect::from_center_size(
+                    egui::pos2(x + 22.0, buttons_rect.center().y),
+                    egui::vec2(44.0, 44.0),
+                );
+                if transport_button(ui, record, "\u{25CF}", self.recording.is_some()) {
+                    self.start_midi_recording();
+                }
                 // LCD, 350 x 52, then the view tabs on the right.
                 let lcd_rect = Rect::from_center_size(
                     egui::pos2(area.left() + 16.0 + 175.0, rect.center().y),
@@ -5266,53 +5318,7 @@ impl ShellApp {
                                 "Record"
                             };
                             if ui.small_button(label).clicked() && self.recording.is_none() {
-                                let Some(keyboard) = self.settings.keyboard.clone() else {
-                                    self.status = Some(String::from(
-                                        "choose a MIDI keyboard in Settings first",
-                                    ));
-                                    return;
-                                };
-                                let tempo = self.song().tempo_map.clone();
-                                let seconds = self.record_seconds;
-                                let count_in = self.settings.record_count_in;
-                                let bpm = tempo.bpm_at(0).max(1.0);
-                                let delay = f64::from(count_in) * 4.0 * 60.0 / bpm;
-                                let (sender, receiver) = std::sync::mpsc::channel();
-                                std::thread::spawn(move || {
-                                    if delay > 0.0 {
-                                        if let Ok(player) = audio::player::Player::new(
-                                            count_in_audio(bpm, count_in),
-                                        ) {
-                                            player.play();
-                                            std::thread::sleep(std::time::Duration::from_secs_f64(
-                                                delay,
-                                            ));
-                                            player.release();
-                                        } else {
-                                            std::thread::sleep(std::time::Duration::from_secs_f64(
-                                                delay,
-                                            ));
-                                        }
-                                    }
-                                    let result = midi_devices::devices::record_to_song(
-                                        &keyboard, seconds, &tempo, "Recorded",
-                                    )
-                                    .map(|(song, _, _)| song)
-                                    .map_err(|error| error.to_string());
-                                    let _ = sender.send(result);
-                                });
-                                self.record_target = self
-                                    .song()
-                                    .tracks
-                                    .iter()
-                                    .find(|track| track.armed)
-                                    .map(|track| track.id);
-                                self.recording = Some(receiver);
-                                self.status = Some(if count_in == 0 {
-                                    format!("recording {seconds} s")
-                                } else {
-                                    format!("count-in {count_in} bar(s), then {seconds} s")
-                                });
+                                self.start_midi_recording();
                             }
                             ui.add(
                                 egui::DragValue::new(&mut self.record_seconds)
