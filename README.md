@@ -1,15 +1,14 @@
 # Lazy Arranger Rust v2
 
-A second-generation, MIDI-first arranger DAW in Rust. This repository is the
-headless foundation: musical primitives, a versioned project schema, a
-deterministic sample-clock scheduler, standard MIDI file I/O, MIDI port access
-and typed edit commands with undo.
+A second-generation, MIDI-first arranger DAW in Rust: a five-view egui desktop
+app, a headless CLI, a versioned project format and a 90-tool MCP server.
 
-The full product plan, including the UI, arranger styles and device profiles,
-is in [`LAZY_ARRANGER_RUST_V2_BLUEPRINT.md`](LAZY_ARRANGER_RUST_V2_BLUEPRINT.md).
-Stage 0 findings are in [`docs/audit/`](docs/audit/), the shared type contracts
-in [`docs/architecture/contracts.md`](docs/architecture/contracts.md), and the
-decisions in [`docs/adr/`](docs/adr/).
+The product plan is in [`LAZY_ARRANGER_RUST_V2_BLUEPRINT.md`](LAZY_ARRANGER_RUST_V2_BLUEPRINT.md).
+The C++ v1 feature crosscheck and evidence live in
+[`docs/audit/`](docs/audit/), shared contracts in
+[`docs/architecture/contracts.md`](docs/architecture/contracts.md), and decisions
+in [`docs/adr/`](docs/adr/). Parity is **partial**, not complete; remaining
+blockers are listed at the end.
 
 ## Status
 
@@ -17,102 +16,100 @@ decisions in [`docs/adr/`](docs/adr/).
 | --- | --- | --- |
 | Source audit (C++ / Cadenza / Vibez) | verified | `docs/audit/` |
 | Musical primitives, tempo map, 960 PPQ | verified | `crates/music-core` |
-| Project schema v1 + legacy C++ import | verified | `crates/project` |
-| Sample-clock scheduling | verified | `crates/sequencer` |
-| Standard MIDI file read/write | verified | `crates/smf` |
-| Typed commands, validation, undo | verified | `crates/app-commands` |
-| MIDI port enumeration | verified | `crates/midi-devices` |
-| MIDI capture and pairing | verified | `crates/midi-devices` |
-| Real-time MIDI dispatch | verified headless, manual on hardware | `crates/midi-devices/src/dispatch.rs` |
-| Physical keyboard record/echo/play | manual only | needs a device |
-| Chord conversion for arranger styles | verified against the pinned oracle cases | `crates/arranger` |
-| Style sections, chord following, transitions | prototype | `crates/arranger/src/style.rs` |
-| Yamaha CASM rule import (SFF1/SFF2) | verified on 16,189 real styles | `crates/style-formats/src/casm.rs` |
-| Style import: section markers, notes, default rules | verified on 16,158 real styles | `crates/style-formats/src/import.rs` |
-| Style writer (container, SFF1/SFF2 CASM) | verified round-trip; real style rewritten | `style-formats::write_style` |
-| Style writer: voices and setup events | missing | next |
-| Dual capture: intent + rendered tracks | verified | `crates/performance` |
-| Provenance-aware regeneration (keep/replace/duplicate) | verified | `crates/performance` |
-| Freeze / detach generated tracks | verified | `performance::freeze` |
-| Clip regions (schema v3) | verified model + migration + split | `crates/project` |
-| Feature parity tracker vs the C++ app | in progress | `docs/audit/parity.md` |
-| YouTube link to MIDI | `link-to-midi <url> --out song.mid` (needs yt-dlp + ffmpeg) | `crates/audio/src/link.rs` |
-| Audio-to-MIDI (monophonic) | verified: 440 Hz tone maps to A4 | `crates/audio/src/analysis.rs` |
-| Music Finder books and Yamaha playlists | JSON + CSV + TSV verified; MFD missing; no browser UI | `crates/library` |
-| UI toolkit decision | **egui**, v1 "Studio Console" style | `docs/adr/ADR-001-ui-toolkit.md` |
-| Desktop shell (`apps/desktop`, egui 0.31) | prototype: themed shell + read-only piano roll | `apps/desktop` |
-| Golden parity, arranger playback in the app, UI, audio engine | not started / blocked | Stage 3 exit needs a C++ build and a CASM style |
+| Project schema v19, migrations, validation | verified | `crates/project` |
+| Legacy C++ import | verified on fixtures | `project::legacy` |
+| Typed commands, inverse edits, undo/redo | verified | `crates/app-commands` |
+| Sample-clock scheduler | verified | `crates/sequencer` |
+| Standard MIDI file read/write and keyboard export | verified | `crates/smf` |
+| MusicXML export/import, slurs, chords, lyrics, drums | verified round-trip tests | `crates/musicxml` |
+| Yamaha style parse/import/CASM rules | verified on 16,158 real styles | `crates/style-formats` |
+| Style writer (SFF1/SFF2, 15 sections) | verified round-trip | `style-formats::write_style` |
+| Arranger rules, performance capture, freeze | verified | `crates/arranger`, `crates/performance` |
+| Grooves, forms, transitions, doctor, fit, theory | verified model + CLI/MCP | `crates/arranging`, UI |
+| Score engraving: ties, beams, tuplets, rests, dots, slurs, percussion, lyrics, chord names, frames, spacing, drag/resize | verified tests; PDF/canvas checks | `crates/score`, `apps/desktop` |
+| Vector score PDF and print via `lp` (printer picker) | PDF verified; print unverified | `score::pdf`, Score view |
+| Offline audio render, SF2, cpal playback | rendered tests; audible cpal unverified | `crates/audio` |
+| Mixer: buses, sends, pan, automation, master gain/limiter | verified render tests | `audio`, Mix view |
+| Stems, freeze, 16/24/32-bit float WAV, gain/normalize | verified | `audio`, CLI |
+| Audio references: trim, fades, resample-to-fit, waveform zoom, normalize | verified helpers | `audio`, Editor |
+| Audio analysis: monophonic pitch, chroma chords, link-to-MIDI | monophonic verified | `audio::analysis`, `link` |
+| MIDI profiles, maps, learn, channel check, panic | verified builders; hardware unverified | `crates/midi-devices` |
+| L6max take scan/import; Korg recognition | synthetic and real-file scans | `audio::l6max`, `style-formats::korg` |
+| Library: JSON/CSV/TSV/MFD, playlists, browser | verified real MFD (1,653 rows) | `crates/library` |
+| MCP stdio/socket server, 90 tools | tool/reference tests and CLI runs | `crates/mcp` |
+| Desktop shell: Perform, Arrange, Mix, Loops, Score | runs; captures in `docs/audit/` | `apps/desktop` |
+| Light/dark palettes, six languages, Kids Mode, lessons | verified tests; light capture | `theme`, `strings`, `lesson` |
+| Plugin discovery (VST3/AU) | scan only; no hosting | `crates/plugins` |
+| Real MIDI keyboard, PSR-S970, cpal audibility, print, microphone | **unverified** | no hardware here |
 
 ## Quick start
 
 ```sh
 cargo test --workspace
 
-# Render a four-bar phrase through the sample-clock scheduler.
-cargo run -q -p lazy-arranger-cli -- demo --out four-bars.mid --verbose
+# Desktop app (five views; ARRANGER_VIEW=score opens a view directly).
+cargo run -p lazy-arranger-desktop
 
-# Show the real-time MIDI schedule for a project without sending anything.
-cargo run -q -p lazy-arranger-cli -- play song.json --out-port "My Keyboard" --dry-run
+# Headless demo project, render and inspect.
+cargo run -p lazy-arranger-cli -- demo-project --out demo.json
+cargo run -p lazy-arranger-cli -- inspect demo.json
+cargo run -p lazy-arranger-cli -- export-audio demo.json --out demo.wav --bits 24
 
-# List MIDI ports.
-cargo run -q -p lazy-arranger-cli -- ports
+# Import/export.
+cargo run -p lazy-arranger-cli -- midi-import song.mid --out song.json
+cargo run -p lazy-arranger-cli -- export-musicxml song.json --out score.musicxml
+cargo run -p lazy-arranger-cli -- score-pdf demo.json --out score.pdf --track 2
 
-# Record a style section as intent plus rendered tracks, then regenerate.
-cargo run -q -p lazy-arranger-cli -- perform "MyStyle.prs" --section "Main A" \
-    --chord 0=C --chord 1920=Am --out take.json
-cargo run -q -p lazy-arranger-cli -- regenerate take.json --style "MyStyle.prs" \
-    --policy replace --out take2.json
-
-# Render a project to a WAV file (offline synth, no audio device).
-cargo run -q -p lazy-arranger-cli -- export-audio take.json --out take.wav
-
-# Inspect a Yamaha style, then render a section with chords.
-cargo run -q -p lazy-arranger-cli -- style "MyStyle.prs" --section "Main A" --rules
-cargo run -q -p lazy-arranger-cli -- style "MyStyle.prs" --section "Main A" \
-    --chord 0=C --chord 1920=Am --out main-a.mid
-
-# Import a C++ .arranger project, then render it.
-cargo run -q -p lazy-arranger-cli -- import tests/fixtures/legacy-cpp-v3.arranger --out song.json
-cargo run -q -p lazy-arranger-cli -- render song.json --out song.mid
-
-# Edit with the typed command path.
-cargo run -q -p lazy-arranger-cli -- edit song.json --out edited.json --tempo 96 --chord 0=Cmaj7
+# MCP over stdio (also mcp-socket).
+cargo run -p lazy-arranger-cli -- mcp-tools
+cargo run -p lazy-arranger-cli -- mcp-serve
 ```
 
 ## Workspace
 
 ```text
-crates/music-core      pitch, chord, tick, tempo, MIDI messages (no I/O)
-crates/project         song schema, validation, legacy C++ import
-crates/app-commands    typed commands, validation, undo/redo
+crates/music-core      pitch, chord, tick, tempo, theory, lesson questions
+crates/project         song schema v19, validation, legacy import, recent files
+crates/app-commands    typed commands, inverses, undo/redo
 crates/sequencer       prepared patterns, sample-clock scheduler
-crates/smf             standard MIDI file encode/decode
-crates/midi-devices    ports, capture, record, echo, real-time dispatch
-crates/style-formats   Yamaha containers, CASM rules, native style model
-crates/arranger        chord vocabulary, chord rules, conversion, sections
+crates/smf             standard MIDI file encode/decode, keyboard export
+crates/musicxml        MusicXML export/import and round-trip audit
+crates/style-formats   Yamaha containers, CASM rules, Korg recognition
+crates/arranger        chord rules, sections, style conversion
+crates/arranging       grooves, forms, doctor, fit, clip grid, beat, demo songs
+crates/performance     intent/rendered capture, provenance, freeze
+crates/score           engraving, pages/systems, PDF
+crates/audio           synth, SF2, WAV, mix, buses, automation, analysis, L6max
+crates/library         Music Finder books, playlists
+crates/midi-devices    profiles, ports, maps, SysEx, dispatch
+crates/plugins         VST3/AU discovery (no hosting)
+crates/mcp             stdio/socket MCP server, 90 tools, local assistant
 apps/cli               headless binary
+apps/desktop           egui 0.31 desktop app
 ```
 
-Rules the code keeps:
+## Platform notes
 
-* `music-core` and `project` never depend on a platform, audio or UI crate.
-* The scheduler never allocates in `process_block`; the event buffer is fixed
-  capacity and overflow is counted.
-* Every edit goes through `app-commands`, and an edit that would make the
-  project invalid is rolled back.
-* Unknown keys in a project file survive a load/save round trip.
+- Rust 2024 workspace, MSRV 1.88; `./scripts/rust.sh` sets a workspace-local
+  `CARGO_HOME`.
+- `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` and rustdoc are
+  expected green before a commit.
+- Style files are never copied into the repository; validation runs read-only
+  against `ARRANGER_STYLE_LIBRARY` when configured.
 
-## Development environment
+## Remaining parity gaps
 
-The checked-in `scripts/rust.sh` wrapper points `CARGO_HOME` at
-`.cargo-home/` inside the repository. That keeps the build self-contained in
-sandboxes that forbid writes to `~/.cargo`. Use plain `cargo` when your
-environment allows it; CI does.
+- Plugin **hosting/processing/editors** (discovery only).
+- Korg PCG program/combi decoding and an L6max project/mixer page (scans/imports
+  only).
+- SF3 and SoundFont modulators.
+- Audio monitoring, take comping/selection and destructive waveform editing.
+- A real AI model, speech input and chat-driven tool use (the assistant is a
+  local rule engine over the MCP registry).
+- Score clefs/key signatures, vertical rest/dot collision avoidance and a full
+  print dialog.
+- Marquee clip selection, channel-count-preserving WAV edits.
+- Hardware acceptance: real MIDI keyboards, PSR-S970, cpal output, printers.
 
-## Licence
-
-Apache-2.0, as stated in [`LICENSE`](LICENSE). The audit found that the C++
-application ships no licence file and that Cadenza and Vibez are
-GPL-3.0-or-later; none of their code is copied here. See
-[`docs/audit/licensing.md`](docs/audit/licensing.md) for the evidence and the
-consequences.
+These are tracked with row-level evidence in
+[`docs/audit/cpp-features-crosscheck.md`](docs/audit/cpp-features-crosscheck.md).
