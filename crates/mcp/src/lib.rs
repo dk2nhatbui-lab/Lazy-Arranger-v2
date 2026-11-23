@@ -878,6 +878,22 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "groove_from_audio",
+            description: "Extract a groove template from monophonic audio.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "audio": {"type": "string"},
+                    "dir": {"type": "string"},
+                    "name": {"type": "string"},
+                    "bpm": {"type": "number"},
+                    "detect_tempo": {"type": "boolean"},
+                    "grid": {"type": "integer"}
+                },
+                "required": ["audio", "name"]
+            }),
+        },
+        Tool {
             name: "style_from_audio",
             description: "Write a Yamaha SFF style from monophonic audio analysis.",
             input_schema: json!({
@@ -2743,6 +2759,79 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "parts": style.sections.first().map_or(0, |entry| entry.parts.len())
             }))
         }
+        "groove_from_audio" => {
+            let audio_path = arguments
+                .get("audio")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("audio is required")))?;
+            let name = arguments
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("name is required")))?;
+            let dir = arguments
+                .get("dir")
+                .and_then(Value::as_str)
+                .unwrap_or("grooves");
+            let mut bpm = arguments
+                .get("bpm")
+                .and_then(Value::as_f64)
+                .unwrap_or(120.0);
+            let detect_tempo = arguments
+                .get("detect_tempo")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let grid = arguments.get("grid").and_then(Value::as_u64).unwrap_or(16);
+            let path = std::path::Path::new(audio_path);
+            let decoded = match audio::decode::decode_mono(path) {
+                Ok(decoded) => decoded,
+                Err(_) => {
+                    let bytes = std::fs::read(path).map_err(|error| {
+                        ToolError::Arguments(format!("{}: {error}", path.display()))
+                    })?;
+                    audio::wav::decode_mono(&bytes).map_err(ToolError::Arguments)?
+                }
+            };
+            if detect_tempo {
+                bpm = audio::analysis::estimate_tempo(&decoded.samples, decoded.sample_rate)
+                    .unwrap_or(bpm);
+            }
+            let detected = audio::analysis::to_midi(&decoded.samples, decoded.sample_rate);
+            let channel = music_core::Channel::from_one_based(1)
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            let mut notes = Vec::new();
+            for (index, note) in detected.iter().enumerate() {
+                let (start, duration) = audio::analysis::as_ticks(note, bpm);
+                if duration <= 0 {
+                    continue;
+                }
+                notes.push(project::song::Note {
+                    id: project::NoteId::new(index as u32 + 1)
+                        .map_err(|error| ToolError::Arguments(error.to_string()))?,
+                    start,
+                    duration,
+                    pitch: music_core::Pitch::new(note.pitch)
+                        .map_err(|error| ToolError::Arguments(error.to_string()))?,
+                    velocity: music_core::Velocity::new(
+                        (note.level * 127.0).clamp(1.0, 127.0) as u8
+                    )
+                    .map_err(|error| ToolError::Arguments(error.to_string()))?,
+                    channel,
+                });
+            }
+            let bar = 4 * music_core::PPQ;
+            let grid = (4 * music_core::PPQ / grid.max(1) as i64).max(1);
+            let groove = arranging::groove::extract(&notes, bar, grid)
+                .ok_or_else(|| ToolError::Arguments(String::from("no groove")))?;
+            let path = arranging::groove_file::save(std::path::Path::new(dir), name, &groove)
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            Ok(json!({
+                "path": path,
+                "bpm": bpm,
+                "notes": notes.len(),
+                "slots": groove.offsets.len(),
+                "offsets": groove.offsets
+            }))
+        }
         "style_from_audio" => {
             let audio_path = arguments
                 .get("audio")
@@ -3418,7 +3507,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 95);
+        assert_eq!(tools().len(), 96);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));

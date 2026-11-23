@@ -750,6 +750,26 @@ enum Commands {
         #[arg(long, default_value = "sff2")]
         version: String,
     },
+    /// Extract a groove template from monophonic audio.
+    GrooveFromAudio {
+        /// Audio file (WAV or compressed).
+        audio: PathBuf,
+        /// Folder holding `.groove` files.
+        #[arg(long, default_value = "grooves")]
+        dir: PathBuf,
+        /// Groove name.
+        #[arg(long)]
+        name: String,
+        /// Tempo used to place notes.
+        #[arg(long, default_value_t = 120.0)]
+        bpm: f64,
+        /// Detect BPM from onsets instead.
+        #[arg(long)]
+        detect_tempo: bool,
+        /// Grid denominator (4 = quarter, 16 = sixteenth).
+        #[arg(long, default_value_t = 16)]
+        grid: i64,
+    },
     /// Turn a YouTube (or other yt-dlp) link into a MIDI file.
     LinkToMidi {
         /// Link to a video or audio page.
@@ -1490,6 +1510,14 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             println!("wrote {}", out.display());
             Ok(())
         }
+        Commands::GrooveFromAudio {
+            audio,
+            dir,
+            name,
+            bpm,
+            detect_tempo,
+            grid,
+        } => groove_from_audio(&audio, &dir, &name, bpm, detect_tempo, grid),
         Commands::GrooveLibrary {
             action,
             dir,
@@ -2657,6 +2685,59 @@ fn mcp_call(
             .map_err(|error| format!("could not write {}: {error}", path.display()))?;
         eprintln!("wrote {}", path.display());
     }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn groove_from_audio(
+    audio_path: &PathBuf,
+    dir: &std::path::Path,
+    name: &str,
+    bpm: f64,
+    detect_tempo: bool,
+    grid: i64,
+) -> Result<(), Box<dyn Error>> {
+    let decoded = audio::decode::decode_mono(audio_path).or_else(|_| {
+        let bytes =
+            fs::read(audio_path).map_err(|error| format!("{}: {error}", audio_path.display()))?;
+        audio::wav::decode_mono(&bytes)
+    })?;
+    let bpm = if detect_tempo {
+        audio::analysis::estimate_tempo(&decoded.samples, decoded.sample_rate).unwrap_or(bpm)
+    } else {
+        bpm
+    };
+    let detected = audio::analysis::to_midi(&decoded.samples, decoded.sample_rate);
+    let mut notes = Vec::new();
+    for (index, note) in detected.iter().enumerate() {
+        let (start, duration) = audio::analysis::as_ticks(note, bpm);
+        if duration <= 0 {
+            continue;
+        }
+        let channel = music_core::Channel::from_one_based(1).map_err(|error| error.to_string())?;
+        notes.push(project::song::Note {
+            id: project::NoteId::new(index as u32 + 1).map_err(|error| error.to_string())?,
+            start,
+            duration,
+            pitch: music_core::Pitch::new(note.pitch).map_err(|error| error.to_string())?,
+            velocity: music_core::Velocity::new((note.level * 127.0).clamp(1.0, 127.0) as u8)
+                .map_err(|error| error.to_string())?,
+            channel,
+        });
+    }
+    let bar = 4 * music_core::PPQ;
+    let grid = (4 * music_core::PPQ / grid.max(1)).max(1);
+    let groove = arranging::groove::extract(&notes, bar, grid)
+        .ok_or("could not extract a groove from this audio")?;
+    let path = arranging::groove_file::save(dir, name, &groove)?;
+    println!(
+        "wrote {}: {:.2} bpm, {} note(s), {} slot(s), offsets {:?}",
+        path.display(),
+        bpm,
+        notes.len(),
+        groove.offsets.len(),
+        groove.offsets
+    );
     Ok(())
 }
 

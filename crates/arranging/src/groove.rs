@@ -58,8 +58,10 @@ pub fn extract(notes: &[Note], bar: Tick, grid: Tick) -> Option<Groove> {
         .sum::<f64>()
         / notes.len().max(1) as f64;
     for note in notes {
-        let slot = usize::try_from(note.start.rem_euclid(bar) / grid).unwrap_or(0) % slots;
-        let slot_start = note.start.rem_euclid(bar) - note.start.rem_euclid(grid);
+        let in_bar = note.start.rem_euclid(bar);
+        let slot = usize::try_from(in_bar / grid).unwrap_or(0) % slots;
+        let bar_start = note.start - in_bar;
+        let slot_start = bar_start + in_bar - note.start.rem_euclid(grid);
         offset_sums[slot] += note.start - slot_start;
         offset_counts[slot] += 1;
         if mean > 0.0 {
@@ -161,6 +163,27 @@ mod tests {
             velocity: Velocity::new(velocity).expect("valid"),
             channel: Channel::first(),
         }
+    }
+
+    #[test]
+    fn notes_after_the_first_bar_keep_their_in_bar_offset() {
+        let bar = 4 * music_core::PPQ;
+        let grid = music_core::PPQ / 4;
+        let notes = vec![
+            note(1, 0, 100),
+            note(2, bar, 100),
+            note(3, bar * 2 + 10, 100),
+        ];
+        let groove = extract(&notes, bar, grid).expect("groove");
+        assert_eq!(groove.offsets[0], 3);
+        assert!(
+            groove
+                .offsets
+                .iter()
+                .all(|offset| offset.abs() < grid as i32),
+            "{:?}",
+            groove.offsets
+        );
     }
 
     #[test]
