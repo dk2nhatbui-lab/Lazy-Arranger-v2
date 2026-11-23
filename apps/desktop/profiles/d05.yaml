@@ -1,0 +1,26 @@
+id: d05
+name: Roland D-05
+voices:
+  - name: D-50 Patch 1
+    program: 0
+  - name: D-50 Patch 2
+    program: 1
+controls:
+  - name: Cutoff
+    cc: 74
+    channel: 1
+  - name: Resonance
+    cc: 71
+    channel: 1
+  - name: Attack
+    cc: 73
+    channel: 1
+  - name: Release
+    cc: 72
+    channel: 1
+  - name: Volume
+    cc: 7
+    channel: 1
+  - name: Pan
+    cc: 10
+    channel: 1

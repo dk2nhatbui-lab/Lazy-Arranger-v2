@@ -1,0 +1,30 @@
+id: generic-xg
+name: Generic XG
+voices:
+  - name: Grand Piano
+    program: 0
+  - name: Electric Piano
+    program: 4
+  - name: Drawbar Organ
+    program: 16
+  - name: Finger Bass
+    program: 33
+  - name: Strings
+    program: 48
+  - name: Sax
+    program: 65
+  - name: Synth Pad
+    program: 88
+controls:
+  - name: Part volume
+    cc: 7
+    channel: 1
+  - name: Part pan
+    cc: 10
+    channel: 1
+  - name: Reverb send
+    cc: 91
+    channel: 1
+  - name: Chorus send
+    cc: 93
+    channel: 1

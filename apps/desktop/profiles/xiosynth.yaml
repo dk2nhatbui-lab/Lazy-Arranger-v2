@@ -1,0 +1,28 @@
+id: xiosynth
+name: Novation XioSynth
+voices:
+  - name: Soft Pad
+    program: 89
+  - name: Bright Lead
+    program: 81
+  - name: Electric Piano
+    program: 4
+controls:
+  - name: Cutoff
+    cc: 74
+    channel: 1
+  - name: Resonance
+    cc: 71
+    channel: 1
+  - name: Attack
+    cc: 73
+    channel: 1
+  - name: Release
+    cc: 72
+    channel: 1
+  - name: Volume
+    cc: 7
+    channel: 1
+  - name: Pan
+    cc: 10
+    channel: 1

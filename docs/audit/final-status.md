@@ -164,3 +164,4 @@ For the clef layout, choose either four measures per system without clefs
 - MIDI out window has a 16-channel check button; hardware unverified.
 - Kids circle pulse respects the reduced-motion setting.
 - Audio trim row can set the front or end at the playhead (`docs/audit/ui-audio-trim.png`).
+- Smoke test draws 29 tool windows in one egui frame without panicking.

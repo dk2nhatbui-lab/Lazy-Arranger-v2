@@ -12732,6 +12732,74 @@ mod tests {
     }
 
     #[test]
+    fn the_tool_windows_draw_without_panicking() {
+        let context = egui::Context::default();
+        let mut app = ShellApp::new(&context, demo_project(), None);
+        app.roll.selected = app.song().tracks.first().map(|track| track.id);
+        app.file_mode = Some(FileMode::Open);
+        app.file_path_input = String::from("");
+        app.print_dialog = true;
+        app.about_open = true;
+        app.assistant_open = true;
+        app.audio_chords_open = true;
+        app.audio_style_open = true;
+        app.bus_fx_open = true;
+        app.controller_open = true;
+        app.device_editor_open = true;
+        app.generate_open = true;
+        app.groove_open = true;
+        app.help_open = true;
+        app.inspector_open = true;
+        app.l6max_mixer_open = true;
+        app.library_open = true;
+        app.lyrics_open = true;
+        app.markers_open = true;
+        app.master_fx_open = true;
+        app.midi_map_open = true;
+        app.midi_monitor_open = true;
+        app.midi_out_open = true;
+        app.pads_open = true;
+        app.plugins_open = true;
+        app.psr_open = true;
+        app.songs_open = true;
+        app.lessons_open = true;
+        app.theory_open = true;
+        app.style_clips_open = true;
+        app.style_file_open = true;
+        let _ = context.run(egui::RawInput::default(), |context| {
+            app.about_window(context);
+            app.assistant_window(context);
+            app.audio_chords_window(context);
+            app.audio_style_window(context);
+            app.bus_fx_window(context);
+            app.controller_window(context);
+            app.device_editor_window(context);
+            app.file_window(context);
+            app.generate_window(context);
+            app.groove_window(context);
+            app.help_window(context);
+            app.inspector_window(context);
+            app.l6max_mixer_window(context);
+            app.library_window(context);
+            app.lyrics_window(context);
+            app.markers_window(context);
+            app.master_fx_window(context);
+            app.midi_map_window(context);
+            app.midi_monitor_window(context);
+            app.midi_out_window(context);
+            app.pads_window(context);
+            app.plugins_window(context);
+            app.print_window(context);
+            app.psr_window(context);
+            app.songs_window(context);
+            app.lessons_window(context);
+            app.theory_window(context);
+            app.style_clips_window(context);
+            app.style_file_window(context);
+        });
+    }
+
+    #[test]
     fn kids_mode_offers_two_views_and_languages_change_labels() {
         assert_eq!(View::allowed(true), vec![View::Perform, View::Arrange]);
         assert_eq!(View::allowed(false).len(), 5);
