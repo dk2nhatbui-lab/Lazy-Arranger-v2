@@ -125,7 +125,7 @@ For the clef layout, choose either four measures per system without clefs
 - Light palette and track colours now use the C++ Studio Paper token values (`docs/audit/ui-cpp-theme.png`).
 - Audio output device can be selected and is used by the playback player.
 - Audio settings choose output device and fixed buffer; inspector shows sample rate/frames/latency when playing (`docs/audit/audio-settings.png`).
-- Track rows use the taller C++ spacing (`docs/audit/ui-track-rows.png`).
+- Track rows use 60 px C++ spacing (`docs/audit/ui-track-rows.png`).
 - PSR panel has eight persisted registration slots; hardware unverified.
 - XioSynth and D-05 profile files seed the profiles folder and expose CC controls in the Device editor; hardware unverified.
 - Track list scrolls vertically when the sidebar is full.

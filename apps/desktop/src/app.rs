@@ -9236,13 +9236,13 @@ impl ShellApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let (rect, _) =
-                        ui.allocate_exact_size(egui::vec2(6.0, 52.0), egui::Sense::hover());
+                        ui.allocate_exact_size(egui::vec2(6.0, 60.0), egui::Sense::hover());
                     ui.painter().rect_filled(rect, 0.0, colour);
                     let (icon_rect, _) =
-                        ui.allocate_exact_size(egui::vec2(26.0, 30.0), egui::Sense::hover());
+                        ui.allocate_exact_size(egui::vec2(28.0, 34.0), egui::Sense::hover());
                     draw_track_icon(ui, icon_rect, &row.name, row.program, row.audio, colour);
                     ui.allocate_ui_with_layout(
-                        egui::vec2((ui.available_width() - 62.0).max(40.0), 52.0),
+                        egui::vec2((ui.available_width() - 62.0).max(40.0), 60.0),
                         egui::Layout::top_down(egui::Align::LEFT),
                         |ui| {
                             let name = if row.name.is_empty() {
