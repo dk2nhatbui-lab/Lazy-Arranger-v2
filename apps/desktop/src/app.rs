@@ -665,6 +665,7 @@ pub struct ShellApp {
     kids_last_activity: Option<std::time::Instant>,
     timeline_mode: bool,
     timeline_zoom: f32,
+    pending_clip_edit: Option<crate::timeline::ClipEdit>,
     inspector_name_track: Option<TrackId>,
     inspector_name: String,
     device_profiles: Vec<midi_devices::profiles::LoadedProfile>,
@@ -941,6 +942,7 @@ impl ShellApp {
             kids_last_activity: None,
             timeline_mode: true,
             timeline_zoom: 1.0,
+            pending_clip_edit: None,
             inspector_name_track: None,
             inspector_name: String::new(),
             device_profiles: load_device_profiles(),
@@ -8610,6 +8612,23 @@ impl eframe::App for ShellApp {
         self.handle_keys(context);
         self.poll_midi();
         self.poll_ai();
+        if let Some(edit) = self.pending_clip_edit.take() {
+            let result = match edit.kind {
+                crate::timeline::ClipEditKind::Move => {
+                    self.editor.move_clip(edit.track, edit.clip, edit.start)
+                }
+                crate::timeline::ClipEditKind::Resize => {
+                    self.editor.resize_clip(edit.track, edit.clip, edit.length)
+                }
+            };
+            match result {
+                Ok(()) => {
+                    self.selected_clip = Some((edit.track, edit.clip));
+                    self.status = Some(String::from("clip moved"));
+                }
+                Err(error) => self.status = Some(error.to_string()),
+            }
+        }
         self.refresh_waveform();
         if self.settings.kids_mode && self.view.index() > 1 {
             self.view = View::Perform;
@@ -8823,7 +8842,7 @@ impl eframe::App for ShellApp {
                             );
                         }
                         let selected_clips = self.selected_clips.clone();
-                        let (outcome, timeline_track) = if timeline_mode {
+                        let (outcome, timeline_track, clip_edit) = if timeline_mode {
                             crate::timeline::show(
                                 ui,
                                 &project.song,
@@ -8842,10 +8861,14 @@ impl eframe::App for ShellApp {
                                     &selected_clips,
                                 ),
                                 None,
+                                None,
                             )
                         };
                         if let Some(track) = timeline_track {
                             roll.selected = Some(track);
+                        }
+                        if clip_edit.is_some() {
+                            self.pending_clip_edit = clip_edit;
                         }
                         if let Some((first, last)) = roll.band.take()
                             && let Some(track_id) = roll.selected

@@ -5,10 +5,72 @@ use egui::{Align2, Color32, FontId, Rect, Sense, Stroke, StrokeKind, pos2, vec2}
 use crate::piano_roll::{RollClick, RollOutcome};
 use crate::theme;
 use music_core::Tick;
+use project::ClipId;
 use project::TrackId;
 use project::song::Song;
 
 const LABEL_WIDTH: f32 = 0.0;
+const DRAG_GRID: Tick = 240;
+
+/// How a timeline clip drag changes the clip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClipEditKind {
+    /// Move the clip start.
+    Move,
+    /// Change the clip length.
+    Resize,
+}
+
+/// A finished timeline clip drag.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClipEdit {
+    /// Track that owns the clip.
+    pub track: TrackId,
+    /// Clip being edited.
+    pub clip: ClipId,
+    /// New start for a move.
+    pub start: Tick,
+    /// New length for a resize.
+    pub length: Tick,
+    /// Which field changed.
+    pub kind: ClipEditKind,
+}
+
+#[derive(Clone, Debug)]
+struct ClipDrag {
+    track: TrackId,
+    clip: ClipId,
+    anchor_tick: Tick,
+    start: Tick,
+    length: Tick,
+    kind: ClipEditKind,
+}
+
+fn dragged_edit(drag: &ClipDrag, pointer_tick: Tick) -> ClipEdit {
+    match drag.kind {
+        ClipEditKind::Move => {
+            let delta = pointer_tick - drag.anchor_tick;
+            let start = (drag.start + delta).max(0);
+            ClipEdit {
+                track: drag.track,
+                clip: drag.clip,
+                start: (start + DRAG_GRID / 2) / DRAG_GRID * DRAG_GRID,
+                length: drag.length,
+                kind: ClipEditKind::Move,
+            }
+        }
+        ClipEditKind::Resize => {
+            let length = pointer_tick.saturating_sub(drag.start).max(DRAG_GRID);
+            ClipEdit {
+                track: drag.track,
+                clip: drag.clip,
+                start: drag.start,
+                length: (length + DRAG_GRID / 2) / DRAG_GRID * DRAG_GRID,
+                kind: ClipEditKind::Resize,
+            }
+        }
+    }
+}
 const RULER_HEIGHT: f32 = 28.0;
 const CHORD_HEIGHT: f32 = 22.0;
 const LANE_HEIGHT: f32 = 54.0;
@@ -27,17 +89,24 @@ pub fn show(
     selected: Option<TrackId>,
     zoom: f32,
     follow_playhead: bool,
-) -> (RollOutcome, Option<TrackId>) {
+) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
     let bar = song.time_signature.bar_ticks().max(1);
     let bars = ((song.end_tick().max(bar * 8) + bar - 1) / bar).max(8);
     let width =
         (LABEL_WIDTH + bars as f32 * 100.0 * zoom.clamp(0.5, 3.0)).max(ui.available_width());
-    let mut result = (RollOutcome::default(), None);
+    let mut result = (RollOutcome::default(), None, None);
+    let drag_id = ui.id().with("timeline-clip-drag");
+    let edit_id = ui.id().with("timeline-clip-edit");
     egui::ScrollArea::both()
         .id_salt("timeline-scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            result = draw(ui, song, position, selected, width);
+            result = draw(ui, song, position, selected, width, drag_id, edit_id);
+            result.2 = ui.data_mut(|data| {
+                let edit = data.get_temp::<ClipEdit>(edit_id);
+                data.remove::<ClipEdit>(edit_id);
+                edit
+            });
             if follow_playhead {
                 let end = song.end_tick().max(bar * 8).max(1);
                 let fraction = position.min(end) as f32 / end as f32;
@@ -60,10 +129,12 @@ fn draw(
     position: Tick,
     selected: Option<TrackId>,
     width: f32,
-) -> (RollOutcome, Option<TrackId>) {
+    drag_id: egui::Id,
+    edit_id: egui::Id,
+) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
     let tracks = song.tracks.len().max(1);
     let height = RULER_HEIGHT + CHORD_HEIGHT + tracks as f32 * LANE_HEIGHT;
-    let (response, painter) = ui.allocate_painter(vec2(width, height), Sense::click());
+    let (response, painter) = ui.allocate_painter(vec2(width, height), Sense::click_and_drag());
     let rect = response.rect;
     let content = Rect::from_min_max(pos2(rect.left() + LABEL_WIDTH, rect.top()), rect.max);
     let bar = song.time_signature.bar_ticks().max(1);
@@ -129,6 +200,7 @@ fn draw(
     let pointer = response.interact_pointer_pos();
     let mut clicked_track = None;
     let mut clicked_clip = None;
+    let mut clip_rects = Vec::new();
     for (index, track) in song.tracks.iter().enumerate() {
         let top = lane_top + index as f32 * LANE_HEIGHT;
         let lane = Rect::from_min_max(
@@ -165,6 +237,7 @@ fn draw(
                     top + LANE_HEIGHT - 3.0,
                 ),
             );
+            clip_rects.push((track.id, clip.id, clip_rect, clip.start, clip.length));
             painter.rect_filled(clip_rect, 3.0, color.gamma_multiply(0.55));
             painter.rect_stroke(
                 clip_rect,
@@ -198,6 +271,39 @@ fn draw(
         }
     }
 
+    if response.drag_started()
+        && let Some(pointer) = response.interact_pointer_pos()
+        && let Some((track, clip, clip_rect, start, length)) = clip_rects
+            .iter()
+            .find(|(_, _, rect, _, _)| rect.contains(pointer))
+    {
+        let kind = if pointer.x >= clip_rect.right() - 10.0 {
+            ClipEditKind::Resize
+        } else {
+            ClipEditKind::Move
+        };
+        let drag = ClipDrag {
+            track: *track,
+            clip: *clip,
+            anchor_tick: tick_for(pointer.x),
+            start: *start,
+            length: *length,
+            kind,
+        };
+        ui.data_mut(|data| data.insert_temp(drag_id, drag));
+    }
+    if response.drag_stopped()
+        && let Some(pointer) = ui.input(|input| input.pointer.latest_pos())
+        && let Some(drag) = ui.data_mut(|data| {
+            let drag = data.get_temp::<ClipDrag>(drag_id);
+            data.remove::<ClipDrag>(drag_id);
+            drag
+        })
+    {
+        let edit = dragged_edit(&drag, tick_for(pointer.x));
+        ui.data_mut(|data| data.insert_temp(edit_id, edit));
+    }
+
     let playhead_x = x_for(position);
     painter.line_segment(
         [
@@ -223,12 +329,36 @@ fn draw(
         });
         selected_track = clicked_track.or(selected);
     }
-    (outcome, selected_track)
+    (outcome, selected_track, None)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clip_drags_move_and_resize_on_a_grid() {
+        let drag = ClipDrag {
+            track: TrackId::new(1).expect("track"),
+            clip: ClipId::new(1).expect("clip"),
+            anchor_tick: 960,
+            start: 960,
+            length: 480,
+            kind: ClipEditKind::Move,
+        };
+        let moved = dragged_edit(&drag, 1440);
+        assert_eq!(moved.start, 1440);
+        assert_eq!(moved.kind, ClipEditKind::Move);
+        let resized = dragged_edit(
+            &ClipDrag {
+                kind: ClipEditKind::Resize,
+                ..drag
+            },
+            1680,
+        );
+        assert_eq!(resized.length, 720);
+        assert_eq!(resized.kind, ClipEditKind::Resize);
+    }
 
     #[test]
     fn the_timeline_draws_without_panicking() {
