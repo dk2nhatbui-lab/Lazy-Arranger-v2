@@ -1131,7 +1131,18 @@ impl ShellApp {
                     match self.editor.insert_recorded("Recorded", &notes) {
                         Ok(track) => {
                             self.roll.selected = Some(track);
-                            self.status = Some(format!("recorded {} note(s)", notes.len()));
+                            self.status = Some(format!("recorded {} notes", notes.len()));
+                            if self.settings.record_chords {
+                                match self.editor.find_chords() {
+                                    Ok(found) => {
+                                        self.status = Some(format!(
+                                            "recorded {} notes; detected {found} chord(s)",
+                                            notes.len()
+                                        ));
+                                    }
+                                    Err(error) => self.status = Some(error),
+                                }
+                            }
                         }
                         Err(error) => self.status = Some(error),
                     }
@@ -2547,6 +2558,10 @@ impl ShellApp {
                         self.status = Some(String::from(crate::settings::update_status()));
                     }
                     ui.checkbox(&mut self.settings.metronome, "metronome with playback");
+                    ui.checkbox(
+                        &mut self.settings.record_chords,
+                        "detect chords after MIDI recording",
+                    );
                     ui.checkbox(&mut self.settings.reduced_motion, "reduced motion");
                     ui.checkbox(&mut self.settings.kids_mode, "Kids Mode");
                     let mut light_theme = self.settings.light_theme;

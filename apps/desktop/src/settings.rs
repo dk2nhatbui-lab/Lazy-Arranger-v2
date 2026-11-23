@@ -165,6 +165,8 @@ pub struct Settings {
     pub light_theme: bool,
     /// Speak assistant replies with the local `say` command.
     pub speech: bool,
+    /// Detect chords after MIDI recording.
+    pub record_chords: bool,
     /// Folder holding the style library, empty when not configured.
     pub style_library: String,
     /// Master gain in decibels.
@@ -198,6 +200,7 @@ impl Default for Settings {
             kids_mode: false,
             light_theme: false,
             speech: false,
+            record_chords: false,
             style_library: String::new(),
             master_gain_db: 0.0,
             master_limiter: true,
@@ -255,6 +258,7 @@ impl Settings {
                 "kids_mode" => settings.kids_mode = value == "true",
                 "light_theme" => settings.light_theme = value == "true",
                 "speech" => settings.speech = value == "true",
+                "record_chords" => settings.record_chords = value == "true",
                 "style_library" => settings.style_library = value.to_string(),
                 "master_gain_db" => {
                     if let Ok(gain) = value.parse::<f32>() {
@@ -293,6 +297,7 @@ impl Settings {
         text.push_str(&format!("kids_mode = {}\n", self.kids_mode));
         text.push_str(&format!("light_theme = {}\n", self.light_theme));
         text.push_str(&format!("speech = {}\n", self.speech));
+        text.push_str(&format!("record_chords = {}\n", self.record_chords));
         if !self.style_library.is_empty() {
             text.push_str(&format!("style_library = {}\n", self.style_library));
         }
@@ -337,6 +342,7 @@ mod tests {
         let mut settings = Settings {
             kids_mode: true,
             light_theme: true,
+            record_chords: true,
             grade: 3,
             keyboard: Some(String::from("PSR-S970")),
             ..Settings::default()
@@ -374,6 +380,7 @@ mod tests {
         };
         settings.save(&path).expect("save");
         let back = Settings::load(&path);
+        assert!(!back.record_chords);
         assert_eq!(back.undo_keys, "ctrl+u");
         assert_eq!(back.play_keys, "shift+p");
         let _ = std::fs::remove_file(path);

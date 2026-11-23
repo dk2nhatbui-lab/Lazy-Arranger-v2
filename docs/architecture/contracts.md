@@ -946,3 +946,10 @@ marquee drag.
 
 PDF and canvas both draw measure numbers above each staff; the PDF header test
 asserts the `(1) Tj` number.
+
+### Record-and-detect chords
+
+`record_chords` (Settings, default off) runs `Editor::find_chords` after the
+recorded MIDI take is inserted, replacing that bar's chords with the recognised
+ones and reporting the count. Detection covers the whole song. Settings
+round-trip and chord recognition have tests.
