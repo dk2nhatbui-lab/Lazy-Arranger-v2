@@ -844,3 +844,6 @@ chord-quality, roman-numeral or interval question; `is_correct`, `answer_text`
 and `explanation` wrap it. The Lessons window offers kind selection, New
 question, answer buttons and an in-memory score. Tests cover every kind across
 50 seeds, determinism and answer checking.
+
+Kids Mode's simplified sidebar now has Settings, Lessons and Theory buttons along
+with the large transport controls, so the graded exercises remain reachable.

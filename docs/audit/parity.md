@@ -116,7 +116,7 @@ plurals, a real AI model and speech input.
 | Song lyrics (schema v10) and MusicXML lyric interchange | `project`, `musicxml`, `score` | verified | JSON round trip; export/import lyric test; layout places them |
 | Dynamics and articulations (schema v11) | `project`, `musicxml`, `score`, renderers | verified | round trip; placed above/below staff; canvas/PDF text |
 | Settings file (language, grade, MIDI keyboard, metronome, reduced motion, Kids Mode) and shortcut list | `apps/desktop/src/settings.rs` | verified | round trip, clamping, missing file, unique keys |
-| Six languages; Kids Mode restricts tabs, enlarges controls, shows a synced chord lesson plus kids demo and a simplified Arrange sidebar | `strings.rs`, `kids.rs`, `demo::kids_song`, Perform view | verified lesson | sync/step tests; kids demo validates; UI manual |
+| Six languages; Kids Mode restricts tabs, enlarges controls, shows a synced chord lesson plus kids demo and a simplified Arrange sidebar with Lessons/Theory | `strings.rs`, `kids.rs`, `demo::kids_song`, Perform view | verified lesson | sync/step tests; kids demo validates; UI manual |
 | MIDI control map (notes/CC to actions) with text persistence and learn capture | `midi-devices::map`, CLI `midi-map-*` | verified | 6 tests + CLI bind/show run |
 | Live MIDI input, MIDI map/Controllers windows, channel-check messages, desktop record | `midi-devices`, shell, CLI | implemented | map/learn/controller/byte and recorded-insert tests; no MIDI ports, hardware untested |
 | Numbered style catalog, resolution and by-number rendering | `style-formats::catalog`, CLI `style-catalog`/`style-resolve`/`style-by-number` | verified | resolve test; real library matched 'ABBA Fernando'; number 2 rendered 124 notes |

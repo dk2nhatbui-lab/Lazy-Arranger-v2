@@ -3549,9 +3549,17 @@ impl ShellApp {
                                 self.stop_playback();
                             }
                         });
-                        if ui.button("Settings").clicked() {
-                            self.settings_open = true;
-                        }
+                        ui.horizontal(|ui| {
+                            if ui.button("Settings").clicked() {
+                                self.settings_open = true;
+                            }
+                            if ui.button("Lessons").clicked() {
+                                self.lessons_open = true;
+                            }
+                            if ui.button("Theory").clicked() {
+                                self.theory_open = true;
+                            }
+                        });
                     } else {
                         ui.horizontal(|ui| {
                             let label = if self.recording.is_some() {
