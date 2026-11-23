@@ -909,3 +909,9 @@ capture is `docs/audit/settings.png`; the same override is used for visual QA.
 
 The Inspector capture is `docs/audit/inspector.png`; count labels now use a
 regular plural helper (`1 note`, `2 clips`) instead of `note(s)`.
+
+### MIDI map and controller hints
+
+Both windows now explain the flow: choose an action, press Learn and move a
+control; the map saves automatically on a successful learn. Empty states say no
+bindings/controller bindings and how to add one.

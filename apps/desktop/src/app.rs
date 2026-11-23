@@ -2067,9 +2067,11 @@ impl ShellApp {
                 }
                 if self.midi_map.controller_bindings().is_empty() {
                     ui.label(
-                        egui::RichText::new("no controller bindings")
-                            .size(10.0)
-                            .color(theme::text_dim()),
+                        egui::RichText::new(
+                            "no controller bindings — choose an action and press Learn",
+                        )
+                        .size(10.0)
+                        .color(theme::text_dim()),
                     );
                 }
             });
@@ -2137,7 +2139,12 @@ impl ShellApp {
                 }
                 ui.separator();
                 if self.midi_map.bindings.is_empty() {
-                    ui.label(egui::RichText::new("no bindings").color(theme::text_dim()));
+                    ui.label(
+                        egui::RichText::new(
+                            "no bindings — choose an action, press Learn, then move a control",
+                        )
+                        .color(theme::text_dim()),
+                    );
                 }
                 for binding in &self.midi_map.bindings {
                     ui.label(format!(
@@ -2146,6 +2153,11 @@ impl ShellApp {
                         binding.action.label()
                     ));
                 }
+                ui.label(
+                    egui::RichText::new("Learn saves the map automatically.")
+                        .size(10.0)
+                        .color(theme::text_dim()),
+                );
             });
         self.midi_map_open = open;
     }
