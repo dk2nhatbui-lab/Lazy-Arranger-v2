@@ -822,3 +822,10 @@ visual checks.
 galleys and assert that the song title, chord name and measure number are
 present. This checks canvas drawing without a window capture. The macOS capture
 that still showed the older frame is therefore not the authority; the test is.
+
+### Theory window
+
+`theory_summary` detects the key with the score speller, prints the matching
+major/natural-minor scale, the first eight chords as roman labels, the cadence
+and the first voice-leading cost. The Windows menu opens a read-only Theory
+window. A test covers the demo and an empty song.

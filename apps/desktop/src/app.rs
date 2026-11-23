@@ -111,6 +111,54 @@ pub enum FileMode {
     ImportL6max,
 }
 
+/// Theory facts for the selected song: key, scale, roman chords and cadence.
+#[must_use]
+pub fn theory_summary(song: &project::song::Song) -> Vec<String> {
+    use music_core::theory::{self, Mode};
+    let key = score::spelling::detect_key(song);
+    let mode = if key.minor {
+        Mode::NaturalMinor
+    } else {
+        Mode::Major
+    };
+    let scale: Vec<&str> = theory::scale(key.tonic, mode)
+        .iter()
+        .map(|pitch| pitch.name_sharp())
+        .collect();
+    let mut lines = vec![
+        format!("Key: {} {}", key.tonic.name_sharp(), mode.name()),
+        format!("Scale: {}", scale.join(" ")),
+    ];
+    let chords: Vec<music_core::Chord> = song
+        .chords
+        .iter()
+        .take(8)
+        .map(|event| event.chord)
+        .collect();
+    if chords.is_empty() {
+        lines.push(String::from("No chords yet"));
+        return lines;
+    }
+    let labels: Vec<String> = chords
+        .iter()
+        .map(|chord| theory::roman_label(*chord, key.tonic))
+        .collect();
+    lines.push(format!("Chords: {}", labels.join(" - ")));
+    lines.push(format!(
+        "Cadence: {:?}",
+        theory::cadence(&chords, key.tonic)
+    ));
+    if let Some(pair) = chords.windows(2).next() {
+        lines.push(format!(
+            "Voice leading: {} -> {} cost {}",
+            pair[0].format(music_core::Spelling::Sharp),
+            pair[1].format(music_core::Spelling::Sharp),
+            theory::voice_leading_cost(pair[0], pair[1])
+        ));
+    }
+    lines
+}
+
 pub struct ShellApp {
     editor: Editor,
     selected_note: Option<(TrackId, NoteId)>,
@@ -139,6 +187,7 @@ pub struct ShellApp {
     audio_record_start: Tick,
     song_name_input: String,
     markers_open: bool,
+    theory_open: bool,
     marker_text: String,
     marker_selected: Option<Tick>,
     form_dialog: bool,
@@ -282,6 +331,7 @@ impl ShellApp {
             audio_record_start: 0,
             song_name_input,
             markers_open: false,
+            theory_open: false,
             marker_text: String::new(),
             marker_selected: None,
             form_dialog: false,
@@ -1532,6 +1582,30 @@ impl ShellApp {
     }
 
     /// Settings and shortcut windows.
+    fn theory_window(&mut self, context: &egui::Context) {
+        if !self.theory_open {
+            return;
+        }
+        let lines = theory_summary(self.song());
+        let mut open = self.theory_open;
+        egui::Window::new("Theory")
+            .open(&mut open)
+            .default_width(360.0)
+            .show(context, |ui| {
+                for line in lines {
+                    ui.label(line);
+                }
+                ui.label(
+                    egui::RichText::new(
+                        "Read-only; scales, roman labels, cadence and voice-leading cost.",
+                    )
+                    .size(10.0)
+                    .color(theme::text_dim()),
+                );
+            });
+        self.theory_open = open;
+    }
+
     fn markers_window(&mut self, context: &egui::Context) {
         if !self.markers_open {
             return;
@@ -3490,6 +3564,10 @@ impl ShellApp {
                                 self.markers_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Theory").clicked() {
+                                self.theory_open = true;
+                                ui.close_menu();
+                            }
                             ui.separator();
                             if ui.button("Import L6max").clicked() {
                                 self.file_path_input.clear();
@@ -3764,6 +3842,7 @@ impl eframe::App for ShellApp {
         self.controller_window(context);
         self.lyrics_window(context);
         self.markers_window(context);
+        self.theory_window(context);
         self.file_window(context);
         self.midi_map_window(context);
         self.assistant_window(context);
@@ -4795,6 +4874,17 @@ mod tests {
                 .any(|track| !track.notes.is_empty())
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn theory_summary_reports_key_and_cadence() {
+        let song = arranging::demo::demo_song();
+        let lines = theory_summary(&song);
+        assert!(lines[0].starts_with("Key: "), "{:?}", lines[0]);
+        assert!(lines.iter().any(|line| line.starts_with("Chords: ")));
+        assert!(lines.iter().any(|line| line.starts_with("Cadence:")));
+        let empty = project::song::Song::new("Empty", 120.0);
+        assert_eq!(theory_summary(&empty)[2], "No chords yet");
     }
 
     #[test]

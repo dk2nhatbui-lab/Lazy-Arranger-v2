@@ -148,6 +148,7 @@ plurals, a real AI model and speech input.
 | Track volume and pan (schema v8) | `project`, `audio`, `smf` export | verified | fader/pan render tests; CC 7/10 written; defaults omitted |
 | Mixer panel (per-track fader, pan, mute, solo, bus routing) | `apps/desktop` | implemented | bus strip and routing tests; UI manual |
 | Song rename and meter edit (undoable) | `SetSongName`/`SetTimeSignature`, sidebar/Inspector | verified | rename/meter/undo and MCP tests |
+| Theory window (key, scale, roman labels, cadence, cost) | `theory_summary`, Windows menu | verified summary | summary test; UI manual |
 | Marker editor (add/edit/remove/Go, ruler lines) | `SetMarkers`, Markers window, ruler | verified model | add/replace/remove/undo tests; UI manual |
 | Track Inspector, live ruler seek and window openers | `apps/desktop`, `audio::player` | implemented | seek unit test; tempo tests; UI manual |
 | Buses and sends (schema v13) | `project::song::Bus`, `audio` render, `app-commands` | verified | route/send/pan render tests; command undo; JSON round trip |
