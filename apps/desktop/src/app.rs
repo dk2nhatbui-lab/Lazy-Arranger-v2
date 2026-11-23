@@ -159,6 +159,12 @@ pub fn theory_summary(song: &project::song::Song) -> Vec<String> {
     lines
 }
 
+/// Label for the built-in audio engine.
+#[must_use]
+pub fn audio_engine_label() -> String {
+    format!("audio {} kHz (cpal)", audio::SAMPLE_RATE / 1000)
+}
+
 /// Parses `lpstat -p` lines into printer names.
 #[must_use]
 pub fn printers_from_lpstat(text: &str) -> Vec<String> {
@@ -3996,7 +4002,12 @@ impl ShellApp {
             )
             .show(context, |ui| {
                 ui.horizontal(|ui| {
-                    let notes: usize = self.song().tracks.iter().map(|track| track.notes.len()).sum();
+                    let notes: usize = self
+                        .song()
+                        .tracks
+                        .iter()
+                        .map(|track| track.notes.len())
+                        .sum();
                     let issues = self.editor.project().validate();
                     let errors = issues
                         .iter()
@@ -4004,14 +4015,19 @@ impl ShellApp {
                         .count();
                     let label = if errors == 0 {
                         format!(
-                            "schema v{}  ·  {} track(s)  ·  {notes} note(s)  ·  no audio engine (shell only)",
+                            "schema v{}  ·  {} track(s)  ·  {notes} note(s)  ·  {}",
                             self.editor.project().version,
-                            self.song().tracks.len()
+                            self.song().tracks.len(),
+                            audio_engine_label()
                         )
                     } else {
                         format!("{errors} validation error(s)")
                     };
-                    ui.label(egui::RichText::new(label).size(10.0).color(if errors == 0 { theme::text_muted() } else { theme::recording() }));
+                    ui.label(egui::RichText::new(label).size(10.0).color(if errors == 0 {
+                        theme::text_muted()
+                    } else {
+                        theme::recording()
+                    }));
                     if let Some(status) = &self.status {
                         ui.label(
                             egui::RichText::new(status)
@@ -5226,6 +5242,14 @@ mod tests {
         assert!(lines.iter().any(|line| line.starts_with("Cadence:")));
         let empty = project::song::Song::new("Empty", 120.0);
         assert_eq!(theory_summary(&empty)[2], "No chords yet");
+    }
+
+    #[test]
+    fn the_audio_engine_label_is_accurate() {
+        let label = audio_engine_label();
+        assert!(label.contains("48 kHz"), "{label}");
+        assert!(label.contains("cpal"), "{label}");
+        assert!(!label.contains("no audio engine"));
     }
 
     #[test]

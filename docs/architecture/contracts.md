@@ -881,3 +881,9 @@ through the existing Editor grid methods.
 `printers_from_lpstat` parses `printer NAME ...` lines; the Score view queries
 `lpstat -p` once and offers a Default/printer combo. Print adds `lp -d NAME`
 when one is chosen. The parser has a unit test; no job was sent.
+
+### Audio status label
+
+The status bar reports `audio 48 kHz (cpal)` instead of the stale
+`no audio engine (shell only)` claim; the schema/track/note counts stay. The
+refreshed light-theme capture is `docs/audit/light-theme.png`.

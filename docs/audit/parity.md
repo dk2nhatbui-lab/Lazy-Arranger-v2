@@ -139,7 +139,7 @@ plurals, a real AI model and speech input.
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/slur/percussion/lyric/accidental/rhythmic-spacing/dots/dotted-rests/frame/chord-symbol/PDF tests; slurs round-trip; Save PDF, Print via lp (unverified), score drag-move/Shift-resize; PDF/canvas checks, four-measure systems and a headless canvas-text test |
 | Perform view (Now/Next, chord pads) | `apps/desktop` | implemented | capture checked (`docs/audit/perform.png`); pad audition manual |
-| UI shell (Perform/Arrange/Mix) with dark/light palettes | `apps/desktop` | implemented | palette test; light screenshot `docs/audit/light-theme.png`; header overlap fixed; sidebar menu |
+| UI shell (Perform/Arrange/Mix) with dark/light palettes | `apps/desktop` | implemented | palette test; refreshed light screenshot `docs/audit/light-theme.png`; audio status accurate |
 | Audio playback | `audio` | implemented | cpal; audible check pending |
 | WAV/offline render | `audio` | verified | 5.36 s real-style render |
 | Device profile voice matching | `midi-devices::profiles` | partial | PSR-S970 subset + keyword fallback; EP/Rhodes mapping; 3 tests |
