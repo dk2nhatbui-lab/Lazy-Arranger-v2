@@ -2880,6 +2880,16 @@ impl ShellApp {
                     .fixed_decimals(1),
             );
             ui.checkbox(&mut self.settings.master_limiter, "Limiter");
+            ui.add(
+                egui::Slider::new(&mut self.settings.master_reverb, 0.0..=1.0)
+                    .text("reverb")
+                    .fixed_decimals(2),
+            );
+            ui.add(
+                egui::Slider::new(&mut self.settings.master_chorus, 0.0..=1.0)
+                    .text("chorus")
+                    .fixed_decimals(2),
+            );
         });
         ui.separator();
         let mut buses = self.song().buses.clone();
@@ -3902,6 +3912,8 @@ impl ShellApp {
             audio::master::Master {
                 gain_db: self.settings.master_gain_db,
                 limiter: self.settings.master_limiter,
+                reverb: self.settings.master_reverb,
+                chorus: self.settings.master_chorus,
             },
         );
         if let Some(problem) = problems.first() {

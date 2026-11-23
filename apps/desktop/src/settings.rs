@@ -175,6 +175,10 @@ pub struct Settings {
     pub master_gain_db: f32,
     /// Whether the master limiter is on.
     pub master_limiter: bool,
+    /// Master reverb amount, 0..=1.
+    pub master_reverb: f32,
+    /// Master chorus amount, 0..=1.
+    pub master_chorus: f32,
     /// Undo binding.
     pub undo_keys: String,
     /// Redo binding.
@@ -207,6 +211,8 @@ impl Default for Settings {
             style_library: String::new(),
             master_gain_db: 0.0,
             master_limiter: true,
+            master_reverb: 0.0,
+            master_chorus: 0.0,
             undo_keys: String::from("cmd+z"),
             redo_keys: String::from("cmd+shift+z"),
             save_keys: String::from("cmd+s"),
@@ -270,6 +276,12 @@ impl Settings {
                     }
                 }
                 "master_limiter" => settings.master_limiter = value == "true",
+                "master_reverb" => {
+                    settings.master_reverb = value.parse::<f32>().unwrap_or(0.0).clamp(0.0, 1.0);
+                }
+                "master_chorus" => {
+                    settings.master_chorus = value.parse::<f32>().unwrap_or(0.0).clamp(0.0, 1.0);
+                }
                 "shortcut.undo" => settings.undo_keys = value.to_string(),
                 "shortcut.redo" => settings.redo_keys = value.to_string(),
                 "shortcut.save" => settings.save_keys = value.to_string(),
@@ -308,6 +320,8 @@ impl Settings {
         }
         text.push_str(&format!("master_gain_db = {}\n", self.master_gain_db));
         text.push_str(&format!("master_limiter = {}\n", self.master_limiter));
+        text.push_str(&format!("master_reverb = {}\n", self.master_reverb));
+        text.push_str(&format!("master_chorus = {}\n", self.master_chorus));
         text.push_str(&format!("shortcut.undo = {}\n", self.undo_keys));
         text.push_str(&format!("shortcut.redo = {}\n", self.redo_keys));
         text.push_str(&format!("shortcut.save = {}\n", self.save_keys));
@@ -349,6 +363,8 @@ mod tests {
             light_theme: true,
             record_chords: true,
             monitor: true,
+            master_reverb: 0.3,
+            master_chorus: 0.2,
             grade: 3,
             keyboard: Some(String::from("PSR-S970")),
             ..Settings::default()

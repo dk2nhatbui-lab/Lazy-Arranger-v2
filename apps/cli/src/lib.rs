@@ -734,6 +734,12 @@ enum Commands {
         /// Turn the master limiter off.
         #[arg(long)]
         no_limiter: bool,
+        /// Master reverb wet amount, 0..=1.
+        #[arg(long, default_value_t = 0.0)]
+        reverb: f32,
+        /// Master chorus wet amount, 0..=1.
+        #[arg(long, default_value_t = 0.0)]
+        chorus: f32,
     },
     /// Record a style performance as linked intent and rendered tracks.
     Perform {
@@ -2007,6 +2013,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             metronome,
             gain_db,
             no_limiter,
+            reverb,
+            chorus,
         } => export_audio(
             &project,
             &out,
@@ -2016,6 +2024,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             audio::master::Master {
                 gain_db,
                 limiter: !no_limiter,
+                reverb: reverb.clamp(0.0, 1.0),
+                chorus: chorus.clamp(0.0, 1.0),
             },
         ),
         Commands::Perform {

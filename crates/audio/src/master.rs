@@ -9,6 +9,10 @@ pub struct Master {
     pub gain_db: f32,
     /// Whether the limiter is on.
     pub limiter: bool,
+    /// Master reverb wet amount, 0..=1.
+    pub reverb: f32,
+    /// Master chorus wet amount, 0..=1.
+    pub chorus: f32,
 }
 
 impl Default for Master {
@@ -16,6 +20,8 @@ impl Default for Master {
         Self {
             gain_db: 0.0,
             limiter: true,
+            reverb: 0.0,
+            chorus: 0.0,
         }
     }
 }
@@ -34,11 +40,106 @@ pub struct Meter {
 pub fn apply(rendered: &mut RenderedAudio, master: Master) {
     let gain = 10.0_f32.powf(master.gain_db / 20.0);
     for sample in &mut rendered.samples {
-        let mut value = *sample * gain;
-        if master.limiter {
-            value = value.tanh();
-        }
+        *sample *= gain;
+    }
+    if master.chorus > 0.0 {
+        chorus(rendered, master.chorus.clamp(0.0, 1.0));
+    }
+    if master.reverb > 0.0 {
+        reverb(rendered, master.reverb.clamp(0.0, 1.0));
+    }
+    for sample in &mut rendered.samples {
+        let value = if master.limiter {
+            sample.tanh()
+        } else {
+            *sample
+        };
         *sample = value.clamp(-1.0, 1.0);
+    }
+}
+
+fn chorus(rendered: &mut RenderedAudio, amount: f32) {
+    let rate = rendered.sample_rate.max(1) as f32;
+    let max_delay = (rate * 0.05) as usize + 2;
+    if max_delay < 4 {
+        return;
+    }
+    let mut lines = [vec![0.0_f32; max_delay], vec![0.0_f32; max_delay]];
+    let mut index = 0;
+    for (frame_index, frame) in rendered
+        .samples
+        .as_chunks_mut::<2>()
+        .0
+        .iter_mut()
+        .enumerate()
+    {
+        let time = frame_index as f32 / rate;
+        for (channel, line) in lines.iter_mut().enumerate() {
+            let phase = time * std::f32::consts::TAU * 0.5 + channel as f32 * 0.8;
+            let delay = rate * 0.018 + phase.sin() * rate * 0.004;
+            let read = (index as f32 - delay).rem_euclid(max_delay as f32);
+            let first = read.floor() as usize;
+            let second = (first + 1) % max_delay;
+            let mix = read - read.floor();
+            let delayed = line[first] * (1.0 - mix) + line[second] * mix;
+            line[index] = frame[channel];
+            frame[channel] += delayed * amount * 0.5;
+        }
+        index = (index + 1) % max_delay;
+    }
+}
+
+fn reverb(rendered: &mut RenderedAudio, amount: f32) {
+    let rate = rendered.sample_rate.max(1) as f32;
+    let comb_seconds = [0.0297_f32, 0.0371, 0.0411, 0.0437];
+    let allpass_seconds = [0.0050_f32, 0.0017];
+    let mut lines: [Vec<Vec<f32>>; 2] = [
+        comb_seconds
+            .iter()
+            .map(|seconds| vec![0.0_f32; (rate * seconds) as usize + 1])
+            .collect(),
+        allpass_seconds
+            .iter()
+            .map(|seconds| vec![0.0_f32; (rate * seconds) as usize + 1])
+            .collect(),
+    ];
+    let comb_lengths: Vec<usize> = lines[0].iter().map(Vec::len).collect();
+    let allpass_lengths: Vec<usize> = lines[1].iter().map(Vec::len).collect();
+    let mut comb_indices = [0_usize; 4];
+    let mut allpass_indices = [0_usize; 2];
+    let mut damped = [0.0_f32; 4];
+    for frame in rendered.samples.as_chunks_mut::<2>().0.iter_mut() {
+        for (channel, sample) in frame.iter_mut().enumerate() {
+            let _ = channel;
+            let dry = *sample;
+            let mut wet = 0.0;
+            for comb in 0..4 {
+                let length = comb_lengths[comb];
+                if length == 0 {
+                    continue;
+                }
+                let index = comb_indices[comb] % length;
+                let output = lines[0][comb][index];
+                damped[comb] = output * 0.7 + damped[comb] * 0.3;
+                lines[0][comb][index] = dry + damped[comb] * 0.78;
+                comb_indices[comb] = (index + 1) % length;
+                wet += output;
+            }
+            wet /= 4.0;
+            for allpass in 0..2 {
+                let length = allpass_lengths[allpass];
+                if length == 0 {
+                    continue;
+                }
+                let index = allpass_indices[allpass] % length;
+                let buffered = lines[1][allpass][index];
+                let output = -wet + buffered;
+                lines[1][allpass][index] = wet + buffered * 0.5;
+                allpass_indices[allpass] = (index + 1) % length;
+                wet = output;
+            }
+            *sample = dry + wet * amount * 0.6;
+        }
     }
 }
 
@@ -80,6 +181,7 @@ mod tests {
             Master {
                 gain_db: -6.0,
                 limiter: false,
+                ..Master::default()
             },
         );
         assert!((buffer.samples[0] - 0.25).abs() < 0.01);
@@ -92,9 +194,54 @@ mod tests {
             Master {
                 gain_db: 0.0,
                 limiter: false,
+                ..Master::default()
             },
         );
         assert_eq!(raw.samples, vec![1.0, -1.0]);
+    }
+
+    #[test]
+    fn reverb_and_chorus_add_tail_energy() {
+        let mut impulse = audio(vec![0.0; 4096]);
+        impulse.samples[0] = 1.0;
+        let mut wet = impulse.clone();
+        apply(
+            &mut wet,
+            Master {
+                reverb: 0.8,
+                chorus: 0.0,
+                limiter: false,
+                ..Master::default()
+            },
+        );
+        let tail: f32 = wet.samples[1000..].iter().map(|sample| sample.abs()).sum();
+        assert!(tail > 0.001, "reverb tail {tail}");
+        let mut dry = impulse.clone();
+        apply(
+            &mut dry,
+            Master {
+                limiter: false,
+                ..Master::default()
+            },
+        );
+        assert_eq!(dry.samples, impulse.samples);
+        let mut modulated = impulse;
+        apply(
+            &mut modulated,
+            Master {
+                reverb: 0.0,
+                chorus: 0.8,
+                limiter: false,
+                ..Master::default()
+            },
+        );
+        assert!(
+            modulated
+                .samples
+                .iter()
+                .zip(dry.samples.iter())
+                .any(|(left, right)| (left - right).abs() > 1.0e-6)
+        );
     }
 
     #[test]
