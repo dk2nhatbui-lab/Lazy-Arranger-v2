@@ -153,3 +153,11 @@ chords, lyrics and marks inside it and shifting every later note, chord, lyric,
 mark and marker by the inserted length; clips fully inside the section are copied and later clips, automation points and
 audio reference starts shift with the rest. `join-loop A --times 2` added 168 notes and 8 chords to the
 demo. Learned preferences are not implemented.
+
+### Loop region
+
+The header adds Loop (on/off) and From bar (set the region to the bar under the
+playhead). With Loop on, playback renders the loop window from the full mix with
+`RenderedAudio::slice`, and when the playhead reaches the end the player restarts
+from the loop start; `transport::wrap` covers the arithmetic. Record arm,
+metronome and ruler editing are still absent.

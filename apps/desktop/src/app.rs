@@ -100,6 +100,9 @@ pub struct ShellApp {
     recent_file: std::path::PathBuf,
     midi_input: Option<midi_devices::devices::LiveInput>,
     midi_map: midi_devices::map::MidiMap,
+    loop_enabled: bool,
+    loop_region: Option<(Tick, Tick)>,
+    loop_buffer: Option<audio::RenderedAudio>,
     lesson: crate::kids::Lesson,
     perform_player: Option<audio::player::Player>,
     library_open: bool,
@@ -183,6 +186,9 @@ impl ShellApp {
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
             midi_input: None,
+            loop_enabled: false,
+            loop_region: None,
+            loop_buffer: None,
             lesson: crate::kids::Lesson::default(),
             perform_player: None,
             library_open: false,
@@ -492,6 +498,22 @@ impl ShellApp {
             let seconds = player.frame() as f64 / f64::from(audio::SAMPLE_RATE);
             self.position = self.song().tempo_map.tick_at_seconds(seconds);
             self.playing = player.is_playing();
+            if self.loop_enabled
+                && self.playing
+                && let Some(region) = self.loop_region
+                && self.position >= region.1
+            {
+                self.position = region.0;
+                if let Some(buffer) = self.loop_buffer.clone()
+                    && let Ok(restart) = audio::player::Player::new(buffer)
+                {
+                    restart.play();
+                    self.player = Some(restart);
+                }
+                self.advance_launcher();
+                context.request_repaint_after(Duration::from_millis(16));
+                return;
+            }
             self.advance_launcher();
             if self.playing {
                 context.request_repaint_after(Duration::from_millis(16));
@@ -1630,6 +1652,29 @@ impl ShellApp {
         if let Some(problem) = problems.first() {
             self.status = Some(format!("audio {}: {}", problem.path, problem.reason));
         }
+        if self.loop_enabled
+            && let Some((start, end)) = self.loop_region
+        {
+            let from = self.song().tempo_map.seconds_at(start);
+            let to = self.song().tempo_map.seconds_at(end);
+            let sliced = audio.slice(from, to);
+            self.loop_buffer = Some(sliced.clone());
+            match audio::player::Player::new(sliced) {
+                Ok(player) => {
+                    self.position = start;
+                    self.player = Some(player);
+                    self.playing = true;
+                    if let Some(player) = &self.player {
+                        player.play();
+                    }
+                    return;
+                }
+                Err(error) => {
+                    self.status = Some(error);
+                    return;
+                }
+            }
+        }
         match audio::player::Player::new(audio) {
             Ok(player) => {
                 player.play();
@@ -1734,6 +1779,27 @@ impl ShellApp {
                 ) {
                     self.toggle_playback();
                     context.request_repaint_after(std::time::Duration::from_millis(16));
+                }
+                if ui
+                    .selectable_label(self.loop_enabled, "Loop")
+                    .on_hover_text("Repeat the loop region")
+                    .clicked()
+                {
+                    self.loop_enabled = !self.loop_enabled;
+                    if self.loop_enabled && self.loop_region.is_none() {
+                        let bar = self.song().time_signature.bar_ticks().max(1);
+                        self.loop_region = Some(crate::transport::bar_region(self.position, bar));
+                    }
+                }
+                if ui
+                    .small_button("From bar")
+                    .on_hover_text("Set the loop to the current bar")
+                    .clicked()
+                {
+                    let bar = self.song().time_signature.bar_ticks().max(1);
+                    self.loop_region = Some(crate::transport::bar_region(self.position, bar));
+                    self.loop_enabled = true;
+                    self.loop_buffer = None;
                 }
 
                 // LCD, 350 x 52, then the view tabs on the right.

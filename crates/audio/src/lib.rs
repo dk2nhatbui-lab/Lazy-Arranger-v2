@@ -34,6 +34,21 @@ pub struct RenderedAudio {
 }
 
 impl RenderedAudio {
+    /// A copy of the buffer between two times, clamped to its length.
+    #[must_use]
+    pub fn slice(&self, from_seconds: f64, to_seconds: f64) -> Self {
+        let frames = self.frames();
+        let rate = f64::from(self.sample_rate.max(1));
+        let start = ((from_seconds.max(0.0)) * rate).round() as usize;
+        let end = ((to_seconds.max(0.0)) * rate).round() as usize;
+        let start = start.min(frames);
+        let end = end.clamp(start, frames);
+        Self {
+            samples: self.samples[start * 2..end * 2].to_vec(),
+            sample_rate: self.sample_rate,
+        }
+    }
+
     /// Number of frames (one frame holds both channels).
     #[must_use]
     pub fn frames(&self) -> usize {
@@ -666,6 +681,18 @@ mod tests {
         song.tracks.push(track);
         let rendered = render(&song, SAMPLE_RATE);
         assert!(rendered.samples.iter().any(|sample| sample.abs() > 0.01));
+    }
+
+    #[test]
+    fn slicing_takes_the_requested_time_window() {
+        let audio = RenderedAudio {
+            samples: (0..8).map(|value| value as f32).collect(),
+            sample_rate: 4,
+        };
+        let sliced = audio.slice(0.5, 1.5);
+        assert_eq!(sliced.samples, vec![4.0, 5.0, 6.0, 7.0]);
+        assert_eq!(audio.slice(0.75, 9.0).samples.len(), 2);
+        assert!(audio.slice(-1.0, 0.0).samples.is_empty());
     }
 
     #[test]

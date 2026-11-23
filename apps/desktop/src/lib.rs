@@ -17,6 +17,7 @@ pub mod settings;
 pub mod speech;
 pub mod strings;
 pub mod theme;
+pub mod transport;
 pub mod widgets;
 
 pub use app::{ShellApp, demo_project, load_project};
