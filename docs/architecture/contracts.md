@@ -677,3 +677,11 @@ invalid 0/4 and 4/3, and undo.
 and everything else as JSON. `load_project` decodes MIDI or imports MusicXML
 into a schema-19 project, and `ShellApp::open` leaves imported songs untitled so
 Save cannot overwrite the source. A test exports the demo and reloads it.
+
+### WAV gain and normalize
+
+`audio::edit::gain` applies a decibel factor and `normalize_peak` scales the peak
+to a target (silence stays silent); CLI `wav-gain` and `wav-normalize` write
+32-bit float. They decode through `decode_stereo`, which duplicates mono frames,
+so a 36.31 s demo stays 36.31 s instead of halving. Tests cover the dB factor,
+peak target and silence.

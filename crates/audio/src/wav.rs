@@ -7,6 +7,24 @@ use crate::RenderedAudio;
 
 /// Decodes 16-bit PCM WAV into mono samples.
 ///
+/// Decodes to a stereo buffer by duplicating each mono frame.
+///
+/// # Errors
+///
+/// Returns a message for another format or a truncated file.
+pub fn decode_stereo(bytes: &[u8]) -> Result<RenderedAudio, String> {
+    let mono = decode_mono(bytes)?;
+    let mut samples = Vec::with_capacity(mono.samples.len() * 2);
+    for sample in mono.samples {
+        samples.push(sample);
+        samples.push(sample);
+    }
+    Ok(RenderedAudio {
+        samples,
+        sample_rate: mono.sample_rate,
+    })
+}
+
 /// # Errors
 ///
 /// Returns a message for another format or a truncated file.
@@ -131,6 +149,20 @@ mod tests {
         out.extend_from_slice(&(data.len() as u32).to_le_bytes());
         out.extend_from_slice(data);
         out
+    }
+
+    #[test]
+    fn stereo_decode_duplicates_frames() {
+        let audio = RenderedAudio {
+            samples: vec![0.25, -0.25, 0.5, -0.5, 0.1, -0.1, 0.2, -0.2],
+            sample_rate: 48_000,
+        };
+        let bytes = audio.to_wav();
+        let decoded = decode_stereo(&bytes).expect("decode");
+        assert_eq!(decoded.samples.len(), 8);
+        assert_eq!(decoded.frames(), 4);
+        assert!((decoded.duration_seconds() - 4.0 / 48_000.0).abs() < 1.0e-9);
+        assert_eq!(decoded.samples[0], decoded.samples[1]);
     }
 
     #[test]

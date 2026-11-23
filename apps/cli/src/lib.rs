@@ -141,6 +141,28 @@ enum Commands {
         #[arg(long)]
         profile: Option<PathBuf>,
     },
+    /// Apply a decibel gain to a WAV file.
+    WavGain {
+        /// Input `.wav` file.
+        wav: PathBuf,
+        /// Output `.wav` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Gain in decibels.
+        #[arg(long, default_value_t = -3.0)]
+        db: f32,
+    },
+    /// Normalize a WAV file to a peak level.
+    WavNormalize {
+        /// Input `.wav` file.
+        wav: PathBuf,
+        /// Output `.wav` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Target peak, 0..=1.
+        #[arg(long, default_value_t = 0.9)]
+        peak: f32,
+    },
     /// Import a Standard MIDI File as a project.
     MidiImport {
         /// Input `.mid` file.
@@ -1833,6 +1855,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
         Commands::DemoProject { out } => demo_project(&out),
         Commands::MidiImport { midi, out } => midi_import(&midi, &out),
+        Commands::WavGain { wav, out, db } => wav_edit(&wav, &out, Some(db), 0.0),
+        Commands::WavNormalize { wav, out, peak } => wav_edit(&wav, &out, None, peak),
         Commands::ScoreLayout { project, track } => {
             let project = read_project(&project)?;
             let Some(entry) = project.song.tracks.get(track) else {
@@ -2244,6 +2268,27 @@ fn demo_project(out: &PathBuf) -> Result<(), Box<dyn Error>> {
     let project = ProjectFile::new(arranging::demo::demo_song());
     fs::write(out, project.to_json_pretty()?)?;
     println!("wrote {} with the built-in sixteen-bar demo", out.display());
+    Ok(())
+}
+
+fn wav_edit(
+    input: &PathBuf,
+    out: &PathBuf,
+    gain_db: Option<f32>,
+    peak: f32,
+) -> Result<(), Box<dyn Error>> {
+    let bytes = fs::read(input)?;
+    let mut audio = audio::wav::decode_stereo(&bytes)?;
+    let factor = match gain_db {
+        Some(db) => audio::edit::gain(&mut audio, db),
+        None => audio::edit::normalize_peak(&mut audio, peak),
+    };
+    fs::write(out, audio.to_wav32f())?;
+    println!(
+        "wrote {} (factor {factor:.4}, {:.2} s)",
+        out.display(),
+        audio.duration_seconds()
+    );
     Ok(())
 }
 
