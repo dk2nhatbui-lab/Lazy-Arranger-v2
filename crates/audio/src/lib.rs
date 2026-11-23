@@ -415,16 +415,17 @@ fn render_instrument(
     let mut position = 0;
     let mut next = 0;
     while position < frames {
-        while next < events.len() && events[next].frame <= position {
+        let block = (frames - position).min(512);
+        while next < events.len() && events[next].frame < position + block {
             let event = &events[next];
+            let offset = u32::try_from(event.frame.saturating_sub(position)).unwrap_or(0);
             if event.on {
-                instrument.note_on(event.key, event.velocity);
+                instrument.note_on_at(event.key, event.velocity, offset);
             } else {
-                instrument.note_off(event.key);
+                instrument.note_off_at(event.key, offset);
             }
             next += 1;
         }
-        let block = (frames - position).min(512);
         let mut left = vec![0.0_f32; block];
         let mut right = vec![0.0_f32; block];
         if instrument.process_block(&mut left, &mut right).is_err() {

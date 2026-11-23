@@ -539,14 +539,24 @@ impl AuInstrument {
 
     /// Sends a MIDI note-on at the next render position.
     pub fn note_on(&self, key: u8, velocity: u8) {
+        self.note_on_at(key, velocity, 0);
+    }
+
+    /// Sends a MIDI note-on at a sample offset inside the next render block.
+    pub fn note_on_at(&self, key: u8, velocity: u8, offset: u32) {
         let _ = unsafe {
-            MusicDeviceMIDIEvent(self.unit, 0x90, u32::from(key), u32::from(velocity), 0)
+            MusicDeviceMIDIEvent(self.unit, 0x90, u32::from(key), u32::from(velocity), offset)
         };
     }
 
     /// Sends a MIDI note-off at the next render position.
     pub fn note_off(&self, key: u8) {
-        let _ = unsafe { MusicDeviceMIDIEvent(self.unit, 0x80, u32::from(key), 0, 0) };
+        self.note_off_at(key, 0);
+    }
+
+    /// Sends a MIDI note-off at a sample offset inside the next render block.
+    pub fn note_off_at(&self, key: u8, offset: u32) {
+        let _ = unsafe { MusicDeviceMIDIEvent(self.unit, 0x80, u32::from(key), 0, offset) };
     }
 
     /// Renders one stereo block into `left`/`right`.
