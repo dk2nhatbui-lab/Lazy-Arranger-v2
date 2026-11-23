@@ -10,6 +10,7 @@ APP="dist/Lazy Arranger Midi DAW.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp target/release/lazy-arranger-desktop "$APP/Contents/MacOS/lazy-arranger-desktop"
+cp apps/desktop/assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -20,6 +21,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>Lazy Arranger Midi DAW</string>
   <key>CFBundleIdentifier</key><string>com.lazyarranger.mididaw</string>
   <key>CFBundleExecutable</key><string>lazy-arranger-desktop</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconName</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>__VERSION__</string>
   <key>CFBundleVersion</key><string>__VERSION__</string>
