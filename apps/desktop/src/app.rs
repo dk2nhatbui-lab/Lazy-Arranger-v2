@@ -836,6 +836,7 @@ pub struct ShellApp {
     audio_chords: Vec<audio::chords::AudioChord>,
     audio_chords_pending:
         Option<std::sync::mpsc::Receiver<Result<Vec<audio::chords::AudioChord>, String>>>,
+    audio_chords_auto: bool,
     style_file_open: bool,
     style_file_path: String,
     style_import: Option<style_formats::ImportedStyle>,
@@ -1132,10 +1133,11 @@ impl ShellApp {
             style_draft: None,
             style_rules_open: false,
             style_preview: None,
-            audio_chords_open: false,
-            audio_chords_path: String::new(),
+            audio_chords_open: std::env::var("ARRANGER_CHORDS").is_ok(),
+            audio_chords_path: std::env::var("ARRANGER_CHORDS_FILE").unwrap_or_default(),
             audio_chords: Vec::new(),
             audio_chords_pending: None,
+            audio_chords_auto: std::env::var("ARRANGER_CHORDS_FILE").is_ok(),
             style_file_open: std::env::var("ARRANGER_STYLE").is_ok(),
             style_file_path: std::env::var("ARRANGER_STYLE_FILE").unwrap_or_default(),
             style_import: None,
@@ -4501,9 +4503,38 @@ impl ShellApp {
         }
     }
 
+    fn analyze_audio_chords(&mut self) {
+        let path = std::path::PathBuf::from(&self.audio_chords_path);
+        let bpm = self.song().tempo_map.bpm_at(0);
+        let bar_seconds = self.song().time_signature.bar_ticks() as f64 * 60.0
+            / (bpm.max(1.0) * music_core::PPQ as f64);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.audio_chords_pending = Some(receiver);
+        self.status = Some(String::from("analysing audio…"));
+        std::thread::spawn(move || {
+            let result = std::fs::read(&path)
+                .map_err(|error| error.to_string())
+                .and_then(|bytes| {
+                    if bytes.starts_with(b"RIFF") {
+                        audio::wav::decode_mono(&bytes).map_err(|error| error.to_string())
+                    } else {
+                        audio::decode::decode_mono(&path).map_err(|error| error.to_string())
+                    }
+                })
+                .map(|decoded| {
+                    audio::chords::recognize(&decoded.samples, decoded.sample_rate, bar_seconds)
+                });
+            let _ = sender.send(result);
+        });
+    }
+
     fn audio_chords_window(&mut self, context: &Context) {
         if !self.audio_chords_open {
             return;
+        }
+        if self.audio_chords_auto {
+            self.audio_chords_auto = false;
+            self.analyze_audio_chords();
         }
         let mut open = self.audio_chords_open;
         egui::Window::new("Chords from audio")
@@ -4518,34 +4549,7 @@ impl ShellApp {
                             .desired_width(220.0),
                     );
                     if ui.button("Analyze").clicked() {
-                        let path = std::path::PathBuf::from(&self.audio_chords_path);
-                        let bpm = self.song().tempo_map.bpm_at(0);
-                        let bar_seconds = self.song().time_signature.bar_ticks() as f64 * 60.0
-                            / (bpm.max(1.0) * music_core::PPQ as f64);
-                        let (sender, receiver) = std::sync::mpsc::channel();
-                        self.audio_chords_pending = Some(receiver);
-                        self.status = Some(String::from("analysing audio…"));
-                        std::thread::spawn(move || {
-                            let result = std::fs::read(&path)
-                                .map_err(|error| error.to_string())
-                                .and_then(|bytes| {
-                                    if bytes.starts_with(b"RIFF") {
-                                        audio::wav::decode_mono(&bytes)
-                                            .map_err(|error| error.to_string())
-                                    } else {
-                                        audio::decode::decode_mono(&path)
-                                            .map_err(|error| error.to_string())
-                                    }
-                                })
-                                .map(|decoded| {
-                                    audio::chords::recognize(
-                                        &decoded.samples,
-                                        decoded.sample_rate,
-                                        bar_seconds,
-                                    )
-                                });
-                            let _ = sender.send(result);
-                        });
+                        self.analyze_audio_chords();
                     }
                 });
                 egui::ScrollArea::vertical()
