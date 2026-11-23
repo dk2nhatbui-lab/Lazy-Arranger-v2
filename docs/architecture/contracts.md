@@ -408,3 +408,10 @@ A track whose notes are all on channel 10 is engraved as percussion: every note
 sits on one line two staff spaces above the system baseline, the canvas/PDF draw
 a single staff line and x-shaped noteheads, and barlines are omitted. Pitched
 tracks keep the five-line staff. A test checks the flag and equal note heights.
+
+### Lyric spacing
+
+`spread_lyrics` groups syllables by page and system, estimates each width as
+4.6 px per character (minimum 4), and shifts a syllable right to at least the
+previous right edge plus 4 px. It only handles lyrics; noteheads and rests are
+not collision-avoided.

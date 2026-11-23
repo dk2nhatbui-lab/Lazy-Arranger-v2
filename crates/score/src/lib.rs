@@ -306,6 +306,34 @@ pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
     engrave_with(song, track, settings, &[])
 }
 
+fn spread_lyrics(lyrics: &mut [Lyric]) {
+    use std::collections::BTreeMap;
+    let mut groups: BTreeMap<(usize, i32), Vec<usize>> = BTreeMap::new();
+    for (index, lyric) in lyrics.iter().enumerate() {
+        groups
+            .entry((lyric.page, (lyric.y * 10.0).round() as i32))
+            .or_default()
+            .push(index);
+    }
+    for indices in groups.values_mut() {
+        indices.sort_by(|left, right| {
+            lyrics[*left]
+                .x
+                .partial_cmp(&lyrics[*right].x)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut right_edge = f32::MIN;
+        for index in indices.iter() {
+            let lyric = &mut lyrics[*index];
+            if lyric.x < right_edge {
+                lyric.x = right_edge;
+            }
+            let width = (lyric.text.chars().count() as f32 * 4.6).max(4.0);
+            right_edge = lyric.x + width + 4.0;
+        }
+    }
+}
+
 fn placed_slurs(notes: &[PlacedNote], slurs: &[project::song::Slur]) -> Vec<SlurArc> {
     let mut out = Vec::new();
     for slur in slurs {
@@ -679,6 +707,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
             lyric.y = system.y + 4.0 * settings.staff_space + 12.0;
         }
     }
+    spread_lyrics(&mut placed_lyrics);
     let grand = settings.grand_staff;
     for note in &mut notes {
         let system = pages.get(note.page).and_then(|page| {
@@ -1301,5 +1330,46 @@ mod percussion_tests {
             Settings::default(),
         );
         assert!(!engraved.percussion);
+    }
+}
+
+#[cfg(test)]
+mod lyric_spacing_tests {
+    use super::*;
+    use music_core::{Channel, PPQ, Pitch, Velocity};
+    use project::TrackId;
+    use project::song::{LyricEvent, Note, Song, Track};
+
+    #[test]
+    fn crowded_lyrics_are_shifted_apart() {
+        let mut song = Song::new("Lyrics", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for (index, start) in [(1_u32, 0_i64), (2, 120)] {
+            track.notes.push(Note {
+                id: project::NoteId::new(index).expect("valid"),
+                start,
+                duration: PPQ,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+            song.lyrics.push(LyricEvent {
+                tick: start,
+                text: String::from(if index == 1 { "A" } else { "BB" }),
+            });
+        }
+        song.tracks.push(track);
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        assert_eq!(engraved.lyrics.len(), 2);
+        let mut lyrics = engraved.lyrics.clone();
+        lyrics.sort_by(|left, right| {
+            left.x
+                .partial_cmp(&right.x)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        assert!(
+            lyrics[1].x >= lyrics[0].x + 4.6 + 4.0,
+            "the second syllable moved"
+        );
     }
 }
