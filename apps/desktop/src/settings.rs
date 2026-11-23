@@ -211,6 +211,8 @@ pub struct Settings {
     pub kids_mode: bool,
     /// Seconds without input before Kids Mode pauses.
     pub kids_pause_seconds: f32,
+    /// Kids Mode: MIDI keys also audition their own notes.
+    pub kids_keys_play: bool,
     /// Light palette instead of the default dark one.
     pub light_theme: bool,
     /// Speak assistant replies with the local `say` command.
@@ -272,6 +274,7 @@ impl Default for Settings {
             reduced_motion: false,
             kids_mode: false,
             kids_pause_seconds: 1.5,
+            kids_keys_play: false,
             light_theme: false,
             speech: false,
             record_chords: false,
@@ -402,6 +405,7 @@ impl Settings {
                 }
                 "reduced_motion" => settings.reduced_motion = value == "true",
                 "kids_mode" => settings.kids_mode = value == "true",
+                "kids_keys_play" => settings.kids_keys_play = value == "true",
                 "kids_pause_seconds" => {
                     settings.kids_pause_seconds =
                         value.parse::<f32>().unwrap_or(1.5).clamp(0.5, 5.0);
@@ -491,6 +495,7 @@ impl Settings {
             "kids_pause_seconds = {:.2}\n",
             self.kids_pause_seconds
         ));
+        text.push_str(&format!("kids_keys_play = {}\n", self.kids_keys_play));
         text.push_str(&format!("light_theme = {}\n", self.light_theme));
         text.push_str(&format!("speech = {}\n", self.speech));
         text.push_str(&format!("record_chords = {}\n", self.record_chords));
@@ -544,6 +549,7 @@ mod tests {
         let mut settings = Settings {
             kids_mode: true,
             kids_pause_seconds: 2.5,
+            kids_keys_play: true,
             light_theme: true,
             record_chords: true,
             monitor: true,

@@ -2270,6 +2270,7 @@ impl ShellApp {
         let mut learned = None;
         let mut midi_activity = false;
         let mut detected_chord = None;
+        let mut preview_keys = Vec::new();
         if let Some(input) = &self.midi_input {
             while let Some(message) = input.next() {
                 midi_activity = true;
@@ -2278,6 +2279,9 @@ impl ShellApp {
                         if velocity.as_u8() > 0 =>
                     {
                         self.style_held[usize::from(key.as_u8())] = true;
+                        if self.settings.kids_mode && self.settings.kids_keys_play {
+                            preview_keys.push(key.as_u8());
+                        }
                     }
                     music_core::MidiMessage::NoteOff { key, .. }
                     | music_core::MidiMessage::NoteOn { key, .. } => {
@@ -2311,6 +2315,9 @@ impl ShellApp {
                     actions.push((action, value));
                 }
             }
+        }
+        for pitch in preview_keys {
+            self.preview_pitch(pitch);
         }
         if let Some(name) = detected_chord {
             self.style_last_chord = name.clone();
@@ -2629,6 +2636,24 @@ impl ShellApp {
             };
             let _ = sender.send(result);
         });
+    }
+
+    fn preview_pitch(&mut self, pitch: u8) {
+        let mut song = Song::new("Preview", 120.0);
+        let mut track = project::song::Track::new(TrackId::new(1).expect("valid"), "Preview");
+        if let (Ok(pitch), Ok(id)) = (music_core::Pitch::new(pitch), NoteId::new(1)) {
+            track.notes.push(project::song::Note {
+                id,
+                start: 0,
+                duration: music_core::PPQ / 2,
+                pitch,
+                velocity: music_core::Velocity::new(100).expect("valid"),
+                channel: music_core::Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        let rendered = audio::render(&song, audio::SAMPLE_RATE);
+        self.preview_player = audio::player::Player::new(rendered).ok();
     }
 
     fn poll_ai(&mut self) {
@@ -6920,6 +6945,10 @@ impl ShellApp {
                             egui::Slider::new(&mut self.settings.kids_pause_seconds, 0.5..=5.0)
                                 .text("Kids pause (s)"),
                         );
+                        ui.checkbox(
+                            &mut self.settings.kids_keys_play,
+                            "Keys also play their own notes",
+                        );
                     }
                     let mut light_theme = self.settings.light_theme;
                     if ui.checkbox(&mut light_theme, "Light theme").changed() {
@@ -10478,21 +10507,7 @@ impl eframe::App for ShellApp {
             self.edit_click(click);
         }
         if let Some(pitch) = preview_note {
-            let mut song = Song::new("Preview", 120.0);
-            let mut track = project::song::Track::new(TrackId::new(1).expect("valid"), "Preview");
-            if let (Ok(pitch), Ok(id)) = (music_core::Pitch::new(pitch), NoteId::new(1)) {
-                track.notes.push(project::song::Note {
-                    id,
-                    start: 0,
-                    duration: music_core::PPQ / 2,
-                    pitch,
-                    velocity: music_core::Velocity::new(100).expect("valid"),
-                    channel: music_core::Channel::first(),
-                });
-            }
-            song.tracks.push(track);
-            let rendered = audio::render(&song, audio::SAMPLE_RATE);
-            self.preview_player = audio::player::Player::new(rendered).ok();
+            self.preview_pitch(pitch);
         }
         if let Some((track, note, velocity)) = velocity_edit
             && let Err(error) = self.editor.set_velocity(track, note, velocity)

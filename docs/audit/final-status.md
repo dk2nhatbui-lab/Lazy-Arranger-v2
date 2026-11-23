@@ -120,7 +120,7 @@ For the clef layout, choose either four measures per system without clefs
 - Undo glyph redrawn as a left arrow with a curved tail (`docs/audit/ui-undo.png`).
 - Tracks default to the first row; M/S/R clicks no longer change row selection; inspector key has Find.
 - Transport uses green play, red record and an undo arrow rotated 10° CCW (`docs/audit/ui-transport-colors.png`).
-- Kids Mode is full-window Perform with a minimal header: any key, click or MIDI message plays, loops, and auto-pauses after the configured delay; undo arrow now points 45° CCW (`docs/audit/ui-kids.png`, `docs/audit/ui-undo45.png`).
+- Kids Mode is full-window Perform with a minimal header: any key, click or MIDI message plays; an optional toggle auditions held keys, loops, and auto-pauses after the configured delay; undo arrow now points 45° CCW (`docs/audit/ui-kids.png`, `docs/audit/ui-undo45.png`).
 - PSR-S970 remote panel sends voice/CC/chord auditions; hardware sends remain unverified (`docs/audit/psr-remote.png`).
 - Light palette and track colours now use the C++ Studio Paper token values (`docs/audit/ui-cpp-theme.png`).
 - Audio output device can be selected and is used by the playback player.
