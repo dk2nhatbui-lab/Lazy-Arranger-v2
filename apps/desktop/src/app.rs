@@ -1003,7 +1003,7 @@ impl ShellApp {
                         egui::ComboBox::from_id_salt("settings-language")
                             .selected_text(&self.settings.language)
                             .show_ui(ui, |ui| {
-                                for tag in ["en", "da"] {
+                                for tag in ["en", "da", "fr", "vi"] {
                                     ui.selectable_value(
                                         &mut self.settings.language,
                                         tag.to_string(),
@@ -1012,9 +1012,11 @@ impl ShellApp {
                                 }
                             });
                         ui.label(
-                            egui::RichText::new("English and Danish ship strings")
-                                .size(9.0)
-                                .color(theme::TEXT_DIM),
+                            egui::RichText::new(
+                                "English, Danish, French and Vietnamese ship strings",
+                            )
+                            .size(9.0)
+                            .color(theme::TEXT_DIM),
                         );
                     });
                     ui.add(egui::Slider::new(&mut self.settings.grade, 1..=9).text("chord grade"));

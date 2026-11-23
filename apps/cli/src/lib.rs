@@ -243,6 +243,17 @@ enum Commands {
         #[arg(long, default_value_t = 48_000)]
         sample_rate: u32,
     },
+    /// Convert a Music Finder CSV into a Yamaha playlist TSV.
+    PlaylistFromCsv {
+        /// Music Finder `.csv` file.
+        csv: PathBuf,
+        /// Folder the playlist entries point at.
+        #[arg(long, default_value = "/styles")]
+        folder: String,
+        /// Output `.tsv` path.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Import a style's tracks into a project by number or name.
     LibraryImport {
         /// Project `.json` path.
@@ -845,6 +856,20 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 bounce.length,
                 bounce.path.display(),
                 bounce.track,
+                out.display()
+            );
+            Ok(())
+        }
+        Commands::PlaylistFromCsv { csv, folder, out } => {
+            let text = fs::read_to_string(&csv)
+                .map_err(|error| format!("could not read {}: {error}", csv.display()))?;
+            let book = library::Book::from_csv(&text)?;
+            let list = library::List::from_book(&book, &folder);
+            fs::write(&out, list.to_tsv())
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!(
+                "wrote {} playlist item(s) -> {}",
+                list.items.len(),
                 out.display()
             );
             Ok(())

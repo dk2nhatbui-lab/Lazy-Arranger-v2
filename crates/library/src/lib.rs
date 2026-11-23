@@ -298,6 +298,32 @@ pub struct List {
 }
 
 impl List {
+    /// Builds a playlist from a Music Finder book, pointing at a folder.
+    ///
+    /// Entries keep their order, REGIST is the entry number, and the viewer
+    /// flag stays off.
+    #[must_use]
+    pub fn from_book(book: &Book, folder: &str) -> Self {
+        let folder = folder.trim_end_matches('/');
+        Self {
+            items: book
+                .entries
+                .iter()
+                .enumerate()
+                .map(|(index, entry)| Item {
+                    title: entry.name.clone(),
+                    file_path: if entry.style.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{folder}/{}", entry.style)
+                    },
+                    regist: i32::try_from(index + 1).unwrap_or(1),
+                    open_viewer: false,
+                })
+                .collect(),
+        }
+    }
+
     /// Parses the Yamaha tab-separated playlist.
     ///
     /// # Errors
@@ -450,5 +476,34 @@ mod tests {
         let header = "TITLE\tFILEPATH\tREGIST\tOPENVIEWER\r\n";
         assert!(List::from_tsv(&format!("{header}only\ttwo\r\n")).is_err());
         assert!(List::from_tsv(&format!("{header}a\tb\tx\tON\r\n")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod playlist_from_book_tests {
+    use super::*;
+
+    #[test]
+    fn a_book_becomes_a_playlist_in_order() {
+        let text = "name,style,tempo,voices,notes\nMy Way,Ballad.sty,68,,\nFunk,Funk.sty,100,,\n";
+        let book = Book::from_csv(text).expect("book");
+        let list = List::from_book(&book, "/styles/");
+        assert_eq!(list.items.len(), 2);
+        assert_eq!(list.items[0].title, "My Way");
+        assert_eq!(list.items[0].file_path, "/styles/Ballad.sty");
+        assert_eq!(list.items[0].regist, 1);
+        assert_eq!(list.items[1].regist, 2);
+        let tsv = list.to_tsv();
+        assert!(tsv.contains("My Way"));
+        assert!(tsv.contains("/styles/Ballad.sty"));
+        assert_eq!(List::from_tsv(&tsv).expect("round trip").items, list.items);
+    }
+
+    #[test]
+    fn entries_without_a_style_get_an_empty_path() {
+        let text = "name,style,tempo,voices,notes\nOnly name,,120,,\n";
+        let book = Book::from_csv(text).expect("book");
+        let list = List::from_book(&book, "/styles");
+        assert!(list.items[0].file_path.is_empty());
     }
 }

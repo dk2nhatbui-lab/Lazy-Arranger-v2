@@ -10,6 +10,10 @@ pub enum Language {
     En,
     /// Danish.
     Da,
+    /// French.
+    Fr,
+    /// Vietnamese.
+    Vi,
 }
 
 impl Language {
@@ -18,6 +22,8 @@ impl Language {
     pub fn parse(tag: &str) -> Self {
         match tag.trim().to_ascii_lowercase().as_str() {
             "da" | "danish" => Self::Da,
+            "fr" | "french" => Self::Fr,
+            "vi" | "vietnamese" => Self::Vi,
             _ => Self::En,
         }
     }
@@ -28,6 +34,8 @@ impl Language {
         match self {
             Self::En => "en",
             Self::Da => "da",
+            Self::Fr => "fr",
+            Self::Vi => "vi",
         }
     }
 }
@@ -97,6 +105,50 @@ const EN: &[(&str, &str)] = &[
     ("Stopped", "stopped"),
 ];
 
+const FR: &[(&str, &str)] = &[
+    ("Perform", "Jouer"),
+    ("Arrange", "Arranger"),
+    ("Mix", "Mixage"),
+    ("Loops", "Boucles"),
+    ("Score", "Partition"),
+    ("Save", "Enregistrer"),
+    ("Undo", "Annuler"),
+    ("Redo", "Rétablir"),
+    ("Play", "Lecture"),
+    ("Stop", "Arrêt"),
+    ("Settings", "Réglages"),
+    ("Shortcuts", "Raccourcis"),
+    ("Recent", "Récents"),
+    ("Tracks", "Pistes"),
+    ("Kids Mode", "MODE ENFANT"),
+    ("Open demo", "Ouvrir la démo"),
+    ("No project", "Aucun projet chargé"),
+    ("Saved", "enregistré"),
+    ("Stopped", "arrêté"),
+];
+
+const VI: &[(&str, &str)] = &[
+    ("Perform", "Biểu diễn"),
+    ("Arrange", "Sắp xếp"),
+    ("Mix", "Trộn"),
+    ("Loops", "Vòng lặp"),
+    ("Score", "Bản nhạc"),
+    ("Save", "Lưu"),
+    ("Undo", "Hoàn tác"),
+    ("Redo", "Làm lại"),
+    ("Play", "Phát"),
+    ("Stop", "Dừng"),
+    ("Settings", "Cài đặt"),
+    ("Shortcuts", "Phím tắt"),
+    ("Recent", "Gần đây"),
+    ("Tracks", "Kênh"),
+    ("Kids Mode", "CHẾ ĐỘ TRẺ EM"),
+    ("Open demo", "Mở bản demo"),
+    ("No project", "Chưa mở dự án"),
+    ("Saved", "đã lưu"),
+    ("Stopped", "đã dừng"),
+];
+
 const DA: &[(&str, &str)] = &[
     ("Perform", "Spil"),
     ("Arrange", "Arranger"),
@@ -148,6 +200,8 @@ fn table(language: Language) -> &'static [(&'static str, &'static str)] {
     match language {
         Language::En => EN,
         Language::Da => DA,
+        Language::Fr => FR,
+        Language::Vi => VI,
     }
 }
 
@@ -199,6 +253,8 @@ mod tests {
         for key in ALL {
             assert!(!text(Language::En, key).is_empty(), "{key:?} in English");
             assert!(!text(Language::Da, key).is_empty(), "{key:?} in Danish");
+            assert!(!text(Language::Fr, key).is_empty(), "{key:?} in French");
+            assert!(!text(Language::Vi, key).is_empty(), "{key:?} in Vietnamese");
         }
         assert_eq!(text(Language::Da, Key::Save), "Gem");
         assert_eq!(text(Language::Da, Key::Score), "Partitur");
@@ -210,7 +266,7 @@ mod tests {
 
     #[test]
     fn unknown_languages_fall_back_to_english() {
-        assert_eq!(Language::parse("fr"), Language::En);
+        assert_eq!(Language::parse("xx"), Language::En);
         assert_eq!(Language::parse("da"), Language::Da);
         assert_eq!(Language::parse("DA").tag(), "da");
     }

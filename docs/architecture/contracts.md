@@ -75,3 +75,12 @@ unverified; CI builds and tests are the only continuous evidence.
 5. Speech input and the socket transport (§29, §27).
 6. Plugin hosting/scanning (§19), a synth editor UI and sysex (§22), an L6max
    mixer page and project-file parsing (§26).
+
+### Playlist conversion and languages
+
+`library::List::from_book` turns a Music Finder book into playlist items, using
+the style name against a folder, the entry number as REGIST and the viewer flag
+off; `playlist-from-csv` writes the Yamaha TSV. Strings now ship in English,
+Danish, French and Vietnamese: every key has text in all four tables, and the
+language setting switches them at once. Plural rules and localized help do not
+exist.

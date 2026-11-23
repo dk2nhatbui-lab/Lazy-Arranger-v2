@@ -61,7 +61,7 @@ the wider ~90-tool MCP surface.
 | Chord conversion and rules | `arranger` | verified | oracle-pinned cases |
 | Scheduling with late-event clamping | `sequencer` | verified | clock tests |
 | MIDI devices, capture, all-notes-off | `midi-devices` | verified (hardware manual) | unit tests; hardware untested |
-| Music Finder books (JSON, CSV, MFD) | `library` | verified | MFD read 1,653 records from the real Nhat.mfd, matching the C++ doc; CLI music-finder-import |
+| Music Finder books (JSON, CSV, MFD) and CSV→playlist | `library`, CLI `music-finder-import`/`playlist-from-csv` | verified | MFD read 1,653 records; CSV→TSV wrote 2 entries with paths and REGIST |
 | Yamaha playlists (TSV) | `library` | verified | 4 round-trip tests, CRLF and ON/OFF flags |
 | Music Finder/playlist browser UI, tempo apply and style import | `library_view`, `app_commands::style_import`, Library window, CLI `library-import` | verified | filter/copy tests; real import 1 track/1,926 notes; ignored env test passes |
 | Audio-to-MIDI, monophonic | `audio::analysis` | implemented | `a_440_hz_tone_is_found`, `audio_to_midi_finds_an_a4_note` |
@@ -107,7 +107,7 @@ the wider ~90-tool MCP surface.
 | Song lyrics (schema v10) and MusicXML lyric interchange | `project`, `musicxml`, `score` | verified | JSON round trip; export/import lyric test; layout places them |
 | Dynamics and articulations (schema v11) | `project`, `musicxml`, `score`, renderers | verified | round trip; placed above/below staff; canvas/PDF text |
 | Settings file (language, grade, MIDI keyboard, metronome, reduced motion, Kids Mode) and shortcut list | `apps/desktop/src/settings.rs` | verified | round trip, clamping, missing file, unique keys |
-| English and Danish strings; Kids Mode restricts tabs and enlarges controls | `apps/desktop/src/strings.rs`, header | implemented | table completeness test; UI manual |
+| English, Danish, French and Vietnamese strings; Kids Mode restricts tabs and enlarges controls | `apps/desktop/src/strings.rs`, header | implemented | per-language completeness test; UI manual |
 | MIDI control map (notes/CC to actions) with text persistence and learn capture | `midi-devices::map`, CLI `midi-map-*` | verified | 6 tests + CLI bind/show run |
 | Live MIDI input applies mapped actions (play/stop/undo/scene/fader) | `midi-devices::devices::LiveInput`, shell `poll_midi` | implemented | compiles and runs with no device; hardware untested |
 | Numbered style catalog, resolution and by-number rendering | `style-formats::catalog`, CLI `style-catalog`/`style-resolve`/`style-by-number` | verified | resolve test; real library matched 'ABBA Fernando'; number 2 rendered 124 notes |
