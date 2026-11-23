@@ -112,3 +112,4 @@ For the clef layout, choose either four measures per system without clefs
 - Added Drums and Map tabs; right inspector keeps an inline assistant chat at the bottom (`docs/audit/ui-chat-panel.png`).
 - Metronome uses the C++-style vector icon and has an accent slider backed by `metronome::mix_accent` (`docs/audit/ui-metronome.png`).
 - Transport uses vector icons instead of glyph text (`docs/audit/ui-transport.png`).
+- Right inspector now spans the full height; mixer ends at its edge so the master fader no longer sits under the inspector; chat pinned to the panel bottom (`docs/audit/ui-chat-panel.png`).
