@@ -2172,6 +2172,7 @@ impl eframe::App for ShellApp {
                 let mut automation_edit: Option<(TrackId, project::song::Automation)> = None;
                 let mut audio_trim: Option<(TrackId, Tick)> = None;
                 let mut score_status: Option<String> = None;
+                let entry_enabled_flag = self.score_entry;
                 let mut perform_chord: Option<music_core::Chord> = None;
                 let mut lesson_next = false;
                 let mut lesson_reset = false;
@@ -2347,8 +2348,20 @@ impl eframe::App for ShellApp {
                                 crate::score_view::clamp_page(&engraved, self.score_page);
                             let zoom = self.score_zoom;
                             let page = self.score_page;
-                            if let Some(hit) = crate::score_view::show(ui, &engraved, page, zoom)
-                                && self.score_entry
+                            let outcome = crate::score_view::show(ui, &engraved, page, zoom);
+                            if let Some((tick, pitch)) = outcome.note {
+                                if let Some(entry) =
+                                    project.song.tracks.iter().find(|entry| entry.id == track)
+                                    && let Some(found) = entry.notes.iter().find(|note| {
+                                        note.start == tick && note.pitch.as_u8() == pitch
+                                    })
+                                {
+                                    self.selected_note = Some((track, found.id));
+                                    self.selected_notes.clear();
+                                    score_status = Some(format!("selected note {}", found.id));
+                                }
+                            } else if let Some(hit) = outcome.insert
+                                && entry_enabled_flag
                             {
                                 match music_core::Pitch::new(hit.pitch) {
                                     Ok(pitch) => match editor.insert(track, hit.tick, pitch) {

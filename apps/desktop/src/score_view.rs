@@ -4,6 +4,7 @@
 //! makes no musical decisions, so a PDF renderer can reuse the same layout.
 
 use egui::{Color32, Pos2, Rect, Stroke, Ui, Vec2};
+use music_core::Tick;
 use score::{Engraved, ScoreHit, Settings};
 
 use crate::theme;
@@ -29,8 +30,45 @@ pub fn clamp_page(engraved: &Engraved, page: usize) -> usize {
     page.min(engraved.pages.len().saturating_sub(1))
 }
 
-/// Draws one page and maps a click to a note position.
-pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) -> Option<ScoreHit> {
+/// What a score click produced.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScoreOutcome {
+    /// Insertion position when empty staff was clicked.
+    pub insert: Option<ScoreHit>,
+    /// Existing note (tick, pitch) when a notehead was clicked.
+    pub note: Option<(Tick, u8)>,
+}
+
+/// The notehead nearest a page position, within a notehead's reach.
+#[must_use]
+pub fn hit_note(
+    engraved: &Engraved,
+    page_index: usize,
+    zoom: f32,
+    origin: Pos2,
+    position: Pos2,
+) -> Option<(Tick, u8)> {
+    let page = engraved.pages.get(page_index)?;
+    let settings = Settings::default();
+    let local = Pos2::new(
+        (position.x - origin.x) / zoom,
+        (position.y - origin.y) / zoom,
+    );
+    let reach = settings.staff_space * 1.6;
+    page.systems
+        .iter()
+        .flat_map(|system| &system.measures)
+        .find(|measure| local.x >= measure.x && local.x <= measure.x_end)?;
+    engraved
+        .notes
+        .iter()
+        .filter(|note| note.page == page_index)
+        .find(|note| (note.x - local.x).abs() <= reach && (note.y - local.y).abs() <= reach)
+        .map(|note| (note.tick, note.pitch.as_u8()))
+}
+
+/// Draws one page and maps a click to a note or an insertion position.
+pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) -> ScoreOutcome {
     let settings = Settings::default();
     let page_index = clamp_page(engraved, page);
     let (response, painter) =
@@ -119,10 +157,19 @@ pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) -> Option<
         if let Some(position) = response.interact_pointer_pos()
             && response.clicked()
         {
-            return hit_test(engraved, page_index, &settings, zoom, origin, position);
+            if let Some(note) = hit_note(engraved, page_index, zoom, origin, position) {
+                return ScoreOutcome {
+                    note: Some(note),
+                    ..ScoreOutcome::default()
+                };
+            }
+            return ScoreOutcome {
+                insert: hit_test(engraved, page_index, &settings, zoom, origin, position),
+                ..ScoreOutcome::default()
+            };
         }
     }
-    None
+    ScoreOutcome::default()
 }
 
 fn hit_test(
@@ -159,6 +206,24 @@ fn hit_test(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use music_core::{Channel, PPQ, Pitch, Velocity};
+    use project::TrackId;
+    use project::song::{Note, Song, Track};
+
+    fn score_song() -> Song {
+        let mut song = Song::new("Score", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        song.tracks.push(track);
+        song
+    }
 
     #[test]
     fn pages_scale_with_zoom() {
@@ -167,6 +232,21 @@ mod tests {
         assert!((rect.width() - settings.page_width * 2.0).abs() < 0.01);
         let line = staff_line_y(100.0, 4, settings, 2.0);
         assert!((line - (200.0 + 4.0 * settings.staff_space * 2.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_click_near_a_notehead_finds_it() {
+        let score = score_song();
+        let engraved = score::engrave(
+            &score,
+            project::TrackId::new(1).expect("valid"),
+            Settings::default(),
+        );
+        let note = &engraved.notes[0];
+        let origin = Pos2::ZERO;
+        let found = hit_note(&engraved, 0, 1.0, origin, Pos2::new(note.x, note.y)).expect("hit");
+        assert_eq!(found.0, note.tick);
+        assert!(hit_note(&engraved, 0, 1.0, origin, Pos2::new(note.x + 500.0, note.y)).is_none());
     }
 
     #[test]

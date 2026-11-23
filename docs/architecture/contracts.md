@@ -199,3 +199,11 @@ them per track through `delete_notes` (one edit per track, undoable).
 rounding, one edit per changed track, and is shared by the editor and the MCP
 `quantize` tool; `set_velocity` sets one note. Pasting uses the tick under the
 pointer when it is over the roll, otherwise the playhead.
+
+### Score selection
+
+`score_view::hit_note` finds the notehead under a click (within 1.6 staff
+spaces) and the canvas returns either that note or an insertion position. The
+shell selects the matching project note, so the existing copy, cut, paste and
+delete keys work in the Score view. Chord-lane selection and a chord clipboard
+UI are still absent.
