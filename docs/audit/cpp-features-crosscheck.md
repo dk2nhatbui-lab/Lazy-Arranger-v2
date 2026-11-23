@@ -32,7 +32,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 23 | Controller pages, MIDI Map, MIDI Learn, channel check | partial | MIDI map model with text persistence, learn capture, CLI bind/show, and live application of play/stop/undo/scene/fader. No controller pages, on-screen learn dialog or channel check |
 | 24 | PSR-S970 tools | partial | Song export with setup bar, program, volume, pan, chord markers, lyrics and drums on channel 10; numbered style catalog and `style-by-number` rendering. No remote panel, audition queue or hardware verification |
 | 25 | Music Finder and Playlists | partial | JSON, CSV, TSV and MFD import (1,653-record real file), CLI. No browser UI, AI tools or CSV→playlist writer |
-| 26 | Zoom L6max mixer page and import | missing | No page or import. Note for the importer: the L6max records **32-bit float** audio; the WAV path now decodes 32-bit float, 24-bit and 32-bit PCM, and a 2 s 32-bit float file imported and mixed here |
+| 26 | Zoom L6max mixer page and import | partial | `audio::l6max` scans a folder of takes, reads headers, flags the L6max's 32-bit float recordings, reports problems and imports each take as an audio track at a start tick; `l6max-import` did so for two synthetic takes (3.20 s, one float). No device project-file parsing, mixer page or transport control |
 | 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | missing | Commands already provide single undo steps |
 | 28 | MCP server, ~90 tools | partial | Stdio JSON-RPC server with 22 tools (song, tracks, notes, chords, undo, doctor, grooves, forms, reharmonise, clip grid, slots, programs, automation, lyrics/marks, style catalog, theory) and save-after-call; `mcp-tools`/`mcp-call`. No socket transport, per-start secret or most of the ~90 target tools |
 | 29 | Speech in/out (Whisper, Kitten, Kokoro) | missing | — |
@@ -49,14 +49,14 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections at round 67: 0 fully verified beyond their Rust subset, 35 partial, 4 missing.
+39 sections at round 68: 0 fully verified beyond their Rust subset, 36 partial, 3 missing.
 The partials with the most depth are styles (open, import, compile, SFF1/SFF2 write), project files, the score layout/PDF path, audio references, the MIDI map and the MCP surface.
 
 ## State at round 60
 
 `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (438 tests) and
-`cargo doc` pass. The four missing sections are VST3/AU (§19), the L6max page/import (§26), the
-AI chat UI (§27) and speech (§29).
+`cargo doc` pass. The three missing sections are VST3/AU (§19), the AI chat UI (§27) and speech
+(§29).
 Korg import, PSR style import, SoundFont loading, the L6max page (its 32-bit float audio
 recordings already decode), waveform audio editing,
 grand-staff/beam engraving, note entry, socket transport and a 90-tool MCP
@@ -73,4 +73,5 @@ unverified; CI builds and tests are the only continuous evidence.
 3. Korg import, PSR style import and SoundFont loading (§14, §20, §24).
 4. Grand staff, beams, tuplets and note entry in the score (§16).
 5. AI chat UI, speech and the socket transport (§27, §29).
-6. Plugin hosting (§19), a synth editor UI and sysex (§22), L6max (§26).
+6. Plugin hosting (§19), a synth editor UI and sysex (§22), an L6max mixer page
+   and project-file parsing (§26).

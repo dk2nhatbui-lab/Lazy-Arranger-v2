@@ -732,3 +732,12 @@ decay, sustain, release and brightness. The render uses the patch instead of the
 timbre's fixed envelope when one is set, with an amplitude envelope computed from
 the note length. `SetTrackPatch` sets or clears it as one undo step. There is no
 editor UI, per-device panel (D-05, XioSynth, S970 XG, L6max) or sysex dump.
+
+### L6max takes
+
+The L6max records 32-bit float WAV takes. `audio::l6max::scan` reads a folder's
+`.wav` files, reports duration, channels, rate, bit depth and whether each is
+32-bit float, and lists unreadable files rather than failing. `l6max-import`
+adds each take as an audio track at a start tick, with length computed at the
+project tempo. Device project files, marker metadata and the L6max mixer page
+are not parsed or implemented.

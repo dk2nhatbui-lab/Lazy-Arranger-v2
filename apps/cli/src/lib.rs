@@ -221,6 +221,20 @@ enum Commands {
         /// Action, e.g. `play`, `stop`, `scene 1`, `fader track-2`.
         action: String,
     },
+    /// Import Zoom L6max takes as audio tracks and report the plan.
+    L6maxImport {
+        /// Folder holding the recorded `.wav` takes.
+        folder: PathBuf,
+        /// Base project `.json` path.
+        #[arg(long)]
+        project: PathBuf,
+        /// Output project `.json` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Timeline tick where every take starts.
+        #[arg(long, default_value_t = 0)]
+        start: Tick,
+    },
     /// Generate a part: humanise notes, drumify bars or write bass/pad/arp.
     Generate {
         /// Project `.json` path.
@@ -701,6 +715,46 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 entry.path.display()
             );
             style_command(&entry.path, section.as_deref(), out.as_ref(), &[], false)
+        }
+        Commands::L6maxImport {
+            folder,
+            project,
+            out,
+            start,
+        } => {
+            let project = read_project(&project)?;
+            let plan = audio::l6max::scan(&folder)?;
+            if plan.takes.is_empty() {
+                return Err(format!("no readable takes in {}", folder.display()).into());
+            }
+            let mut session = EditSession::new(project)?;
+            let bpm = session.song().tempo_map.bpm_at(start);
+            let mut imported = 0_usize;
+            for take in &plan.takes {
+                let track_id = session.next_track_id()?;
+                let mut track = Track::new(track_id, take.name.clone());
+                track.audio = Some(project::song::AudioRef {
+                    path: take.path.display().to_string(),
+                    start,
+                    length: audio::chords::to_ticks(take.seconds, bpm),
+                    offset: 0,
+                });
+                session.apply(Command::InsertTrack { track })?;
+                imported += 1;
+            }
+            let json = session.project().to_json_pretty()?;
+            fs::write(&out, json)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!(
+                "imported {imported} take(s), {:.2} s total, {} 32-bit float -> {}",
+                plan.seconds(),
+                plan.float32(),
+                out.display()
+            );
+            for (path, reason) in &plan.problems {
+                eprintln!("skipped {}: {reason}", path.display());
+            }
+            Ok(())
         }
         Commands::Generate {
             project,
