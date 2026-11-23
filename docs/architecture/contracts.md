@@ -89,6 +89,6 @@ exist.
 
 Kids Mode keeps two tabs and builds a `kids::Lesson` from the song's chords; the
 Perform view shows the current chord large, progress, Next chord and Start
-over, plus 16 big chord pads that audition through the cpal player. The lesson
-does not follow song edits after it is built, and there are no kid-specific
-songs or simplified editor.
+over, plus 16 big chord pads that audition through the cpal player. `Lesson::sync` rebuilds it when the chord list changes while keeping the step
+when possible, and the Perform view can load `demo::kids_song` (four slow
+chords). There is no simplified editor.

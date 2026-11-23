@@ -153,6 +153,41 @@ pub fn demo_song() -> Song {
     song
 }
 
+/// A short, slow four-chord demo for Kids Mode.
+#[must_use]
+pub fn kids_song() -> Song {
+    let mut song = Song::new("Kids demo", 90.0);
+    let bar = song.time_signature.bar_ticks();
+    let progression = ["C", "F", "G", "C"];
+    let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+    let mut next = 0_u32;
+    for (index, symbol) in progression.iter().enumerate() {
+        let start = index as Tick * bar;
+        let Ok(chord) = Chord::parse(symbol) else {
+            continue;
+        };
+        song.chords.push(project::ChordEvent { tick: start, chord });
+        for tone in chord.tones(3) {
+            next += 1;
+            push_note(
+                &mut track,
+                next,
+                start,
+                bar,
+                tone.as_u8(),
+                80,
+                Channel::first(),
+            );
+        }
+    }
+    song.tracks.push(track);
+    song.lyrics.push(project::song::LyricEvent {
+        tick: 0,
+        text: String::from("C"),
+    });
+    song
+}
+
 fn transpose(pitch: Pitch, semitones: u8) -> Pitch {
     let value = pitch.as_u8().saturating_add(semitones).min(127);
     Pitch::new(value).unwrap_or(pitch)
@@ -213,6 +248,17 @@ mod tests {
         assert!(song.tracks.iter().all(|track| track.clips.len() == 1));
         assert_eq!(song.marks.len(), 2);
         assert_eq!(song.markers.len(), 2);
+    }
+
+    #[test]
+    fn the_kids_demo_is_short_and_slow() {
+        let song = kids_song();
+        assert_eq!(song.chords.len(), 4);
+        assert_eq!(song.tracks.len(), 1);
+        assert_eq!(song.tracks[0].notes.len(), 12);
+        assert!(song.tempo_map.bpm_at(0) < 100.0);
+        let issues = project::validate::validate(&project::song::ProjectFile::new(song.clone()));
+        assert!(issues.is_empty(), "{issues:?}");
     }
 
     #[test]

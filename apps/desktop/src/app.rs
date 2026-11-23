@@ -1964,10 +1964,9 @@ impl eframe::App for ShellApp {
         self.status_bar(context);
         self.sidebar(context);
         let kids = self.settings.kids_mode;
-        if kids && self.lesson.is_empty() {
-            self.lesson = crate::kids::Lesson::new(
-                self.song().chords.iter().map(|event| event.chord).collect(),
-            );
+        if kids {
+            self.lesson
+                .sync(self.song().chords.iter().map(|event| event.chord).collect());
         }
         let lesson = self.lesson.clone();
         let pads = music_core::roman::pads(self.key);
@@ -1984,6 +1983,7 @@ impl eframe::App for ShellApp {
                 let mut perform_chord: Option<music_core::Chord> = None;
                 let mut lesson_next = false;
                 let mut lesson_reset = false;
+                let mut kids_load = false;
                 let Self { editor, roll, .. } = self;
                 let selected_clip = self.selected_clip;
                 let project = editor.project();
@@ -2071,6 +2071,15 @@ impl eframe::App for ShellApp {
                                         .clicked()
                                     {
                                         lesson_reset = true;
+                                    }
+                                    if ui
+                                        .add_sized(
+                                            [150.0, 40.0],
+                                            egui::Button::new("Load kids demo"),
+                                        )
+                                        .clicked()
+                                    {
+                                        kids_load = true;
                                     }
                                 });
                             });
@@ -2170,6 +2179,7 @@ impl eframe::App for ShellApp {
                     perform_chord,
                     lesson_next,
                     lesson_reset,
+                    kids_load,
                 )
             });
         let (
@@ -2180,6 +2190,7 @@ impl eframe::App for ShellApp {
             perform_chord,
             lesson_next,
             lesson_reset,
+            kids_load,
         ) = panel.inner;
         if let Some(click) = clicked {
             self.edit_click(click);
@@ -2189,6 +2200,15 @@ impl eframe::App for ShellApp {
         }
         if lesson_reset {
             self.lesson.reset();
+        }
+        if kids_load {
+            match self.editor.load_kids_demo() {
+                Ok(()) => {
+                    self.status = Some(String::from("Kids demo loaded"));
+                    self.lesson.reset();
+                }
+                Err(error) => self.status = Some(error),
+            }
         }
         if let Some(chord) = perform_chord {
             let mut song = Song::new("Pads", 120.0);

@@ -38,6 +38,17 @@ impl Lesson {
         self.current()
     }
 
+    /// Rebuilds the lesson when the chord list changed, keeping the position
+    /// when the new list is long enough.
+    pub fn sync(&mut self, chords: Vec<Chord>) -> bool {
+        if self.chords == chords {
+            return false;
+        }
+        self.chords = chords;
+        self.index = self.index.min(self.chords.len());
+        true
+    }
+
     /// Starts over.
     pub fn reset(&mut self) {
         self.index = 0;
@@ -72,6 +83,18 @@ mod tests {
         assert_eq!(lesson.progress(), (3, 3));
         lesson.reset();
         assert_eq!(lesson.current(), Some(chord("C")));
+    }
+
+    #[test]
+    fn syncing_keeps_the_position_when_possible() {
+        let mut lesson = Lesson::new(vec![chord("C"), chord("F"), chord("G")]);
+        lesson.advance();
+        assert!(!lesson.sync(vec![chord("C"), chord("F"), chord("G")]));
+        assert_eq!(lesson.current(), Some(chord("F")));
+        assert!(lesson.sync(vec![chord("C"), chord("F"), chord("G"), chord("Am")]));
+        assert_eq!(lesson.current(), Some(chord("F")), "position kept");
+        assert!(lesson.sync(vec![chord("C")]));
+        assert_eq!(lesson.current(), None, "position clamped");
     }
 
     #[test]
