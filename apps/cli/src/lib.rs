@@ -737,6 +737,9 @@ enum Commands {
         /// Split notes below C3 into a bass part and the rest into melody.
         #[arg(long)]
         split_parts: bool,
+        /// Split into sections of this many 4/4 bars (0 keeps one section).
+        #[arg(long, default_value_t = 0)]
+        section_bars: u32,
         /// sff1 or sff2 (default).
         #[arg(long, default_value = "sff2")]
         version: String,
@@ -2051,8 +2054,18 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             section,
             chord,
             split_parts,
+            section_bars,
             version,
-        } => style_from_audio(&audio, &out, bpm, &section, &chord, split_parts, &version),
+        } => style_from_audio(
+            &audio,
+            &out,
+            bpm,
+            &section,
+            &chord,
+            split_parts,
+            section_bars,
+            &version,
+        ),
         Commands::StyleFromClips {
             project,
             out,
@@ -2650,6 +2663,7 @@ fn auto_style_chord(samples: &[f32], sample_rate: u32, bpm: f64) -> Option<Chord
     best.map(|(chord, _)| chord)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn style_from_audio(
     audio_path: &PathBuf,
     out: &PathBuf,
@@ -2657,6 +2671,7 @@ fn style_from_audio(
     section: &str,
     chord: &str,
     split_parts: bool,
+    section_bars: u32,
     version: &str,
 ) -> Result<(), Box<dyn Error>> {
     let decoded = audio::decode::decode_mono(audio_path).or_else(|_| {
@@ -2698,14 +2713,52 @@ fn style_from_audio(
         .file_stem()
         .and_then(|stem| stem.to_str())
         .unwrap_or("Audio style");
-    let mut style = if split_parts {
-        arranger::style::from_notes_split(name, source, length, notes)
+    let style = if section_bars == 0 {
+        let mut style = if split_parts {
+            arranger::style::from_notes_split(name, source, length, notes)
+        } else {
+            arranger::style::from_notes(name, source, length, notes)
+        };
+        if let Some(first) = style.sections.first_mut() {
+            first.name = section.to_string();
+        }
+        style
     } else {
-        arranger::style::from_notes(name, source, length, notes)
+        let section_length = i64::from(section_bars) * 4 * music_core::PPQ;
+        let names = ["Main A", "Main B", "Main C", "Main D"];
+        let mut merged = arranger::style::Style::new(name, source);
+        let count = ((length + section_length - 1) / section_length).max(1);
+        for index in 0..count {
+            let start = index * section_length;
+            let stop = (start + section_length).min(length);
+            let local: Vec<arranger::style::StyleNote> = notes
+                .iter()
+                .filter(|note| note.tick >= start && note.tick < stop)
+                .map(|note| arranger::style::StyleNote {
+                    tick: note.tick - start,
+                    duration: note.duration.min(stop - note.tick),
+                    ..*note
+                })
+                .collect();
+            if local.is_empty() {
+                continue;
+            }
+            let mut part_style = if split_parts {
+                arranger::style::from_notes_split(name, source, stop - start, local)
+            } else {
+                arranger::style::from_notes(name, source, stop - start, local)
+            };
+            if let Some(part_section) = part_style.sections.first_mut() {
+                part_section.name = names
+                    .get(index as usize)
+                    .copied()
+                    .unwrap_or("Section")
+                    .to_string();
+                merged.sections.push(part_section.clone());
+            }
+        }
+        merged
     };
-    if let Some(first) = style.sections.first_mut() {
-        first.name = section.to_string();
-    }
     let version = match version {
         "sff1" => style_formats::casm::SffVersion::Sff1,
         "sff2" => style_formats::casm::SffVersion::Sff2,
@@ -2719,9 +2772,12 @@ fn style_from_audio(
         "wrote {}: source {}, {} detected note(s), {} section(s), {} byte(s); re-read {:?}",
         out.display(),
         source_chord.format(music_core::Spelling::Sharp),
-        style.sections.first().map_or(0, |section| {
-            section.parts.iter().map(|part| part.notes.len()).sum()
-        }),
+        style
+            .sections
+            .iter()
+            .flat_map(|section| &section.parts)
+            .map(|part| part.notes.len())
+            .sum::<usize>(),
         style.sections.len(),
         bytes.len(),
         check.section_names()
