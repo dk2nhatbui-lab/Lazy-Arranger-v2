@@ -504,6 +504,8 @@ pub struct ShellApp {
     style_from_markers: bool,
     style_path: String,
     style_sff1: bool,
+    style_draft: Option<arranger::style::Style>,
+    style_rules_open: bool,
     master_fx_open: bool,
     master_fx_choice: usize,
     bus_fx_open: bool,
@@ -712,6 +714,8 @@ impl ShellApp {
             style_from_markers: true,
             style_path: String::from("clips.sty"),
             style_sff1: false,
+            style_draft: None,
+            style_rules_open: false,
             master_fx_open: std::env::var("ARRANGER_MASTER_FX").is_ok(),
             master_fx_choice: 0,
             bus_fx_open: std::env::var("ARRANGER_BUS_FX").is_ok(),
@@ -2739,6 +2743,145 @@ impl ShellApp {
         self.master_fx_open = open;
     }
 
+    fn style_rules_window(&mut self, context: &Context) {
+        if !self.style_rules_open {
+            return;
+        }
+        let mut open = self.style_rules_open;
+        egui::Window::new("Style rules")
+            .open(&mut open)
+            .resizable(true)
+            .default_width(620.0)
+            .show(context, |ui| {
+                let Some(style) = self.style_draft.as_mut() else {
+                    ui.label("No style draft.");
+                    return;
+                };
+                ui.label(
+                    egui::RichText::new(
+                        "Rules apply to the exported style; notes stay as recorded.",
+                    )
+                    .size(10.0)
+                    .color(theme::text_dim()),
+                );
+                let roots = [
+                    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+                ];
+                for section in &mut style.sections {
+                    ui.separator();
+                    ui.label(egui::RichText::new(&section.name).strong());
+                    for part in &mut section.parts {
+                        ui.group(|ui| {
+                            ui.label(
+                                egui::RichText::new(&part.name)
+                                    .size(11.0)
+                                    .color(theme::text_muted()),
+                            );
+                            ui.horizontal(|ui| {
+                                ui.label("dest ch");
+                                ui.add(
+                                    egui::DragValue::new(&mut part.rule.dest_channel).range(9..=16),
+                                );
+                                ui.label("written root");
+                                let root = usize::from(part.rule.source_root.min(11));
+                                egui::ComboBox::from_id_salt(format!(
+                                    "rule-root-{}-{}",
+                                    section.name, part.name
+                                ))
+                                .selected_text(roots[root])
+                                .show_ui(ui, |ui| {
+                                    for (index, name) in roots.iter().enumerate() {
+                                        ui.selectable_value(
+                                            &mut part.rule.source_root,
+                                            index as u8,
+                                            *name,
+                                        );
+                                    }
+                                });
+                                egui::ComboBox::from_id_salt(format!(
+                                    "rule-type-{}-{}",
+                                    section.name, part.name
+                                ))
+                                .selected_text(part.rule.source_chord_type.suffix())
+                                .show_ui(ui, |ui| {
+                                    for chord_type in arranger::chord_type::ALL_TYPES {
+                                        ui.selectable_value(
+                                            &mut part.rule.source_chord_type,
+                                            chord_type,
+                                            if chord_type.suffix().is_empty() {
+                                                "major"
+                                            } else {
+                                                chord_type.suffix()
+                                            },
+                                        );
+                                    }
+                                });
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("NTR");
+                                egui::ComboBox::from_id_salt(format!(
+                                    "rule-ntr-{}-{}",
+                                    section.name, part.name
+                                ))
+                                .selected_text(format!("{:?}", part.rule.transpose.ntr))
+                                .show_ui(ui, |ui| {
+                                    for value in [
+                                        arranger::rules::Ntr::RootTransposition,
+                                        arranger::rules::Ntr::RootFixed,
+                                        arranger::rules::Ntr::Guitar,
+                                    ] {
+                                        ui.selectable_value(
+                                            &mut part.rule.transpose.ntr,
+                                            value,
+                                            format!("{value:?}"),
+                                        );
+                                    }
+                                });
+                                ui.label("NTT");
+                                egui::ComboBox::from_id_salt(format!(
+                                    "rule-ntt-{}-{}",
+                                    section.name, part.name
+                                ))
+                                .selected_text(format!("{:?}", part.rule.transpose.ntt))
+                                .show_ui(ui, |ui| {
+                                    for value in [
+                                        arranger::rules::Ntt::Bypass,
+                                        arranger::rules::Ntt::Melody,
+                                        arranger::rules::Ntt::Chord,
+                                    ] {
+                                        ui.selectable_value(
+                                            &mut part.rule.transpose.ntt,
+                                            value,
+                                            format!("{value:?}"),
+                                        );
+                                    }
+                                });
+                                ui.checkbox(&mut part.rule.transpose.bass, "follow bass");
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("high key");
+                                ui.add(
+                                    egui::DragValue::new(&mut part.rule.transpose.high_key)
+                                        .range(0..=11),
+                                );
+                                ui.label("low");
+                                ui.add(
+                                    egui::DragValue::new(&mut part.rule.transpose.low_limit)
+                                        .range(0..=127),
+                                );
+                                ui.label("high");
+                                ui.add(
+                                    egui::DragValue::new(&mut part.rule.transpose.high_limit)
+                                        .range(0..=127),
+                                );
+                            });
+                        });
+                    }
+                }
+            });
+        self.style_rules_open = open;
+    }
+
     fn style_clips_window(&mut self, context: &Context) {
         if !self.style_clips_open {
             return;
@@ -2767,17 +2910,31 @@ impl ShellApp {
                     ui.add(egui::TextEdit::singleline(&mut self.style_path).desired_width(220.0));
                 });
                 ui.checkbox(&mut self.style_sff1, "SFF1 instead of SFF2");
-                if ui.button("Export style").clicked() {
-                    match self.export_style_from_clips() {
-                        Ok(message) => self.status = Some(message),
-                        Err(error) => self.status = Some(error),
+                ui.horizontal(|ui| {
+                    if ui.button("Export style").clicked() {
+                        match self.export_style_from_clips() {
+                            Ok(message) => self.status = Some(message),
+                            Err(error) => self.status = Some(error),
+                        }
                     }
-                }
+                    if ui.button("Edit rules").clicked() {
+                        match self.build_style_from_clips() {
+                            Ok(style) => {
+                                self.style_draft = Some(style);
+                                self.style_rules_open = true;
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                });
             });
         self.style_clips_open = open;
     }
 
-    fn export_style_from_clips(&self) -> Result<String, String> {
+    fn build_style_from_clips(&self) -> Result<arranger::style::Style, String> {
+        if let Some(draft) = &self.style_draft {
+            return Ok(draft.clone());
+        }
         let chord =
             music_core::Chord::parse(&self.style_chord).map_err(|error| error.to_string())?;
         let source = arranger::chord_type::ArrangerChord::try_from(&chord)
@@ -2797,6 +2954,11 @@ impl ShellApp {
         {
             first.name = self.style_name.clone();
         }
+        Ok(style)
+    }
+
+    fn export_style_from_clips(&self) -> Result<String, String> {
+        let style = self.build_style_from_clips()?;
         let version = if self.style_sff1 {
             style_formats::casm::SffVersion::Sff1
         } else {
@@ -6223,6 +6385,7 @@ impl eframe::App for ShellApp {
         self.plugins_window(context);
         self.patch_window(context);
         self.style_clips_window(context);
+        self.style_rules_window(context);
         self.master_fx_window(context);
         self.bus_fx_window(context);
         self.au_parameters_window(context);
