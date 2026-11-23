@@ -102,3 +102,11 @@ voice are rejected with line numbers. `nearest_in_profile` scores track words
 against voice names and falls back to the GM keyword guess. Banks and drum kits
 are stored but export does not use them, and no device other than the built-in
 PSR-S970 subset ships.
+
+### Profile banks in export
+
+`Voice` carries an optional `(MSB, LSB)` bank. Keyboard export writes CC 0 and
+CC 32 before the program when present, and the audit records both. With
+`--profile`, non-drum tracks take the profile's nearest voice and its first
+bank; drum tracks take the first kit's program and bank. A run on the demo
+produced msb [63, 0, 0, 0] and lsb [0, 1, 1, 1].

@@ -61,7 +61,7 @@ the wider ~90-tool MCP surface.
 | Chord conversion and rules | `arranger` | verified | oracle-pinned cases |
 | Scheduling with late-event clamping | `sequencer` | verified | clock tests |
 | MIDI devices, capture, all-notes-off | `midi-devices` | verified (hardware manual) | unit tests; hardware untested |
-| Device profiles from a YAML subset (voices, banks, drum kits) | `midi-devices::profiles`, CLI `device-profile` | verified | parse/validation/matching tests; real file resolved a bass voice |
+| Device profiles: YAML voices, banks and kits drive voices and bank select | `midi-devices::profiles`, `smf::keyboard`, CLI `export-keyboard --profile` | verified | parse tests; export audit banks [63,0,0,0]/[0,1,1,1]; bass resolved to 33 |
 | Music Finder books (JSON, CSV, MFD) and CSV→playlist | `library`, CLI `music-finder-import`/`playlist-from-csv` | verified | MFD read 1,653 records; CSV→TSV wrote 2 entries with paths and REGIST |
 | Yamaha playlists (TSV) | `library` | verified | 4 round-trip tests, CRLF and ON/OFF flags |
 | Music Finder/playlist browser UI, tempo apply and style import | `library_view`, `app_commands::style_import`, Library window, CLI `library-import` | verified | filter/copy tests; real import 1 track/1,926 notes; ignored env test passes |

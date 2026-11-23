@@ -190,6 +190,10 @@ pub struct Bank {
     pub name: String,
     /// MIDI program number.
     pub program: u8,
+    /// Bank select MSB.
+    pub msb: Option<u8>,
+    /// Bank select LSB.
+    pub lsb: Option<u8>,
 }
 
 /// A drum kit loaded from a profile.
@@ -199,6 +203,10 @@ pub struct DrumKit {
     pub name: String,
     /// MIDI program number.
     pub program: u8,
+    /// Bank select MSB.
+    pub msb: Option<u8>,
+    /// Bank select LSB.
+    pub lsb: Option<u8>,
 }
 
 /// A profile loaded from the YAML subset this build understands.
@@ -233,17 +241,38 @@ pub fn parse_yaml(text: &str) -> Result<LoadedProfile, String> {
     }
     let mut profile = LoadedProfile::default();
     let mut section = Section::None;
-    let mut pending: Option<(String, Option<u8>)> = None;
+    struct Pending {
+        name: Option<String>,
+        program: Option<u8>,
+        msb: Option<u8>,
+        lsb: Option<u8>,
+    }
+    let mut pending: Option<Pending> = None;
     let flush = |profile: &mut LoadedProfile,
                  section: &Section,
-                 pending: &mut Option<(String, Option<u8>)>|
+                 pending: &mut Option<Pending>|
      -> Result<(), String> {
-        if let Some((name, program)) = pending.take() {
-            let program = program.ok_or_else(|| format!("{name}: missing program"))?;
+        if let Some(item) = pending.take() {
+            let name = item
+                .name
+                .ok_or_else(|| String::from("list item needs a name"))?;
+            let program = item
+                .program
+                .ok_or_else(|| format!("{name}: missing program"))?;
             match section {
                 Section::Voices => profile.voices.push((name, program)),
-                Section::Banks => profile.banks.push(Bank { name, program }),
-                Section::DrumKits => profile.drum_kits.push(DrumKit { name, program }),
+                Section::Banks => profile.banks.push(Bank {
+                    name,
+                    program,
+                    msb: item.msb,
+                    lsb: item.lsb,
+                }),
+                Section::DrumKits => profile.drum_kits.push(DrumKit {
+                    name,
+                    program,
+                    msb: item.msb,
+                    lsb: item.lsb,
+                }),
                 Section::None => return Err(String::from("list item outside a section")),
             }
         }
@@ -260,7 +289,12 @@ pub fn parse_yaml(text: &str) -> Result<LoadedProfile, String> {
             let Some(name) = rest.trim().strip_prefix("name:") else {
                 return Err(error("a list item must start with name:"));
             };
-            pending = Some((name.trim().to_string(), None));
+            pending = Some(Pending {
+                name: Some(name.trim().to_string()),
+                program: None,
+                msb: None,
+                lsb: None,
+            });
             continue;
         }
         let (key, value) = trimmed
@@ -279,16 +313,20 @@ pub fn parse_yaml(text: &str) -> Result<LoadedProfile, String> {
                     _ => Section::DrumKits,
                 };
             }
-            "program" => {
-                let program: u8 = value
+            "program" | "msb" | "lsb" => {
+                let number: u8 = value
                     .parse()
-                    .map_err(|_| error("program must be 0..=127"))?;
-                if program > 127 {
-                    return Err(error("program must be 0..=127"));
+                    .map_err(|_| error("program, msb and lsb must be 0..=127"))?;
+                if number > 127 {
+                    return Err(error("program, msb and lsb must be 0..=127"));
                 }
                 match &mut pending {
-                    Some((_, slot)) => *slot = Some(program),
-                    None => return Err(error("program without a list item")),
+                    Some(item) => match key {
+                        "program" => item.program = Some(number),
+                        "msb" => item.msb = Some(number),
+                        _ => item.lsb = Some(number),
+                    },
+                    None => return Err(error("value without a list item")),
                 }
             }
             other => return Err(error(&format!("unknown key {other:?}"))),
@@ -363,6 +401,8 @@ banks:
 drum_kits:
   - name: Standard Kit
     program: 0
+    msb: 63
+    lsb: 0
 "#;
 
     #[test]
@@ -372,6 +412,8 @@ drum_kits:
         assert_eq!(profile.voices.len(), 2);
         assert_eq!(profile.banks.len(), 1);
         assert_eq!(profile.drum_kits[0].name, "Standard Kit");
+        assert_eq!(profile.banks[0].msb, None);
+        assert_eq!(profile.drum_kits[0].msb, Some(63));
         assert_eq!(nearest_in_profile(&profile, "Finger Bass"), 33);
         assert_eq!(nearest_in_profile(&profile, "piano"), 0);
         assert_eq!(

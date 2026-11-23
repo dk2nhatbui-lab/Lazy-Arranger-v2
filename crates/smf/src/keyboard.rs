@@ -20,6 +20,8 @@ pub struct Voice {
     pub volume: u8,
     /// Initial pan, 0..=127.
     pub pan: u8,
+    /// Bank select (MSB, LSB) written before the program.
+    pub bank: Option<(u8, u8)>,
 }
 
 impl Default for Voice {
@@ -29,6 +31,7 @@ impl Default for Voice {
             program: 0,
             volume: 100,
             pan: 64,
+            bank: None,
         }
     }
 }
@@ -61,6 +64,10 @@ pub struct Audit {
     pub volumes: Vec<u8>,
     /// Pan values.
     pub pans: Vec<u8>,
+    /// Bank select MSB values (CC 0).
+    pub banks_msb: Vec<u8>,
+    /// Bank select LSB values (CC 32).
+    pub banks_lsb: Vec<u8>,
     /// Markers that name a chord.
     pub chord_markers: usize,
     /// Lyric meta events.
@@ -130,8 +137,10 @@ pub fn audit(bytes: &[u8]) -> Result<Audit, String> {
                     let value = *body.get(position + 1).ok_or("truncated cc")?;
                     position += 2;
                     match controller {
+                        0 => audit.banks_msb.push(value),
                         7 => audit.volumes.push(value),
                         10 => audit.pans.push(value),
+                        32 => audit.banks_lsb.push(value),
                         _ => {}
                     }
                 }
@@ -232,6 +241,10 @@ pub fn export(song: &Song, voices: &[Voice], lyrics: &[(Tick, String)]) -> (Vec<
     ));
     for (index, voice) in voices.iter().enumerate() {
         let channel = voice.channel & 0x0f;
+        if let Some((msb, lsb)) = voice.bank {
+            setup.push((0, vec![0xb0 | channel, 0, msb & 0x7f]));
+            setup.push((0, vec![0xb0 | channel, 32, lsb & 0x7f]));
+        }
         setup.push((0, vec![0xc0 | channel, voice.program & 0x7f]));
         setup.push((0, vec![0xb0 | channel, 7, voice.volume & 0x7f]));
         setup.push((0, vec![0xb0 | channel, 10, voice.pan & 0x7f]));
@@ -371,12 +384,14 @@ mod tests {
                 program: 0,
                 volume: 100,
                 pan: 64,
+                bank: None,
             },
             Voice {
                 channel: 9,
                 program: 0,
                 volume: 110,
                 pan: 64,
+                bank: None,
             },
         ];
         let (bytes, report) = export(&song(), &voices, &[(0, String::from("la"))]);
@@ -430,6 +445,7 @@ mod tests {
             program: 40,
             volume: 90,
             pan: 30,
+            bank: None,
         }];
         let (bytes, _) = export(&song(), &voices, &[]);
         assert!(contains(&bytes, &[0xc2, 40]));
@@ -477,12 +493,14 @@ mod audit_tests {
                 program: 4,
                 volume: 100,
                 pan: 64,
+                bank: Some((0, 1)),
             },
             Voice {
                 channel: 9,
                 program: 0,
                 volume: 90,
                 pan: 64,
+                bank: Some((63, 0)),
             },
         ];
         let (bytes, report) = export(&song, &voices, &[(0, String::from("la"))]);
@@ -492,6 +510,8 @@ mod audit_tests {
         assert!(audit.programs.contains(&4));
         assert_eq!(audit.volumes, vec![100, 90]);
         assert_eq!(audit.pans, vec![64, 64]);
+        assert_eq!(audit.banks_msb, vec![0, 63]);
+        assert_eq!(audit.banks_lsb, vec![1, 0]);
         assert_eq!(audit.chord_markers, 1);
         assert_eq!(audit.lyrics, 1);
         assert!(audit.drum_note_ons >= 1);

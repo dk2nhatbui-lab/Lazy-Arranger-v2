@@ -137,6 +137,9 @@ enum Commands {
         /// Voice per track as CHANNEL:PROGRAM, repeatable.
         #[arg(long = "voice", value_name = "CHANNEL:PROGRAM")]
         voices: Vec<String>,
+        /// Device profile YAML; enables profile voices and bank select.
+        #[arg(long)]
+        profile: Option<PathBuf>,
     },
     /// Add an audio file to a project as an audio track reference.
     AddAudio {
@@ -598,9 +601,21 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             project,
             out,
             voices,
+            profile,
         } => {
             let project = read_project(&project)?;
-            let profile = &midi_devices::PSR_S970;
+            let built_in = &midi_devices::PSR_S970;
+            let loaded = match &profile {
+                Some(path) => Some(midi_devices::profiles::load_file(path)?),
+                None => None,
+            };
+            let first_bank = loaded.as_ref().and_then(|loaded| {
+                loaded
+                    .banks
+                    .iter()
+                    .find_map(|bank| Some((bank.msb?, bank.lsb?)))
+            });
+            let kit = loaded.as_ref().and_then(|loaded| loaded.drum_kits.first());
             let mut chosen: Vec<smf::KeyboardVoice> = project
                 .song
                 .tracks
@@ -612,17 +627,30 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                             .notes
                             .iter()
                             .any(|note| note.channel.zero_based() == 9);
+                    let (program, bank) = if drums {
+                        (
+                            kit.map_or(0, |kit| kit.program),
+                            kit.and_then(|kit| Some((kit.msb?, kit.lsb?))),
+                        )
+                    } else {
+                        let program = track.program.unwrap_or_else(|| match &loaded {
+                            Some(loaded) => {
+                                midi_devices::profiles::nearest_in_profile(loaded, &track.name)
+                            }
+                            None => midi_devices::nearest_voice(built_in, &track.name),
+                        });
+                        (program, first_bank)
+                    };
                     smf::KeyboardVoice {
                         channel: if drums {
                             9
                         } else {
                             u8::try_from(index).unwrap_or(0) & 0x0f
                         },
-                        program: track
-                            .program
-                            .unwrap_or_else(|| midi_devices::nearest_voice(profile, &track.name)),
+                        program,
                         volume: track.volume.min(127),
                         pan: track.pan.min(127),
+                        bank,
                     }
                 })
                 .collect();
@@ -674,6 +702,10 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 audit.chord_markers,
                 audit.lyrics,
                 audit.drum_note_ons
+            );
+            println!(
+                "audit banks: msb {:?}, lsb {:?}",
+                audit.banks_msb, audit.banks_lsb
             );
             Ok(())
         }
