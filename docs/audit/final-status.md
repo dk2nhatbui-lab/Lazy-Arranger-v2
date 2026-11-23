@@ -108,3 +108,4 @@ For the clef layout, choose either four measures per system without clefs
 - UI pass: instrument icons in track rows, right-aligned track flags, master fader pinned to the mixer's far right, song title in the window bar (`docs/audit/ui-master.png`).
 - Track icons mirror the C++ `Icons.h` geometry and `TimelineViews.cpp` mapping; GM program names/picker added.
 - Wider default window reveals the CoreAudio/zoom cluster; inspector program picker and Audio/MIDI settings button; `docs/audit/ui-wide.png`.
+- UI pass: wider default window, editable inspector track name, patch text in track rows, Chords-on line (`docs/audit/ui-wide.png`).

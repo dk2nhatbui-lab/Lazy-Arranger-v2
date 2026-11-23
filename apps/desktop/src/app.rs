@@ -552,6 +552,8 @@ pub struct ShellApp {
     about_open: bool,
     mixer_visible: bool,
     timeline_mode: bool,
+    inspector_name_track: Option<TrackId>,
+    inspector_name: String,
     device_profiles: Vec<midi_devices::profiles::LoadedProfile>,
     device_editor_open: bool,
     device_editor_profile: usize,
@@ -644,7 +646,6 @@ pub struct ShellApp {
     plugin_error: Option<String>,
     inspector_open: bool,
     inspector_track: Option<TrackId>,
-    inspector_name: String,
     midi_map_open: bool,
     midi_learn: Option<midi_devices::map::Learn>,
     midi_learn_choice: usize,
@@ -807,6 +808,8 @@ impl ShellApp {
             about_open: initial_window == "about",
             mixer_visible: true,
             timeline_mode: true,
+            inspector_name_track: None,
+            inspector_name: String::new(),
             device_profiles: load_device_profiles(),
             device_editor_open: initial_window == "device",
             device_editor_profile: 0,
@@ -899,7 +902,6 @@ impl ShellApp {
             plugin_error: None,
             inspector_open: initial_window == "inspector",
             inspector_track: None,
-            inspector_name: String::new(),
             midi_map_open: initial_window == "midi-map" || initial_window == "midi_map",
             midi_learn: None,
             midi_learn_choice: 0,
@@ -4062,16 +4064,25 @@ impl ShellApp {
                         ui.label("No track");
                         return;
                     };
+                    if self.inspector_name_track != Some(track.id) {
+                        self.inspector_name_track = Some(track.id);
+                        self.inspector_name = track.name.clone();
+                    }
                     ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(if track.name.is_empty() {
-                                "untitled"
-                            } else {
-                                &track.name
-                            })
-                            .size(15.0)
-                            .strong(),
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut self.inspector_name)
+                                .desired_width(150.0)
+                                .font(egui::TextStyle::Heading),
                         );
+                        if response.lost_focus()
+                            && ui.input(|input| input.key_pressed(egui::Key::Enter))
+                        {
+                            let name = self.inspector_name.trim().to_string();
+                            match self.editor.rename_track(track.id, &name) {
+                                Ok(()) => self.status = Some(format!("track renamed to {name:?}")),
+                                Err(error) => self.status = Some(error),
+                            }
+                        }
                         ui.label(
                             egui::RichText::new(format!(
                                 "ch {}",
@@ -7547,9 +7558,12 @@ impl ShellApp {
                             } else {
                                 theme::text_muted()
                             }));
-                            let detail = match row.program {
-                                Some(program) => format!("{} notes · prog {program}", row.notes),
-                                None => format!("{} notes", row.notes),
+                            let detail = if row.name.to_ascii_lowercase().contains("drum") {
+                                String::from("Electronic Kit")
+                            } else if let Some(program) = row.program {
+                                format!("SoundFont · {}", midi_devices::programs::name(program))
+                            } else {
+                                format!("SoundFont · {} notes", row.notes)
                             };
                             ui.label(
                                 egui::RichText::new(detail)
