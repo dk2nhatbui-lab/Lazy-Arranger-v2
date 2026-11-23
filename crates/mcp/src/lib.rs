@@ -434,6 +434,90 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "add_bus",
+            description: "Add a mixer bus.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "volume": {"type": "integer"},
+                    "pan": {"type": "integer"}
+                },
+                "required": ["name"]
+            }),
+        },
+        Tool {
+            name: "remove_bus",
+            description: "Remove a mixer bus by id.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"bus": {"type": "integer"}},
+                "required": ["bus"]
+            }),
+        },
+        Tool {
+            name: "add_plugin",
+            description: "Add a plugin slot (format vst3 or au).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "format": {"type": "string"},
+                    "name": {"type": "string"},
+                    "path": {"type": "string"}
+                },
+                "required": ["track", "format"]
+            }),
+        },
+        Tool {
+            name: "remove_plugin",
+            description: "Remove a plugin slot by id.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "plugin": {"type": "integer"}
+                },
+                "required": ["track", "plugin"]
+            }),
+        },
+        Tool {
+            name: "get_plugin_slots",
+            description: "List a track's plugin slots.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}},
+                "required": ["track"]
+            }),
+        },
+        Tool {
+            name: "get_scene_name",
+            description: "Read a scene name.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"scene": {"type": "integer"}},
+                "required": ["scene"]
+            }),
+        },
+        Tool {
+            name: "set_scene_name",
+            description: "Set a scene name.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"scene": {"type": "integer"}, "name": {"type": "string"}},
+                "required": ["scene", "name"]
+            }),
+        },
+        Tool {
+            name: "get_marker_at",
+            description: "Read the marker exactly at a tick, or null.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"tick": {"type": "integer"}},
+                "required": ["tick"]
+            }),
+        },
+        Tool {
             name: "save_project",
             description: "Write the project JSON to a path.",
             input_schema: json!({
@@ -1512,6 +1596,154 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             session.apply(Command::SetClips { track, clips })?;
             Ok(json!({"removed": clip.get()}))
         }
+        "add_bus" => {
+            let name = arguments
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("name is required")))?;
+            let mut buses = session.song().buses.clone();
+            let id = buses
+                .iter()
+                .map(|bus| bus.id)
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1);
+            buses.push(project::song::Bus {
+                id,
+                name: name.to_string(),
+                volume: arguments
+                    .get("volume")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(100)
+                    .clamp(0, 127) as u8,
+                pan: arguments
+                    .get("pan")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(64)
+                    .clamp(0, 127) as u8,
+            });
+            session.apply(Command::SetBuses { buses })?;
+            Ok(json!({"bus": id}))
+        }
+        "remove_bus" => {
+            let bus = arguments
+                .get("bus")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("bus is required")))?;
+            let bus = u8::try_from(bus)
+                .map_err(|_| ToolError::Arguments(String::from("bus must be 0..=255")))?;
+            let mut buses = session.song().buses.clone();
+            buses.retain(|entry| entry.id != bus);
+            session.apply(Command::SetBuses { buses })?;
+            Ok(json!({"removed": bus}))
+        }
+        "add_plugin" => {
+            use project::song::{PluginFormat, PluginSlot};
+            let track = track_argument(arguments)?;
+            let format = match arguments.get("format").and_then(Value::as_str) {
+                Some("vst3") => PluginFormat::Vst3,
+                Some("au") | Some("audio_unit") => PluginFormat::AudioUnit,
+                _ => {
+                    return Err(ToolError::Arguments(String::from(
+                        "format must be vst3 or au",
+                    )));
+                }
+            };
+            let mut plugins = track_plugins(session, track)?;
+            let id = plugins
+                .iter()
+                .map(|slot| slot.id)
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1);
+            plugins.push(PluginSlot {
+                id,
+                name: arguments
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Plugin")
+                    .to_string(),
+                format,
+                path: arguments
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                bypassed: false,
+                state: String::new(),
+            });
+            session.apply(Command::SetPlugins { track, plugins })?;
+            Ok(json!({"plugin": id}))
+        }
+        "remove_plugin" => {
+            let track = track_argument(arguments)?;
+            let plugin = arguments
+                .get("plugin")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("plugin is required")))?;
+            let plugin = u32::try_from(plugin)
+                .map_err(|_| ToolError::Arguments(String::from("plugin id too large")))?;
+            let mut plugins = track_plugins(session, track)?;
+            plugins.retain(|slot| slot.id != plugin);
+            session.apply(Command::SetPlugins { track, plugins })?;
+            Ok(json!({"removed": plugin}))
+        }
+        "get_plugin_slots" => {
+            let track = track_argument(arguments)?;
+            let plugins = track_plugins(session, track)?;
+            Ok(json!({
+                "plugins": plugins.iter().map(|slot| json!({
+                    "id": slot.id,
+                    "name": slot.name,
+                    "format": match slot.format {
+                        project::song::PluginFormat::Vst3 => "vst3",
+                        project::song::PluginFormat::AudioUnit => "au",
+                    },
+                    "path": slot.path,
+                    "bypassed": slot.bypassed
+                })).collect::<Vec<_>>()
+            }))
+        }
+        "get_scene_name" => {
+            let index = arguments
+                .get("scene")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("scene is required")))?;
+            Ok(json!({
+                "name": session.song().scene_names.get(index as usize)
+            }))
+        }
+        "set_scene_name" => {
+            let index = arguments
+                .get("scene")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("scene is required")))?
+                as usize;
+            let name = arguments
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("name is required")))?;
+            let mut names = session.song().scene_names.clone();
+            if names.len() <= index {
+                names.resize(index + 1, String::new());
+            }
+            names[index] = name.to_string();
+            session.apply(Command::SetSceneNames { names })?;
+            Ok(json!({"scene": index, "name": name}))
+        }
+        "get_marker_at" => {
+            let tick = arguments
+                .get("tick")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+            let marker = session
+                .song()
+                .markers
+                .iter()
+                .find(|marker| marker.tick == tick)
+                .map(|marker| json!({"tick": marker.tick, "name": marker.name}));
+            Ok(json!({"marker": marker}))
+        }
         "save_project" => {
             let path = arguments
                 .get("path")
@@ -2484,6 +2716,20 @@ fn chord_arguments(arguments: &Value) -> Result<Vec<music_core::Chord>, ToolErro
         .collect()
 }
 
+fn track_plugins(
+    session: &EditSession,
+    track: TrackId,
+) -> Result<Vec<project::song::PluginSlot>, ToolError> {
+    Ok(session
+        .song()
+        .tracks
+        .iter()
+        .find(|entry| entry.id == track)
+        .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?
+        .plugins
+        .clone())
+}
+
 fn clip_argument(arguments: &Value) -> Result<project::ClipId, ToolError> {
     let value = arguments
         .get("clip")
@@ -2973,6 +3219,47 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn bus_plugin_and_scene_tools_work() {
+        let mut session = session_with_track();
+        let bus = call(&mut session, "add_bus", &json!({"name": "Reverb"})).expect("bus");
+        let bus_id = bus["bus"].as_u64().expect("id");
+        assert_eq!(session.song().buses.len(), 1);
+        call(&mut session, "remove_bus", &json!({"bus": bus_id})).expect("remove bus");
+        assert!(session.song().buses.is_empty());
+        let plugin = call(
+            &mut session,
+            "add_plugin",
+            &json!({"track": 1, "format": "vst3", "name": "R0Verb"}),
+        )
+        .expect("plugin");
+        let plugin_id = plugin["plugin"].as_u64().expect("id");
+        let slots = call(&mut session, "get_plugin_slots", &json!({"track": 1})).expect("slots");
+        assert_eq!(slots["plugins"][0]["format"], "vst3");
+        call(
+            &mut session,
+            "remove_plugin",
+            &json!({"track": 1, "plugin": plugin_id}),
+        )
+        .expect("remove plugin");
+        call(
+            &mut session,
+            "set_scene_name",
+            &json!({"scene": 1, "name": "Verse"}),
+        )
+        .expect("scene");
+        let name = call(&mut session, "get_scene_name", &json!({"scene": 1})).expect("get scene");
+        assert_eq!(name["name"], "Verse");
+        call(
+            &mut session,
+            "add_marker",
+            &json!({"tick": 960, "name": "Chorus"}),
+        )
+        .expect("marker");
+        let marker = call(&mut session, "get_marker_at", &json!({"tick": 960})).expect("marker at");
+        assert_eq!(marker["marker"]["name"], "Chorus");
     }
 
     #[test]
