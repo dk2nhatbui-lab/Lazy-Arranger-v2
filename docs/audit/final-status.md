@@ -142,3 +142,4 @@ For the clef layout, choose either four measures per system without clefs
 - Status bar reports MIDI inputs; metronome has four beat dots; meters read empty while stopped (`docs/audit/ui-metronome-dots.png`).
 - Inspector edits song meter from a picker (`docs/audit/ui-meter-edit.png`).
 - Timeline chord lane follows the detected key's sharp/flat signature.
+- L6max import mutes a master/mix take; test covers it.

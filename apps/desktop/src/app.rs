@@ -11036,19 +11036,26 @@ mod tests {
         let folder = std::env::temp_dir().join("lazy-arranger-shell-l6max");
         let _ = std::fs::remove_dir_all(&folder);
         std::fs::create_dir_all(&folder).expect("dir");
-        for index in 0..2 {
+        for name in ["TAKE0.WAV", "TAKE1.WAV", "MASTER.WAV"] {
             let audio = audio::RenderedAudio {
                 samples: vec![0.1; 4 * 2],
                 sample_rate: 48_000,
             };
-            std::fs::write(folder.join(format!("TAKE{index}.WAV")), audio.to_wav()).expect("take");
+            std::fs::write(folder.join(name), audio.to_wav()).expect("take");
         }
         let mut editor = Editor::new(demo_project()).expect("editor");
         let before = editor.song().tracks.len();
         let (imported, problems) = import_l6max_folder(&mut editor, &folder, 0).expect("import");
-        assert_eq!(imported, 2);
+        assert_eq!(imported, 3);
         assert_eq!(problems, 0);
-        assert_eq!(editor.song().tracks.len(), before + 2);
+        assert_eq!(editor.song().tracks.len(), before + 3);
+        assert!(
+            editor
+                .song()
+                .tracks
+                .iter()
+                .any(|track| track.name == "MASTER" && track.muted)
+        );
         let _ = std::fs::remove_dir_all(folder);
     }
 

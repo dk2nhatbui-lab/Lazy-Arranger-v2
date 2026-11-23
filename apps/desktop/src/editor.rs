@@ -1242,6 +1242,8 @@ impl Editor {
                 .next_track_id()
                 .map_err(|error| error.to_string())?;
             let mut track = project::song::Track::new(track_id, take.name.clone());
+            let lower = take.name.to_ascii_lowercase();
+            track.muted = lower.contains("master") || lower.contains("mix");
             track.audio = Some(project::song::AudioRef {
                 path: take.path.display().to_string(),
                 start,
