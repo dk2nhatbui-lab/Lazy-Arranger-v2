@@ -44,3 +44,7 @@ rustdoc) is green; the Windows job should confirm the fix.
 CI run [45158544677](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45158544677)
 on `5c98cc4` passed all three jobs: ubuntu-latest 1m19s, macos-latest 1m49s,
 windows-latest 2m17s. The Windows headless demo now passes.
+
+The CLI also has a command-tree test and a per-subcommand `--help` test; both
+run on a 32 MiB thread because the debug clap tree exceeds the test harness's
+smaller default stack. They pass with 647 workspace tests.

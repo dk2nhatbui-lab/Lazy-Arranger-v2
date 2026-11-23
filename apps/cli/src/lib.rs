@@ -3007,3 +3007,41 @@ fn message_label(message: music_core::MidiMessage) -> &'static str {
         M::PitchBend { .. } => "pitch-bend",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    fn on_a_large_stack(run: impl FnOnce() + Send + 'static) {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(run)
+            .expect("spawn")
+            .join()
+            .expect("join");
+    }
+
+    #[test]
+    fn the_command_tree_is_valid() {
+        on_a_large_stack(|| Cli::command().debug_assert());
+    }
+
+    #[test]
+    fn every_subcommand_accepts_help() {
+        on_a_large_stack(|| {
+            for subcommand in Cli::command().get_subcommands() {
+                let name = subcommand.get_name().to_string();
+                let command = subcommand.clone();
+                let error = command
+                    .try_get_matches_from(["lazy-arranger", "--help"])
+                    .expect_err("--help is not a match");
+                assert_eq!(
+                    error.kind(),
+                    clap::error::ErrorKind::DisplayHelp,
+                    "subcommand {name}"
+                );
+            }
+        });
+    }
+}

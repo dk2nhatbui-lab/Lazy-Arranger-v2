@@ -8,7 +8,7 @@
 primary C++ declaration where a note gives no line. LOC measured with `wc -l` in the pinned tree.
 Composite rows overlap: one file can serve several subsystems.
 
-**Rust status today (round 215):** `cargo test --workspace` passes 643 tests; `cargo clippy --workspace --all-targets
+**Rust status today (round 215):** `cargo test --workspace` passes 647 tests; `cargo clippy --workspace --all-targets
 -- -D warnings`, `cargo fmt --all --check` and `cargo doc` (warnings denied) pass. No subsystem is
 `parity complete`. This matrix is the original file-level inventory; the current row-level view and
 evidence are in [`cpp-features-crosscheck.md`](cpp-features-crosscheck.md).

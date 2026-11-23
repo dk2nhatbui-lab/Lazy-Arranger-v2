@@ -50,7 +50,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 ## Scorecard
 
 39 sections at round 216: 0 fully verified beyond their Rust subset, 39 partial,
-0 missing; 643 tests pass. No section is missing at row level; partials need hardware,
+0 missing; 647 tests pass. No section is missing at row level; partials need hardware,
 proprietary formats, plugin hosting or a model. See
 `docs/audit/cpp-features-crosscheck.md` for row evidence.
 
@@ -973,3 +973,10 @@ Dragging across the clip lane (not on a clip) draws a rubber band and returns
 the tick band; the app selects every clip intersecting it through
 `piano_roll::clips_in_band`, replacing the previous multi-selection. The helper
 has a unit test; the Shift-click and arrow/Delete behavior is unchanged.
+
+### CLI command-tree guard
+
+`the_command_tree_is_valid` calls clap's `debug_assert` and
+`every_subcommand_accepts_help` checks help for each subcommand. Both run on a
+32 MiB thread, matching the CLI entry point, because the debug command tree
+overflows smaller stacks.
