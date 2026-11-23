@@ -642,6 +642,32 @@ impl Editor {
         Ok(())
     }
 
+    /// Inserts recorded notes as a new track with fresh note ids.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when a track edit is rejected.
+    pub fn insert_recorded(
+        &mut self,
+        name: &str,
+        notes: &[project::song::Note],
+    ) -> Result<TrackId, String> {
+        let track_id = self
+            .session
+            .next_track_id()
+            .map_err(|error| error.to_string())?;
+        let mut track = project::song::Track::new(track_id, name);
+        track.notes = notes.to_vec();
+        for (index, note) in track.notes.iter_mut().enumerate() {
+            note.id = project::NoteId::new(index as u32 + 1).map_err(|error| error.to_string())?;
+        }
+        self.session
+            .apply(app_commands::Command::InsertTrack { track })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(track_id)
+    }
+
     /// Renames a track.
     ///
     /// # Errors
@@ -1603,6 +1629,31 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn recorded_notes_become_a_new_track() {
+        let mut editor = editor();
+        let notes = vec![project::song::Note {
+            id: project::NoteId::new(99).expect("valid"),
+            start: 0,
+            duration: music_core::PPQ,
+            pitch: music_core::Pitch::from_name("D4").expect("valid"),
+            velocity: music_core::Velocity::new(90).expect("valid"),
+            channel: music_core::Channel::first(),
+        }];
+        let track = editor.insert_recorded("Recorded", &notes).expect("insert");
+        let recorded = editor
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .expect("track");
+        assert_eq!(recorded.name, "Recorded");
+        assert_eq!(recorded.notes.len(), 1);
+        assert_eq!(recorded.notes[0].id.get(), 1, "ids are reassigned");
+        assert!(editor.undo());
+        assert!(editor.song().tracks.iter().all(|entry| entry.id != track));
     }
 
     #[test]

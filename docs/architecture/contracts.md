@@ -376,3 +376,13 @@ Controllers window lists each with the latest value (the shell records every
 incoming CC in a 128-entry table), offers the same six actions and a learn
 button, and reflects new bindings from the shared map. Live values are untested
 without hardware.
+
+### Desktop MIDI recording
+
+The sidebar Record button reads the keyboard chosen in Settings and records for
+`record_seconds` (1–60 s) on a background thread through
+`midi_devices::devices::record_to_song`. The finished song's first-track notes
+are inserted by `Editor::insert_recorded` as one `InsertTrack` with reassigned
+note ids, so one undo removes the take. Without a configured keyboard the button
+reports an error. Audio input, record-arm transport and count-in are absent;
+hardware capture is unverified here because no MIDI ports exist.

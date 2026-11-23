@@ -146,6 +146,8 @@ pub struct ShellApp {
     controller_open: bool,
     midi_cc_values: [u8; 128],
     controller_action: usize,
+    recording: Option<std::sync::mpsc::Receiver<Result<Song, String>>>,
+    record_seconds: f64,
     rename_scene: Option<usize>,
     rename_scene_input: String,
     last_bar: i64,
@@ -258,6 +260,8 @@ impl ShellApp {
             controller_open: false,
             midi_cc_values: [0; 128],
             controller_action: 0,
+            recording: None,
+            record_seconds: 4.0,
             rename_scene: None,
             rename_scene_input: String::new(),
             last_bar: 0,
@@ -657,6 +661,36 @@ impl ShellApp {
     }
 
     fn advance(&mut self, context: &Context) {
+        let finished = self
+            .recording
+            .as_ref()
+            .and_then(|receiver| match receiver.try_recv() {
+                Ok(result) => Some(result),
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    Some(Err(String::from("recording thread ended")))
+                }
+            });
+        if let Some(result) = finished {
+            self.recording = None;
+            match result {
+                Ok(song) => {
+                    let notes = song
+                        .tracks
+                        .first()
+                        .map(|track| track.notes.clone())
+                        .unwrap_or_default();
+                    match self.editor.insert_recorded("Recorded", &notes) {
+                        Ok(track) => {
+                            self.roll.selected = Some(track);
+                            self.status = Some(format!("recorded {} note(s)", notes.len()));
+                        }
+                        Err(error) => self.status = Some(error),
+                    }
+                }
+                Err(error) => self.status = Some(format!("recording: {error}")),
+            }
+        }
         if let Some(player) = &self.player {
             let seconds = player.frame() as f64 / f64::from(audio::SAMPLE_RATE);
             self.position = self.song().tempo_map.tick_at_seconds(seconds);
@@ -2659,6 +2693,38 @@ impl ShellApp {
                     ui.label(egui::RichText::new("no tracks").color(theme::TEXT_DIM));
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                    ui.horizontal(|ui| {
+                        let label = if self.recording.is_some() {
+                            "Recording…"
+                        } else {
+                            "Record"
+                        };
+                        if ui.small_button(label).clicked() && self.recording.is_none() {
+                            let Some(keyboard) = self.settings.keyboard.clone() else {
+                                self.status =
+                                    Some(String::from("choose a MIDI keyboard in Settings first"));
+                                return;
+                            };
+                            let tempo = self.song().tempo_map.clone();
+                            let seconds = self.record_seconds;
+                            let (sender, receiver) = std::sync::mpsc::channel();
+                            std::thread::spawn(move || {
+                                let result = midi_devices::devices::record_to_song(
+                                    &keyboard, seconds, &tempo, "Recorded",
+                                )
+                                .map(|(song, _, _)| song)
+                                .map_err(|error| error.to_string());
+                                let _ = sender.send(result);
+                            });
+                            self.recording = Some(receiver);
+                            self.status = Some(format!("recording {seconds} s"));
+                        }
+                        ui.add(
+                            egui::DragValue::new(&mut self.record_seconds)
+                                .range(1.0..=60.0)
+                                .suffix(" s"),
+                        );
+                    });
                     ui.horizontal_wrapped(|ui| {
                         if ui.small_button("Inspector").clicked() {
                             self.inspector_open = true;
