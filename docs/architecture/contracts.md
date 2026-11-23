@@ -619,3 +619,11 @@ trip imported 5 source tracks and 336 notes into 4 project tracks.
 through `smf::decode` into a schema-19 project. `ShellApp::open` marks such an
 import untitled (`project_path = None`) and says so, so Save cannot overwrite the
 MIDI with JSON. A test encodes the demo, writes a temp file and reloads it.
+
+### File window
+
+Cmd+O opens a path window seeded with the current project path; Cmd+Shift+S
+opens Save as with `project.arranger`; Cmd+S saves in place, and on an untitled
+import (MIDI) it opens Save as instead of writing a default JSON silently. Open
+reuses `load_project` (JSON or MIDI), Save reuses `Editor::save`, and both update
+the recent list. The window is manual UI; no native dialog exists.

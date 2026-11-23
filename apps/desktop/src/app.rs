@@ -77,6 +77,15 @@ struct Row {
     soloed: bool,
 }
 
+/// Which file action the path window is serving.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileMode {
+    /// Open an existing project or MIDI file.
+    Open,
+    /// Save the project to a new path.
+    SaveAs,
+}
+
 pub struct ShellApp {
     editor: Editor,
     selected_note: Option<(TrackId, NoteId)>,
@@ -98,6 +107,8 @@ pub struct ShellApp {
     fit_polyphony: usize,
     fit_drum_kit: bool,
     audition_player: Option<audio::player::Player>,
+    file_mode: Option<FileMode>,
+    file_path_input: String,
     form_dialog: bool,
     beat_dialog: bool,
     beat_track: Option<TrackId>,
@@ -225,6 +236,8 @@ impl ShellApp {
             fit_polyphony: 16,
             fit_drum_kit: true,
             audition_player: None,
+            file_mode: None,
+            file_path_input: String::new(),
             form_dialog: false,
             beat_dialog: false,
             beat_track: None,
@@ -350,8 +363,16 @@ impl ShellApp {
                 egui::Key::Z,
             )
         });
-        let save =
-            context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::S));
+        let save_as = context.input_mut(|input| {
+            input.consume_key(
+                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                egui::Key::S,
+            )
+        });
+        let save = !save_as
+            && context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::S));
+        let open_keys =
+            context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::O));
         let copy =
             context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::C));
         let cut =
@@ -675,20 +696,96 @@ impl ShellApp {
             self.chord_dialog_target = found.tick;
             self.reharmonize_dialog = true;
         }
-        if save {
-            let path = self
+        if open_keys {
+            self.file_path_input = self
                 .project_path
-                .clone()
-                .unwrap_or_else(|| std::path::PathBuf::from("lazy-arranger.json"));
-            if let Err(error) = self.editor.save(&path) {
-                self.load_error = Some(error);
-            } else {
-                let _ = std::fs::remove_file(persistence::autosave_path(&path));
-                self.recent = project::recent::record(&self.recent_file, &path)
-                    .unwrap_or_else(|_| self.recent.clone());
-                self.project_path = Some(path);
-                self.recovery = None;
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_default();
+            self.file_mode = Some(FileMode::Open);
+        }
+        if save_as {
+            self.begin_save_as();
+        }
+        if save {
+            match self.project_path.clone() {
+                Some(path) => self.save_to(path),
+                None => self.begin_save_as(),
             }
+        }
+    }
+
+    fn begin_save_as(&mut self) {
+        self.file_path_input = self
+            .project_path
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| String::from("project.arranger"));
+        self.file_mode = Some(FileMode::SaveAs);
+    }
+
+    fn save_to(&mut self, path: std::path::PathBuf) {
+        if let Err(error) = self.editor.save(&path) {
+            self.load_error = Some(error);
+            return;
+        }
+        let _ = std::fs::remove_file(persistence::autosave_path(&path));
+        self.recent = project::recent::record(&self.recent_file, &path)
+            .unwrap_or_else(|_| self.recent.clone());
+        self.project_path = Some(path.clone());
+        self.recovery = None;
+        self.load_error = None;
+        self.status = Some(format!("saved {}", path.display()));
+    }
+
+    fn file_window(&mut self, context: &egui::Context) {
+        let Some(mode) = self.file_mode else {
+            return;
+        };
+        let mut open = true;
+        let mut action = false;
+        egui::Window::new(match mode {
+            FileMode::Open => "Open project",
+            FileMode::SaveAs => "Save as",
+        })
+        .collapsible(false)
+        .open(&mut open)
+        .default_width(420.0)
+        .show(context, |ui| {
+            ui.label("Path (.arranger JSON, .mid or .midi)");
+            ui.add(egui::TextEdit::singleline(&mut self.file_path_input).desired_width(400.0));
+            ui.horizontal(|ui| {
+                let label = if mode == FileMode::Open {
+                    "Open"
+                } else {
+                    "Save"
+                };
+                if ui.button(label).clicked() {
+                    action = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.file_mode = None;
+                }
+            });
+        });
+        if action {
+            let path = std::path::PathBuf::from(self.file_path_input.trim());
+            if path.as_os_str().is_empty() {
+                self.load_error = Some(String::from("enter a file path"));
+            } else if mode == FileMode::Open {
+                self.open(&path);
+                if self.load_error.is_none() {
+                    self.file_mode = None;
+                }
+            } else {
+                self.save_to(path);
+                if self.load_error.is_none() {
+                    self.file_mode = None;
+                }
+            }
+        }
+        if !open {
+            self.file_mode = None;
         }
     }
 
@@ -3252,6 +3349,7 @@ impl eframe::App for ShellApp {
         self.inspector_window(context);
         self.controller_window(context);
         self.lyrics_window(context);
+        self.file_window(context);
         self.midi_map_window(context);
         self.assistant_window(context);
         self.pads_window(context);
