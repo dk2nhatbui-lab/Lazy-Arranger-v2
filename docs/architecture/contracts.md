@@ -185,3 +185,10 @@ A 44 px lane under the roll draws a bar per note of the selected track (height
 proportional to velocity) and maps a click or drag to 1..127, top to bottom,
 through `velocity_at`; `note_at_tick` picks the covering note or the nearest one
 and the shell writes it with `set_velocity` as one edit.
+
+### Piano keys and selection
+
+The pitch strip on the roll's left edge draws black and white keys; a click
+there returns the pitch for audition (the shell renders a short note). Cmd/Ctrl+A
+fills `selected_notes` with every note of the selected track, and Delete removes
+them per track through `delete_notes` (one edit per track, undoable).

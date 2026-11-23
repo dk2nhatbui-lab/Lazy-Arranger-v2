@@ -168,6 +168,8 @@ pub struct RollOutcome {
     pub click: Option<RollClick>,
     /// Note change from a finished drag.
     pub edit: Option<RollEdit>,
+    /// Pitch clicked on the keyboard strip, for audition.
+    pub preview: Option<u8>,
     /// Velocity change clicked in the lane.
     pub velocity: Option<(TrackId, project::NoteId, u8)>,
 }
@@ -404,6 +406,7 @@ pub fn show(
         draw_track(&painter, rect, &geometry, track, colour, selected);
     }
     draw_playhead(&painter, rect, &geometry, playhead);
+    draw_keys(&painter, rect, &geometry);
     draw_pitch_guide(&painter, rect, &geometry);
 
     if response.drag_stopped()
@@ -437,6 +440,12 @@ pub fn show(
     let Some(pointer) = response.interact_pointer_pos() else {
         return RollOutcome::default();
     };
+    if response.clicked() && pointer.x < geometry.origin.x {
+        return RollOutcome {
+            preview: Some(geometry.pitch_at(pointer.y)),
+            ..RollOutcome::default()
+        };
+    }
     if !response.clicked() {
         return RollOutcome::default();
     }
@@ -462,6 +471,7 @@ pub fn show(
                     }),
                     edit: None,
                     velocity: None,
+                    preview: None,
                 };
             }
         }
@@ -489,6 +499,7 @@ pub fn show(
                     }),
                     edit: None,
                     velocity: None,
+                    preview: None,
                 };
             }
         }
@@ -499,6 +510,7 @@ pub fn show(
         click: Some(click),
         edit: None,
         velocity,
+        preview: None,
     }
 }
 
@@ -659,6 +671,33 @@ fn draw_playhead(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, t
         painter.line_segment(
             [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
             egui::Stroke::new(1.5_f32, theme::PLAYHEAD),
+        );
+    }
+}
+
+fn draw_keys(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry) {
+    let top = geometry.top_pitch;
+    let count = ((rect.height() / geometry.row_height).ceil() as i32).clamp(1, 128);
+    for offset in 0..count {
+        let pitch = i32::from(top) - offset;
+        if !(0..=127).contains(&pitch) {
+            continue;
+        }
+        let y = rect.top() + offset as f32 * geometry.row_height;
+        let black = matches!(pitch % 12, 1 | 3 | 6 | 8 | 10);
+        let colour = if black {
+            egui::Color32::from_rgb(0x2A, 0x2A, 0x2A)
+        } else {
+            egui::Color32::from_rgb(0xE6, 0xE1, 0xD6)
+        };
+        let width = if black { 30.0 } else { 46.0 };
+        painter.rect_filled(
+            Rect::from_min_size(
+                Pos2::new(rect.left(), y),
+                Vec2::new(width, geometry.row_height - 1.0),
+            ),
+            0.0,
+            colour,
         );
     }
 }

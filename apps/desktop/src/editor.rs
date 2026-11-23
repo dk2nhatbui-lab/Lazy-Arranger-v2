@@ -89,6 +89,36 @@ impl Editor {
         Ok(())
     }
 
+    /// Deletes several notes of one track as one edit.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn delete_notes(
+        &mut self,
+        track: TrackId,
+        notes: &[project::NoteId],
+    ) -> Result<usize, String> {
+        let Some(entry) = self.song().tracks.iter().find(|entry| entry.id == track) else {
+            return Ok(0);
+        };
+        let before = entry.notes.len();
+        let kept: Vec<project::song::Note> = entry
+            .notes
+            .iter()
+            .filter(|note| !notes.contains(&note.id))
+            .cloned()
+            .collect();
+        let removed = before - kept.len();
+        if removed > 0 {
+            self.session
+                .apply(app_commands::Command::ReplaceTrackNotes { track, notes: kept })
+                .map_err(|error| error.to_string())?;
+            self.dirty = true;
+        }
+        Ok(removed)
+    }
+
     /// Moves one note to a new start and pitch.
     ///
     /// # Errors
@@ -1268,6 +1298,28 @@ mod tests {
         assert_eq!(grid.rows[0].scene.name, "Verse");
         assert!(editor.undo());
         assert!(editor.song().scene_names.is_empty());
+    }
+
+    #[test]
+    fn several_notes_delete_in_one_edit() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        editor
+            .insert(
+                track,
+                960,
+                music_core::Pitch::from_name("E4").expect("valid"),
+            )
+            .expect("insert");
+        let ids: Vec<project::NoteId> = editor.song().tracks[0]
+            .notes
+            .iter()
+            .map(|note| note.id)
+            .collect();
+        assert_eq!(editor.delete_notes(track, &ids).expect("delete"), 2);
+        assert!(editor.song().tracks[0].notes.is_empty());
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].notes.len(), 2);
     }
 
     #[test]

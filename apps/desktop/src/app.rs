@@ -80,6 +80,8 @@ struct Row {
 pub struct ShellApp {
     editor: Editor,
     selected_note: Option<(TrackId, NoteId)>,
+    selected_notes: Vec<(TrackId, NoteId)>,
+    preview_player: Option<audio::player::Player>,
     selected_clip: Option<(TrackId, project::ClipId)>,
     chord_dialog: bool,
     chord_dialog_target: Tick,
@@ -167,6 +169,8 @@ impl ShellApp {
                 .filter(|path| persistence::recovery_available(path))
                 .map(|path| persistence::autosave_path(path)),
             selected_note: None,
+            selected_notes: Vec::new(),
+            preview_player: None,
             selected_clip: None,
             chord_dialog: false,
             chord_dialog_target: 0,
@@ -278,6 +282,8 @@ impl ShellApp {
             context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::X));
         let paste =
             context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::V));
+        let select_all =
+            context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::A));
         let delete = context.input(|input| {
             input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace)
         });
@@ -288,6 +294,21 @@ impl ShellApp {
         if redo {
             self.editor.redo();
             self.selected_note = None;
+        }
+        if select_all
+            && let Some(track) = self
+                .roll
+                .selected
+                .or_else(|| self.song().tracks.first().map(|track| track.id))
+        {
+            self.selected_notes = self
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .map(|entry| entry.notes.iter().map(|note| (track, note.id)).collect())
+                .unwrap_or_default();
+            self.status = Some(format!("selected {} note(s)", self.selected_notes.len()));
         }
         if let Some((track, note)) = self.selected_note {
             if copy {
@@ -315,7 +336,26 @@ impl ShellApp {
             }
         }
         if delete {
-            if let Some((track, clip)) = self.selected_clip.take() {
+            if !self.selected_notes.is_empty() {
+                let mut tracks: Vec<TrackId> = self
+                    .selected_notes
+                    .iter()
+                    .map(|(track, _)| *track)
+                    .collect();
+                tracks.sort_by_key(|track| track.get());
+                tracks.dedup();
+                for track in tracks {
+                    let ids: Vec<project::NoteId> = self
+                        .selected_notes
+                        .iter()
+                        .filter(|(entry, _)| *entry == track)
+                        .map(|(_, note)| *note)
+                        .collect();
+                    let _ = self.editor.delete_notes(track, &ids);
+                }
+                self.status = Some(format!("deleted {} note(s)", self.selected_notes.len()));
+                self.selected_notes.clear();
+            } else if let Some((track, clip)) = self.selected_clip.take() {
                 let _ = self.editor.remove_clip(track, clip);
             } else if let Some((track, note)) = self.selected_note.take() {
                 let _ = self.editor.delete(track, note);
@@ -2109,6 +2149,7 @@ impl eframe::App for ShellApp {
                 let mut kids_load = false;
                 let mut scroll_edit: Option<crate::piano_roll::RollEdit> = None;
                 let mut velocity_edit: Option<(TrackId, project::NoteId, u8)> = None;
+                let mut preview_note: Option<u8> = None;
                 let Self { editor, roll, .. } = self;
                 let selected_clip = self.selected_clip;
                 let project = editor.project();
@@ -2148,6 +2189,9 @@ impl eframe::App for ShellApp {
                         }
                         if let Some(velocity) = outcome.velocity {
                             velocity_edit = Some(velocity);
+                        }
+                        if let Some(preview) = outcome.preview {
+                            preview_note = Some(preview);
                         }
                         if let Some(track_id) = roll.selected
                             && let Some(track) = project
@@ -2312,6 +2356,7 @@ impl eframe::App for ShellApp {
                     kids_load,
                     scroll_edit,
                     velocity_edit,
+                    preview_note,
                 )
             });
         let (
@@ -2325,9 +2370,27 @@ impl eframe::App for ShellApp {
             kids_load,
             scroll_edit,
             velocity_edit,
+            preview_note,
         ) = panel.inner;
         if let Some(click) = clicked {
             self.edit_click(click);
+        }
+        if let Some(pitch) = preview_note {
+            let mut song = Song::new("Preview", 120.0);
+            let mut track = project::song::Track::new(TrackId::new(1).expect("valid"), "Preview");
+            if let (Ok(pitch), Ok(id)) = (music_core::Pitch::new(pitch), NoteId::new(1)) {
+                track.notes.push(project::song::Note {
+                    id,
+                    start: 0,
+                    duration: music_core::PPQ / 2,
+                    pitch,
+                    velocity: music_core::Velocity::new(100).expect("valid"),
+                    channel: music_core::Channel::first(),
+                });
+            }
+            song.tracks.push(track);
+            let rendered = audio::render(&song, audio::SAMPLE_RATE);
+            self.preview_player = audio::player::Player::new(rendered).ok();
         }
         if let Some((track, note, velocity)) = velocity_edit
             && let Err(error) = self.editor.set_velocity(track, note, velocity)
