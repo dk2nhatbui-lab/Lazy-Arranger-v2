@@ -195,6 +195,74 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "get_tracks",
+            description: "List tracks with mix and routing state.",
+            input_schema: json!({"type": "object"}),
+        },
+        Tool {
+            name: "get_notes",
+            description: "List a track's notes.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}},
+                "required": ["track"]
+            }),
+        },
+        Tool {
+            name: "get_chords",
+            description: "List chord events.",
+            input_schema: json!({"type": "object"}),
+        },
+        Tool {
+            name: "get_markers",
+            description: "List section markers.",
+            input_schema: json!({"type": "object"}),
+        },
+        Tool {
+            name: "set_markers",
+            description: "Replace section markers.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"markers": {"type": "array"}},
+                "required": ["markers"]
+            }),
+        },
+        Tool {
+            name: "get_clips",
+            description: "List a track's clips.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}},
+                "required": ["track"]
+            }),
+        },
+        Tool {
+            name: "set_clips",
+            description: "Replace a track's clips; ids are optional.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "clips": {"type": "array"}
+                },
+                "required": ["track", "clips"]
+            }),
+        },
+        Tool {
+            name: "get_scene_names",
+            description: "List clip-grid scene names.",
+            input_schema: json!({"type": "object"}),
+        },
+        Tool {
+            name: "set_scene_names",
+            description: "Replace clip-grid scene names.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"names": {"type": "array"}},
+                "required": ["names"]
+            }),
+        },
+        Tool {
             name: "plugin_scan",
             description: "List installed VST3 and Audio Unit bundles (not hosted).",
             input_schema: json!({
@@ -575,6 +643,149 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             target.velocity = music_core::Velocity::new(velocity.clamp(1, 127))?;
             session.apply(Command::ReplaceTrackNotes { track, notes })?;
             Ok(json!({"velocity": velocity.clamp(1, 127)}))
+        }
+        "get_tracks" => Ok(json!({
+            "tracks": session.song().tracks.iter().map(|track| json!({
+                "id": track.id.get(),
+                "name": track.name,
+                "volume": track.volume,
+                "pan": track.pan,
+                "muted": track.muted,
+                "soloed": track.soloed,
+                "armed": track.armed,
+                "bus": track.bus,
+                "send": track.send,
+                "send_level": track.send_level,
+                "program": track.program,
+                "notes": track.notes.len(),
+                "clips": track.clips.len(),
+                "audio": track.audio.as_ref().map(|reference| reference.path.clone())
+            })).collect::<Vec<_>>()
+        })),
+        "get_notes" => {
+            let track = track_argument(arguments)?;
+            let found = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
+            Ok(json!({
+                "notes": found.notes.iter().map(|note| json!({
+                    "id": note.id.get(),
+                    "start": note.start,
+                    "duration": note.duration,
+                    "pitch": note.pitch.as_u8(),
+                    "velocity": note.velocity.as_u8(),
+                    "channel": note.channel.zero_based()
+                })).collect::<Vec<_>>()
+            }))
+        }
+        "get_chords" => Ok(json!({
+            "chords": session.song().chords.iter().map(|event| json!({
+                "tick": event.tick,
+                "symbol": event.chord.format(music_core::Spelling::Sharp)
+            })).collect::<Vec<_>>()
+        })),
+        "get_markers" => Ok(json!({
+            "markers": session.song().markers.iter().map(|marker| json!({
+                "tick": marker.tick,
+                "name": marker.name
+            })).collect::<Vec<_>>()
+        })),
+        "set_markers" => {
+            use project::Marker;
+            let markers = arguments
+                .get("markers")
+                .and_then(Value::as_array)
+                .ok_or_else(|| ToolError::Arguments(String::from("markers must be an array")))?;
+            let mut parsed = Vec::new();
+            for marker in markers {
+                parsed.push(Marker {
+                    tick: marker
+                        .get("tick")
+                        .and_then(Value::as_i64)
+                        .ok_or_else(|| ToolError::Arguments(String::from("marker needs a tick")))?,
+                    name: marker
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| ToolError::Arguments(String::from("marker needs a name")))?
+                        .to_string(),
+                });
+            }
+            parsed.sort_by_key(|marker| marker.tick);
+            session.apply(Command::SetMarkers {
+                markers: parsed.clone(),
+            })?;
+            Ok(json!({"markers": parsed.len()}))
+        }
+        "get_clips" => {
+            let track = track_argument(arguments)?;
+            let found = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
+            Ok(json!({
+                "clips": found.clips.iter().map(|clip| json!({
+                    "id": clip.id.get(),
+                    "name": clip.name,
+                    "start": clip.start,
+                    "length": clip.length
+                })).collect::<Vec<_>>()
+            }))
+        }
+        "set_clips" => {
+            use project::song::Clip;
+            let track = track_argument(arguments)?;
+            let clips = arguments
+                .get("clips")
+                .and_then(Value::as_array)
+                .ok_or_else(|| ToolError::Arguments(String::from("clips must be an array")))?;
+            let mut parsed = Vec::new();
+            let mut next = 1_u32;
+            for clip in clips {
+                let id = clip
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| u32::try_from(value).ok())
+                    .unwrap_or(next);
+                next = next.max(id + 1);
+                parsed.push(Clip {
+                    id: project::ClipId::new(id)
+                        .map_err(|error| ToolError::Arguments(error.to_string()))?,
+                    name: clip
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Clip")
+                        .to_string(),
+                    start: clip.get("start").and_then(Value::as_i64).unwrap_or(0),
+                    length: clip.get("length").and_then(Value::as_i64).unwrap_or(3840),
+                });
+            }
+            parsed.sort_by_key(|clip| clip.start);
+            session.apply(Command::SetClips {
+                track,
+                clips: parsed.clone(),
+            })?;
+            Ok(json!({"clips": parsed.len()}))
+        }
+        "get_scene_names" => Ok(json!({"names": session.song().scene_names})),
+        "set_scene_names" => {
+            let names = arguments
+                .get("names")
+                .and_then(Value::as_array)
+                .ok_or_else(|| ToolError::Arguments(String::from("names must be an array")))?;
+            let parsed: Vec<String> = names
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect();
+            session.apply(Command::SetSceneNames {
+                names: parsed.clone(),
+            })?;
+            Ok(json!({"names": parsed}))
         }
         "plugin_scan" => {
             let roots = arguments
@@ -1378,6 +1589,65 @@ mod tests {
         assert_eq!(result["korg_marker"], true);
         assert_eq!(result["model"], "KRONOS");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn track_note_chord_marker_clip_and_scene_tools_work() {
+        use project::Marker;
+        let mut session = session_with_track();
+        session
+            .apply(Command::SetMarkers {
+                markers: vec![Marker {
+                    tick: 0,
+                    name: String::from("Intro"),
+                }],
+            })
+            .expect("markers");
+        let tracks = call(&mut session, "get_tracks", &json!({})).expect("tracks");
+        assert_eq!(tracks["tracks"][0]["name"], "Piano");
+        session
+            .apply(Command::InsertNote {
+                track: TrackId::new(1).expect("valid"),
+                note: project::song::Note {
+                    id: project::NoteId::new(1).expect("valid"),
+                    start: 0,
+                    duration: music_core::PPQ,
+                    pitch: music_core::Pitch::from_name("C4").expect("valid"),
+                    velocity: music_core::Velocity::new(100).expect("valid"),
+                    channel: music_core::Channel::first(),
+                },
+            })
+            .expect("note");
+        let notes = call(&mut session, "get_notes", &json!({"track": 1})).expect("notes");
+        assert_eq!(notes["notes"][0]["pitch"], 60);
+        session
+            .apply(Command::SetChords {
+                chords: vec![project::song::ChordEvent {
+                    tick: 0,
+                    chord: music_core::Chord::parse("C").expect("valid"),
+                }],
+            })
+            .expect("chord");
+        let chords = call(&mut session, "get_chords", &json!({})).expect("chords");
+        assert_eq!(chords["chords"][0]["symbol"], "C");
+        let markers = call(&mut session, "get_markers", &json!({})).expect("markers");
+        assert_eq!(markers["markers"][0]["name"], "Intro");
+        call(
+            &mut session,
+            "set_clips",
+            &json!({"track": 1, "clips": [{"name": "A", "start": 0, "length": 3840}]}),
+        )
+        .expect("clips");
+        let clips = call(&mut session, "get_clips", &json!({"track": 1})).expect("get clips");
+        assert_eq!(clips["clips"][0]["name"], "A");
+        call(
+            &mut session,
+            "set_scene_names",
+            &json!({"names": ["Verse"]}),
+        )
+        .expect("scenes");
+        let scenes = call(&mut session, "get_scene_names", &json!({})).expect("get scenes");
+        assert_eq!(scenes["names"][0], "Verse");
     }
 
     #[test]

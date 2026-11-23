@@ -324,3 +324,11 @@ Plugins panel scans on demand, adds a found bundle as a slot, toggles bypass and
 removes slots (`Editor::add_plugin`, `toggle_plugin`, `remove_plugin`, each one
 `SetPlugins`). This proves discovery and stored state only: bundles are not
 loaded, validated or hosted, and processing still ignores slots.
+
+### Project-reading tools
+
+`get_tracks`, `get_notes`, `get_chords`, `get_markers`/`set_markers`,
+`get_clips`/`set_clips` and `get_scene_names`/`set_scene_names` expose the
+project's basic state and edits. Clip ids are optional on input (the next free
+id is used) and markers/clips are sorted by tick on write. The registry now
+holds 46 tools.
