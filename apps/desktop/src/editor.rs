@@ -1056,6 +1056,52 @@ impl Editor {
         Ok(track_id)
     }
 
+    /// Writes a normalized copy beside the source and points the reference at it.
+    ///
+    /// Returns the new path. Undo restores the reference but leaves the file.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track has no audio, the file cannot be read
+    /// or the normalized copy cannot be written.
+    pub fn normalize_audio(
+        &mut self,
+        track: TrackId,
+        target: f32,
+    ) -> Result<std::path::PathBuf, String> {
+        let Some(reference) = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.audio.clone())
+        else {
+            return Err(String::from("track has no audio reference"));
+        };
+        let source = std::path::PathBuf::from(&reference.path);
+        let bytes = std::fs::read(&source)
+            .map_err(|error| format!("could not read {}: {error}", source.display()))?;
+        let mut audio = audio::wav::decode_stereo(&bytes)?;
+        audio::edit::normalize_peak(&mut audio, target);
+        let stem = source
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("audio");
+        let out = source.with_file_name(format!("{stem}-normalized.wav"));
+        std::fs::write(&out, audio.to_wav32f())
+            .map_err(|error| format!("{}: {error}", out.display()))?;
+        let mut updated = reference;
+        updated.path = out.display().to_string();
+        self.session
+            .apply(app_commands::Command::SetAudioRef {
+                track,
+                reference: Some(updated),
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(out)
+    }
+
     /// Enables or disables resampling a track's audio to its reference length.
     ///
     /// # Errors
@@ -1980,6 +2026,51 @@ mod tests {
         assert_eq!(editor.song().tracks[0].plugins.len(), 1);
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].plugins.len(), 2);
+    }
+
+    #[test]
+    fn normalize_audio_writes_a_copy_and_switches_the_reference() {
+        let source = std::env::temp_dir().join("lazy-arranger-normalize-source.wav");
+        let audio = audio::RenderedAudio {
+            samples: vec![0.2, -0.4, 0.1, -0.2],
+            sample_rate: 48_000,
+        };
+        std::fs::write(&source, audio.to_wav()).expect("write");
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        editor
+            .session
+            .apply(app_commands::Command::SetAudioRef {
+                track,
+                reference: Some(project::song::AudioRef {
+                    path: source.display().to_string(),
+                    start: 0,
+                    length: 3840,
+                    offset: 0,
+                    fade_in: 0,
+                    fade_out: 0,
+                    stretch: false,
+                }),
+            })
+            .expect("audio");
+        let out = editor.normalize_audio(track, 0.9).expect("normalize");
+        let reference = editor.song().tracks[0].audio.as_ref().expect("audio");
+        assert_eq!(reference.path, out.display().to_string());
+        let bytes = std::fs::read(&out).expect("read normalized");
+        let decoded = audio::wav::decode_stereo(&bytes).expect("decode");
+        let peak = decoded
+            .samples
+            .iter()
+            .map(|sample| sample.abs())
+            .fold(0.0_f32, f32::max);
+        assert!((peak - 0.9).abs() < 0.001);
+        assert!(editor.undo());
+        assert_eq!(
+            editor.song().tracks[0].audio.as_ref().expect("audio").path,
+            source.display().to_string()
+        );
+        let _ = std::fs::remove_file(source);
+        let _ = std::fs::remove_file(out);
     }
 
     #[test]

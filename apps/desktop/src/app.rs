@@ -3681,6 +3681,7 @@ impl eframe::App for ShellApp {
                 let mut audio_trim: Option<(TrackId, Tick)> = None;
                 let mut audio_fades: Option<(TrackId, Tick, Tick)> = None;
                 let mut audio_stretch: Option<(TrackId, bool)> = None;
+                let mut audio_normalize: Option<TrackId> = None;
                 let mut score_status: Option<String> = None;
                 let entry_enabled_flag = self.score_entry;
                 let mut perform_chord: Option<music_core::Chord> = None;
@@ -3749,6 +3750,13 @@ impl eframe::App for ShellApp {
                                     .changed()
                                 {
                                     audio_stretch = Some((*track_id, stretch));
+                                }
+                                if ui
+                                    .small_button("Normalize")
+                                    .on_hover_text("Write a normalized copy and switch to it")
+                                    .clicked()
+                                {
+                                    audio_normalize = Some(*track_id);
                                 }
                             });
                             ui.horizontal(|ui| {
@@ -4119,6 +4127,7 @@ impl eframe::App for ShellApp {
                     audio_trim,
                     audio_fades,
                     audio_stretch,
+                    audio_normalize,
                     score_status,
                     perform_chord,
                     lesson_next,
@@ -4137,6 +4146,7 @@ impl eframe::App for ShellApp {
             audio_trim,
             audio_fades,
             audio_stretch,
+            audio_normalize,
             score_status,
             perform_chord,
             lesson_next,
@@ -4263,6 +4273,12 @@ impl eframe::App for ShellApp {
             && let Err(error) = self.editor.set_audio_stretch(track, stretch)
         {
             self.status = Some(error);
+        }
+        if let Some(track) = audio_normalize {
+            match self.editor.normalize_audio(track, 0.9) {
+                Ok(path) => self.status = Some(format!("normalized to {}", path.display())),
+                Err(error) => self.status = Some(error),
+            }
         }
         if let Some((track, lane)) = automation_edit
             && let Err(error) = self.editor.merge_automation(track, lane)

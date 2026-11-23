@@ -709,3 +709,11 @@ re-imports the MusicXML with matching track count.
 24-bit WAV, returning duration and problem count. The sidebar Export WAV button
 opens the file window. A test checks the RIFF/format/bits header and non-empty
 frames.
+
+### Normalize in the shell
+
+`Editor::normalize_audio(track, target)` decodes the reference through
+`decode_stereo`, normalizes the peak, writes `<stem>-normalized.wav` beside the
+source and applies one `SetAudioRef`. Undo restores the path but leaves the file.
+The trim row has a Normalize button; the test checks the switch, the 0.9 peak
+and undo.
