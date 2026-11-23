@@ -379,6 +379,29 @@ impl Editor {
         Ok(changed)
     }
 
+    /// Applies a stored groove to one track.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is missing or the command is rejected.
+    pub fn apply_stored_groove(
+        &mut self,
+        track: TrackId,
+        groove: &arranging::groove::Groove,
+        amounts: arranging::groove::Amounts,
+    ) -> Result<usize, String> {
+        let Some(entry) = self.song().tracks.iter().find(|entry| entry.id == track) else {
+            return Err(String::from("track not found"));
+        };
+        let notes = arranging::groove::apply(&entry.notes, groove, amounts);
+        let changed = notes.len();
+        self.session
+            .apply(Command::ReplaceTrackNotes { track, notes })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(changed)
+    }
+
     /// Adds a transition ending at `join_tick`.
     ///
     /// # Errors

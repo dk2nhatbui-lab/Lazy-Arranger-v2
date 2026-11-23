@@ -519,6 +519,12 @@ pub struct ShellApp {
     settings_open: bool,
     shortcuts_open: bool,
     about_open: bool,
+    groove_open: bool,
+    groove_entries: Vec<(String, std::path::PathBuf)>,
+    groove_selected: usize,
+    groove_loaded: Option<arranging::groove::Groove>,
+    groove_timing: f32,
+    groove_accents: f32,
     help_open: bool,
     score_entry: bool,
     score_page: usize,
@@ -760,6 +766,12 @@ impl ShellApp {
             settings_open: initial_window == "settings",
             shortcuts_open: initial_window == "shortcuts",
             about_open: initial_window == "about",
+            groove_open: initial_window == "groove",
+            groove_entries: Vec::new(),
+            groove_selected: 0,
+            groove_loaded: None,
+            groove_timing: 1.0,
+            groove_accents: 1.0,
             help_open: initial_window == "help",
             score_entry: false,
             score_page: 0,
@@ -4823,8 +4835,78 @@ impl ShellApp {
         self.about_open = open;
     }
 
+    fn groove_window(&mut self, context: &egui::Context) {
+        if !self.groove_open {
+            return;
+        }
+        let mut open = self.groove_open;
+        egui::Window::new("Groove library")
+            .open(&mut open)
+            .resizable(false)
+            .show(context, |ui| {
+                if ui.button("Refresh").clicked() || self.groove_entries.is_empty() {
+                    self.groove_entries =
+                        arranging::groove_file::list(std::path::Path::new("grooves"))
+                            .unwrap_or_default();
+                }
+                let selected = self
+                    .groove_entries
+                    .get(self.groove_selected)
+                    .map(|entry| entry.0.clone())
+                    .unwrap_or_else(|| String::from("No groove files"));
+                egui::ComboBox::from_id_salt("groove-file")
+                    .selected_text(selected)
+                    .show_ui(ui, |ui| {
+                        for (index, (name, _)) in self.groove_entries.iter().enumerate() {
+                            ui.selectable_value(&mut self.groove_selected, index, name);
+                        }
+                    });
+                if ui.button("Load").clicked()
+                    && let Some((_, path)) = self.groove_entries.get(self.groove_selected)
+                {
+                    match arranging::groove_file::load(path) {
+                        Ok((_, groove)) => {
+                            self.groove_loaded = Some(groove);
+                            self.status = Some(String::from("groove loaded"));
+                        }
+                        Err(error) => self.status = Some(error),
+                    }
+                }
+                ui.add(egui::Slider::new(&mut self.groove_timing, 0.0..=1.0).text("timing"));
+                ui.add(egui::Slider::new(&mut self.groove_accents, 0.0..=1.0).text("accents"));
+                if let Some(groove) = &self.groove_loaded {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} slots · grid {}",
+                            groove.offsets.len(),
+                            groove.grid
+                        ))
+                        .size(10.0)
+                        .color(theme::text_dim()),
+                    );
+                }
+                if ui.button("Apply to selected track").clicked()
+                    && let Some(groove) = &self.groove_loaded
+                    && let Some(track) = self.roll.selected
+                {
+                    let amounts = arranging::groove::Amounts {
+                        timing: self.groove_timing,
+                        accents: self.groove_accents,
+                    };
+                    match self.editor.apply_stored_groove(track, groove, amounts) {
+                        Ok(count) => {
+                            self.status = Some(format!("groove applied to {count} note(s)"))
+                        }
+                        Err(error) => self.status = Some(error),
+                    }
+                }
+            });
+        self.groove_open = open;
+    }
+
     fn windows(&mut self, context: &egui::Context) {
         self.about_window(context);
+        self.groove_window(context);
         if self.settings_open {
             let mut open = self.settings_open;
             egui::Window::new("Settings")
@@ -6713,6 +6795,10 @@ impl ShellApp {
                             }
                             if ui.button("Shortcuts").clicked() {
                                 self.shortcuts_open = true;
+                                ui.close_menu();
+                            }
+                            if ui.button("Groove library").clicked() {
+                                self.groove_open = true;
                                 ui.close_menu();
                             }
                             if ui.button("About Lazy Arranger").clicked() {
