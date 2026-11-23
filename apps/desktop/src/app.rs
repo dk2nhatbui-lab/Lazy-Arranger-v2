@@ -92,6 +92,8 @@ pub enum FileMode {
     ExportMusicXml,
     /// Export the mixed song as a WAV.
     ExportWav,
+    /// Export one WAV per audible track into a folder.
+    ExportStems,
 }
 
 pub struct ShellApp {
@@ -776,6 +778,7 @@ impl ShellApp {
             FileMode::ExportMidi => "Export MIDI",
             FileMode::ExportMusicXml => "Export MusicXML",
             FileMode::ExportWav => "Export WAV",
+            FileMode::ExportStems => "Export stems",
         })
         .collapsible(false)
         .open(&mut open)
@@ -786,6 +789,7 @@ impl ShellApp {
                 FileMode::ExportMidi => "Path (.mid)",
                 FileMode::ExportMusicXml => "Path (.musicxml)",
                 FileMode::ExportWav => "Path (.wav)",
+                FileMode::ExportStems => "Folder",
                 _ => "Path (.arranger JSON, .mid, .midi or .musicxml)",
             });
             ui.add(egui::TextEdit::singleline(&mut self.file_path_input).desired_width(400.0));
@@ -794,9 +798,10 @@ impl ShellApp {
                     FileMode::Open => "Open",
                     FileMode::SaveAs => "Save",
                     FileMode::ImportAudio => "Import",
-                    FileMode::ExportMidi | FileMode::ExportMusicXml | FileMode::ExportWav => {
-                        "Export"
-                    }
+                    FileMode::ExportMidi
+                    | FileMode::ExportMusicXml
+                    | FileMode::ExportWav
+                    | FileMode::ExportStems => "Export",
                 };
                 if ui.button(label).clicked() {
                     action = true;
@@ -831,6 +836,16 @@ impl ShellApp {
                             "exported {tracks} MIDI track(s) to {}",
                             path.display()
                         ));
+                        self.file_mode = None;
+                    }
+                    Err(error) => self.load_error = Some(error),
+                }
+            } else if mode == FileMode::ExportStems {
+                let song = self.song().clone();
+                match export_stems_folder(&song, &path) {
+                    Ok(stems) => {
+                        self.status =
+                            Some(format!("exported {stems} stem(s) to {}", path.display()));
                         self.file_mode = None;
                     }
                     Err(error) => self.load_error = Some(error),
@@ -3420,6 +3435,15 @@ impl ShellApp {
                                     .unwrap_or_else(|| String::from("project.mid"));
                                 self.file_mode = Some(FileMode::ExportMidi);
                             }
+                            if ui.small_button("Export stems").clicked() {
+                                self.file_path_input = self
+                                    .project_path
+                                    .as_ref()
+                                    .and_then(|path| path.parent())
+                                    .map(|parent| parent.join("stems").display().to_string())
+                                    .unwrap_or_else(|| String::from("stems"));
+                                self.file_mode = Some(FileMode::ExportStems);
+                            }
                             if ui.small_button("Export WAV").clicked() {
                                 self.file_path_input = self
                                     .project_path
@@ -4416,6 +4440,45 @@ pub fn export_midi_file(
     Ok(report.tracks)
 }
 
+/// Writes one 24-bit WAV per audible track plus `stems.txt`.
+///
+/// # Errors
+///
+/// Returns a message when the folder or a file cannot be written.
+pub fn export_stems_folder(
+    song: &project::song::Song,
+    directory: &std::path::Path,
+) -> Result<usize, String> {
+    let stems = audio::render_stems(song, audio::SAMPLE_RATE);
+    std::fs::create_dir_all(directory)
+        .map_err(|error| format!("{}: {error}", directory.display()))?;
+    let mut manifest = String::new();
+    for stem in &stems {
+        let slug: String = stem
+            .name
+            .chars()
+            .map(|character| {
+                if character.is_ascii_alphanumeric() {
+                    character.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        let file = format!("{}-{slug}.wav", stem.track.get());
+        std::fs::write(directory.join(&file), stem.audio.to_wav24())
+            .map_err(|error| format!("{}: {error}", directory.display()))?;
+        manifest.push_str(&format!(
+            "{}\t{file}\t{:.2}s\n",
+            stem.name,
+            stem.audio.duration_seconds()
+        ));
+    }
+    std::fs::write(directory.join("stems.txt"), manifest)
+        .map_err(|error| format!("{}: {error}", directory.display()))?;
+    Ok(stems.len())
+}
+
 /// Renders and writes a 24-bit WAV, returning duration and audio-reference problems.
 ///
 /// # Errors
@@ -4478,6 +4541,24 @@ pub fn demo_project() -> ProjectFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stem_export_writes_files_and_a_manifest() {
+        let directory = std::env::temp_dir().join("lazy-arranger-shell-stems");
+        let _ = std::fs::remove_dir_all(&directory);
+        let song = arranging::demo::demo_song();
+        let stems = export_stems_folder(&song, &directory).expect("stems");
+        assert!(stems > 0);
+        let manifest = std::fs::read_to_string(directory.join("stems.txt")).expect("manifest");
+        assert_eq!(manifest.lines().count(), stems);
+        let wavs = std::fs::read_dir(&directory)
+            .expect("dir")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "wav"))
+            .count();
+        assert_eq!(wavs, stems);
+        let _ = std::fs::remove_dir_all(directory);
+    }
 
     #[test]
     fn wav_export_writes_a_24_bit_file() {

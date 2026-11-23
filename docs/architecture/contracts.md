@@ -717,3 +717,10 @@ frames.
 source and applies one `SetAudioRef`. Undo restores the path but leaves the file.
 The trim row has a Normalize button; the test checks the switch, the 0.9 peak
 and undo.
+
+### Stem export from the shell
+
+`export_stems_folder` renders `audio::render_stems`, writes `<track>-<slug>.wav`
+in 24-bit and `stems.txt` with duration. The sidebar Export stems button opens
+the file window in folder mode; a test checks that the manifest line count and
+WAV count equal the returned stem count.
