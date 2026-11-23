@@ -2772,6 +2772,10 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .get("section_bars")
                 .and_then(Value::as_u64)
                 .unwrap_or(0) as u32;
+            let drums = arguments
+                .get("drums")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let version = match arguments
                 .get("version")
                 .and_then(Value::as_str)
@@ -2814,6 +2818,7 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     source_chord: source,
                     split_parts,
                     section_bars,
+                    include_drums: drums,
                 },
             )
             .map_err(ToolError::Arguments)?;

@@ -740,6 +740,9 @@ enum Commands {
         /// Split into sections of this many 4/4 bars (0 keeps one section).
         #[arg(long, default_value_t = 0)]
         section_bars: u32,
+        /// Derive a Drums part from onsets.
+        #[arg(long)]
+        drums: bool,
         /// sff1 or sff2 (default).
         #[arg(long, default_value = "sff2")]
         version: String,
@@ -2055,6 +2058,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             chord,
             split_parts,
             section_bars,
+            drums,
             version,
         } => style_from_audio(
             &audio,
@@ -2064,6 +2068,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             &chord,
             split_parts,
             section_bars,
+            drums,
             &version,
         ),
         Commands::StyleFromClips {
@@ -2659,6 +2664,7 @@ fn style_from_audio(
     chord: &str,
     split_parts: bool,
     section_bars: u32,
+    drums: bool,
     version: &str,
 ) -> Result<(), Box<dyn Error>> {
     let decoded = audio::decode::decode_mono(audio_path).or_else(|_| {
@@ -2683,6 +2689,7 @@ fn style_from_audio(
             source_chord: source,
             split_parts,
             section_bars,
+            include_drums: drums,
         },
     )?;
     let style = built.style;

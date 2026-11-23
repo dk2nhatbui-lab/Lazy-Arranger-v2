@@ -17,6 +17,8 @@ pub struct AudioStyleOptions<'a> {
     pub split_parts: bool,
     /// Uniform section length in 4/4 bars; zero means one section.
     pub section_bars: u32,
+    /// Derive a Drums part from onsets and band energy.
+    pub include_drums: bool,
 }
 
 /// A built audio style and what was detected.
@@ -66,7 +68,7 @@ pub fn style_from_audio(
         });
     }
     let name = "Audio style";
-    let style = if options.section_bars == 0 {
+    let mut style = if options.section_bars == 0 {
         let mut style = if options.split_parts {
             arranger::style::from_notes_split(name, source, length, notes)
         } else {
@@ -86,6 +88,10 @@ pub fn style_from_audio(
             options.section_bars,
         )
     };
+    if options.include_drums {
+        let drum_notes = drum_notes(audio, bpm);
+        attach_drums(&mut style, source, drum_notes);
+    }
     let notes = style
         .sections
         .iter()
@@ -97,6 +103,86 @@ pub fn style_from_audio(
         source_chord: source,
         notes,
     })
+}
+
+fn drum_notes(audio: &RenderedAudio, bpm: f64) -> Vec<StyleNote> {
+    let onsets = audio::drums::onsets(&audio.samples, audio.sample_rate);
+    let mut notes = Vec::new();
+    let window = (0.08 * f64::from(audio.sample_rate)) as usize;
+    for (index, onset) in onsets.iter().enumerate() {
+        let start = *onset;
+        let end = (start + window).min(audio.samples.len());
+        if end <= start {
+            continue;
+        }
+        let slice = &audio.samples[start..end];
+        let level =
+            (slice.iter().map(|sample| sample * sample).sum::<f32>() / slice.len() as f32).sqrt();
+        if level < 1.0e-4 {
+            continue;
+        }
+        let pitch = classify_drum(slice, audio.sample_rate);
+        let next = onsets
+            .get(index + 1)
+            .copied()
+            .unwrap_or(audio.samples.len());
+        let seconds = start as f64 / f64::from(audio.sample_rate);
+        let duration_seconds = (next.saturating_sub(start)) as f64 / f64::from(audio.sample_rate);
+        notes.push(StyleNote {
+            tick: audio::chords::to_ticks(seconds, bpm),
+            duration: audio::chords::to_ticks(duration_seconds.max(0.04), bpm).max(1),
+            pitch,
+            velocity: (level * 250.0).clamp(1.0, 127.0) as u8,
+        });
+    }
+    notes
+}
+
+fn classify_drum(samples: &[f32], sample_rate: u32) -> u8 {
+    let alpha = 1.0 - (-std::f64::consts::TAU * 200.0 / f64::from(sample_rate)).exp();
+    let mut low = 0.0_f32;
+    let mut low_energy = 0.0_f32;
+    let mut high_energy = 0.0_f32;
+    for sample in samples {
+        low += alpha as f32 * (*sample - low);
+        low_energy += low * low;
+        high_energy += (*sample - low) * (*sample - low);
+    }
+    if low_energy > high_energy * 1.4 {
+        36
+    } else if high_energy > low_energy * 1.4 {
+        42
+    } else {
+        38
+    }
+}
+
+fn attach_drums(style: &mut Style, source: ArrangerChord, drums: Vec<StyleNote>) {
+    let mut offset = 0;
+    let root = source.root.as_u8();
+    for section in &mut style.sections {
+        let end = offset + section.length_ticks;
+        let local: Vec<StyleNote> = drums
+            .iter()
+            .filter(|note| note.tick >= offset && note.tick < end)
+            .map(|note| StyleNote {
+                tick: note.tick - offset,
+                duration: note.duration.min(end - note.tick),
+                ..*note
+            })
+            .collect();
+        if !local.is_empty() {
+            let mut part = arranger::style::StylePart::new(
+                "Drums",
+                arranger::rules::ChordRule::default_for_channel(10),
+            );
+            part.rule.source_root = root;
+            part.rule.source_chord_type = source.chord_type;
+            part.notes = local;
+            section.parts.push(part);
+        }
+        offset = end;
+    }
 }
 
 fn auto_chord(samples: &[f32], sample_rate: u32, bpm: f64) -> Option<ArrangerChord> {
@@ -162,6 +248,39 @@ mod tests {
     use std::path::Path;
 
     #[test]
+    fn a_low_hit_becomes_a_drum_part() {
+        let mut samples = vec![0.0_f32; 48_000];
+        for (index, sample) in samples.iter_mut().skip(9_600).take(4_800).enumerate() {
+            let envelope = 1.0 - index as f32 / 4_800.0;
+            *sample =
+                (std::f32::consts::TAU * 80.0 * index as f32 / 48_000.0).sin() * envelope * 0.8;
+        }
+        let audio = RenderedAudio {
+            samples,
+            sample_rate: 48_000,
+        };
+        let built = style_from_audio(
+            &audio,
+            AudioStyleOptions {
+                bpm: 120.0,
+                section: "Main A",
+                source_chord: None,
+                split_parts: false,
+                section_bars: 0,
+                include_drums: true,
+            },
+        )
+        .expect("style");
+        let drums = built
+            .style
+            .sections
+            .first()
+            .and_then(|section| section.parts.iter().find(|part| part.name == "Drums"))
+            .expect("drum part");
+        assert_eq!(drums.notes[0].pitch, 36);
+    }
+
+    #[test]
     fn a_tone_becomes_a_one_part_style() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../audio/tests/fixtures/tone.flac");
         let decoded = audio::decode::decode_mono(&path).expect("decode");
@@ -173,6 +292,7 @@ mod tests {
                 source_chord: None,
                 split_parts: false,
                 section_bars: 0,
+                include_drums: false,
             },
         )
         .expect("style");
