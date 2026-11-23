@@ -11,7 +11,8 @@ use vst3::Steinberg::Vst::{
     SymbolicSampleSizes_,
 };
 use vst3::Steinberg::{
-    IPluginBaseTrait, IPluginFactory, IPluginFactoryTrait, TUID, kNoInterface, kResultOk,
+    IBStream, IBStreamTrait, IPluginBaseTrait, IPluginFactory, IPluginFactoryTrait, TUID,
+    kNoInterface, kResultOk,
 };
 use vst3::{Class, ComPtr, ComWrapper, Interface};
 
@@ -239,6 +240,49 @@ impl Vst3Effect {
         })
     }
 
+    /// Serializes the component state into a memory stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the component rejects the stream or has no state.
+    pub fn save_state(&self) -> Result<Vec<u8>, String> {
+        let (stream, data) = MemoryStream::new();
+        let pointer = stream
+            .to_com_ptr::<IBStream>()
+            .ok_or_else(|| String::from("memory stream"))?;
+        let result = unsafe { self.component.getState(pointer.as_ptr()) };
+        if result != kResultOk {
+            return Err(format!("getState returned {result}"));
+        }
+        let bytes = data
+            .lock()
+            .map_err(|error| error.to_string())?
+            .bytes
+            .clone();
+        if bytes.is_empty() {
+            Err(String::from("plug-in wrote no state"))
+        } else {
+            Ok(bytes)
+        }
+    }
+
+    /// Restores component state from a memory stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the component rejects the stream.
+    pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), String> {
+        let (stream, _) = MemoryStream::from_bytes(bytes);
+        let pointer = stream
+            .to_com_ptr::<IBStream>()
+            .ok_or_else(|| String::from("memory stream"))?;
+        let result = unsafe { self.component.setState(pointer.as_ptr()) };
+        if result != kResultOk {
+            return Err(format!("setState returned {result}"));
+        }
+        Ok(())
+    }
+
     /// Parameters exposed by the edit controller: id, title, default and range.
     #[must_use]
     pub fn parameters(&self) -> Vec<(u32, String, f64)> {
@@ -275,6 +319,138 @@ impl Drop for Vst3Effect {
             }
             let _ = self.component.terminate();
         }
+    }
+}
+
+struct StreamState {
+    bytes: Vec<u8>,
+    position: usize,
+}
+
+struct MemoryStream {
+    state: std::sync::Arc<std::sync::Mutex<StreamState>>,
+}
+
+impl MemoryStream {
+    fn new() -> (
+        ComWrapper<Self>,
+        std::sync::Arc<std::sync::Mutex<StreamState>>,
+    ) {
+        let state = std::sync::Arc::new(std::sync::Mutex::new(StreamState {
+            bytes: Vec::new(),
+            position: 0,
+        }));
+        (
+            ComWrapper::new(Self {
+                state: std::sync::Arc::clone(&state),
+            }),
+            state,
+        )
+    }
+
+    fn from_bytes(
+        bytes: &[u8],
+    ) -> (
+        ComWrapper<Self>,
+        std::sync::Arc<std::sync::Mutex<StreamState>>,
+    ) {
+        let state = std::sync::Arc::new(std::sync::Mutex::new(StreamState {
+            bytes: bytes.to_vec(),
+            position: 0,
+        }));
+        (
+            ComWrapper::new(Self {
+                state: std::sync::Arc::clone(&state),
+            }),
+            state,
+        )
+    }
+}
+
+impl Class for MemoryStream {
+    type Interfaces = (IBStream,);
+}
+
+impl IBStreamTrait for MemoryStream {
+    unsafe fn read(
+        &self,
+        buffer: *mut std::ffi::c_void,
+        num_bytes: i32,
+        bytes_read: *mut i32,
+    ) -> vst3::Steinberg::tresult {
+        let Ok(mut state) = self.state.lock() else {
+            return vst3::Steinberg::kResultFalse;
+        };
+        let available = state.bytes.len().saturating_sub(state.position);
+        let count = usize::try_from(num_bytes.max(0))
+            .unwrap_or(0)
+            .min(available);
+        if count > 0 {
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    state.bytes[state.position..].as_ptr(),
+                    buffer.cast::<u8>(),
+                    count,
+                );
+            }
+            state.position += count;
+        }
+        if !bytes_read.is_null() {
+            unsafe { *bytes_read = i32::try_from(count).unwrap_or(0) };
+        }
+        kResultOk
+    }
+
+    unsafe fn write(
+        &self,
+        buffer: *mut std::ffi::c_void,
+        num_bytes: i32,
+        bytes_written: *mut i32,
+    ) -> vst3::Steinberg::tresult {
+        let Ok(mut state) = self.state.lock() else {
+            return vst3::Steinberg::kResultFalse;
+        };
+        let count = usize::try_from(num_bytes.max(0)).unwrap_or(0);
+        let bytes = unsafe { std::slice::from_raw_parts(buffer.cast::<u8>(), count) };
+        let end = state.position.saturating_add(count);
+        if end > state.bytes.len() {
+            state.bytes.resize(end, 0);
+        }
+        let position = state.position;
+        state.bytes[position..end].copy_from_slice(bytes);
+        state.position = end;
+        if !bytes_written.is_null() {
+            unsafe { *bytes_written = i32::try_from(count).unwrap_or(0) };
+        }
+        kResultOk
+    }
+
+    unsafe fn seek(&self, position: i64, mode: i32, result: *mut i64) -> vst3::Steinberg::tresult {
+        let Ok(mut state) = self.state.lock() else {
+            return vst3::Steinberg::kResultFalse;
+        };
+        let base = match mode {
+            0 => 0,
+            1 => i64::try_from(state.position).unwrap_or(0),
+            2 => i64::try_from(state.bytes.len()).unwrap_or(0),
+            _ => return vst3::Steinberg::kResultFalse,
+        };
+        let target = base.saturating_add(position).max(0);
+        state.position = usize::try_from(target).unwrap_or(usize::MAX);
+        if !result.is_null() {
+            unsafe { *result = target };
+        }
+        kResultOk
+    }
+
+    unsafe fn tell(&self, position: *mut i64) -> vst3::Steinberg::tresult {
+        let Ok(state) = self.state.lock() else {
+            return vst3::Steinberg::kResultFalse;
+        };
+        if !position.is_null() {
+            unsafe { *position = i64::try_from(state.position).unwrap_or(i64::MAX) };
+        }
+        kResultOk
     }
 }
 
@@ -353,6 +529,22 @@ mod tests {
         assert!(parse_cid("00000000000000000000000000000000").is_some());
         assert!(parse_cid("00").is_none());
         assert!(parse_cid("GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG").is_none());
+    }
+
+    #[test]
+    #[ignore = "loads an installed plug-in"]
+    fn r0verb_state_round_trips() {
+        let classes =
+            crate::scan_vst3(Path::new("/Library/Audio/Plug-Ins/VST3/R0Verb.vst3")).expect("scan");
+        let mut effect = Vst3Effect::new(
+            Path::new("/Library/Audio/Plug-Ins/VST3/R0Verb.vst3"),
+            &classes[0].cid,
+            48_000.0,
+            256,
+        )
+        .expect("effect");
+        let state = effect.save_state().expect("save state");
+        effect.load_state(&state).expect("load state");
     }
 
     #[test]

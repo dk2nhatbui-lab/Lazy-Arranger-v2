@@ -84,7 +84,7 @@ crates/audio           synth, SF2, WAV, mix, buses, automation, analysis, L6max
 crates/library         Music Finder books, playlists
 crates/midi-devices    profiles, ports, maps, SysEx, dispatch
 crates/plugins         VST3/AU metadata, catalog cache and browser (no hosting)
-crates/plugin-host     isolated unsafe VST3/AU FFI: class scan + stereo effect processing (slots applied in track render; params/editors pending)
+crates/plugin-host     isolated unsafe VST3/AU FFI: class scan + stereo effect processing (slots applied in track render; VST3 state; params/editors pending)
 crates/mcp             stdio/socket MCP server, 93 tools, local assistant
 apps/cli               headless binary
 apps/desktop           egui 0.31 desktop app
