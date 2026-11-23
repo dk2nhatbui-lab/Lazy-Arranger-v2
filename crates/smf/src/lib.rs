@@ -20,7 +20,7 @@ use midly::{
 };
 use music_core::{Channel, PPQ, Pitch, TempoChange, TempoMap, Tick, TimeSignature, Velocity};
 use project::ids::{Marker, NoteId, TrackId};
-use project::song::{Note, Song, Track};
+use project::song::{BankSelect, Note, Song, Track};
 use thiserror::Error;
 
 pub mod keyboard;
@@ -156,11 +156,35 @@ pub fn encode(song: &Song) -> Result<Vec<u8>, SmfError> {
 
     for track in &song.tracks {
         let mut builder = TrackBuilder::new(track.name.as_str());
+        let channel = track
+            .notes
+            .first()
+            .map_or_else(Channel::first, |note| note.channel);
+        if let Some(bank) = track.bank {
+            builder.push(
+                0,
+                1,
+                TrackEventKind::Midi {
+                    channel: channel_to_u4(channel),
+                    message: Midi::Controller {
+                        controller: u7::new(0),
+                        value: u7::new(bank.msb.min(127)),
+                    },
+                },
+            );
+            builder.push(
+                0,
+                1,
+                TrackEventKind::Midi {
+                    channel: channel_to_u4(channel),
+                    message: Midi::Controller {
+                        controller: u7::new(32),
+                        value: u7::new(bank.lsb.min(127)),
+                    },
+                },
+            );
+        }
         if let Some(program) = track.program {
-            let channel = track
-                .notes
-                .first()
-                .map_or_else(Channel::first, |note| note.channel);
             builder.push(
                 0,
                 1,
@@ -247,6 +271,8 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
         let mut sounding: Vec<(u8, u8, Tick, Velocity)> = Vec::new();
         let mut notes: Vec<RawNote> = Vec::new();
         let mut program: Option<u8> = None;
+        let mut bank_msb: Option<u8> = None;
+        let mut bank_lsb: Option<u8> = None;
 
         for event in events {
             absolute += u64::from(event.delta.as_int());
@@ -277,6 +303,11 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
                     Midi::ProgramChange { program: value } => {
                         program.get_or_insert(value.as_int());
                     }
+                    Midi::Controller { controller, value } => match controller.as_int() {
+                        0 => bank_msb = Some(value.as_int()),
+                        32 => bank_lsb = Some(value.as_int()),
+                        _ => {}
+                    },
                     _ => {}
                 },
                 TrackEventKind::Meta(meta) => match meta {
@@ -327,6 +358,12 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
             name.unwrap_or_else(|| format!("Track {}", index + 1)),
         );
         track.program = program;
+        if bank_msb.is_some() || bank_lsb.is_some() {
+            track.bank = Some(BankSelect {
+                msb: bank_msb.unwrap_or(0),
+                lsb: bank_lsb.unwrap_or(0),
+            });
+        }
         for (note_index, raw) in notes.into_iter().enumerate() {
             let id = NoteId::new(u32::try_from(note_index + 1).unwrap_or(u32::MAX))
                 .map_err(|err| SmfError::Range(err.to_string()))?;
@@ -603,10 +640,13 @@ mod tests {
     fn track_programs_survive_the_round_trip() {
         let mut song = example_song();
         song.tracks[0].program = Some(40);
+        song.tracks[0].bank = Some(BankSelect { msb: 63, lsb: 1 });
         let bytes = encode(&song).expect("encode");
         let (back, _) = decode(&bytes).expect("decode");
         assert_eq!(back.tracks[0].program, Some(40));
+        assert_eq!(back.tracks[0].bank, Some(BankSelect { msb: 63, lsb: 1 }));
         assert_eq!(back.tracks[1].program, None);
+        assert_eq!(back.tracks[1].bank, None);
     }
 
     #[test]

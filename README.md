@@ -16,7 +16,7 @@ blockers are listed at the end.
 | --- | --- | --- |
 | Source audit (C++ / Cadenza / Vibez) | verified | `docs/audit/` |
 | Musical primitives, tempo map, 960 PPQ | verified | `crates/music-core` |
-| Project schema v19, migrations, validation | verified | `crates/project` |
+| Project schema v20, migrations, validation | verified | `crates/project` |
 | Legacy C++ import | verified on fixtures | `project::legacy` |
 | Typed commands, inverse edits, undo/redo | verified | `crates/app-commands` |
 | Sample-clock scheduler | verified | `crates/sequencer` |
@@ -69,7 +69,7 @@ cargo run -p lazy-arranger-cli -- mcp-serve
 
 ```text
 crates/music-core      pitch, chord, tick, tempo, theory, lesson questions
-crates/project         song schema v19, validation, legacy import, recent files
+crates/project         song schema v20, validation, legacy import, recent files
 crates/app-commands    typed commands, inverses, undo/redo
 crates/sequencer       prepared patterns, sample-clock scheduler
 crates/smf             standard MIDI file encode/decode, keyboard export

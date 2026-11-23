@@ -10,10 +10,10 @@ This table grew over many rounds and some middle rows describe earlier states.
 The reconciled view is
 [`cpp-features-crosscheck.md`](cpp-features-crosscheck.md): 39 sections, **39
 partial and 0 missing at row level**, no section fully verified. `cargo test
---workspace` passes **653 tests**; fmt, clippy with `-D warnings` and rustdoc
+--workspace` passes **654 tests**; fmt, clippy with `-D warnings` and rustdoc
 pass.
 
-Verified by tests or offline evidence: project schema v19 with migrations,
+Verified by tests or offline evidence: project schema v20 with migrations,
 undo/inverses and validation; legacy import; Yamaha style parse/import/compile
 and SFF1/SFF2 writing with track programs; clip model, slots, launcher and take recording; chord
 parsing, roman numerals, reharmonisation and find-chords; doctor/fit with A/B,
@@ -38,7 +38,7 @@ speech input. Input monitoring exists but is hardware-unverified.
 
 | C++ capability | Rust module | Status | Evidence |
 | --- | --- | --- | --- |
-| Song/project model, undo, validation | `project`, `app-commands` | verified | schema v19 with tested migrations, inverses and validation |
+| Song/project model, undo, validation | `project`, `app-commands` | verified | schema v20 with tested migrations, inverses and validation |
 | Legacy C++ project import (v1..v4) | `project::legacy` | verified | fixtures `legacy-cpp-v3/v4` |
 | Style parser (SFF1/SFF2, CASM) | `style-formats` | verified | 16,219 containers, 856,370 rules |
 | Style section import to playable style | `style-formats::import` | verified | 16,158 styles, 48.8M notes |

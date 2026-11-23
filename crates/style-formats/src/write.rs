@@ -59,6 +59,7 @@ mod tests {
         });
         let mut track = Track::new(TrackId::new(1).expect("valid"), "Bass");
         track.program = Some(40);
+        track.bank = Some(project::song::BankSelect { msb: 63, lsb: 1 });
         track.notes.push(Note {
             id: NoteId::new(1).expect("valid"),
             start: 0,
@@ -93,10 +94,18 @@ mod tests {
         assert_eq!(casm.version, SffVersion::Sff2);
         assert!(casm.groups.iter().any(|group| group.sections == ["Main A"]));
         assert_eq!(imported.song.tracks[0].program, Some(40));
+        assert_eq!(
+            imported.song.tracks[0].bank,
+            Some(project::song::BankSelect { msb: 63, lsb: 1 })
+        );
         let (song, _) = smf::decode(&written).expect("midi part still decodes");
         assert_eq!(song.markers.len(), imported.song.markers.len());
         assert_eq!(song.tracks.len(), imported.song.tracks.len());
         assert_eq!(song.tracks[0].program, Some(40));
+        assert_eq!(
+            song.tracks[0].bank,
+            Some(project::song::BankSelect { msb: 63, lsb: 1 })
+        );
     }
 
     #[test]
