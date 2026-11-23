@@ -3354,7 +3354,7 @@ impl ShellApp {
         let tracks = self.song().tracks.clone();
         let buses = self.song().buses.clone();
         let mut edits: Vec<(TrackId, u8, u8, bool, bool, u8, bool)> = Vec::new();
-        let mut bus_edits: Vec<(u8, u8, u8)> = Vec::new();
+        let mut bus_edits: Vec<(u8, u8, u8, bool, bool)> = Vec::new();
         let mut master_gain = self.settings.master_gain_db;
         egui::TopBottomPanel::bottom("bottom-mixer")
             .resizable(true)
@@ -3530,6 +3530,8 @@ impl ShellApp {
                             let mut pan = f32::from(bus.pan);
                             let mut bus_volume = bus.volume;
                             let mut bus_pan = bus.pan;
+                            let mut bus_muted = bus.muted;
+                            let mut bus_soloed = bus.soloed;
                             ui.allocate_ui(egui::vec2(96.0, 220.0), |ui| {
                                 ui.vertical(|ui| {
                                     painter_strip(ui, theme::accent());
@@ -3544,7 +3546,9 @@ impl ShellApp {
                                         if mixer_knob(ui, &mut pan, 0.0, 127.0, &pan_text, true) {
                                             bus_pan =
                                                 u8::try_from(pan.round() as i32).unwrap_or(bus.pan);
-                                            bus_edits.push((bus.id, bus_volume, bus_pan));
+                                            bus_edits.push((
+                                                bus.id, bus_volume, bus_pan, bus_muted, bus_soloed,
+                                            ));
                                         }
                                     });
                                     ui.add_space(18.0);
@@ -3562,9 +3566,26 @@ impl ShellApp {
                                             ) {
                                                 bus_volume = u8::try_from(volume.round() as i32)
                                                     .unwrap_or(bus.volume);
-                                                bus_edits.push((bus.id, bus_volume, bus_pan));
+                                                bus_edits.push((
+                                                    bus.id, bus_volume, bus_pan, bus_muted,
+                                                    bus_soloed,
+                                                ));
                                             }
                                         });
+                                    });
+                                    ui.horizontal(|ui| {
+                                        if ui.small_button("M").clicked() {
+                                            bus_muted = !bus_muted;
+                                            bus_edits.push((
+                                                bus.id, bus_volume, bus_pan, bus_muted, bus_soloed,
+                                            ));
+                                        }
+                                        if ui.small_button("S").clicked() {
+                                            bus_soloed = !bus_soloed;
+                                            bus_edits.push((
+                                                bus.id, bus_volume, bus_pan, bus_muted, bus_soloed,
+                                            ));
+                                        }
                                     });
                                     ui.label(
                                         egui::RichText::new(format!(
@@ -3647,10 +3668,12 @@ impl ShellApp {
         self.settings.master_gain_db = master_gain;
         if !bus_edits.is_empty() {
             let mut updated = self.song().buses.clone();
-            for (id, volume, pan) in &bus_edits {
+            for (id, volume, pan, muted, soloed) in &bus_edits {
                 if let Some(bus) = updated.iter_mut().find(|bus| bus.id == *id) {
                     bus.volume = *volume;
                     bus.pan = *pan;
+                    bus.muted = *muted;
+                    bus.soloed = *soloed;
                 }
             }
             match self.editor.set_buses(updated) {
@@ -7919,6 +7942,8 @@ impl ShellApp {
                     name: format!("Bus {id}"),
                     volume: 100,
                     pan: 64,
+                    muted: false,
+                    soloed: false,
                     plugins: Vec::new(),
                 });
                 buses_edited = true;

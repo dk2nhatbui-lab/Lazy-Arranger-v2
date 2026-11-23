@@ -372,6 +372,12 @@ pub struct Bus {
     /// Pan, 0 = hard left, 64 = centre, 127 = hard right.
     #[serde(default = "default_pan", skip_serializing_if = "is_default_pan")]
     pub pan: u8,
+    /// Muted buses are left out of the mix.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub muted: bool,
+    /// When any bus is soloed, only soloed buses are heard.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub soloed: bool,
     /// Effect slots applied after the track sum.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plugins: Vec<PluginSlot>,
@@ -386,6 +392,8 @@ impl Bus {
             name: name.into(),
             volume: 100,
             pan: 64,
+            muted: false,
+            soloed: false,
             plugins: Vec::new(),
         }
     }

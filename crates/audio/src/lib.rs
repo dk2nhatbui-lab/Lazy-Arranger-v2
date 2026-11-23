@@ -351,7 +351,11 @@ pub fn render_with_soundfont(
         .map(|bus| chain_latency(&bus.plugins, sample_rate))
         .collect();
     let max_bus_latency = bus_latencies.iter().copied().max().unwrap_or(0);
+    let any_bus_solo = song.buses.iter().any(|bus| bus.soloed);
     for (index, bus) in song.buses.iter().enumerate() {
+        if bus.muted || (any_bus_solo && !bus.soloed) {
+            continue;
+        }
         let (left_gain, right_gain) = gains(f32::from(bus.volume), bus.pan);
         if let Some(buffer) = bus_buffers.get_mut(index) {
             apply_plugins(&bus.plugins, buffer, sample_rate);
@@ -1042,6 +1046,8 @@ mod tests {
             name: String::from("Drums"),
             volume: 100,
             pan: 64,
+            muted: false,
+            soloed: false,
             plugins: Vec::new(),
         });
         song.tracks[0].bus = Some(1);
@@ -1376,6 +1382,8 @@ mod tests {
             name: String::from("Reverb"),
             volume: 100,
             pan: 64,
+            muted: false,
+            soloed: false,
             plugins: Vec::new(),
         });
         song.tracks[0].send = Some(1);
@@ -1513,6 +1521,27 @@ mod tests {
                 .fold(0.0_f32, |peak, sample| peak.max(sample.abs()))
         };
         assert!(peak(&with_send) > peak(&dry), "a send adds the wet copy");
+    }
+
+    #[test]
+    fn muted_and_non_soloed_buses_are_silent() {
+        use project::song::Bus;
+        let mut song = song_with_note();
+        song.buses.push(Bus::new(1, "Reverb"));
+        song.buses.push(Bus::new(2, "Delay"));
+        song.tracks[0].bus = Some(1);
+        let audible = render(&song, SAMPLE_RATE);
+        assert!(audible.samples.iter().any(|sample| sample.abs() > 0.001));
+        song.buses[0].muted = true;
+        let muted = render(&song, SAMPLE_RATE);
+        assert!(muted.samples.iter().all(|sample| sample.abs() < 1.0e-6));
+        song.buses[0].muted = false;
+        song.buses[1].soloed = true;
+        let excluded = render(&song, SAMPLE_RATE);
+        assert!(excluded.samples.iter().all(|sample| sample.abs() < 1.0e-6));
+        song.buses[0].soloed = true;
+        let soloed = render(&song, SAMPLE_RATE);
+        assert!(soloed.samples.iter().any(|sample| sample.abs() > 0.001));
     }
 
     #[test]
