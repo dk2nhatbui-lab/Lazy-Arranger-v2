@@ -87,6 +87,20 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "get_song_name",
+            description: "Read the song name.",
+            input_schema: json!({"type": "object"}),
+        },
+        Tool {
+            name: "set_song_name",
+            description: "Rename the song.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"]
+            }),
+        },
+        Tool {
             name: "get_song",
             description: "Return the song summary: tempo, meter, tracks, chords and markers.",
             input_schema: json!({"type": "object", "properties": {}, "additionalProperties": false}),
@@ -1030,6 +1044,17 @@ fn patch_waveform(waveform: project::song::Waveform) -> &'static str {
 
 pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<Value, ToolError> {
     match name {
+        "get_song_name" => Ok(json!({"name": session.song().name})),
+        "set_song_name" => {
+            let name = arguments
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("name is required")))?;
+            session.apply(Command::SetSongName {
+                name: name.to_string(),
+            })?;
+            Ok(json!({"name": name}))
+        }
         "get_song" => Ok(song_summary(session.song())),
         "get_undo" => Ok(json!({"undo_steps": session.undo_depth()})),
         "undo" => {
@@ -3219,6 +3244,16 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn song_name_tools_work() {
+        let mut session = session_with_track();
+        call(&mut session, "set_song_name", &json!({"name": "My Song"})).expect("rename");
+        let name = call(&mut session, "get_song_name", &json!({})).expect("name");
+        assert_eq!(name["name"], "My Song");
+        call(&mut session, "undo", &json!({})).expect("undo");
+        assert_ne!(session.song().name, "My Song");
     }
 
     #[test]

@@ -114,6 +114,7 @@ pub struct ShellApp {
     audio_recording: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
     audio_record_seconds: f64,
     audio_record_start: Tick,
+    song_name_input: String,
     form_dialog: bool,
     beat_dialog: bool,
     beat_track: Option<TrackId>,
@@ -213,6 +214,7 @@ impl ShellApp {
             Ok(editor) => editor,
             Err(_) => Editor::new(demo_project()).expect("the demo project is valid"),
         };
+        let song_name_input = editor.song().name.clone();
         Self {
             editor,
             icon,
@@ -246,6 +248,7 @@ impl ShellApp {
             audio_recording: None,
             audio_record_seconds: 3.0,
             audio_record_start: 0,
+            song_name_input,
             form_dialog: false,
             beat_dialog: false,
             beat_track: None,
@@ -1409,7 +1412,7 @@ impl ShellApp {
                 }
                 ui.label(
                     egui::RichText::new(
-                        "Local commands over the same 90 tools; no network or model.\
+                        "Local commands over the same 92 tools; no network or model.\
                          Speech out uses the macOS say command; speech input is not implemented.",
                     )
                     .size(9.0)
@@ -3069,6 +3072,20 @@ impl ShellApp {
                     .inner_margin(egui::Margin::same(8)),
             )
             .show(context, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("SONG").size(9.0).color(theme::TEXT_DIM));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.song_name_input).desired_width(110.0),
+                    );
+                    if ui.small_button("Rename").clicked() {
+                        let name = self.song_name_input.trim().to_string();
+                        match self.editor.rename_song(&name) {
+                            Ok(()) => self.status = Some(format!("song renamed to {name:?}")),
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                });
+                ui.separator();
                 ui.label(
                     egui::RichText::new("TRACKS")
                         .size(10.0)
@@ -3381,6 +3398,7 @@ impl ShellApp {
                 };
                 self.recent = project::recent::record(&self.recent_file, path)
                     .unwrap_or_else(|_| self.recent.clone());
+                self.song_name_input = self.song().name.clone();
                 self.position = 0;
                 self.playing = false;
                 self.load_error = None;

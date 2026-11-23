@@ -66,6 +66,11 @@ pub enum Command {
         /// New name.
         name: String,
     },
+    /// Rename the song.
+    SetSongName {
+        /// New name.
+        name: String,
+    },
     /// Insert an empty track with a caller-chosen identifier.
     InsertTrack {
         /// The complete track.
@@ -244,6 +249,7 @@ impl Command {
             Self::RemoveChord { .. } => "remove chord",
             Self::SetTempo { .. } => "set tempo",
             Self::RenameTrack { .. } => "rename track",
+            Self::SetSongName { .. } => "set song name",
             Self::InsertTrack { .. } => "insert track",
             Self::RemoveTrack { .. } => "remove track",
             Self::SetChords { .. } => "set chords",
@@ -883,6 +889,9 @@ impl EditSession {
                 track: *track,
                 name: self.track(*track)?.name.clone(),
             },
+            Command::SetSongName { .. } => Command::SetSongName {
+                name: self.song().name.clone(),
+            },
             Command::InsertTrack { track } => {
                 if self
                     .song()
@@ -1094,6 +1103,9 @@ impl EditSession {
             Command::RenameTrack { track, name } => {
                 self.track_mut(*track)?.name = name.clone();
             }
+            Command::SetSongName { name } => {
+                self.project.song.name = name.clone();
+            }
             Command::InsertTrack { track } => {
                 self.project.song.tracks.push(track.clone());
             }
@@ -1118,6 +1130,7 @@ fn describe(command: &Command) -> String {
         Command::RemoveChord { tick } => format!("remove chord at tick {tick}"),
         Command::SetTempo { tick, bpm } => format!("set tempo {bpm} bpm at tick {tick}"),
         Command::RenameTrack { track, name } => format!("rename track {track} to {name:?}"),
+        Command::SetSongName { name } => format!("rename song to {name:?}"),
         Command::InsertTrack { track } => format!("insert track {} ({})", track.id, track.name),
         Command::RemoveTrack { track } => format!("remove track {track}"),
         Command::SetChords { chords } => format!("set {} chord(s)", chords.len()),

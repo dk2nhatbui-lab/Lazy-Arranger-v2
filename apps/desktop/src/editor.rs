@@ -749,6 +749,21 @@ impl Editor {
         Ok(track_id)
     }
 
+    /// Renames the song.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn rename_song(&mut self, name: &str) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::SetSongName {
+                name: name.to_string(),
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Renames a track.
     ///
     /// # Errors
@@ -1780,6 +1795,16 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn song_rename_is_undoable() {
+        let mut editor = editor();
+        let before = editor.song().name.clone();
+        editor.rename_song("New title").expect("rename");
+        assert_eq!(editor.song().name, "New title");
+        assert!(editor.undo());
+        assert_eq!(editor.song().name, before);
     }
 
     #[test]

@@ -30,11 +30,11 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 21 | MIDI devices and profiles | partial | One built-in PSR-S970 voice subset with keyword matching and GM fallback; port enumeration, live input, CLI record/echo. No YAML loader, banks, drum kits, other devices, overrides or recent-MIDI buffer |
 | 22 | Synth sound editors (D-05, XioSynth, S970 XG, L6max), sysex dumps | partial | A per-track synth patch (sine/saw/square/triangle, attack, decay, sustain, release, brightness) in schema v14, honoured by the render and edited through one undoable command. No editor UI, device-specific panels or sysex dumps |
 | 23 | Controller pages, MIDI Map, MIDI Learn, channel check | partial | MIDI map model with text persistence, learn capture, CLI bind/show, and live application of play/stop/undo/scene/fader. No controller pages, on-screen learn dialog or channel check |
-| 24 | PSR-S990 tools | partial | Song export with setup bar, program, volume, pan, chord markers, lyrics and drums on channel 10, plus a byte-level audit that re-parses the file; the demo exported 5 tracks, 4 programs/volumes/pans, 16 chord markers and 128 drum notes. Numbered style catalog and `style-by-number` rendering. No remote panel, audition queue or hardware verification |
+| 24 | PSR-S992 tools | partial | Song export with setup bar, program, volume, pan, chord markers, lyrics and drums on channel 10, plus a byte-level audit that re-parses the file; the demo exported 5 tracks, 4 programs/volumes/pans, 16 chord markers and 128 drum notes. Numbered style catalog and `style-by-number` rendering. No remote panel, audition queue or hardware verification |
 | 25 | Music Finder and Playlists | partial | JSON, CSV, TSV and MFD import (1,653-record real file), CLI, and an L-key Library window that loads any of those, searches title/detail, applies an entry's tempo and imports the row's style through the catalog (setting or ARRANGER_STYLE_LIBRARY), inserting its tracks with fresh ids and a prefix. Playlist rows are listed but not opened; no AI tools or CSV→playlist writer. A real import was run through `library-import`: 1 track and 1,926 notes from ABBA Fernando; the ignored integration test passes when ARRANGER_STYLE_LIBRARY is set |
 | 26 | Zoom L6max mixer page and import | partial | `audio::l6max` scans a folder of takes, reads headers, flags the L6max's 32-bit float recordings, reports problems and imports each take as an audio track at a start tick; `l6max-import` did so for two synthetic takes (3.20 s, one float). No device project-file parsing, mixer page or transport control |
-| 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | partial | A local assistant panel and command layer (`mcp::assistant`) parses help/song/undo and `tool <name> {json}`, reaches any of the current 90 tools through `tool`, logs replies and marks the project dirty only for changing calls; each tool call is one undo step. No model, network, subscriptions or keys, no proposal cards |
-| 28 | MCP server, ~90 tools | partial | Stdio JSON-RPC server with 26 tools (song, tracks, notes, chords, undo, doctor, grooves, forms, reharmonise, clip grid, slots, programs, automation, lyrics/marks, style catalog, theory, generation, plugins, L6max scan) and save-after-call; `mcp-tools`/`mcp-call`. Loopback TCP transport with a per-start 32-hex token required on every line and save-after-call; a real client was accepted with the token and rejected without it. No TLS, multi-client concurrency or most of the ~90 target tools |
+| 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | partial | A local assistant panel and command layer (`mcp::assistant`) parses help/song/undo and `tool <name> {json}`, reaches any of the current 92 tools through `tool`, logs replies and marks the project dirty only for changing calls; each tool call is one undo step. No model, network, subscriptions or keys, no proposal cards |
+| 28 | MCP server, ~92 tools | partial | Stdio JSON-RPC server with 26 tools (song, tracks, notes, chords, undo, doctor, grooves, forms, reharmonise, clip grid, slots, programs, automation, lyrics/marks, style catalog, theory, generation, plugins, L6max scan) and save-after-call; `mcp-tools`/`mcp-call`. Loopback TCP transport with a per-start 32-hex token required on every line and save-after-call; a real client was accepted with the token and rejected without it. No TLS, multi-client concurrency or most of the ~90 target tools |
 | 29 | Speech in/out (Whisper, Kitten, Kokoro) | partial | Assistant replies can be spoken through the macOS `say` command (cleaned, length-bounded, optional voice) behind a settings toggle; other hosts fall back silently. No speech input, Whisper/Kitten/Kokoro models or waveform narration |
 | 30 | AI music tools (humanize, drumify, continue, write part, melody) | partial | Rule-based, seeded generators: humanise, drumify, bass/pad/arp parts, continue the last bars and a chord-following melody, each one undoable edit. Exposed by the `generate` CLI and MCP tool. No learned or model-based generation, UI or chat-driven tool use |
 | 31 | Theory: keys, roman numerals, scales, voice-leading, skill packs | partial | Nine scale modes, roman labels, cadence classification and voice-leading cost, as CLI and MCP tools; key detection in the score. No skill packs, graded lessons or theory panel |
@@ -58,7 +58,7 @@ proprietary formats, plugin hosting or a model. See
 
 `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (605 tests) and
 rustdoc pass. The deeper implemented areas are styles, project files, score
-engraving/PDF/MusicXML, audio references and mix, arranging help and the 90-tool
+engraving/PDF/MusicXML, audio references and mix, arranging help and the 92-tool
 MCP surface. Plugin hosting, SF3, Korg program/combi decoding, L6max project
 parsing, audio monitoring/takes/waveform editing, light theme, localized help
 and a real AI model/speech input remain absent or unverified. Parity is not
@@ -330,7 +330,7 @@ loaded, validated or hosted, and processing still ignores slots.
 `get_clips`/`set_clips` and `get_scene_names`/`set_scene_names` expose the
 project's basic state and edits. Clip ids are optional on input (the next free
 id is used) and markers/clips are sorted by tick on write. The registry now
-holds 90 tools.
+holds 92 tools.
 
 ### Track Inspector
 
@@ -363,7 +363,7 @@ against hardware. Controller pages remain absent.
 
 `set_track_name`, `set_track_gain`, `set_track_flags`, `set_track_program` and
 `set_audio_ref` edit the same fields as the Inspector. An empty or missing audio
-path clears the reference. The registry holds 90 tools; earlier counts were two
+path clears the reference. The registry holds 92 tools; earlier counts were two
 high because the counter also matched nested `name` keys in input schemas.
 
 ### Controller page
@@ -451,7 +451,7 @@ write project, keyboard MIDI, MusicXML, 16-bit WAV and per-track stem output.
 MIDI uses each track's program and sends drum tracks to channel 10; the WAV mix
 includes audio references and reports problem count; stems write a manifest.
 One test writes all five into a temporary folder and checks non-empty files. The
-registry holds 90 tools.
+registry holds 92 tools.
 
 ### Tempo in the Inspector
 
@@ -477,7 +477,7 @@ therefore restarts from a stopped state rather than resuming audio at the tick.
 
 `add_note` inserts one note with a fresh id and optional duration/velocity,
 `remove_note` deletes by id, `set_chord` parses a symbol and writes it, and
-`remove_chord` deletes at a tick. The registry holds 90 tools.
+`remove_chord` deletes at a tick. The registry holds 92 tools.
 
 ### Resample to fit
 
@@ -492,7 +492,7 @@ writes one `SetAudioRef`.
 
 `get_track`, `get_note` and `get_audio_ref` return one track, note or audio
 reference (including fades and stretch), or an explicit unknown-id error. The
-registry holds 90 tools.
+registry holds 92 tools.
 
 ### Beat rows
 
@@ -504,7 +504,7 @@ per row, with P disabled until a row is copied. Pattern length is still one bar.
 
 `set_lyrics` replaces syllables; `get_marks`/`set_marks` exchange dynamics and
 articulations by short names; `get_patch`/`set_patch` exchange waveform, ADSR and
-brightness (null clears). The registry holds 90 tools.
+brightness (null clears). The registry holds 92 tools.
 
 ### Multi-bar beat patterns
 
@@ -540,7 +540,7 @@ there is no monitoring, takes or waveform editing.
 `list_grooves` returns names and paths, `save_groove` extracts one bar at a
 1/16 grid to `<slug>.groove`, and `apply_groove_file` loads by name and writes
 adjusted notes with timing/accent amounts. A temp-folder test saves, lists and
-applies. The registry holds 90 tools.
+applies. The registry holds 92 tools.
 
 ### Put-in-bars
 
@@ -568,7 +568,7 @@ symbols without a frame.
 
 `add_marker`/`remove_marker` and `add_lyric`/`remove_lyric` replace one event by
 tick; `get_chord_at`, `get_note_at` and `get_time_signature` read one position
-or the meter. The registry holds 90 tools.
+or the meter. The registry holds 92 tools.
 
 ### Accidental spacing
 
@@ -589,14 +589,14 @@ no job was sent, so printing is unverified.
 
 `export_pdf` writes the vector score for a chosen or first non-empty track;
 `get_clip`, `add_clip` (fresh id), `move_clip` and `remove_clip` read and rewrite
-one track's clip list through `SetClips`. The registry holds 90 tools.
+one track's clip list through `SetClips`. The registry holds 92 tools.
 
 ### Bus, plugin and scene tools
 
 `add_bus`/`remove_bus` rewrite the bus list, `add_plugin`/`remove_plugin` and
 `get_plugin_slots` manage per-track slots, `get_scene_name`/`set_scene_name`
 handle one scene, and `get_marker_at` reads an exact marker. The registry holds
-90 tools.
+92 tools.
 
 ### Kids Arrange
 
@@ -643,3 +643,9 @@ Rec audio records `audio_record_seconds` on a background thread through
 path back; `advance` imports it with `Editor::import_audio` at the tick that was
 current when recording started. Capture and microphone permission remain
 unverified here; there is no monitoring.
+
+### Song rename
+
+`SetSongName` renames the song with the old name as inverse; the sidebar SONG
+field and Rename button call `Editor::rename_song`, and MCP exposes
+`get_song_name`/`set_song_name`. The registry holds 92 tools.
