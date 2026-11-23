@@ -84,3 +84,4 @@ For the clef layout, choose either four measures per system without clefs
 - Windows > Style from clips exposes the writer in the desktop app (`docs/audit/style-clips.png`).
 - Plugin slots can be reordered up/down through one undoable command.
 - Master effect slots run after the bus sum (capture `docs/audit/master-effects.png`); bus effect chains are still absent.
+- Buses carry effect chains (`Bus.plugins`), applied to the bus sum; the Bus effects window edits them.

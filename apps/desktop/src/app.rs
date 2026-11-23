@@ -506,6 +506,9 @@ pub struct ShellApp {
     style_sff1: bool,
     master_fx_open: bool,
     master_fx_choice: usize,
+    bus_fx_open: bool,
+    bus_fx_choice: usize,
+    bus_fx_plugin_choice: usize,
     au_editor_open: bool,
     au_editor_track: Option<TrackId>,
     au_editor_slot: Option<u32>,
@@ -711,6 +714,9 @@ impl ShellApp {
             style_sff1: false,
             master_fx_open: std::env::var("ARRANGER_MASTER_FX").is_ok(),
             master_fx_choice: 0,
+            bus_fx_open: std::env::var("ARRANGER_BUS_FX").is_ok(),
+            bus_fx_choice: 0,
+            bus_fx_plugin_choice: 0,
             au_editor_open: false,
             au_editor_track: None,
             au_editor_slot: None,
@@ -2543,6 +2549,106 @@ impl ShellApp {
         }
     }
 
+    fn bus_fx_window(&mut self, context: &Context) {
+        if !self.bus_fx_open {
+            return;
+        }
+        let mut open = self.bus_fx_open;
+        let mut buses = self.song().buses.clone();
+        let catalog = self
+            .plugin_scan
+            .clone()
+            .or_else(|| plugins::load_catalog(std::path::Path::new(plugins::CATALOG_FILE)))
+            .unwrap_or_default();
+        let mut changed = false;
+        egui::Window::new("Bus effects")
+            .open(&mut open)
+            .resizable(false)
+            .default_width(420.0)
+            .show(context, |ui| {
+                if buses.is_empty() {
+                    ui.label("No buses. Add one in the Mixer.");
+                    return;
+                }
+                self.bus_fx_choice = self.bus_fx_choice.min(buses.len() - 1);
+                egui::ComboBox::from_id_salt("bus-fx-bus")
+                    .selected_text(&buses[self.bus_fx_choice].name)
+                    .show_ui(ui, |ui| {
+                        for (index, bus) in buses.iter().enumerate() {
+                            ui.selectable_value(&mut self.bus_fx_choice, index, &bus.name);
+                        }
+                    });
+                let plugins = &mut buses[self.bus_fx_choice].plugins;
+                if plugins.is_empty() {
+                    ui.label("No effects on this bus.");
+                }
+                let mut remove = None;
+                let mut move_up = None;
+                for (index, slot) in plugins.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut slot.bypassed, "").changed() {
+                            changed = true;
+                        }
+                        ui.label(&slot.name);
+                        if index > 0 && ui.small_button("↑").clicked() {
+                            move_up = Some(index);
+                        }
+                        if ui.small_button("Remove").clicked() {
+                            remove = Some(index);
+                        }
+                    });
+                }
+                if let Some(index) = move_up {
+                    plugins.swap(index, index - 1);
+                    changed = true;
+                }
+                if let Some(index) = remove {
+                    plugins.remove(index);
+                    changed = true;
+                }
+                egui::ComboBox::from_id_salt("bus-fx-plugin")
+                    .selected_text(
+                        catalog
+                            .get(self.bus_fx_plugin_choice)
+                            .map_or("No cached plug-ins", |plugin| plugin.name.as_str()),
+                    )
+                    .show_ui(ui, |ui| {
+                        for (index, plugin) in catalog.iter().enumerate().take(20) {
+                            ui.selectable_value(
+                                &mut self.bus_fx_plugin_choice,
+                                index,
+                                &plugin.name,
+                            );
+                        }
+                    });
+                if ui.button("Add plug-in").clicked()
+                    && let Some(plugin) = catalog.get(self.bus_fx_plugin_choice)
+                {
+                    let id = plugins.iter().map(|slot| slot.id).max().unwrap_or(0) + 1;
+                    plugins.push(project::song::PluginSlot {
+                        id,
+                        name: plugin.name.clone(),
+                        format: match plugin.format {
+                            plugins::Format::Vst3 => project::song::PluginFormat::Vst3,
+                            plugins::Format::AudioUnit => project::song::PluginFormat::AudioUnit,
+                        },
+                        path: plugin.path.display().to_string(),
+                        identifier: plugin.identifier.clone(),
+                        bypassed: false,
+                        state: String::new(),
+                    });
+                    changed = true;
+                }
+            });
+        if changed {
+            match self.editor.set_buses(buses) {
+                Ok(()) => self.status = Some(String::from("bus effects updated")),
+                Err(error) => self.status = Some(error),
+            }
+        }
+        self.bus_fx_open = open;
+    }
+
     fn master_fx_window(&mut self, context: &Context) {
         if !self.master_fx_open {
             return;
@@ -4294,6 +4400,7 @@ impl ShellApp {
                     name: format!("Bus {id}"),
                     volume: 100,
                     pan: 64,
+                    plugins: Vec::new(),
                 });
                 buses_edited = true;
             }
@@ -5794,6 +5901,10 @@ impl ShellApp {
                                 self.master_fx_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Bus effects").clicked() {
+                                self.bus_fx_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Shortcuts").clicked() {
                                 self.shortcuts_open = true;
                                 ui.close_menu();
@@ -6113,6 +6224,7 @@ impl eframe::App for ShellApp {
         self.patch_window(context);
         self.style_clips_window(context);
         self.master_fx_window(context);
+        self.bus_fx_window(context);
         self.au_parameters_window(context);
         self.print_window(context);
         self.file_window(context);

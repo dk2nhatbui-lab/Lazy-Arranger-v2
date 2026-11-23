@@ -326,7 +326,8 @@ pub fn render_with_soundfont(
     }
     for (index, bus) in song.buses.iter().enumerate() {
         let (left_gain, right_gain) = gains(f32::from(bus.volume), bus.pan);
-        if let Some(buffer) = bus_buffers.get(index) {
+        if let Some(buffer) = bus_buffers.get_mut(index) {
+            apply_plugins(&bus.plugins, buffer, sample_rate);
             for (frame, pair) in buffer.chunks(2).enumerate() {
                 samples[frame * 2] += pair[0] * left_gain;
                 samples[frame * 2 + 1] += pair[1] * right_gain;
@@ -761,6 +762,40 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     #[ignore = "loads the Apple dynamics Audio Unit"]
+    fn a_bus_au_processes_its_sum() {
+        use project::song::{Bus, PluginFormat, PluginSlot};
+        let mut song = song_with_note();
+        song.buses.push(Bus {
+            id: 1,
+            name: String::from("Drums"),
+            volume: 100,
+            pan: 64,
+            plugins: Vec::new(),
+        });
+        song.tracks[0].bus = Some(1);
+        let dry = render(&song, SAMPLE_RATE);
+        song.buses[0].plugins.push(PluginSlot {
+            id: 1,
+            name: String::from("AUDynamicsProcessor"),
+            format: PluginFormat::AudioUnit,
+            path: String::new(),
+            identifier: String::from("appl:dcmp"),
+            bypassed: false,
+            state: String::new(),
+        });
+        let wet = render(&song, SAMPLE_RATE);
+        let difference: f32 = wet
+            .samples
+            .iter()
+            .zip(&dry.samples)
+            .map(|(wet, dry)| (wet - dry).abs())
+            .sum();
+        assert!(difference > 0.01, "bus AU made no change");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "loads the Apple dynamics Audio Unit"]
     fn a_master_au_processes_the_final_mix() {
         use project::song::{PluginFormat, PluginSlot};
         let mut song = song_with_note();
@@ -1002,6 +1037,7 @@ mod tests {
             name: String::from("Reverb"),
             volume: 100,
             pan: 64,
+            plugins: Vec::new(),
         });
         song.tracks[0].send = Some(1);
         song.tracks[0].send_level = 0;

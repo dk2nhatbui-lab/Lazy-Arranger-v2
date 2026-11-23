@@ -365,6 +365,9 @@ pub struct Bus {
     /// Pan, 0 = hard left, 64 = centre, 127 = hard right.
     #[serde(default = "default_pan", skip_serializing_if = "is_default_pan")]
     pub pan: u8,
+    /// Effect slots applied after the track sum.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugins: Vec<PluginSlot>,
 }
 
 impl Bus {
@@ -376,6 +379,7 @@ impl Bus {
             name: name.into(),
             volume: 100,
             pan: 64,
+            plugins: Vec::new(),
         }
     }
 }
@@ -1270,6 +1274,32 @@ mod tests {
                 .to_json_pretty()
                 .expect("serialize")
                 .contains("plugins")
+        );
+    }
+
+    #[test]
+    fn bus_and_master_plugin_slots_round_trip() {
+        let mut song = Song::new("FX", 120.0);
+        let slot = PluginSlot {
+            id: 1,
+            name: String::from("Limiter"),
+            format: PluginFormat::Vst3,
+            path: String::from("/p/Limiter.vst3"),
+            identifier: String::from("0123456789ABCDEF0123456789ABCDEF"),
+            bypassed: false,
+            state: String::from("state"),
+        };
+        let mut bus = Bus::new(1, "Reverb");
+        bus.plugins.push(slot.clone());
+        song.buses.push(bus);
+        song.master_plugins.push(slot);
+        let text = ProjectFile::new(song).to_json_pretty().expect("serialize");
+        let back = ProjectFile::from_json(&text).expect("parse");
+        assert_eq!(back.song.buses[0].plugins.len(), 1);
+        assert_eq!(back.song.master_plugins.len(), 1);
+        assert_eq!(
+            back.song.master_plugins[0].identifier,
+            "0123456789ABCDEF0123456789ABCDEF"
         );
     }
 

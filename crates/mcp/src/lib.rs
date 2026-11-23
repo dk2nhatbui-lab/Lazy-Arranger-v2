@@ -1692,6 +1692,7 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     .and_then(Value::as_u64)
                     .unwrap_or(64)
                     .clamp(0, 127) as u8,
+                plugins: Vec::new(),
             });
             session.apply(Command::SetBuses { buses })?;
             Ok(json!({"bus": id}))
@@ -2401,7 +2402,14 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     name: name.to_string(),
                     volume: bus.get("volume").and_then(Value::as_u64).unwrap_or(100) as u8,
                     pan: bus.get("pan").and_then(Value::as_u64).unwrap_or(64) as u8,
+                    plugins: Vec::new(),
                 });
+            }
+            for bus in &mut parsed {
+                if let Some(existing) = session.song().buses.iter().find(|entry| entry.id == bus.id)
+                {
+                    bus.plugins = existing.plugins.clone();
+                }
             }
             session.apply(Command::SetBuses {
                 buses: parsed.clone(),
