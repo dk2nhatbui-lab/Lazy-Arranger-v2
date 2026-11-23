@@ -867,6 +867,23 @@ impl Editor {
         Ok(())
     }
 
+    /// Sets or clears a track's bank select.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the command is rejected.
+    pub fn set_track_bank(
+        &mut self,
+        track: TrackId,
+        bank: Option<project::song::BankSelect>,
+    ) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::SetTrackBank { track, bank })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Sets or clears a track's keyboard program.
     ///
     /// # Errors
@@ -2030,6 +2047,22 @@ mod tests {
         assert_eq!(editor.song().tracks[0].program, Some(48));
         editor.set_track_program(track, None).expect("clear");
         assert!(editor.song().tracks[0].program.is_none());
+        editor
+            .set_track_bank(track, Some(project::song::BankSelect { msb: 63, lsb: 1 }))
+            .expect("bank");
+        assert_eq!(
+            editor.song().tracks[0].bank,
+            Some(project::song::BankSelect { msb: 63, lsb: 1 })
+        );
+        editor.set_track_bank(track, None).expect("clear bank");
+        assert!(editor.song().tracks[0].bank.is_none());
+        editor.undo();
+        assert_eq!(
+            editor.song().tracks[0].bank,
+            Some(project::song::BankSelect { msb: 63, lsb: 1 })
+        );
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].program, None);
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].program, Some(48));
     }

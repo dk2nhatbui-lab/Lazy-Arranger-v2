@@ -61,3 +61,6 @@ and tests on every platform; no audio device was exercised.
 
 Run [45162107856](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45162107856)
 on `e999804` (master meter) passed ubuntu 1m27s, windows 2m46s, macos 1m39s.
+
+Run [45164208185](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45164208185)
+on `fbead10` (schema v20) passed ubuntu 1m24s, windows 2m49s, macos 1m41s.

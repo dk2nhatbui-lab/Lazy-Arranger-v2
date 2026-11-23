@@ -15,7 +15,7 @@ pass.
 
 Verified by tests or offline evidence: project schema v20 with migrations,
 undo/inverses and validation; legacy import; Yamaha style parse/import/compile
-and SFF1/SFF2 writing with track programs; clip model, slots, launcher and take recording; chord
+and SFF1/SFF2 writing with track programs and bank select; clip model, slots, launcher and take recording; chord
 parsing, roman numerals, reharmonisation and find-chords; doctor/fit with A/B,
 groove files, forms and transitions; score layout with ties, beams, tuplets,
 rests, lyrics (spaced), slurs, percussion, chord symbols, guitar frames,

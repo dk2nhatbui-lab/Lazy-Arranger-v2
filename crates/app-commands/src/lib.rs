@@ -18,7 +18,7 @@ pub mod style_import;
 
 use music_core::{Channel, Chord, Pitch, TempoMap, Tick, Velocity};
 use project::provenance;
-use project::song::{ChordEvent, Clip, Note, Song, Track};
+use project::song::{BankSelect, ChordEvent, Clip, Note, Song, Track};
 use project::{NoteId, ProjectError, ProjectFile, Severity, TrackId};
 use thiserror::Error;
 
@@ -196,6 +196,13 @@ pub enum Command {
         /// Program number, or `None` to let the exporter choose.
         program: Option<u8>,
     },
+    /// Choose the bank-select pair for a track's program, or clear it.
+    SetTrackBank {
+        /// The track.
+        track: TrackId,
+        /// Bank select, or `None` for the default bank.
+        bank: Option<BankSelect>,
+    },
     /// Replace the song's chords as one edit.
     SetChords {
         /// The new chord list, sorted by tick.
@@ -270,6 +277,7 @@ impl Command {
             Self::RemoveTrack { .. } => "remove track",
             Self::SetChords { .. } => "set chords",
             Self::SetTrackProgram { .. } => "set track program",
+            Self::SetTrackBank { .. } => "set track bank",
             Self::SetTrackFlags { .. } => "set track flags",
             Self::SetTrackGain { .. } => "set track gain",
             Self::SetAutomation { .. } => "set automation",
@@ -885,6 +893,10 @@ impl EditSession {
                 track: *track,
                 program: self.track(*track)?.program,
             },
+            Command::SetTrackBank { track, .. } => Command::SetTrackBank {
+                track: *track,
+                bank: self.track(*track)?.bank,
+            },
             Command::SetChords { .. } => Command::SetChords {
                 chords: self.song().chords.clone(),
             },
@@ -1125,6 +1137,9 @@ impl EditSession {
             Command::SetTrackProgram { track, program } => {
                 self.track_mut(*track)?.program = *program;
             }
+            Command::SetTrackBank { track, bank } => {
+                self.track_mut(*track)?.bank = *bank;
+            }
             Command::SetChords { chords } => {
                 self.project.song.chords = chords.clone();
                 self.project.song.chords.sort_by_key(|event| event.tick);
@@ -1255,6 +1270,10 @@ fn describe(command: &Command) -> String {
         Command::SetTrackProgram { track, program } => match program {
             Some(value) => format!("set track {track} program {value}"),
             None => format!("clear track {track} program"),
+        },
+        Command::SetTrackBank { track, bank } => match bank {
+            Some(bank) => format!("set track {track} bank {}/{}", bank.msb, bank.lsb),
+            None => format!("clear track {track} bank"),
         },
         Command::SetMarkers { markers } => format!("set {} marker(s)", markers.len()),
         Command::SetSceneNames { names } => format!("set {} scene name(s)", names.len()),

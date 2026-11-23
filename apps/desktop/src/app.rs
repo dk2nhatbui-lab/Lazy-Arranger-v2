@@ -2457,6 +2457,7 @@ impl ShellApp {
                     track.soloed,
                     track.armed,
                     track.program,
+                    track.bank,
                     track.notes.len(),
                     track.clips.len(),
                     track.audio.clone(),
@@ -2476,6 +2477,7 @@ impl ShellApp {
             mut soloed,
             mut armed,
             program,
+            bank,
             notes,
             clips,
             audio,
@@ -2580,6 +2582,26 @@ impl ShellApp {
                     if toggled || changed {
                         let value = enabled.then_some(number as u8);
                         if let Err(error) = self.editor.set_track_program(track_id, value) {
+                            self.status = Some(error);
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    let mut enabled = bank.is_some();
+                    let mut msb = i32::from(bank.map_or(0, |bank| bank.msb));
+                    let mut lsb = i32::from(bank.map_or(0, |bank| bank.lsb));
+                    let toggled = ui.checkbox(&mut enabled, "Bank").changed();
+                    let changed = ui
+                        .add(egui::DragValue::new(&mut msb).range(0..=127))
+                        .changed()
+                        | ui.add(egui::DragValue::new(&mut lsb).range(0..=127))
+                            .changed();
+                    if toggled || changed {
+                        let value = enabled.then_some(project::song::BankSelect {
+                            msb: u8::try_from(msb).unwrap_or(0),
+                            lsb: u8::try_from(lsb).unwrap_or(0),
+                        });
+                        if let Err(error) = self.editor.set_track_bank(track_id, value) {
                             self.status = Some(error);
                         }
                     }
