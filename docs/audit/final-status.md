@@ -146,7 +146,7 @@ For the clef layout, choose either four measures per system without clefs
 - Held MIDI notes show the recognised chord in Perform and the Inspector; hardware-unverified.
 - Assistant Dictate records 5 s and transcribes through a configurable Whisper command; microphone/model unverified (`docs/audit/dictate.png`).
 - Assistant can call a local CLI template with {prompt}; after Apply it sends the tool result back for a short summary. Mock-command tested.
-- Seeded profiles include PSR-S970, generic GS/XG and Korg Pa; a port name auto-selects a matching profile.
+- Seeded profiles include PSR-S970, generic GS/XG and Korg Pa; an input or output port name auto-selects a matching profile.
 - Device editor sends all controls and saves/loads `.syx` dumps (`docs/audit/device-dump.png`); hardware unverified.
 - Timeline lane height is 64 px, closer to the C++ layout (`docs/audit/ui-lane-height.png`).
 - Chords from audio window recognises WAV segments in a background thread and writes them as one undoable chord set (`docs/audit/audio-chords.png`, synthetic C major recognised).

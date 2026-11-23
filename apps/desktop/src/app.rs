@@ -2259,6 +2259,14 @@ impl ShellApp {
 
     /// Opens the configured keyboard once and applies mapped controls.
     fn poll_midi(&mut self) {
+        if self.settings.device_profile.is_none()
+            && let Some(output) = self.settings.midi_output.clone()
+            && let Some(profile) = profile_for_port(&output, &self.device_profiles)
+        {
+            self.status = Some(format!("device profile {profile} from {output}"));
+            self.settings.device_profile = Some(profile);
+            let _ = self.settings.save(&crate::settings::Settings::path());
+        }
         if self.midi_input.is_none() {
             if self.settings.auto_inputs {
                 match midi_devices::devices::LiveInputs::open_all() {
