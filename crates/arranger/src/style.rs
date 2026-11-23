@@ -208,6 +208,25 @@ fn section_from_range(song: &Song, name: &str, start: Tick, end: Tick) -> Option
     (!section.parts.is_empty()).then_some(section)
 }
 
+/// Builds a one-section style from already-timed notes.
+#[must_use]
+pub fn from_notes(
+    name: &str,
+    source_chord: ArrangerChord,
+    length_ticks: Tick,
+    notes: Vec<StyleNote>,
+) -> Style {
+    let mut style = Style::new(name, source_chord);
+    let mut section = StyleSection::new("Main A", length_ticks.max(1));
+    let mut part = StylePart::new("Audio", ChordRule::default_for_channel(9));
+    part.notes = notes;
+    if !part.notes.is_empty() {
+        section.parts.push(part);
+    }
+    style.sections.push(section);
+    style
+}
+
 /// A chord change on the song timeline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChordAt {
@@ -678,5 +697,23 @@ mod tests {
         assert_eq!(style.sections[1].name, "Fill AA");
         assert_eq!(style.sections[0].parts[0].notes.len(), 1);
         assert_eq!(style.sections[1].parts[0].notes[0].tick, 0);
+    }
+
+    #[test]
+    fn notes_can_be_packaged_as_a_style() {
+        let style = from_notes(
+            "Audio",
+            chord(0, ChordType::Major),
+            music_core::PPQ,
+            vec![StyleNote {
+                tick: 0,
+                duration: music_core::PPQ / 2,
+                pitch: 60,
+                velocity: 100,
+            }],
+        );
+        assert_eq!(style.sections.len(), 1);
+        assert_eq!(style.sections[0].parts.len(), 1);
+        assert_eq!(style.sections[0].parts[0].notes.len(), 1);
     }
 }

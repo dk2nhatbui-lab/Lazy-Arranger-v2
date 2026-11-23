@@ -92,3 +92,4 @@ For the clef layout, choose either four measures per system without clefs
 - Failed isolated VST3 scans are blocklisted persistently and shown/clearable in My Plug-Ins.
 - Style from clips has Audition/Stop, compiling the section(s) to a temporary song and playing it.
 - Beat view offers 1/2/4-bar patterns in a horizontal scroller.
+- `style-from-audio` writes a one-part style from monophonic detected notes; no chords, sections or match scoring.

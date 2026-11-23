@@ -718,6 +718,26 @@ enum Commands {
         #[arg(long, default_value = "sff2")]
         version: String,
     },
+    /// Build a one-part style from monophonic audio notes.
+    StyleFromAudio {
+        /// Audio file (WAV or compressed).
+        audio: PathBuf,
+        /// Output style path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Tempo used to place detected notes.
+        #[arg(long, default_value_t = 120.0)]
+        bpm: f64,
+        /// Section name.
+        #[arg(long, default_value = "Main A")]
+        section: String,
+        /// Source chord.
+        #[arg(long, default_value = "C")]
+        chord: String,
+        /// sff1 or sff2 (default).
+        #[arg(long, default_value = "sff2")]
+        version: String,
+    },
     /// Turn a YouTube (or other yt-dlp) link into a MIDI file.
     LinkToMidi {
         /// Link to a video or audio page.
@@ -2021,6 +2041,14 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             out,
             version,
         } => style_save(&style, &out, &version),
+        Commands::StyleFromAudio {
+            audio,
+            out,
+            bpm,
+            section,
+            chord,
+            version,
+        } => style_from_audio(&audio, &out, bpm, &section, &chord, &version),
         Commands::StyleFromClips {
             project,
             out,
@@ -2602,6 +2630,73 @@ fn mcp_call(
             .map_err(|error| format!("could not write {}: {error}", path.display()))?;
         eprintln!("wrote {}", path.display());
     }
+    Ok(())
+}
+
+fn style_from_audio(
+    audio_path: &PathBuf,
+    out: &PathBuf,
+    bpm: f64,
+    section: &str,
+    chord: &str,
+    version: &str,
+) -> Result<(), Box<dyn Error>> {
+    let decoded = audio::decode::decode_mono(audio_path).or_else(|_| {
+        let bytes =
+            fs::read(audio_path).map_err(|error| format!("{}: {error}", audio_path.display()))?;
+        audio::wav::decode_mono(&bytes)
+    })?;
+    let detected = audio::analysis::to_midi(&decoded.samples, decoded.sample_rate);
+    let seconds = decoded.samples.len() as f64 / f64::from(decoded.sample_rate);
+    let length = audio::chords::to_ticks(seconds, bpm);
+    let mut notes = Vec::new();
+    for note in &detected {
+        let (tick, duration) = audio::analysis::as_ticks(note, bpm);
+        if duration <= 0 {
+            continue;
+        }
+        notes.push(arranger::style::StyleNote {
+            tick,
+            duration,
+            pitch: note.pitch,
+            velocity: (note.level * 127.0).clamp(1.0, 127.0) as u8,
+        });
+    }
+    let source_chord = Chord::parse(chord)?;
+    let source = arranger::chord_type::ArrangerChord::try_from(&source_chord)
+        .map_err(|error| format!("unsupported style chord {chord:?}: {error:?}"))?;
+    let mut style = arranger::style::from_notes(
+        audio_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("Audio style"),
+        source,
+        length,
+        notes,
+    );
+    if let Some(first) = style.sections.first_mut() {
+        first.name = section.to_string();
+    }
+    let version = match version {
+        "sff1" => style_formats::casm::SffVersion::Sff1,
+        "sff2" => style_formats::casm::SffVersion::Sff2,
+        other => return Err(format!("--version must be sff1 or sff2, found {other:?}").into()),
+    };
+    let bytes = style_formats::write_native_style(&style, version)?;
+    fs::write(out, &bytes)
+        .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+    let check = style_formats::import_style(&bytes)?;
+    println!(
+        "wrote {}: {} detected note(s), {} section(s), {} byte(s); re-read {:?}",
+        out.display(),
+        style.sections.first().map_or(0, |section| section
+            .parts
+            .first()
+            .map_or(0, |part| part.notes.len())),
+        style.sections.len(),
+        bytes.len(),
+        check.section_names()
+    );
     Ok(())
 }
 
