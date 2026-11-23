@@ -50,6 +50,32 @@ pub fn by_number(entries: &[CatalogEntry], number: usize) -> Option<&CatalogEntr
     entries.iter().find(|entry| entry.number == number)
 }
 
+/// Resolves a style by 1-based number, exact name, then substring.
+#[must_use]
+pub fn resolve<'a>(
+    entries: &'a [CatalogEntry],
+    number: Option<usize>,
+    name: &str,
+) -> Option<&'a CatalogEntry> {
+    if let Some(number) = number
+        && let Some(entry) = by_number(entries, number)
+    {
+        return Some(entry);
+    }
+    let needle = name.trim().to_ascii_lowercase();
+    if needle.is_empty() {
+        return None;
+    }
+    entries
+        .iter()
+        .find(|entry| entry.name.to_ascii_lowercase() == needle)
+        .or_else(|| {
+            entries
+                .iter()
+                .find(|entry| entry.name.to_ascii_lowercase().contains(&needle))
+        })
+}
+
 fn walk(directory: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     let entries = std::fs::read_dir(directory)
         .map_err(|error| format!("{}: {error}", directory.display()))?;
@@ -102,6 +128,39 @@ mod tests {
         assert_eq!(by_number(&entries, 3).expect("three").name, "c");
         assert!(by_number(&entries, 4).is_none());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn styles_resolve_by_number_then_name() {
+        let entries = vec![
+            CatalogEntry {
+                number: 1,
+                name: String::from("Ballad"),
+                path: PathBuf::from("/a.sty"),
+            },
+            CatalogEntry {
+                number: 2,
+                name: String::from("Funk Shuffle"),
+                path: PathBuf::from("/b.sty"),
+            },
+        ];
+        assert_eq!(resolve(&entries, Some(2), "").expect("number").number, 2);
+        assert_eq!(
+            resolve(&entries, None, "funk shuffle")
+                .expect("exact")
+                .number,
+            2
+        );
+        assert_eq!(resolve(&entries, None, "BALLAD").expect("case").number, 1);
+        assert_eq!(
+            resolve(&entries, None, "shuffle")
+                .expect("substring")
+                .number,
+            2
+        );
+        assert!(resolve(&entries, Some(9), "").is_none());
+        assert!(resolve(&entries, None, "nothing").is_none());
+        assert!(resolve(&entries, None, "").is_none());
     }
 
     #[test]

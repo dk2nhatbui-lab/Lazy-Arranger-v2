@@ -238,6 +238,17 @@ enum Commands {
         #[arg(long, default_value_t = 48_000)]
         sample_rate: u32,
     },
+    /// Resolve a style by number or name in a folder.
+    StyleResolve {
+        /// Folder to scan.
+        root: PathBuf,
+        /// Catalog number; takes precedence over the name.
+        #[arg(long)]
+        number: Option<usize>,
+        /// Style name hint.
+        #[arg(long, default_value = "")]
+        name: String,
+    },
     /// Import Zoom L6max takes as audio tracks and report the plan.
     L6maxImport {
         /// Folder holding the recorded `.wav` takes.
@@ -766,6 +777,25 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 out.display()
             );
             Ok(())
+        }
+        Commands::StyleResolve { root, number, name } => {
+            let entries = style_formats::catalog::catalog(&root)?;
+            match style_formats::catalog::resolve(&entries, number, &name) {
+                Some(entry) => {
+                    println!(
+                        "{:>6}  {}  ({})",
+                        entry.number,
+                        entry.name,
+                        entry.path.display()
+                    );
+                    Ok(())
+                }
+                None => Err(format!(
+                    "no style matched number {number:?} or name {name:?} in {} entries",
+                    entries.len()
+                )
+                .into()),
+            }
         }
         Commands::L6maxImport {
             folder,

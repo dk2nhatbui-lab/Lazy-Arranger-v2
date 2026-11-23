@@ -804,3 +804,11 @@ The L-key Library window loads a Music Finder book (JSON/CSV/MFD) or a playlist
 TSV, searches title and detail case-insensitively, and applies a Music Finder
 entry's tempo with `SetTempo` at tick zero (one undo step). Playlist rows are
 displayed but not opened, and there is no play/edit of the stored style.
+
+### Style resolution
+
+`catalog::resolve` prefers an explicit 1-based number, then an exact
+case-insensitive name, then a substring match; `style-resolve` reports the
+match. It matched "ABBA Fernando" as entry 1 in the real library. The library
+window does not yet call it; importing the resolved style into the project is
+still manual through the style commands.
