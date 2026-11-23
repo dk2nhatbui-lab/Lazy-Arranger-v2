@@ -163,4 +163,4 @@ For the clef layout, choose either four measures per system without clefs
 - Inspector edits track bus, send and send level (`docs/audit/ui-routing.png`).
 - MIDI out window has a 16-channel check button; hardware unverified.
 - Kids circle pulse respects the reduced-motion setting.
-- Audio trim row can set the end at the playhead (`docs/audit/ui-audio-trim.png`).
+- Audio trim row can set the front or end at the playhead (`docs/audit/ui-audio-trim.png`).

@@ -10518,6 +10518,22 @@ impl eframe::App for ShellApp {
                                     audio_trim = Some((*track_id, bar / 4));
                                 }
                                 if ui
+                                    .button("Start at playhead")
+                                    .on_hover_text("Trim the front to the playhead")
+                                    .clicked()
+                                    && let Some(reference) = project
+                                        .song
+                                        .tracks
+                                        .iter()
+                                        .find(|track| track.id == *track_id)
+                                        .and_then(|track| track.audio.as_ref())
+                                {
+                                    audio_trim = Some((
+                                        *track_id,
+                                        (position - reference.start).max(1),
+                                    ));
+                                }
+                                if ui
                                     .button("End at playhead")
                                     .on_hover_text("Trim the audio end to the playhead")
                                     .clicked()
