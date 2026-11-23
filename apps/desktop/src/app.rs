@@ -167,6 +167,32 @@ fn consume_binding(context: &Context, text: &str, fallback: &str) -> bool {
     })
 }
 
+/// Builds `lp` arguments for the print dialog.
+#[must_use]
+pub fn print_arguments(
+    printer: Option<&str>,
+    copies: u32,
+    pages: &str,
+    path: &std::path::Path,
+) -> Vec<String> {
+    let mut arguments = Vec::new();
+    if let Some(printer) = printer {
+        arguments.push(String::from("-d"));
+        arguments.push(printer.to_string());
+    }
+    if copies > 1 {
+        arguments.push(String::from("-n"));
+        arguments.push(copies.to_string());
+    }
+    let pages = pages.trim();
+    if !pages.is_empty() {
+        arguments.push(String::from("-o"));
+        arguments.push(format!("page-ranges={pages}"));
+    }
+    arguments.push(path.display().to_string());
+    arguments
+}
+
 /// Appends `.json` when a Save-as path has no extension.
 #[must_use]
 pub fn normalize_save_path(path: std::path::PathBuf) -> std::path::PathBuf {
@@ -273,6 +299,9 @@ pub struct ShellApp {
     printers: Vec<String>,
     printer_choice: Option<String>,
     printers_loaded: bool,
+    print_dialog: bool,
+    print_copies: u32,
+    print_pages: String,
     marker_text: String,
     marker_selected: Option<Tick>,
     form_dialog: bool,
@@ -433,6 +462,9 @@ impl ShellApp {
             printers: Vec::new(),
             printer_choice: None,
             printers_loaded: false,
+            print_dialog: initial_window == "print",
+            print_copies: 1,
+            print_pages: String::new(),
             marker_text: String::new(),
             marker_selected: None,
             form_dialog: false,
@@ -1745,6 +1777,104 @@ impl ShellApp {
                 self.load_error = None;
             }
             Err(error) => self.load_error = Some(error.to_string()),
+        }
+    }
+
+    fn print_window(&mut self, context: &egui::Context) {
+        if !self.print_dialog {
+            return;
+        }
+        let mut open = self.print_dialog;
+        let mut print = false;
+        egui::Window::new("Print score")
+            .open(&mut open)
+            .default_width(320.0)
+            .show(context, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Copies");
+                    ui.add(egui::DragValue::new(&mut self.print_copies).range(1..=99));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Pages");
+                    ui.text_edit_singleline(&mut self.print_pages);
+                });
+                ui.label(
+                    egui::RichText::new("Example: 1-4, 7. Leave empty for all pages.")
+                        .size(10.0)
+                        .color(theme::text_dim()),
+                );
+                ui.horizontal(|ui| {
+                    if ui.button("Print").clicked() {
+                        print = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.print_dialog = false;
+                    }
+                });
+            });
+        self.print_dialog = open;
+        if print {
+            self.print_score_pdf();
+        }
+    }
+
+    fn print_score_pdf(&mut self) {
+        let Some(track) = self
+            .roll
+            .selected
+            .or_else(|| self.song().tracks.first().map(|track| track.id))
+        else {
+            self.status = Some(String::from("no track to print"));
+            return;
+        };
+        let pages = self.print_pages.trim();
+        if !pages.is_empty()
+            && !pages
+                .chars()
+                .all(|character| character.is_ascii_digit() || character == '-' || character == ',')
+        {
+            self.status = Some(String::from("pages must look like 1-4, 7"));
+            return;
+        }
+        let settings = score::Settings {
+            grand_staff: self.score_grand,
+            ..score::Settings::default()
+        };
+        let engraved = score::engrave(self.song(), track, settings);
+        let title = if self.song().name.is_empty() {
+            "Lazy Arranger score"
+        } else {
+            &self.song().name
+        };
+        let pdf = score::pdf::to_pdf(&engraved, settings, title);
+        let path =
+            std::env::temp_dir().join(format!("lazy-arranger-score-{}.pdf", std::process::id()));
+        if let Err(error) = std::fs::write(&path, pdf) {
+            self.status = Some(format!("{}: {error}", path.display()));
+            return;
+        }
+        let arguments = print_arguments(
+            self.printer_choice.as_deref(),
+            self.print_copies,
+            pages,
+            &path,
+        );
+        match std::process::Command::new("lp").args(&arguments).output() {
+            Ok(output) if output.status.success() => {
+                self.status = Some(format!(
+                    "sent {} to lp: {}",
+                    path.display(),
+                    String::from_utf8_lossy(&output.stdout).trim()
+                ));
+                self.print_dialog = false;
+            }
+            Ok(output) => {
+                self.status = Some(format!(
+                    "lp failed: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ));
+            }
+            Err(error) => self.status = Some(format!("could not run lp: {error}")),
         }
     }
 
@@ -4463,6 +4593,7 @@ impl eframe::App for ShellApp {
         self.lessons_window(context);
         self.songs_window(context);
         self.help_window(context);
+        self.print_window(context);
         self.file_window(context);
         self.midi_map_window(context);
         self.assistant_window(context);
@@ -4799,7 +4930,6 @@ impl eframe::App for ShellApp {
                     }
                     View::Score => {
                         let mut save_pdf = false;
-                        let mut print_pdf = false;
                         if !self.printers_loaded {
                             self.printers = available_printers();
                             self.printers_loaded = true;
@@ -4823,11 +4953,11 @@ impl eframe::App for ShellApp {
                                 save_pdf = true;
                             }
                             if ui
-                                .button("Print")
-                                .on_hover_text("Send the score PDF to lp")
+                                .button("Print…")
+                                .on_hover_text("Choose copies, pages and a printer")
                                 .clicked()
                             {
-                                print_pdf = true;
+                                self.print_dialog = true;
                             }
                             if !self.printers.is_empty() {
                                 egui::ComboBox::from_id_salt("printer-choice")
@@ -4866,53 +4996,6 @@ impl eframe::App for ShellApp {
                             let engraved = score::engrave(&project.song, track, score_settings);
                             self.score_page =
                                 crate::score_view::clamp_page(&engraved, self.score_page);
-                            if print_pdf {
-                                let pdf = score::pdf::to_pdf(
-                                    &engraved,
-                                    score_settings,
-                                    if project.song.name.is_empty() {
-                                        "Lazy Arranger score"
-                                    } else {
-                                        &project.song.name
-                                    },
-                                );
-                                let path = std::env::temp_dir().join(format!(
-                                    "lazy-arranger-score-{}.pdf",
-                                    std::process::id()
-                                ));
-                                match std::fs::write(&path, pdf) {
-                                    Ok(()) => {
-                                        let mut command = std::process::Command::new("lp");
-                                        if let Some(printer) = &self.printer_choice {
-                                            command.arg("-d").arg(printer);
-                                        }
-                                        match command.arg(&path).output() {
-                                            Ok(output) if output.status.success() => {
-                                                let message =
-                                                    String::from_utf8_lossy(&output.stdout);
-                                                score_status = Some(format!(
-                                                    "sent {} to lp: {}",
-                                                    path.display(),
-                                                    message.trim()
-                                                ));
-                                            }
-                                            Ok(output) => {
-                                                let message =
-                                                    String::from_utf8_lossy(&output.stderr);
-                                                score_status =
-                                                    Some(format!("lp failed: {}", message.trim()));
-                                            }
-                                            Err(error) => {
-                                                score_status =
-                                                    Some(format!("could not run lp: {error}"));
-                                            }
-                                        }
-                                    }
-                                    Err(error) => {
-                                        score_status = Some(format!("{}: {error}", path.display()));
-                                    }
-                                }
-                            }
                             if save_pdf {
                                 let pdf = score::pdf::to_pdf(
                                     &engraved,
@@ -5581,6 +5664,24 @@ mod tests {
         assert!(lines.iter().any(|line| line.starts_with("Cadence:")));
         let empty = project::song::Song::new("Empty", 120.0);
         assert_eq!(theory_summary(&empty)[2], "No chords yet");
+    }
+
+    #[test]
+    fn print_arguments_include_printer_copies_and_pages() {
+        let path = std::path::Path::new("/tmp/score.pdf");
+        assert_eq!(
+            print_arguments(Some("Office"), 2, "1-4, 7", path),
+            vec![
+                "-d",
+                "Office",
+                "-n",
+                "2",
+                "-o",
+                "page-ranges=1-4, 7",
+                "/tmp/score.pdf"
+            ]
+        );
+        assert_eq!(print_arguments(None, 1, "", path), vec!["/tmp/score.pdf"]);
     }
 
     #[test]
