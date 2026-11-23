@@ -671,6 +671,39 @@ impl Editor {
     /// # Errors
     ///
     /// Returns a message when the command is rejected.
+    /// Imports every L6max take as an audio track at `start`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when a track edit is rejected.
+    pub fn import_l6max(
+        &mut self,
+        plan: &audio::l6max::Plan,
+        start: Tick,
+    ) -> Result<usize, String> {
+        let bpm = self.song().tempo_map.bpm_at(start);
+        let mut imported = 0;
+        for take in &plan.takes {
+            let track_id = self
+                .session
+                .next_track_id()
+                .map_err(|error| error.to_string())?;
+            let mut track = project::song::Track::new(track_id, take.name.clone());
+            track.audio = Some(project::song::AudioRef {
+                path: take.path.display().to_string(),
+                start,
+                length: audio::chords::to_ticks(take.seconds, bpm),
+                offset: 0,
+            });
+            self.session
+                .apply(app_commands::Command::InsertTrack { track })
+                .map_err(|error| error.to_string())?;
+            imported += 1;
+        }
+        self.dirty |= imported > 0;
+        Ok(imported)
+    }
+
     /// Freezes a track: renders it alone to `path`, clears its notes and gives
     /// it the audio reference in one command.
     ///
@@ -1410,6 +1443,29 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn l6max_takes_become_audio_tracks() {
+        let mut editor = editor();
+        let plan = audio::l6max::Plan {
+            takes: vec![audio::l6max::Take {
+                path: std::path::PathBuf::from("/tmp/take-01.wav"),
+                name: String::from("Take 01"),
+                seconds: 12.5,
+                channels: 2,
+                sample_rate: 48_000,
+                bits: 32,
+                format_tag: 3,
+            }],
+            problems: Vec::new(),
+        };
+        assert_eq!(editor.import_l6max(&plan, 0).expect("import"), 1);
+        let imported = &editor.song().tracks[1];
+        assert_eq!(imported.name, "Take 01");
+        assert!(imported.audio.is_some());
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks.len(), 1);
     }
 
     #[test]

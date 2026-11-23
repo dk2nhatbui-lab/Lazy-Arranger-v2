@@ -129,6 +129,9 @@ pub struct ShellApp {
     score_zoom: f32,
     score_grand: bool,
     automation_target: project::song::AutomationTarget,
+    l6max_folder: String,
+    l6max_plan: Option<audio::l6max::Plan>,
+    l6max_error: Option<String>,
     rename_scene: Option<usize>,
     rename_scene_input: String,
     last_bar: i64,
@@ -224,6 +227,9 @@ impl ShellApp {
             score_zoom: 1.0,
             score_grand: false,
             automation_target: project::song::AutomationTarget::Volume,
+            l6max_folder: String::new(),
+            l6max_plan: None,
+            l6max_error: None,
             rename_scene: None,
             rename_scene_input: String::new(),
             last_bar: 0,
@@ -1288,6 +1294,52 @@ impl ShellApp {
                     .fixed_decimals(1),
             );
             ui.checkbox(&mut self.settings.master_limiter, "Limiter");
+        });
+        ui.collapsing("L6max takes", |ui| {
+            ui.horizontal(|ui| {
+                ui.text_edit_singleline(&mut self.l6max_folder);
+                if ui.button("Scan").clicked() {
+                    match audio::l6max::scan(std::path::Path::new(&self.l6max_folder)) {
+                        Ok(plan) => {
+                            self.l6max_error = None;
+                            self.l6max_plan = Some(plan);
+                        }
+                        Err(error) => {
+                            self.l6max_plan = None;
+                            self.l6max_error = Some(error);
+                        }
+                    }
+                }
+            });
+            if let Some(error) = &self.l6max_error {
+                ui.label(egui::RichText::new(error).color(theme::RECORDING));
+            }
+            if let Some(plan) = &self.l6max_plan {
+                ui.label(format!(
+                    "{} take(s), {} at 32-bit float, {:.1} s total",
+                    plan.takes.len(),
+                    plan.float32(),
+                    plan.seconds()
+                ));
+                for take in plan.takes.iter().take(6) {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} · {:.1} s · {} ch",
+                            take.name, take.seconds, take.channels
+                        ))
+                        .size(10.0)
+                        .color(theme::TEXT_DIM),
+                    );
+                }
+                if ui.button("Import takes at playhead").clicked() {
+                    match self.editor.import_l6max(plan, self.position.max(0)) {
+                        Ok(count) => {
+                            self.status = Some(format!("imported {count} L6max take(s)"));
+                        }
+                        Err(error) => self.status = Some(error),
+                    }
+                }
+            }
         });
         let strips: Vec<(TrackId, String, u8, u8, bool, bool)> = self
             .song()

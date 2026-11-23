@@ -260,3 +260,10 @@ with name, file and duration.
 first 4096 bytes and a model name (KRONOS, KROME, KINGKORG, TRITON), reporting
 the offset and size. It does not decode programs or combis; the CLI and MCP tool
 return that limit explicitly. Real Korg files remain untested.
+
+### L6max takes in the Mixer
+
+The Mixer's L6max panel scans a folder with `audio::l6max::scan`, shows the take
+count, how many are 32-bit float and total seconds, and imports every take at
+the playhead as its own audio track through `Editor::import_l6max` (one
+InsertTrack per take). Device project/mixer files are not parsed.
