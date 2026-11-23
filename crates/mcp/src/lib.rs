@@ -195,6 +195,54 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "add_note",
+            description: "Insert one note on a track.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "start": {"type": "integer"},
+                    "pitch": {"type": "integer"},
+                    "duration": {"type": "integer"},
+                    "velocity": {"type": "integer"}
+                },
+                "required": ["track", "start", "pitch"]
+            }),
+        },
+        Tool {
+            name: "remove_note",
+            description: "Remove one note from a track.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "note": {"type": "integer"}
+                },
+                "required": ["track", "note"]
+            }),
+        },
+        Tool {
+            name: "set_chord",
+            description: "Set one chord symbol at a tick.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "tick": {"type": "integer"},
+                    "symbol": {"type": "string"}
+                },
+                "required": ["tick", "symbol"]
+            }),
+        },
+        Tool {
+            name: "remove_chord",
+            description: "Remove the chord at a tick.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"tick": {"type": "integer"}},
+                "required": ["tick"]
+            }),
+        },
+        Tool {
             name: "save_project",
             description: "Write the project JSON to a path.",
             input_schema: json!({
@@ -774,6 +822,78 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             target.velocity = music_core::Velocity::new(velocity.clamp(1, 127))?;
             session.apply(Command::ReplaceTrackNotes { track, notes })?;
             Ok(json!({"velocity": velocity.clamp(1, 127)}))
+        }
+        "add_note" => {
+            let track = track_argument(arguments)?;
+            let note_id = session.next_note_id(track)?;
+            let start = arguments
+                .get("start")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("start is required")))?;
+            let pitch = arguments
+                .get("pitch")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("pitch is required")))?;
+            let pitch = u8::try_from(pitch)
+                .ok()
+                .and_then(|value| music_core::Pitch::new(value).ok())
+                .ok_or_else(|| ToolError::Arguments(String::from("pitch must be 0..=127")))?;
+            let duration = arguments
+                .get("duration")
+                .and_then(Value::as_i64)
+                .unwrap_or(music_core::PPQ)
+                .max(1);
+            let velocity = arguments
+                .get("velocity")
+                .and_then(Value::as_u64)
+                .unwrap_or(100)
+                .clamp(1, 127) as u8;
+            session.apply(Command::InsertNote {
+                track,
+                note: project::song::Note {
+                    id: note_id,
+                    start,
+                    duration,
+                    pitch,
+                    velocity: music_core::Velocity::new(velocity)
+                        .map_err(|error| ToolError::Arguments(error.to_string()))?,
+                    channel: music_core::Channel::first(),
+                },
+            })?;
+            Ok(json!({"note": note_id.get()}))
+        }
+        "remove_note" => {
+            let track = track_argument(arguments)?;
+            let note = arguments
+                .get("note")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("note is required")))?;
+            let note = project::NoteId::new(u32::try_from(note).unwrap_or(0))
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            session.apply(Command::RemoveNote { track, note })?;
+            Ok(json!({"removed": note.get()}))
+        }
+        "set_chord" => {
+            let tick = arguments
+                .get("tick")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+            let symbol = arguments
+                .get("symbol")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("symbol is required")))?;
+            let chord = music_core::Chord::parse(symbol)
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            session.apply(Command::SetChord { tick, chord })?;
+            Ok(json!({"tick": tick, "symbol": symbol}))
+        }
+        "remove_chord" => {
+            let tick = arguments
+                .get("tick")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+            session.apply(Command::RemoveChord { tick })?;
+            Ok(json!({"removed": tick}))
         }
         "save_project" => {
             let path = arguments
@@ -1965,6 +2085,48 @@ mod tests {
         assert_eq!(result["korg_marker"], true);
         assert_eq!(result["model"], "KRONOS");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn note_and_chord_edit_tools_work() {
+        let mut session = session_with_track();
+        let added = call(
+            &mut session,
+            "add_note",
+            &json!({"track": 1, "start": 0, "pitch": 64, "velocity": 90}),
+        )
+        .expect("add note");
+        let note = added["note"].as_u64().expect("id");
+        assert_eq!(session.song().tracks[0].notes.len(), 1);
+        call(
+            &mut session,
+            "remove_note",
+            &json!({"track": 1, "note": note}),
+        )
+        .expect("remove note");
+        assert!(session.song().tracks[0].notes.is_empty());
+        call(
+            &mut session,
+            "set_chord",
+            &json!({"tick": 0, "symbol": "Am"}),
+        )
+        .expect("chord");
+        assert_eq!(
+            session.song().chords[0]
+                .chord
+                .format(music_core::Spelling::Sharp),
+            "Am"
+        );
+        call(&mut session, "remove_chord", &json!({"tick": 0})).expect("remove chord");
+        assert!(session.song().chords.is_empty());
+        assert!(
+            call(
+                &mut session,
+                "set_chord",
+                &json!({"tick": 0, "symbol": "H"})
+            )
+            .is_err()
+        );
     }
 
     #[test]

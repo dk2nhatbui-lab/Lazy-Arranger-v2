@@ -333,7 +333,7 @@ loaded, validated or hosted, and processing still ignores slots.
 `get_clips`/`set_clips` and `get_scene_names`/`set_scene_names` expose the
 project's basic state and edits. Clip ids are optional on input (the next free
 id is used) and markers/clips are sorted by tick on write. The registry now
-holds 55 tools.
+holds 59 tools.
 
 ### Track Inspector
 
@@ -366,7 +366,7 @@ against hardware. Controller pages remain absent.
 
 `set_track_name`, `set_track_gain`, `set_track_flags`, `set_track_program` and
 `set_audio_ref` edit the same fields as the Inspector. An empty or missing audio
-path clears the reference. The registry holds 55 tools; earlier counts were two
+path clears the reference. The registry holds 59 tools; earlier counts were two
 high because the counter also matched nested `name` keys in input schemas.
 
 ### Controller page
@@ -454,7 +454,7 @@ write project, keyboard MIDI, MusicXML, 16-bit WAV and per-track stem output.
 MIDI uses each track's program and sends drum tracks to channel 10; the WAV mix
 includes audio references and reports problem count; stems write a manifest.
 One test writes all five into a temporary folder and checks non-empty files. The
-registry holds 55 tools.
+registry holds 59 tools.
 
 ### Tempo in the Inspector
 
@@ -475,3 +475,9 @@ The piano roll reserves an 18 px ruler above the clip lane, draws bar numbers at
 the current zoom and returns a tick when the ruler is clicked. The shell stops
 playback if needed and moves `position` to that tick; seeking during playback
 therefore restarts from a stopped state rather than resuming audio at the tick.
+
+### Single-note and chord tools
+
+`add_note` inserts one note with a fresh id and optional duration/velocity,
+`remove_note` deletes by id, `set_chord` parses a symbol and writes it, and
+`remove_chord` deletes at a tick. The registry holds 59 tools.
