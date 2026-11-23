@@ -37,6 +37,41 @@ pub fn command(text: &str, voice: Option<&str>) -> SpeechCommand {
     }
 }
 
+/// Speaks through a user command template containing `{text}`, or `say`.
+///
+/// # Errors
+///
+/// Returns a message when the command cannot be started.
+pub fn speak_with(text: &str, template: &str) -> Result<(), String> {
+    let text = clean(text);
+    if text.trim().is_empty() {
+        return Ok(());
+    }
+    let template = template.trim();
+    if !template.is_empty() {
+        #[cfg(unix)]
+        {
+            let quoted = format!("'{}'", text.replace('\'', "'\\''"));
+            let rendered = if template.contains("{text}") {
+                template.replace("{text}", &quoted)
+            } else {
+                format!("{template} {quoted}")
+            };
+            return std::process::Command::new("sh")
+                .arg("-c")
+                .arg(rendered)
+                .spawn()
+                .map(|_| ())
+                .map_err(|error| format!("speech: {error}"));
+        }
+        #[cfg(not(unix))]
+        {
+            return Err(String::from("custom speech commands need a Unix shell"));
+        }
+    }
+    speak(&text)
+}
+
 /// Speaks one utterance on macOS; does nothing elsewhere.
 ///
 /// # Errors
@@ -72,6 +107,14 @@ mod tests {
         assert_eq!(clean("hello\nworld\u{0007}"), "helloworld");
         let long = "a".repeat(400);
         assert_eq!(clean(&long).len(), 240);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_custom_speech_command_is_used() {
+        assert!(speak_with("hello", "true").is_ok());
+        assert!(speak_with("", "false").is_ok());
+        assert!(speak_with("hello", "").is_ok());
     }
 
     #[test]

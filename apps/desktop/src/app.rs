@@ -2944,7 +2944,7 @@ impl ShellApp {
             }
         }
         if self.settings.speech
-            && let Err(error) = crate::speech::speak(&text)
+            && let Err(error) = crate::speech::speak_with(&text, &self.settings.speak_command)
         {
             self.status = Some(error);
         }
@@ -3035,7 +3035,7 @@ impl ShellApp {
                             }
                             let reply = self.editor.assistant(&input);
                             if self.settings.speech
-                                && let Err(error) = crate::speech::speak(&reply.text)
+                                && let Err(error) = crate::speech::speak_with(&reply.text, &self.settings.speak_command)
                             {
                                 self.status = Some(error);
                             }
@@ -7953,6 +7953,16 @@ impl ShellApp {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.settings.assistant_command)
                             .hint_text("codex exec {prompt}")
+                            .desired_width(340.0),
+                    );
+                    ui.label(
+                        egui::RichText::new("Speak command (use {text})")
+                            .size(11.0)
+                            .color(theme::text_muted()),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings.speak_command)
+                            .hint_text("kokoro-tts {text}")
                             .desired_width(340.0),
                     );
                     ui.label(
