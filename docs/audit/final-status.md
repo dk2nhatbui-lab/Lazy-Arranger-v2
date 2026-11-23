@@ -38,14 +38,14 @@ decision that is absent here.
 2. **Korg PCG program/combi decoding and L6max project/mixer page** — only
    recognition/scans exist; no format specification or real PCG/project files
    were available to decode program, combi or mixer-page structures.
-3. **SF3 and SoundFont modulators** — no SF3 fixture and no decoder dependency
-   are present; modulator semantics are unverified.
+3. **SoundFont modulators** — SF3 is out of scope by request; SF2 is supported.
+   Modulator semantics remain unverified.
 4. **AI model, network chat and speech input** — the assistant is a local rule
    engine over the MCP registry; no model endpoint, subscription, key or
    Whisper/Kitten/Kokoro assets exist in this environment.
-5. **Hardware acceptance** — no MIDI keyboard, PSR-S970, printer or audio device
-   was available, so MIDI sends, keyboard record/echo, cpal audibility,
-   monitoring latency and print jobs remain hardware-unverified.
+5. **Hardware acceptance (partial)** — MIDI ports/sends and a PSR-S970 send were
+   exercised, and printers are visible; key capture, audible output, monitoring
+   latency and actual print jobs remain unverified. See `docs/audit/hardware.md`.
 6. **Key-signature layout** — G/F clefs are now drawn on canvas and PDF without
    changing the four-measure system. A key-signature gutter still needs a
    product decision: it would force three measures per system on the current
