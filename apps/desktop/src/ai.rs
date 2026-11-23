@@ -120,6 +120,40 @@ pub fn parse_reply(body: &str) -> Result<String, String> {
         .ok_or_else(|| String::from("reply has no text content"))
 }
 
+/// Runs a local assistant CLI with the prompt substituted into `{prompt}`.
+///
+/// # Errors
+///
+/// Returns a message when the command fails or prints no text.
+pub fn local_chat(command: &str, prompt: &str) -> Result<String, String> {
+    let command = command.trim();
+    if command.is_empty() {
+        return Err(String::from("set a local assistant command in Settings"));
+    }
+    let quoted = format!("'{}'", prompt.replace('\'', "'\\''"));
+    let rendered = if command.contains("{prompt}") {
+        command.replace("{prompt}", &quoted)
+    } else {
+        format!("{command} {quoted}")
+    };
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&rendered)
+        .output()
+        .map_err(|error| format!("assistant command: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "assistant command: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        return Err(String::from("assistant command printed no text"));
+    }
+    Ok(text)
+}
+
 /// True when the reply is a single `tool ...` command line.
 #[must_use]
 pub fn tool_command(reply: &str) -> Option<&str> {
@@ -153,6 +187,15 @@ mod tests {
         assert_eq!(parse_reply(body).expect("text"), "hello");
         assert!(parse_reply("{}").is_err());
         assert!(parse_reply("not json").is_err());
+    }
+
+    #[test]
+    fn a_local_assistant_command_returns_stdout() {
+        let text = local_chat("printf '  local answer  '", "hello").expect("text");
+        assert_eq!(text, "local answer");
+        let text = local_chat("printf '%s' {prompt}", "quoted prompt").expect("text");
+        assert_eq!(text, "quoted prompt");
+        assert!(local_chat("", "x").is_err());
     }
 
     #[test]

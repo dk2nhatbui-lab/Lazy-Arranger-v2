@@ -145,3 +145,4 @@ For the clef layout, choose either four measures per system without clefs
 - L6max import mutes a master/mix take; test covers it.
 - Held MIDI notes show the recognised chord in Perform and the Inspector; hardware-unverified.
 - Assistant Dictate records 5 s and transcribes through a configurable Whisper command; microphone/model unverified (`docs/audit/dictate.png`).
+- Assistant can call a local CLI template with {prompt}; mock-command tested.

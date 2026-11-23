@@ -2675,6 +2675,13 @@ impl ShellApp {
                             std::thread::spawn(move || {
                                 let _ = sender.send(crate::ai::chat_with_history(&config, &history, &input));
                             });
+                        } else if !self.settings.assistant_command.trim().is_empty() {
+                            let command = self.settings.assistant_command.clone();
+                            let (sender, receiver) = std::sync::mpsc::channel();
+                            self.ai_pending = Some(receiver);
+                            std::thread::spawn(move || {
+                                let _ = sender.send(crate::ai::local_chat(&command, &input));
+                            });
                         } else {
                             if input == "undo" || input.starts_with("tool ") {
                                 self.selected_note = None;
@@ -2735,7 +2742,7 @@ impl ShellApp {
                 }
                 ui.label(
                     egui::RichText::new(
-                        "With an AI endpoint set in Settings, replies come from that model; \
+                        "With an AI endpoint or local assistant command set in Settings, replies come from that model or CLI; \
                          a `tool ...` reply runs one app tool. Otherwise local commands over \
                          the same tools are used. Speech out uses macOS say; speech input is not implemented.",
                     )
@@ -6814,6 +6821,16 @@ impl ShellApp {
                         )
                         .size(9.0)
                         .color(theme::text_dim()),
+                    );
+                    ui.label(
+                        egui::RichText::new("Local assistant command (use {prompt})")
+                            .size(11.0)
+                            .color(theme::text_muted()),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings.assistant_command)
+                            .hint_text("codex exec {prompt}")
+                            .desired_width(340.0),
                     );
                     ui.label(
                         egui::RichText::new("Whisper command (use {file})")
