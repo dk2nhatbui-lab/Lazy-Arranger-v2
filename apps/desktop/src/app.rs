@@ -2853,46 +2853,118 @@ impl ShellApp {
             self.editor.grid(2).rows.len()
         ));
         let grid = self.editor.grid(2);
-        for (scene_index, row) in grid.rows.iter().enumerate() {
-            ui.horizontal(|ui| {
-                let playing = self.launcher.current == Some(scene_index);
-                let waiting = self.launcher.waiting == Some(scene_index);
-                let label = if playing {
-                    format!("▶ {}", row.scene.name)
-                } else if waiting {
-                    format!("… {}", row.scene.name)
-                } else {
-                    row.scene.name.clone()
-                };
-                if ui.small_button("✎").on_hover_text("Rename scene").clicked() {
-                    self.rename_scene = Some(scene_index);
-                    self.rename_scene_input = row.scene.name.clone();
+        let bar = self.song().time_signature.bar_ticks().max(1);
+        let track_ids = grid.tracks.clone();
+        let track_names: Vec<String> = track_ids
+            .iter()
+            .map(|track| {
+                self.song()
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == *track)
+                    .map_or_else(|| format!("track {track}"), |entry| entry.name.clone())
+            })
+            .collect();
+        enum SlotAction {
+            Clear,
+            Length(Tick),
+            Copy(Tick),
+        }
+        let mut slot_action: Option<(usize, TrackId, SlotAction)> = None;
+        egui::Grid::new("clip-grid")
+            .num_columns(2 + track_ids.len())
+            .spacing([10.0, 4.0])
+            .show(ui, |ui| {
+                ui.label("");
+                ui.label(egui::RichText::new("Scene").strong());
+                for name in &track_names {
+                    ui.label(egui::RichText::new(name).strong());
                 }
-                if ui.selectable_label(playing || waiting, label).clicked() {
-                    if self.launcher.playing && self.launcher.current == Some(scene_index) {
-                        self.launcher.stop();
-                        self.status = Some(String::from("stopped"));
-                    } else {
-                        self.launcher.launch(scene_index);
-                        self.status = Some(format!("scene {} queued", scene_index + 1));
+                ui.end_row();
+                for (scene_index, row) in grid.rows.iter().enumerate() {
+                    if ui
+                        .small_button("Rename")
+                        .on_hover_text("Rename scene")
+                        .clicked()
+                    {
+                        self.rename_scene = Some(scene_index);
+                        self.rename_scene_input = row.scene.name.clone();
                     }
-                }
-                for (column, slot) in row.slots.iter().enumerate() {
-                    let name = slot.clip.map_or_else(
-                        || String::from("—"),
-                        |clip| {
-                            grid.tracks
-                                .get(column)
-                                .and_then(|track| {
-                                    self.song().tracks.iter().find(|entry| entry.id == *track)
-                                })
-                                .and_then(|track| track.clips.iter().find(|entry| entry.id == clip))
-                                .map_or_else(|| format!("clip {clip}"), |entry| entry.name.clone())
-                        },
-                    );
-                    let _ = ui.button(name);
+                    let playing = self.launcher.current == Some(scene_index);
+                    let waiting = self.launcher.waiting == Some(scene_index);
+                    let label = if playing {
+                        format!("▶ {}", row.scene.name)
+                    } else if waiting {
+                        format!("… {}", row.scene.name)
+                    } else {
+                        row.scene.name.clone()
+                    };
+                    if ui.selectable_label(playing || waiting, label).clicked() {
+                        if self.launcher.playing && self.launcher.current == Some(scene_index) {
+                            self.launcher.stop();
+                            self.status = Some(String::from("stopped"));
+                        } else {
+                            self.launcher.launch(scene_index);
+                            self.status = Some(format!("scene {} queued", scene_index + 1));
+                        }
+                    }
+                    for (column, slot) in row.slots.iter().enumerate() {
+                        let Some(track) = track_ids.get(column).copied() else {
+                            ui.label("");
+                            continue;
+                        };
+                        let name = slot.clip.map_or_else(
+                            || String::from("—"),
+                            |clip| {
+                                self.song()
+                                    .tracks
+                                    .iter()
+                                    .find(|entry| entry.id == track)
+                                    .and_then(|entry| {
+                                        entry.clips.iter().find(|entry| entry.id == clip)
+                                    })
+                                    .map_or_else(
+                                        || format!("clip {clip}"),
+                                        |entry| entry.name.clone(),
+                                    )
+                            },
+                        );
+                        ui.button(name).context_menu(|ui| {
+                            if ui.button("Clear").clicked() {
+                                slot_action = Some((scene_index, track, SlotAction::Clear));
+                                ui.close_menu();
+                            }
+                            if ui.button("Length: 1 bar").clicked() {
+                                slot_action = Some((scene_index, track, SlotAction::Length(bar)));
+                                ui.close_menu();
+                            }
+                            if ui.button("Length: 2 bars").clicked() {
+                                slot_action =
+                                    Some((scene_index, track, SlotAction::Length(bar * 2)));
+                                ui.close_menu();
+                            }
+                            if ui.button("Copy to playhead").clicked() {
+                                slot_action = Some((
+                                    scene_index,
+                                    track,
+                                    SlotAction::Copy(self.position.max(0)),
+                                ));
+                                ui.close_menu();
+                            }
+                        });
+                    }
+                    ui.end_row();
                 }
             });
+        if let Some((scene, track, action)) = slot_action {
+            let result = match action {
+                SlotAction::Clear => self.editor.clear_slot(scene, track),
+                SlotAction::Length(length) => self.editor.set_slot_length(scene, track, length),
+                SlotAction::Copy(target) => self.editor.copy_slot(scene, track, target).map(|_| ()),
+            };
+            if let Err(error) = result {
+                self.status = Some(error);
+            }
         }
         ui.horizontal(|ui| {
             if ui

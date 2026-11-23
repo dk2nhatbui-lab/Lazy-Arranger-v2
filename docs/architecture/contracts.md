@@ -868,3 +868,10 @@ Outside Kids Mode the Perform view shows the current chord (last chord at or
 before the playhead), the next chord and a four-by-four pad grid sized to the
 available width. Kids Mode keeps its large lesson controls above the pads. The
 captured layout is `docs/audit/perform.png`.
+
+### Clip-grid layout
+
+The Loops view uses a grid with Scene and per-track headers, a Rename button per
+scene row and a context menu per slot (Clear, Length 1/2 bars, Copy to
+playhead). The captured layout is `docs/audit/loops.png`; slot operations go
+through the existing Editor grid methods.
