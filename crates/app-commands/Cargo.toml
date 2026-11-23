@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 audio = { path = "../audio" }
+style-formats = { path = "../style-formats" }
 music-core = { path = "../music-core" }
 project = { path = "../project" }
 thiserror.workspace = true

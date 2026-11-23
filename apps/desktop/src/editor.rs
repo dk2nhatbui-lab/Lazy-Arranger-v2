@@ -576,8 +576,8 @@ impl Editor {
         &mut self,
         path: &std::path::Path,
         prefix: &str,
-    ) -> Result<crate::style_import::Imported, String> {
-        let imported = crate::style_import::import_file(&mut self.session, path, prefix)?;
+    ) -> Result<app_commands::style_import::Imported, String> {
+        let imported = app_commands::style_import::import_file(&mut self.session, path, prefix)?;
         self.dirty |= imported.tracks > 0;
         Ok(imported)
     }

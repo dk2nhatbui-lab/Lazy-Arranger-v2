@@ -806,9 +806,9 @@ entry's tempo with `SetTempo` at tick zero (one undo step). Playlist rows are
 displayed but not opened. A row with a style can be imported: the window takes
 the style library root from Settings or `ARRANGER_STYLE_LIBRARY`, resolves the
 number or name, imports the style's decoded song, and inserts its tracks with
-fresh ids and a `Style ` prefix (one undo step per track). `copy_tracks` and the
-missing-file path are tested; a successful import of a real style is not yet
-exercised by an automated test.
+fresh ids and a `Style ` prefix (one undo step per track). `copy_tracks` and the missing-file path are tested, and an ignored test imports
+the first style when ARRANGER_STYLE_LIBRARY is set; `library-import` did so
+against the real library, adding 1 track and 1,926 notes.
 
 ### Style resolution
 

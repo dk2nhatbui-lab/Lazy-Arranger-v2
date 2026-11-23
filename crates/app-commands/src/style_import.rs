@@ -2,8 +2,9 @@
 
 use std::path::Path;
 
-use app_commands::{Command, EditSession};
 use project::song::Track;
+
+use crate::{Command, EditSession};
 
 /// What an import added.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,5 +110,19 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    #[ignore = "needs ARRANGER_STYLE_LIBRARY with real styles"]
+    fn a_real_style_imports_when_the_library_is_set() {
+        let Ok(root) = std::env::var("ARRANGER_STYLE_LIBRARY") else {
+            return;
+        };
+        let entries = style_formats::catalog::catalog(Path::new(&root)).expect("catalog");
+        let entry = entries.first().expect("at least one style");
+        let mut session = session();
+        let imported = import_file(&mut session, &entry.path, "Style").expect("import");
+        assert!(imported.tracks > 0, "style has tracks");
+        assert!(imported.notes > 0, "style has notes");
     }
 }

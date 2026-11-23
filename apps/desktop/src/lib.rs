@@ -15,7 +15,6 @@ pub mod score_view;
 pub mod settings;
 pub mod speech;
 pub mod strings;
-pub mod style_import;
 pub mod theme;
 pub mod widgets;
 

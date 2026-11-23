@@ -238,6 +238,27 @@ enum Commands {
         #[arg(long, default_value_t = 48_000)]
         sample_rate: u32,
     },
+    /// Import a style's tracks into a project by number or name.
+    LibraryImport {
+        /// Project `.json` path.
+        #[arg(long)]
+        project: PathBuf,
+        /// Style library folder.
+        #[arg(long)]
+        root: PathBuf,
+        /// Catalog number; takes precedence.
+        #[arg(long)]
+        number: Option<usize>,
+        /// Style name hint.
+        #[arg(long, default_value = "")]
+        name: String,
+        /// Prefix for imported track names.
+        #[arg(long, default_value = "Style")]
+        prefix: String,
+        /// Output project `.json` path.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Resolve a style by number or name in a folder.
     StyleResolve {
         /// Folder to scan.
@@ -774,6 +795,33 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 bounce.length,
                 bounce.path.display(),
                 bounce.track,
+                out.display()
+            );
+            Ok(())
+        }
+        Commands::LibraryImport {
+            project,
+            root,
+            number,
+            name,
+            prefix,
+            out,
+        } => {
+            let project = read_project(&project)?;
+            let entries = style_formats::catalog::catalog(&root)?;
+            let entry = style_formats::catalog::resolve(&entries, number, &name)
+                .ok_or_else(|| format!("no style matched in {}", root.display()))?;
+            let mut session = EditSession::new(project)?;
+            let imported =
+                app_commands::style_import::import_file(&mut session, &entry.path, &prefix)?;
+            let json = session.project().to_json_pretty()?;
+            fs::write(&out, json)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!(
+                "imported {} track(s), {} note(s) from {} -> {}",
+                imported.tracks,
+                imported.notes,
+                entry.path.display(),
                 out.display()
             );
             Ok(())

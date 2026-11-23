@@ -150,6 +150,7 @@ dependencies = [
  "audio",
  "music-core",
  "project",
+ "style-formats",
  "thiserror 2.0.21",
 ]
 
