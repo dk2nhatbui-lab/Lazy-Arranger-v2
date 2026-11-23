@@ -72,6 +72,15 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
     let mut track_ids: HashSet<u32> = HashSet::new();
     for (track_index, track) in song.tracks.iter().enumerate() {
         let track_path = format!("song.tracks[{track_index}]");
+        for (slur_index, slur) in track.slurs.iter().enumerate() {
+            if slur.start >= slur.end {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.slurs[{slur_index}]"),
+                    String::from("a slur must end after it starts"),
+                ));
+            }
+        }
         if let Some(reference) = &track.audio
             && (reference.fade_in < 0
                 || reference.fade_out < 0

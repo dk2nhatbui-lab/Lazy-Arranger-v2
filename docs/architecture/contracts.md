@@ -333,7 +333,7 @@ loaded, validated or hosted, and processing still ignores slots.
 `get_clips`/`set_clips` and `get_scene_names`/`set_scene_names` expose the
 project's basic state and edits. Clip ids are optional on input (the next free
 id is used) and markers/clips are sorted by tick on write. The registry now
-holds 48 tools.
+holds 50 tools.
 
 ### Track Inspector
 
@@ -366,7 +366,7 @@ against hardware. Controller pages remain absent.
 
 `set_track_name`, `set_track_gain`, `set_track_flags`, `set_track_program` and
 `set_audio_ref` edit the same fields as the Inspector. An empty or missing audio
-path clears the reference. The registry holds 48 tools; earlier counts were two
+path clears the reference. The registry holds 50 tools; earlier counts were two
 high because the counter also matched nested `name` keys in input schemas.
 
 ### Controller page
@@ -394,3 +394,10 @@ whole, half, quarter and eighth rests (in that order), placing each at its
 fractional x on the measure and the staff's middle line. Canvas and PDF draw
 schematic rectangular glyphs sized by kind. A test checks half+quarter rests in
 a partly filled measure and a whole rest in an empty one.
+
+### Phrase slurs
+
+Schema v18 adds `Track.slurs` (`start`, `end` ticks); validation requires end >
+start. `SetSlurs` is one undoable edit, and `get_slurs`/`set_slurs` expose it to
+MCP. Engraving finds the notes inside each range and draws one curve above the
+highest note on canvas and PDF. MusicXML does not exchange slurs yet.

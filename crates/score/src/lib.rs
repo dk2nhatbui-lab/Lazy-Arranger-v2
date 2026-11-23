@@ -91,6 +91,19 @@ pub struct Beam {
     pub sixteenth: bool,
 }
 
+/// A phrase slur curve.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SlurArc {
+    /// Page holding the slur.
+    pub page: usize,
+    /// First notehead x.
+    pub start_x: f32,
+    /// Last notehead x.
+    pub end_x: f32,
+    /// Curve height above the staff.
+    pub y: f32,
+}
+
 /// A rest glyph kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RestKind {
@@ -273,6 +286,8 @@ pub struct Engraved {
     pub ties: Vec<Tie>,
     /// Rests in gaps and empty measures.
     pub rests: Vec<PlacedRest>,
+    /// Phrase slurs.
+    pub slurs: Vec<SlurArc>,
 }
 
 impl Engraved {
@@ -287,6 +302,31 @@ impl Engraved {
 #[must_use]
 pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
     engrave_with(song, track, settings, &[])
+}
+
+fn placed_slurs(notes: &[PlacedNote], slurs: &[project::song::Slur]) -> Vec<SlurArc> {
+    let mut out = Vec::new();
+    for slur in slurs {
+        let mut inside: Vec<&PlacedNote> = notes
+            .iter()
+            .filter(|note| note.tick >= slur.start && note.tick <= slur.end)
+            .collect();
+        inside.sort_by_key(|note| note.tick);
+        let (Some(first), Some(last)) = (inside.first(), inside.last()) else {
+            continue;
+        };
+        if first.tick == last.tick || first.page != last.page {
+            continue;
+        }
+        let highest = inside.iter().map(|note| note.y).fold(f32::MAX, f32::min);
+        out.push(SlurArc {
+            page: first.page,
+            start_x: first.x,
+            end_x: last.x,
+            y: highest - 14.0,
+        });
+    }
+    out
 }
 
 fn placed_rests(notes: &[PlacedNote], pages: &[Page], settings: Settings) -> Vec<PlacedRest> {
@@ -651,6 +691,10 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
     let (beams, tuplets) = beams_and_tuplets(&notes);
     let ties = tie_pairs(&notes);
     let rests = placed_rests(&notes, &pages, settings);
+    let slurs = placed_slurs(
+        &notes,
+        source.map_or(&[][..], |track| track.slurs.as_slice()),
+    );
     Engraved {
         pages,
         notes,
@@ -664,6 +708,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         staves: if settings.grand_staff { 2 } else { 1 },
         ties,
         rests,
+        slurs,
     }
 }
 
@@ -1153,5 +1198,42 @@ mod rest_tests {
         assert_eq!(measure(0), vec![RestKind::Half, RestKind::Quarter]);
         assert_eq!(measure(1), vec![RestKind::Whole]);
         assert!(engraved.rests.iter().all(|rest| rest.x > 0.0));
+    }
+}
+
+#[cfg(test)]
+mod slur_tests {
+    use super::*;
+    use music_core::{Channel, PPQ, Pitch, Velocity};
+    use project::TrackId;
+    use project::song::{Note, Slur, Song, Track};
+
+    fn song() -> Song {
+        let mut song = Song::new("Slurs", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for (index, start) in [(1_u32, 0_i64), (2, PPQ)] {
+            track.notes.push(Note {
+                id: project::NoteId::new(index).expect("valid"),
+                start,
+                duration: PPQ,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        song
+    }
+
+    #[test]
+    fn a_slur_becomes_one_curve_between_its_notes() {
+        let song = song();
+        let plain = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        assert!(plain.slurs.is_empty());
+        let mut song = song;
+        song.tracks[0].slurs.push(Slur { start: 0, end: PPQ });
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        assert_eq!(engraved.slurs.len(), 1);
+        assert!(engraved.slurs[0].end_x > engraved.slurs[0].start_x);
     }
 }

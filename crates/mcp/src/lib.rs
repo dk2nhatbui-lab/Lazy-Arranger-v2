@@ -195,6 +195,27 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "get_slurs",
+            description: "List a track's phrase slurs.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}},
+                "required": ["track"]
+            }),
+        },
+        Tool {
+            name: "set_slurs",
+            description: "Replace a track's phrase slurs.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "slurs": {"type": "array"}
+                },
+                "required": ["track", "slurs"]
+            }),
+        },
+        Tool {
             name: "set_track_name",
             description: "Rename a track.",
             input_schema: json!({
@@ -699,6 +720,47 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             target.velocity = music_core::Velocity::new(velocity.clamp(1, 127))?;
             session.apply(Command::ReplaceTrackNotes { track, notes })?;
             Ok(json!({"velocity": velocity.clamp(1, 127)}))
+        }
+        "get_slurs" => {
+            let track = track_argument(arguments)?;
+            let found = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
+            Ok(json!({
+                "slurs": found.slurs.iter().map(|slur| json!({
+                    "start": slur.start,
+                    "end": slur.end
+                })).collect::<Vec<_>>()
+            }))
+        }
+        "set_slurs" => {
+            use project::song::Slur;
+            let track = track_argument(arguments)?;
+            let slurs = arguments
+                .get("slurs")
+                .and_then(Value::as_array)
+                .ok_or_else(|| ToolError::Arguments(String::from("slurs must be an array")))?;
+            let mut parsed = Vec::new();
+            for slur in slurs {
+                parsed.push(Slur {
+                    start: slur
+                        .get("start")
+                        .and_then(Value::as_i64)
+                        .ok_or_else(|| ToolError::Arguments(String::from("slur needs a start")))?,
+                    end: slur
+                        .get("end")
+                        .and_then(Value::as_i64)
+                        .ok_or_else(|| ToolError::Arguments(String::from("slur needs an end")))?,
+                });
+            }
+            session.apply(Command::SetSlurs {
+                track,
+                slurs: parsed.clone(),
+            })?;
+            Ok(json!({"slurs": parsed.len()}))
         }
         "set_track_name" => {
             let track = track_argument(arguments)?;
@@ -1726,6 +1788,20 @@ mod tests {
         assert_eq!(result["korg_marker"], true);
         assert_eq!(result["model"], "KRONOS");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn slur_tools_work() {
+        let mut session = session_with_track();
+        call(
+            &mut session,
+            "set_slurs",
+            &json!({"track": 1, "slurs": [{"start": 0, "end": 960}]}),
+        )
+        .expect("slurs");
+        let slurs = call(&mut session, "get_slurs", &json!({"track": 1})).expect("get");
+        assert_eq!(slurs["slurs"][0]["end"], 960);
+        assert_eq!(session.song().tracks[0].slurs.len(), 1);
     }
 
     #[test]

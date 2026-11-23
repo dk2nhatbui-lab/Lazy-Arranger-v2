@@ -404,6 +404,15 @@ fn is_zero_tick(tick: &Tick) -> bool {
     *tick == 0
 }
 
+/// A phrase slur between two ticks on a track.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Slur {
+    /// First tick under the slur.
+    pub start: Tick,
+    /// Tick where the slur ends.
+    pub end: Tick,
+}
+
 /// A SoundFont preset used to voice a track.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SoundFontRef {
@@ -492,6 +501,9 @@ pub struct Track {
     /// SoundFont preset used instead of the built-in timbre.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub soundfont: Option<SoundFontRef>,
+    /// Phrase slurs on this track.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slurs: Vec<Slur>,
     /// Plugin slots in signal order. Carried and saved, not hosted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plugins: Vec<PluginSlot>,
@@ -570,6 +582,7 @@ impl Track {
             pan: 64,
             audio: None,
             soundfont: None,
+            slurs: Vec::new(),
             program: None,
             provenance: None,
             extra: BTreeMap::new(),
@@ -921,6 +934,11 @@ impl ProjectFile {
                     // Version 17 adds audio fade lengths; zero is no fade, as
                     // in version 16.
                     self.version = 17;
+                }
+                17 => {
+                    // Version 18 adds phrase slurs; none is the version 17
+                    // behaviour.
+                    self.version = 18;
                 }
                 from => {
                     return Err(ProjectError::Migration {

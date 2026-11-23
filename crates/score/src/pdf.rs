@@ -117,6 +117,19 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     text = escape(&lyric.text)
                 );
             }
+            for slur in engraved.slurs.iter().filter(|slur| slur.page == index) {
+                let x1 = slur.start_x;
+                let x2 = slur.end_x;
+                let y = settings.page_height - (slur.y - 2.0);
+                let control = settings.page_height - (slur.y - 14.0);
+                let mid = (x1 + x2) / 2.0;
+                let _ = writeln!(
+                    content,
+                    "{x1:.1} {y:.1} m {a:.1} {control:.1} {b:.1} {control:.1} {x2:.1} {y:.1} c S",
+                    a = mid - (x2 - x1) / 6.0,
+                    b = mid + (x2 - x1) / 6.0,
+                );
+            }
             for rest in engraved.rests.iter().filter(|rest| rest.page == index) {
                 let (width, height) = match rest.kind {
                     crate::RestKind::Whole | crate::RestKind::Half => {

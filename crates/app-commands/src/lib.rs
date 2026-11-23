@@ -94,6 +94,13 @@ pub enum Command {
         /// New slots in signal order.
         plugins: Vec<project::song::PluginSlot>,
     },
+    /// Replace a track's phrase slurs.
+    SetSlurs {
+        /// The track.
+        track: TrackId,
+        /// New slurs.
+        slurs: Vec<project::song::Slur>,
+    },
     /// Set or clear a track's SoundFont preset.
     SetSoundFont {
         /// The track.
@@ -251,6 +258,7 @@ impl Command {
             Self::SetTrackPatch { .. } => "set track patch",
             Self::SetPlugins { .. } => "set plugins",
             Self::SetSoundFont { .. } => "set soundfont",
+            Self::SetSlurs { .. } => "set slurs",
             Self::SetTrackRouting { .. } => "set track routing",
             Self::SetMarkers { .. } => "set markers",
             Self::SetSceneNames { .. } => "set scene names",
@@ -741,6 +749,16 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::SetSlurs { track, .. } => Command::SetSlurs {
+                track: *track,
+                slurs: self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == *track)
+                    .map(|entry| entry.slurs.clone())
+                    .unwrap_or_default(),
+            },
             Command::SetSoundFont { track, .. } => Command::SetSoundFont {
                 track: *track,
                 soundfont: self
@@ -989,6 +1007,17 @@ impl EditSession {
             Command::SetTrackPatch { track, patch } => {
                 self.track_mut(*track)?.patch = patch.as_deref().copied();
             }
+            Command::SetSlurs { track, slurs } => {
+                if let Some(entry) = self
+                    .project
+                    .song
+                    .tracks
+                    .iter_mut()
+                    .find(|entry| entry.id == *track)
+                {
+                    entry.slurs = slurs.clone();
+                }
+            }
             Command::SetSoundFont { track, soundfont } => {
                 if let Some(entry) = self
                     .project
@@ -1098,6 +1127,9 @@ fn describe(command: &Command) -> String {
         Command::SetBuses { buses } => format!("set {} bus(es)", buses.len()),
         Command::SetPlugins { track, plugins } => {
             format!("track {track}: {} plugin slot(s)", plugins.len())
+        }
+        Command::SetSlurs { track, slurs } => {
+            format!("track {track}: {} slur(s)", slurs.len())
         }
         Command::SetSoundFont { track, soundfont } => match soundfont {
             Some(font) => format!(
@@ -1735,6 +1767,31 @@ mod tests {
         assert!(edit.song().marks.is_empty());
         edit.undo().expect("undo lyrics");
         assert!(edit.song().lyrics.is_empty());
+    }
+
+    #[test]
+    fn slurs_are_one_edit_and_validated() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.apply(Command::SetSlurs {
+            track,
+            slurs: vec![project::song::Slur { start: 0, end: 960 }],
+        })
+        .expect("slur");
+        assert_eq!(edit.song().tracks[0].slurs.len(), 1);
+        edit.undo().expect("undo");
+        assert!(edit.song().tracks[0].slurs.is_empty());
+        assert!(
+            edit.apply(Command::SetSlurs {
+                track,
+                slurs: vec![project::song::Slur {
+                    start: 960,
+                    end: 960
+                }],
+            })
+            .is_err(),
+            "an empty slur is rejected"
+        );
     }
 
     #[test]

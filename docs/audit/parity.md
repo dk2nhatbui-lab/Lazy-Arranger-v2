@@ -115,7 +115,7 @@ the wider ~90-tool MCP surface.
 | MIDI control map (notes/CC to actions) with text persistence and learn capture | `midi-devices::map`, CLI `midi-map-*` | verified | 6 tests + CLI bind/show run |
 | Live MIDI input, MIDI map/Controllers windows, channel-check messages, desktop record | `midi-devices`, shell, CLI | implemented | map/learn/controller/byte and recorded-insert tests; no MIDI ports, hardware untested |
 | Numbered style catalog, resolution and by-number rendering | `style-formats::catalog`, CLI `style-catalog`/`style-resolve`/`style-by-number` | verified | resolve test; real library matched 'ABBA Fernando'; number 2 rendered 124 notes |
-| MCP tools for automation, lyrics/marks, style catalog, theory, generation, plugins, L6max, Korg scan, quantise, velocity, tempo, SoundFonts, buses and routing, plus track/note/chord/marker/clip/scene and track-property edits | `crates/mcp` | verified | tool tests and CLI calls; 48 tools total |
+| MCP tools for automation, lyrics/marks, style catalog, theory, generation, plugins, L6max, Korg scan, quantise, velocity, tempo, SoundFonts, buses and routing, plus track/note/chord/marker/clip/scene and track-property edits | `crates/mcp` | verified | tool tests and CLI calls; 50 tools total |
 | Local assistant panel (help/song/undo/tool commands over the registry) | `mcp::assistant`, shell window | verified core | parse and dispatch tests; UI manual |
 | Speech output for replies (macOS `say`) | `apps/desktop/src/speech.rs` | verified builder | cleaning, truncation and argument tests; audible speech unverified |
 | Synth families: piano, bass, organ, strings, pad, drums (with noise percussion) | `audio::Timbre` | verified | timbre tests, pad swell, drum energy; demo RMS 0.129 |
@@ -133,7 +133,7 @@ the wider ~90-tool MCP surface.
 | Remaining MCP tools (~80: styles, clips, MIDI, profiles, lyrics) | — | missing | — |
 | Setup events, voices, CSEG children | — | missing | Stage 4 remainder |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
-| Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/PDF tests; no phrase slurs |
+| Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/slur tests; no MusicXML slur exchange |
 | UI shell (Perform/Arrange/Mix) | `apps/desktop` | implemented | themed shell, editing, audio |
 | Audio playback | `audio` | implemented | cpal; audible check pending |
 | WAV/offline render | `audio` | verified | 5.36 s real-style render |
