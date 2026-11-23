@@ -692,10 +692,14 @@ impl ShellApp {
             .unwrap_or_default()
             .trim()
             .to_ascii_lowercase();
-        let initial_view = std::env::var("ARRANGER_VIEW")
-            .ok()
-            .and_then(|value| View::parse(&value))
-            .unwrap_or(View::Arrange);
+        let initial_view = if settings.kids_mode {
+            View::Perform
+        } else {
+            std::env::var("ARRANGER_VIEW")
+                .ok()
+                .and_then(|value| View::parse(&value))
+                .unwrap_or(View::Arrange)
+        };
         theme::set_light(settings.light_theme);
         theme::install(context);
         let icon = context.load_texture(
@@ -5569,7 +5573,16 @@ impl ShellApp {
                         "quantise recorded notes to 1/16",
                     );
                     ui.checkbox(&mut self.settings.reduced_motion, "reduced motion");
-                    ui.checkbox(&mut self.settings.kids_mode, "Kids Mode");
+                    if ui
+                        .checkbox(&mut self.settings.kids_mode, "Kids Mode")
+                        .changed()
+                    {
+                        self.view = if self.settings.kids_mode {
+                            View::Perform
+                        } else {
+                            View::Arrange
+                        };
+                    }
                     if self.settings.kids_mode {
                         ui.add(
                             egui::Slider::new(&mut self.settings.kids_pause_seconds, 0.5..=5.0)
@@ -7292,6 +7305,9 @@ impl ShellApp {
     }
 
     fn sidebar(&mut self, context: &Context) {
+        if self.settings.kids_mode && self.view == View::Perform {
+            return;
+        }
         egui::SidePanel::left("tracks")
             .resizable(true)
             .default_width(theme::SIDEBAR_WIDTH)
@@ -7928,7 +7944,7 @@ impl eframe::App for ShellApp {
         self.poll_midi();
         self.refresh_waveform();
         if self.settings.kids_mode && self.view.index() > 1 {
-            self.view = View::Arrange;
+            self.view = View::Perform;
         }
         if self.settings.kids_mode && self.view == View::Perform {
             let active =
@@ -8403,7 +8419,7 @@ impl eframe::App for ShellApp {
                         if kids {
                             let time = ui.input(|input| input.time) as f32;
                             let (rect, _) = ui.allocate_exact_size(
-                                egui::vec2(ui.available_width().min(360.0), 190.0),
+                                egui::vec2(ui.available_width(), 190.0),
                                 egui::Sense::hover(),
                             );
                             let pulse = if self.playing {
@@ -9374,31 +9390,20 @@ fn draw_transport_icon(painter: &egui::Painter, rect: Rect, glyph: &str, color: 
         }
         "\u{21B6}" => {
             let stroke = egui::Stroke::new((s * 0.09).max(1.2), color);
-            let (sin, cos) = (-10.0_f32).to_radians().sin_cos();
-            let rotate = |point: egui::Pos2| {
-                let x = point.x - c.x;
-                let y = point.y - c.y;
-                egui::pos2(c.x + x * cos - y * sin, c.y + x * sin + y * cos)
-            };
-            let tip = rotate(egui::pos2(c.x - s * 0.34, c.y + s * 0.02));
-            painter.line_segment(
-                [tip, rotate(egui::pos2(tip.x + s * 0.20, tip.y - s * 0.15))],
-                stroke,
-            );
-            painter.line_segment(
-                [tip, rotate(egui::pos2(tip.x + s * 0.20, tip.y + s * 0.15))],
-                stroke,
-            );
-            let start = rotate(egui::pos2(tip.x + s * 0.18, tip.y));
-            let control = rotate(egui::pos2(c.x + s * 0.16, c.y - s * 0.34));
-            let end = rotate(egui::pos2(c.x + s * 0.32, c.y + s * 0.18));
+            let tip = egui::pos2(c.x - s * 0.30, c.y + s * 0.28);
+            let base = egui::pos2(tip.x + s * 0.14, tip.y - s * 0.14);
+            let barb = s * 0.085;
+            painter.line_segment([tip, egui::pos2(base.x + barb, base.y + barb)], stroke);
+            painter.line_segment([tip, egui::pos2(base.x - barb, base.y - barb)], stroke);
+            let control = egui::pos2(c.x + s * 0.22, c.y - s * 0.16);
+            let end = egui::pos2(c.x + s * 0.12, c.y - s * 0.36);
             let points: Vec<egui::Pos2> = (0..=16)
                 .map(|index| {
                     let t = index as f32 / 16.0;
                     let one = 1.0 - t;
                     egui::pos2(
-                        one * one * start.x + 2.0 * one * t * control.x + t * t * end.x,
-                        one * one * start.y + 2.0 * one * t * control.y + t * t * end.y,
+                        one * one * base.x + 2.0 * one * t * control.x + t * t * end.x,
+                        one * one * base.y + 2.0 * one * t * control.y + t * t * end.y,
                     )
                 })
                 .collect();

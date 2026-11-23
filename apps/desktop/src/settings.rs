@@ -456,6 +456,7 @@ mod tests {
         let path = temp("lazy-arranger-settings-test.txt");
         let mut settings = Settings {
             kids_mode: true,
+            kids_pause_seconds: 2.5,
             light_theme: true,
             record_chords: true,
             monitor: true,
@@ -478,6 +479,12 @@ mod tests {
         std::fs::write(&path, "grade = 99\nlanguage = en\n").expect("write");
         let clamped = Settings::load(&path);
         assert_eq!(clamped.grade, 9, "grades clamp to nine");
+        std::fs::write(&path, "kids_pause_seconds = 9\n").expect("write");
+        assert_eq!(
+            Settings::load(&path).kids_pause_seconds,
+            5.0,
+            "kids pause clamps to five seconds"
+        );
         let _ = std::fs::remove_file(path);
     }
 
