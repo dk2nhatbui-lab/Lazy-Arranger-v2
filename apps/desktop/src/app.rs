@@ -527,6 +527,14 @@ fn style_preview_song(style: &arranger::style::Style) -> Result<project::Song, S
     Ok(song)
 }
 
+fn entry_length(base: music_core::Tick, dotted: bool) -> music_core::Tick {
+    if dotted {
+        base.saturating_mul(3) / 2
+    } else {
+        base
+    }
+}
+
 fn score_key_pitch(key: egui::Key, octave: i32) -> Option<u8> {
     let semitone = match key {
         egui::Key::A => 0,
@@ -902,6 +910,8 @@ pub struct ShellApp {
     score_entry: bool,
     score_octave: i32,
     score_note_length: music_core::Tick,
+    score_dotted: bool,
+    score_cursor: music_core::Tick,
     score_page: usize,
     score_zoom: f32,
     score_grand: bool,
@@ -1214,6 +1224,8 @@ impl ShellApp {
             score_entry: false,
             score_octave: 4,
             score_note_length: music_core::PPQ,
+            score_dotted: false,
+            score_cursor: 0,
             score_page: 0,
             score_zoom: 1.0,
             score_grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
@@ -11193,6 +11205,17 @@ impl eframe::App for ShellApp {
                                         );
                                     }
                                 });
+                            ui.checkbox(&mut self.score_dotted, "Dot");
+                            if ui.button("Rest").on_hover_text("Advance the entry cursor").clicked() {
+                                self.score_cursor += entry_length(
+                                    self.score_note_length.max(1),
+                                    self.score_dotted,
+                                );
+                            }
+                            ui.label(format!("cursor {}", self.score_cursor));
+                            if ui.small_button("Reset").clicked() {
+                                self.score_cursor = 0;
+                            }
                             ui.label("Staves: automatic");
                             ui.checkbox(&mut self.score_grand, "Grand staff");
                             if ui.button("−").clicked() {
@@ -12816,6 +12839,12 @@ mod tests {
             vec!["Alpha", "Beta_2"]
         );
         assert!(printers_from_lpstat("no printers").is_empty());
+    }
+
+    #[test]
+    fn dotted_entry_lengths_are_three_halves() {
+        assert_eq!(entry_length(music_core::PPQ, false), music_core::PPQ);
+        assert_eq!(entry_length(music_core::PPQ, true), music_core::PPQ * 3 / 2);
     }
 
     #[test]
