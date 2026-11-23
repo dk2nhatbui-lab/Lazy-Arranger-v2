@@ -527,6 +527,25 @@ fn style_preview_song(style: &arranger::style::Style) -> Result<project::Song, S
     Ok(song)
 }
 
+fn score_key_pitch(key: egui::Key, octave: i32) -> Option<u8> {
+    let semitone = match key {
+        egui::Key::A => 0,
+        egui::Key::W => 1,
+        egui::Key::S => 2,
+        egui::Key::E => 3,
+        egui::Key::D => 4,
+        egui::Key::F => 5,
+        egui::Key::T => 6,
+        egui::Key::G => 7,
+        egui::Key::Y => 8,
+        egui::Key::H => 9,
+        egui::Key::U => 10,
+        egui::Key::J => 11,
+        _ => return None,
+    };
+    Some((((octave.clamp(0, 8) + 1) * 12 + semitone) as u8).min(127))
+}
+
 fn held_chord_name(held: &[bool; 128]) -> Option<String> {
     let pitches: Vec<u8> = held
         .iter()
@@ -881,6 +900,7 @@ pub struct ShellApp {
     groove_accents: f32,
     help_open: bool,
     score_entry: bool,
+    score_octave: i32,
     score_page: usize,
     score_zoom: f32,
     score_grand: bool,
@@ -1191,6 +1211,7 @@ impl ShellApp {
             groove_accents: 1.0,
             help_open: initial_window == "help",
             score_entry: false,
+            score_octave: 4,
             score_page: 0,
             score_zoom: 1.0,
             score_grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
@@ -1755,6 +1776,45 @@ impl ShellApp {
             match self.project_path.clone() {
                 Some(path) => self.save_to(path),
                 None => self.begin_save_as(),
+            }
+        }
+        if self.view == View::Score
+            && self.score_entry
+            && !context.wants_keyboard_input()
+            && !context.input(|input| input.modifiers.command || input.modifiers.alt)
+        {
+            let track = self
+                .score_track
+                .or(self.roll.selected)
+                .or_else(|| self.song().tracks.first().map(|track| track.id));
+            if let Some(track) = track {
+                for key in [
+                    egui::Key::A,
+                    egui::Key::W,
+                    egui::Key::S,
+                    egui::Key::E,
+                    egui::Key::D,
+                    egui::Key::F,
+                    egui::Key::T,
+                    egui::Key::G,
+                    egui::Key::Y,
+                    egui::Key::H,
+                    egui::Key::U,
+                    egui::Key::J,
+                ] {
+                    if context.input(|input| input.key_pressed(key))
+                        && let Some(pitch) = score_key_pitch(key, self.score_octave)
+                        && let Ok(pitch) = music_core::Pitch::new(pitch)
+                    {
+                        match self.editor.insert(track, self.position.max(0), pitch) {
+                            Ok(_) => {
+                                self.status =
+                                    Some(format!("inserted {pitch} at {}", self.position));
+                            }
+                            Err(error) => self.status = Some(error.to_string()),
+                        }
+                    }
+                }
             }
         }
     }
@@ -11098,6 +11158,10 @@ impl eframe::App for ShellApp {
                                         ui.selectable_value(&mut roll.selected, Some(*id), name);
                                     }
                                 });
+                            ui.label("Octave");
+                            ui.add(
+                                egui::DragValue::new(&mut self.score_octave).range(0..=8),
+                            );
                             ui.label("Staves: automatic");
                             ui.checkbox(&mut self.score_grand, "Grand staff");
                             if ui.button("−").clicked() {
@@ -12721,6 +12785,15 @@ mod tests {
             vec!["Alpha", "Beta_2"]
         );
         assert!(printers_from_lpstat("no printers").is_empty());
+    }
+
+    #[test]
+    fn score_keys_map_to_pitches() {
+        assert_eq!(score_key_pitch(egui::Key::A, 4), Some(60));
+        assert_eq!(score_key_pitch(egui::Key::W, 4), Some(61));
+        assert_eq!(score_key_pitch(egui::Key::J, 4), Some(71));
+        assert_eq!(score_key_pitch(egui::Key::A, 5), Some(72));
+        assert_eq!(score_key_pitch(egui::Key::Z, 4), None);
     }
 
     #[test]
