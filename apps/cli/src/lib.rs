@@ -255,6 +255,17 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         device: u8,
     },
+    /// Print chord inversions, or write an A/B pair of WAV files.
+    Voicing {
+        /// Chord symbol.
+        chord: String,
+        /// Octave for the root position.
+        #[arg(long, default_value_t = 4)]
+        octave: i8,
+        /// Folder for `a.wav` and `b.wav`; omitted prints only.
+        #[arg(long)]
+        out_dir: Option<PathBuf>,
+    },
     /// Load a device profile and optionally resolve a track name.
     DeviceProfile {
         /// YAML profile file.
@@ -907,6 +918,48 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 bounce.track,
                 out.display()
             );
+            Ok(())
+        }
+        Commands::Voicing {
+            chord,
+            octave,
+            out_dir,
+        } => {
+            let chord = Chord::parse(&chord)?;
+            let voicings = music_core::voicing::inversions(chord, octave);
+            for (index, voicing) in voicings.iter().enumerate() {
+                println!(
+                    "{}: {} -> {:?}",
+                    if index == 0 { 'A' } else { 'B' },
+                    voicing.label(),
+                    voicing.midi()
+                );
+            }
+            if let Some(directory) = out_dir {
+                fs::create_dir_all(&directory)?;
+                for (name, voicing) in [("a", 0_usize), ("b", 1)] {
+                    let Some(voicing) = voicings.get(voicing) else {
+                        continue;
+                    };
+                    let mut song = Song::new("Voicing", 120.0);
+                    let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+                    for (index, pitch) in voicing.pitches.iter().enumerate() {
+                        track.notes.push(project::song::Note {
+                            id: project::NoteId::new(index as u32 + 1)?,
+                            start: 0,
+                            duration: 3840,
+                            pitch: *pitch,
+                            velocity: music_core::Velocity::new(90)?,
+                            channel: music_core::Channel::first(),
+                        });
+                    }
+                    song.tracks.push(track);
+                    let rendered = audio::render(&song, audio::SAMPLE_RATE);
+                    let path = directory.join(format!("{name}.wav"));
+                    fs::write(&path, rendered.to_wav())?;
+                    println!("wrote {} ({})", path.display(), voicing.label());
+                }
+            }
             Ok(())
         }
         Commands::SysexXgOn { out, device } => {

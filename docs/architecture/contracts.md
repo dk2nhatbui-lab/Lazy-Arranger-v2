@@ -118,3 +118,11 @@ address data checksum F7`) with the 7-bit checksum, rejecting device numbers
 above 15 or bytes above 127. `xg_on` is the only named message; `sysex-xg-on`
 wrote its 10 bytes for device 2. Device-specific editor panels and patch dumps
 are not implemented.
+
+### Chord voicings
+
+`voicing::inversions` produces close-position inversions by rotating chord tones
+and lifting wrapped tones an octave; each voicing exposes ascending pitches and
+a label such as `C/E (1st inversion)`. `voicing C --out-dir DIR` prints them and
+writes `a.wav`/`b.wav` from the first two for an A/B comparison. Open spread,
+drop voicings and keyboard-pad audition are not implemented.

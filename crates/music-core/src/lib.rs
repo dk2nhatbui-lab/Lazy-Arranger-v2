@@ -19,6 +19,7 @@ pub mod roman;
 pub mod tempo;
 pub mod theory;
 pub mod time;
+pub mod voicing;
 
 pub use chord::{Chord, ChordQuality, Spelling};
 pub use midi::{Channel, ControlNumber, MidiMessage, Velocity};

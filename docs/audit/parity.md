@@ -87,6 +87,7 @@ the wider ~90-tool MCP surface.
 | Chord lane: draw and K dialog writing through commands | `apps/desktop` | implemented | editor progression test; UI manual |
 | Roman numerals in the song key | `music-core::roman` | verified | 5 tests, key transposition, suffix rejection |
 | Next-chord suggestions (core) | `music-core::roman::suggest_next` | verified | functional IV/V/vi/ii and minor set |
+| Chord inversions and A/B voicing audition | `music-core::voicing`, CLI `voicing` | verified | triad/seventh inversion tests; A/B WAVs written |
 | 16 chord pads (diatonic, borrowed, secondary dominants) | `music-core::roman::pads` | verified | 16-pad test in C and G |
 | Pads and suggestions in the chord dialog | `apps/desktop` | implemented | buttons append to the text field; UI manual |
 | Reharmonize rules (tritone, borrowed, ii-V, relative) | `music-core::reharmonize` | verified | 5 rule tests |
