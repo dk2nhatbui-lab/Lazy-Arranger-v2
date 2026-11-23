@@ -139,7 +139,7 @@ For the clef layout, choose either four measures per system without clefs
 - Window title and About use the C++ app name "Lazy Arranger Midi DAW".
 - Timeline draws labelled audio-reference blocks with cached waveform peaks (`docs/audit/ui-timeline-waveform.png`); the lane peak map covers the whole file, not the trimmed offset.
 - Master strip uses the same custom fader height and a live player meter (`docs/audit/ui-master-meter.png`).
-- Status bar reports MIDI inputs; metronome has four beat dots; meters read empty while stopped (`docs/audit/ui-metronome-dots.png`).
+- Status bar reports MIDI inputs; metronome dots follow the meter numerator; meters read empty while stopped (`docs/audit/ui-metronome-dots.png`).
 - Inspector edits song meter from a picker (`docs/audit/ui-meter-edit.png`).
 - Timeline chord lane follows the detected key's sharp/flat signature.
 - L6max import mutes a master/mix take; test covers it.

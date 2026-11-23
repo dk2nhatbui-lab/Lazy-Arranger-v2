@@ -6017,11 +6017,12 @@ impl ShellApp {
                     );
                     ui.horizontal(|ui| {
                         ui.checkbox(&mut self.settings.metronome, "Click on");
+                        let beats = usize::from(self.song().time_signature.numerator.clamp(1, 12));
                         let (dots, _) = ui.allocate_exact_size(
-                            egui::vec2(52.0, 14.0),
+                            egui::vec2(6.0 + beats as f32 * 13.0, 14.0),
                             egui::Sense::hover(),
                         );
-                        for beat in 0..4 {
+                        for beat in 0..beats {
                             let centre = egui::pos2(
                                 dots.left() + 6.0 + beat as f32 * 13.0,
                                 dots.center().y,
