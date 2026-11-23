@@ -180,6 +180,50 @@ pub fn quantise_recorded(notes: &mut [project::song::Note], grid: Tick) {
     });
 }
 
+/// Compact text for the recent-MIDI list.
+#[must_use]
+pub fn midi_label(message: &music_core::MidiMessage) -> String {
+    use music_core::MidiMessage;
+    match message {
+        MidiMessage::NoteOn {
+            channel,
+            key,
+            velocity,
+        } => format!(
+            "ch{} note-on {} vel {}",
+            channel.one_based(),
+            key,
+            velocity.as_u8()
+        ),
+        MidiMessage::NoteOff {
+            channel,
+            key,
+            velocity,
+        } => format!(
+            "ch{} note-off {} vel {}",
+            channel.one_based(),
+            key,
+            velocity.as_u8()
+        ),
+        MidiMessage::ControlChange {
+            channel,
+            controller,
+            value,
+        } => format!(
+            "ch{} CC {} = {}",
+            channel.one_based(),
+            controller.as_u8(),
+            value
+        ),
+        MidiMessage::ProgramChange { channel, program } => {
+            format!("ch{} program {}", channel.one_based(), program)
+        }
+        MidiMessage::PitchBend { channel, value } => {
+            format!("ch{} bend {}", channel.one_based(), value)
+        }
+    }
+}
+
 /// Builds `lp` arguments for the print dialog.
 #[must_use]
 pub fn print_arguments(
@@ -384,6 +428,7 @@ pub struct ShellApp {
     midi_learn_choice: usize,
     controller_open: bool,
     midi_cc_values: [u8; 128],
+    midi_recent: std::collections::VecDeque<String>,
     controller_action: usize,
     recording: Option<std::sync::mpsc::Receiver<Result<Song, String>>>,
     record_seconds: f64,
@@ -553,6 +598,7 @@ impl ShellApp {
             midi_learn_choice: 0,
             controller_open: initial_window == "controllers",
             midi_cc_values: [0; 128],
+            midi_recent: std::collections::VecDeque::new(),
             controller_action: 0,
             recording: None,
             record_seconds: 4.0,
@@ -1473,6 +1519,8 @@ impl ShellApp {
         let mut learned = None;
         if let Some(input) = &self.midi_input {
             while let Some(message) = input.next() {
+                self.midi_recent.push_front(midi_label(&message));
+                self.midi_recent.truncate(16);
                 if let music_core::MidiMessage::ControlChange {
                     controller, value, ..
                 } = &message
@@ -2369,6 +2417,23 @@ impl ShellApp {
                     ui.label(
                         egui::RichText::new("Waiting for the next note or control change…")
                             .color(theme::accent()),
+                    );
+                }
+                ui.separator();
+                ui.label(egui::RichText::new("Recent MIDI").strong());
+                if self.midi_recent.is_empty() {
+                    ui.label(
+                        egui::RichText::new("no messages yet")
+                            .size(10.0)
+                            .color(theme::text_dim()),
+                    );
+                }
+                for line in self.midi_recent.iter().take(8) {
+                    ui.label(
+                        egui::RichText::new(line)
+                            .monospace()
+                            .size(9.0)
+                            .color(theme::text_muted()),
                     );
                 }
                 ui.separator();
@@ -5879,6 +5944,27 @@ mod tests {
         quantise_recorded(&mut notes, music_core::PPQ / 4);
         assert_eq!(notes[0].start, 0);
         assert_eq!(notes[1].start, 960);
+    }
+
+    #[test]
+    fn midi_messages_have_compact_labels() {
+        use music_core::{Channel, ControlNumber, MidiMessage, Pitch, Velocity};
+        assert_eq!(
+            midi_label(&MidiMessage::NoteOn {
+                channel: Channel::first(),
+                key: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+            }),
+            "ch1 note-on C4 vel 100"
+        );
+        assert_eq!(
+            midi_label(&MidiMessage::ControlChange {
+                channel: Channel::first(),
+                controller: ControlNumber::new(7).expect("valid"),
+                value: 64,
+            }),
+            "ch1 CC 7 = 64"
+        );
     }
 
     #[test]

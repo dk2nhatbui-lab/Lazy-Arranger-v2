@@ -76,3 +76,6 @@ on `752b1ca` (recorded-note quantise) passed windows 1m55s, macos 1m8s, ubuntu 1
 
 Run [45167024039](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45167024039)
 on `467e0c7` (dot placement) passed ubuntu 1m14s, windows 1m53s, macos 1m5s.
+
+Run [45167578655](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45167578655)
+on `77cd5b5` (Italian/Portuguese) passed windows 2m37s, macos 1m31s, ubuntu 1m26s.
