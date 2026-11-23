@@ -4020,9 +4020,14 @@ impl ShellApp {
                         ui.label("This track has no active audio reference.");
                     }
                 }
-                if ui.button("Store active as take").clicked() {
-                    action = Some((0_usize, 0_u8));
-                }
+                ui.horizontal(|ui| {
+                    if ui.button("Store active as take").clicked() {
+                        action = Some((0_usize, 0_u8));
+                    }
+                    if self.audition_player.is_some() && ui.button("Stop audition").clicked() {
+                        self.audition_player = None;
+                    }
+                });
                 ui.separator();
                 if takes.is_empty() {
                     ui.label(
