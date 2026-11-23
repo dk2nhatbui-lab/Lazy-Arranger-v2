@@ -5372,7 +5372,7 @@ impl ShellApp {
                                     .range(0..=2)
                                     .suffix(" bar"),
                             )
-                            .on_hover_text("Silent count-in before recording");
+                            .on_hover_text("Count-in before MIDI or audio recording");
                             let audio_label = if self.audio_recording.is_some() {
                                 "Recording audio…"
                             } else {
@@ -5391,8 +5391,26 @@ impl ShellApp {
                                 ));
                                 let seconds = self.audio_record_seconds;
                                 let start = self.position.max(0);
+                                let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
+                                let count_in = self.settings.record_count_in;
+                                let delay = f64::from(count_in) * 4.0 * 60.0 / bpm;
                                 let (sender, receiver) = std::sync::mpsc::channel();
                                 std::thread::spawn(move || {
+                                    if delay > 0.0 {
+                                        if let Ok(player) = audio::player::Player::new(
+                                            count_in_audio(bpm, count_in),
+                                        ) {
+                                            player.play();
+                                            std::thread::sleep(std::time::Duration::from_secs_f64(
+                                                delay,
+                                            ));
+                                            player.release();
+                                        } else {
+                                            std::thread::sleep(std::time::Duration::from_secs_f64(
+                                                delay,
+                                            ));
+                                        }
+                                    }
                                     let result = audio::record::record_seconds(seconds)
                                         .and_then(|rendered| {
                                             std::fs::write(&path, rendered.to_wav()).map_err(
@@ -5404,10 +5422,11 @@ impl ShellApp {
                                 });
                                 self.audio_recording = Some(receiver);
                                 self.audio_record_start = start;
-                                self.status = Some(format!(
-                                    "recording {:.1} s of audio",
-                                    self.audio_record_seconds
-                                ));
+                                self.status = Some(if count_in == 0 {
+                                    format!("recording {:.1} s of audio", seconds)
+                                } else {
+                                    format!("count-in {count_in} bar(s), then {seconds:.1} s audio")
+                                });
                             }
                             ui.add(
                                 egui::DragValue::new(&mut self.audio_record_seconds)
