@@ -63,3 +63,5 @@ L6max project fixtures/specs; an SF3 fixture or decoder budget; an AI/speech
 endpoint with credentials and permitted models; or the hardware listed above.
 For the clef layout, choose either four measures per system without clefs
 (current) or three measures per system with a clef/key gutter.
+
+- Audio decode now covers WAV and symphonia formats (FLAC/MP3/M4A/AIFF/OGG); compressed references mix and draw peaks.
