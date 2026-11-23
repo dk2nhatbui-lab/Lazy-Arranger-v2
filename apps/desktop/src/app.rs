@@ -772,7 +772,7 @@ impl ShellApp {
         .show(context, |ui| {
             ui.label(match mode {
                 FileMode::ImportAudio => "Path (.wav)",
-                _ => "Path (.arranger JSON, .mid or .midi)",
+                _ => "Path (.arranger JSON, .mid, .midi or .musicxml)",
             });
             ui.add(egui::TextEdit::singleline(&mut self.file_path_input).desired_width(400.0));
             ui.horizontal(|ui| {
@@ -3486,7 +3486,8 @@ impl ShellApp {
     }
 
     fn open(&mut self, path: &PathBuf) {
-        let midi = is_midi_path(path);
+        let kind = project_kind(path);
+        let imported = kind != ProjectKind::Json;
         match load_project(path) {
             Ok(project) => {
                 match Editor::new(project) {
@@ -3497,10 +3498,11 @@ impl ShellApp {
                     }
                 }
                 self.selected_note = None;
-                self.project_path = if midi { None } else { Some(path.clone()) };
-                self.status = if midi {
-                    Some(String::from(
-                        "imported MIDI; saving writes an untitled project",
+                self.project_path = if imported { None } else { Some(path.clone()) };
+                self.status = if imported {
+                    Some(format!(
+                        "imported {}; saving writes an untitled project",
+                        kind.label()
                     ))
                 } else {
                     None
@@ -4212,21 +4214,67 @@ fn rfd_pick() -> Option<PathBuf> {
     None
 }
 
+/// The format of a project path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectKind {
+    /// The app's JSON project.
+    Json,
+    /// A Standard MIDI File.
+    Midi,
+    /// A MusicXML score.
+    MusicXml,
+}
+
+impl ProjectKind {
+    /// Short label for status messages.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Json => "project",
+            Self::Midi => "MIDI",
+            Self::MusicXml => "MusicXML",
+        }
+    }
+}
+
+/// Classifies a path by extension; unknown extensions are JSON projects.
+#[must_use]
+pub fn project_kind(path: &std::path::Path) -> ProjectKind {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("mid" | "midi") => ProjectKind::Midi,
+        Some("musicxml" | "xml") => ProjectKind::MusicXml,
+        _ => ProjectKind::Json,
+    }
+}
+
 /// True for `.mid` or `.midi`, case-insensitive.
 #[must_use]
 pub fn is_midi_path(path: &std::path::Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| matches!(extension.to_ascii_lowercase().as_str(), "mid" | "midi"))
+    project_kind(path) == ProjectKind::Midi
 }
 
 pub fn load_project(path: &PathBuf) -> Result<ProjectFile, ProjectError> {
     let bytes = std::fs::read(path)
         .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
-    if is_midi_path(path) {
-        let (song, _) = smf::decode(&bytes)
-            .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
-        return Ok(ProjectFile::new(song));
+    match project_kind(path) {
+        ProjectKind::Midi => {
+            let (song, _) = smf::decode(&bytes)
+                .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
+            return Ok(ProjectFile::new(song));
+        }
+        ProjectKind::MusicXml => {
+            let text = String::from_utf8(bytes)
+                .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
+            let song = musicxml::import::import(&text)
+                .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
+            return Ok(ProjectFile::new(song));
+        }
+        ProjectKind::Json => {}
     }
     let text = String::from_utf8(bytes)
         .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
@@ -4242,6 +4290,25 @@ pub fn demo_project() -> ProjectFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_musicxml_file_loads_as_a_project() {
+        let song = arranging::demo::demo_song();
+        let xml = musicxml::export(&song, "Round trip");
+        let path = std::env::temp_dir().join("lazy-arranger-desktop-import.musicxml");
+        std::fs::write(&path, xml).expect("write");
+        assert_eq!(project_kind(&path), ProjectKind::MusicXml);
+        let loaded = load_project(&path).expect("load");
+        assert_eq!(loaded.song.tracks.len(), song.tracks.len());
+        assert!(
+            loaded
+                .song
+                .tracks
+                .iter()
+                .any(|track| !track.notes.is_empty())
+        );
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn a_midi_file_loads_as_an_untitled_project() {

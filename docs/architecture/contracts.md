@@ -670,3 +670,10 @@ remove and undo.
 and returns the old one as inverse. The Inspector has numerator and denominator
 controls; MCP exposes `set_time_signature` (registry 93). Tests cover 3/4, 6/8,
 invalid 0/4 and 4/3, and undo.
+
+### MusicXML open
+
+`project_kind` classifies `.mid`/`.midi` as MIDI, `.musicxml`/`.xml` as MusicXML
+and everything else as JSON. `load_project` decodes MIDI or imports MusicXML
+into a schema-19 project, and `ShellApp::open` leaves imported songs untitled so
+Save cannot overwrite the source. A test exports the demo and reloads it.
