@@ -642,6 +642,35 @@ impl Editor {
         Ok(())
     }
 
+    /// Renames a track.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn rename_track(&mut self, track: TrackId, name: &str) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::RenameTrack {
+                track,
+                name: name.to_string(),
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Sets or clears a track's keyboard program.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_track_program(&mut self, track: TrackId, program: Option<u8>) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::SetTrackProgram { track, program })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Sets or clears a track's SoundFont preset.
     ///
     /// # Errors
@@ -1574,6 +1603,20 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn renaming_and_program_changes_are_undoable() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        editor.rename_track(track, "Strings").expect("rename");
+        assert_eq!(editor.song().tracks[0].name, "Strings");
+        editor.set_track_program(track, Some(48)).expect("program");
+        assert_eq!(editor.song().tracks[0].program, Some(48));
+        editor.set_track_program(track, None).expect("clear");
+        assert!(editor.song().tracks[0].program.is_none());
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].program, Some(48));
     }
 
     #[test]

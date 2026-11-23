@@ -334,3 +334,12 @@ loaded, validated or hosted, and processing still ignores slots.
 project's basic state and edits. Clip ids are optional on input (the next free
 id is used) and markers/clips are sorted by tick on write. The registry now
 holds 46 tools.
+
+### Track Inspector
+
+A non-modal Inspector window follows the selected track (or the first track)
+and offers a track chooser, rename (`Editor::rename_track`), volume/pan sliders
+(`set_track_gain`), mute/solo/arm (`set_track_flags`), an optional program
+(`set_track_program`) and read-only summaries of clips, automation, audio,
+SoundFont and plug-in slots. Sidebar buttons now open Inspector, Library, Pads,
+Assistant and Settings; those windows previously had no opener.

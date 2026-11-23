@@ -137,6 +137,9 @@ pub struct ShellApp {
     sf2_program: u16,
     plugin_scan: Option<Vec<plugins::FoundPlugin>>,
     plugin_error: Option<String>,
+    inspector_open: bool,
+    inspector_track: Option<TrackId>,
+    inspector_name: String,
     rename_scene: Option<usize>,
     rename_scene_input: String,
     last_bar: i64,
@@ -240,6 +243,9 @@ impl ShellApp {
             sf2_program: 0,
             plugin_scan: None,
             plugin_error: None,
+            inspector_open: false,
+            inspector_track: None,
+            inspector_name: String::new(),
             rename_scene: None,
             rename_scene_input: String::new(),
             last_bar: 0,
@@ -1179,6 +1185,186 @@ impl ShellApp {
     }
 
     /// Settings and shortcut windows.
+    fn inspector_window(&mut self, context: &egui::Context) {
+        if !self.inspector_open {
+            return;
+        }
+        let track_id = self
+            .roll
+            .selected
+            .or_else(|| self.song().tracks.first().map(|track| track.id));
+        let Some(track_id) = track_id else {
+            self.inspector_open = false;
+            return;
+        };
+        let info = self
+            .song()
+            .tracks
+            .iter()
+            .find(|track| track.id == track_id)
+            .map(|track| {
+                (
+                    track.name.clone(),
+                    track.volume,
+                    track.pan,
+                    track.muted,
+                    track.soloed,
+                    track.armed,
+                    track.program,
+                    track.notes.len(),
+                    track.clips.len(),
+                    track.audio.clone(),
+                    track.soundfont.clone(),
+                    track.plugins.len(),
+                    track.automation.len(),
+                    track.bus,
+                    track.send,
+                    track.send_level,
+                )
+            });
+        let Some((
+            name,
+            mut volume,
+            mut pan,
+            mut muted,
+            mut soloed,
+            mut armed,
+            program,
+            notes,
+            clips,
+            audio,
+            soundfont,
+            plugins,
+            automation,
+            bus,
+            send,
+            send_level,
+        )) = info
+        else {
+            self.inspector_open = false;
+            return;
+        };
+        if self.inspector_track != Some(track_id) {
+            self.inspector_track = Some(track_id);
+            self.inspector_name = name.clone();
+        }
+        let mut open = self.inspector_open;
+        let mut rename = false;
+        egui::Window::new("Inspector")
+            .open(&mut open)
+            .default_width(320.0)
+            .show(context, |ui| {
+                let tracks: Vec<(TrackId, String)> = self
+                    .song()
+                    .tracks
+                    .iter()
+                    .map(|track| (track.id, track.name.clone()))
+                    .collect();
+                let mut chosen = track_id;
+                egui::ComboBox::from_id_salt("inspector-track")
+                    .selected_text(&self.inspector_name)
+                    .show_ui(ui, |ui| {
+                        for (id, label) in &tracks {
+                            ui.selectable_value(&mut chosen, *id, label);
+                        }
+                    });
+                if chosen != track_id {
+                    self.roll.selected = Some(chosen);
+                    self.inspector_track = None;
+                }
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.inspector_name);
+                    if ui.button("Rename").clicked() {
+                        rename = true;
+                    }
+                });
+                if rename {
+                    match self.editor.rename_track(track_id, &self.inspector_name) {
+                        Ok(()) => self.status = Some(String::from("track renamed")),
+                        Err(error) => self.status = Some(error),
+                    }
+                }
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{notes} note(s) · {clips} clip(s) · {automation} automation lane(s)"
+                    ))
+                    .size(10.0)
+                    .color(theme::TEXT_DIM),
+                );
+                let volume_changed = ui
+                    .add(
+                        egui::Slider::new(&mut volume, 0..=127)
+                            .text("volume")
+                            .fixed_decimals(0),
+                    )
+                    .changed();
+                let pan_changed = ui
+                    .add(
+                        egui::Slider::new(&mut pan, 0..=127)
+                            .text("pan")
+                            .fixed_decimals(0),
+                    )
+                    .changed();
+                if (volume_changed || pan_changed)
+                    && let Err(error) = self.editor.set_track_gain(track_id, volume, pan)
+                {
+                    self.status = Some(error);
+                }
+                ui.horizontal(|ui| {
+                    let changed = ui.checkbox(&mut muted, "Mute").changed()
+                        | ui.checkbox(&mut soloed, "Solo").changed()
+                        | ui.checkbox(&mut armed, "Arm").changed();
+                    if changed
+                        && let Err(error) =
+                            self.editor.set_track_flags(track_id, muted, soloed, armed)
+                    {
+                        self.status = Some(error);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    let mut enabled = program.is_some();
+                    let mut number = i32::from(program.unwrap_or(0));
+                    let toggled = ui.checkbox(&mut enabled, "Program").changed();
+                    let changed = ui
+                        .add(egui::DragValue::new(&mut number).range(0..=127))
+                        .changed();
+                    if toggled || changed {
+                        let value = enabled.then_some(number as u8);
+                        if let Err(error) = self.editor.set_track_program(track_id, value) {
+                            self.status = Some(error);
+                        }
+                    }
+                });
+                ui.label(format!("bus {:?} · send {:?} at {send_level}", bus, send));
+                if let Some(reference) = &audio {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "audio {} (fades {} / {})",
+                            reference.path, reference.fade_in, reference.fade_out
+                        ))
+                        .size(10.0)
+                        .color(theme::TEXT_MUTED),
+                    );
+                }
+                if let Some(font) = &soundfont {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "soundfont {}:{} {}",
+                            font.bank, font.program, font.path
+                        ))
+                        .size(10.0)
+                        .color(theme::TEXT_MUTED),
+                    );
+                }
+                ui.label(
+                    egui::RichText::new(format!("{plugins} plug-in slot(s)"))
+                        .size(10.0)
+                        .color(theme::TEXT_MUTED),
+                );
+            });
+        self.inspector_open = open;
+    }
+
     fn windows(&mut self, context: &egui::Context) {
         if self.settings_open {
             let mut open = self.settings_open;
@@ -2293,6 +2479,23 @@ impl ShellApp {
                     ui.label(egui::RichText::new("no tracks").color(theme::TEXT_DIM));
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.small_button("Inspector").clicked() {
+                            self.inspector_open = true;
+                        }
+                        if ui.small_button("Library").clicked() {
+                            self.library_open = true;
+                        }
+                        if ui.small_button("Pads").clicked() {
+                            self.pads_open = true;
+                        }
+                        if ui.small_button("Assistant").clicked() {
+                            self.assistant_open = true;
+                        }
+                        if ui.small_button("Settings").clicked() {
+                            self.settings_open = true;
+                        }
+                    });
                     if !self.recent.is_empty() {
                         ui.label(
                             egui::RichText::new("RECENT")
@@ -2490,6 +2693,7 @@ impl eframe::App for ShellApp {
         self.advance(context);
         self.top_bar(context);
         self.windows(context);
+        self.inspector_window(context);
         self.assistant_window(context);
         self.pads_window(context);
         self.library_window(context);
