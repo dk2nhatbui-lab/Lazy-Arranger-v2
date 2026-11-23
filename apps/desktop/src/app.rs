@@ -3835,9 +3835,41 @@ impl ShellApp {
                             ui.text_edit_singleline(value);
                         });
                     }
-                    if ui.button("Save bindings").clicked() {
-                        save_bindings = true;
+                    let conflicts = crate::settings::binding_conflicts(&[
+                        ("Undo", &undo_keys),
+                        ("Redo", &redo_keys),
+                        ("Save", &save_keys),
+                        ("Save as", &save_as_keys),
+                        ("Open", &open_keys),
+                        ("Play/pause", &play_keys),
+                    ]);
+                    if conflicts.is_empty() {
+                        ui.label(
+                            egui::RichText::new("No duplicate bindings.")
+                                .size(10.0)
+                                .color(theme::text_dim()),
+                        );
+                    } else {
+                        ui.label(
+                            egui::RichText::new(format!("Conflict: {}", conflicts.join(", ")))
+                                .size(10.0)
+                                .color(theme::recording()),
+                        );
                     }
+                    ui.horizontal(|ui| {
+                        if ui.button("Save bindings").clicked() {
+                            save_bindings = true;
+                        }
+                        if ui.button("Reset defaults").clicked() {
+                            let defaults = crate::settings::Settings::default();
+                            undo_keys = defaults.undo_keys;
+                            redo_keys = defaults.redo_keys;
+                            save_keys = defaults.save_keys;
+                            save_as_keys = defaults.save_as_keys;
+                            open_keys = defaults.open_keys;
+                            play_keys = defaults.play_keys;
+                        }
+                    });
                     ui.label(
                         egui::RichText::new(
                             "Use cmd/ctrl/shift/alt plus a key, for example cmd+shift+z.",
@@ -3874,11 +3906,21 @@ impl ShellApp {
                     &open_keys,
                     &play_keys,
                 ];
+                let labels = [
+                    ("Undo", undo_keys.as_str()),
+                    ("Redo", redo_keys.as_str()),
+                    ("Save", save_keys.as_str()),
+                    ("Save as", save_as_keys.as_str()),
+                    ("Open", open_keys.as_str()),
+                    ("Play/pause", play_keys.as_str()),
+                ];
                 if values
                     .iter()
                     .any(|value| crate::settings::parse_shortcut(value).is_none())
                 {
                     self.status = Some(String::from("invalid shortcut binding"));
+                } else if !crate::settings::binding_conflicts(&labels).is_empty() {
+                    self.status = Some(String::from("shortcut conflict; change one binding"));
                 } else {
                     self.settings.undo_keys = undo_keys;
                     self.settings.redo_keys = redo_keys;

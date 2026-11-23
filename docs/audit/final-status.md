@@ -74,3 +74,4 @@ For the clef layout, choose either four measures per system without clefs
 - AU instrument note events carry sample offsets inside 512-frame blocks; block-boundary scheduling remains the resolution limit.
 - The AU parameter window opens instruments too; DLSMusicDevice exposes editable parameters and slot state.
 - MIDI recording supports an audible 0–2 bar count-in and appends to a record-armed track (R in the track row) or inserts a new track when none is armed; a header record button starts the same capture.
+- Shortcut editor detects duplicate bindings and has Reset defaults; six bindings remain editable.

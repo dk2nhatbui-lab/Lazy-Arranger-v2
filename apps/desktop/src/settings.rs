@@ -51,6 +51,28 @@ pub fn parse_shortcut(text: &str) -> Option<Binding> {
     })
 }
 
+/// Labels whose parsed bindings collide with another label.
+#[must_use]
+pub fn binding_conflicts(bindings: &[(&'static str, &str)]) -> Vec<&'static str> {
+    let mut parsed: Vec<(&'static str, Binding)> = Vec::new();
+    let mut conflicts = Vec::new();
+    for (label, text) in bindings {
+        let Some(binding) = parse_shortcut(text) else {
+            continue;
+        };
+        if let Some((other, _)) = parsed.iter().find(|(_, existing)| *existing == binding)
+            && !conflicts.contains(label)
+        {
+            if !conflicts.contains(other) {
+                conflicts.push(*other);
+            }
+            conflicts.push(*label);
+        }
+        parsed.push((label, binding));
+    }
+    conflicts
+}
+
 /// One keyboard shortcut for the help window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Shortcut {
@@ -395,6 +417,18 @@ mod tests {
         let clamped = Settings::load(&path);
         assert_eq!(clamped.grade, 9, "grades clamp to nine");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn duplicate_shortcut_bindings_are_reported() {
+        let conflicts = binding_conflicts(&[
+            ("Undo", "cmd+z"),
+            ("Redo", "cmd+shift+z"),
+            ("Save", "cmd+s"),
+            ("Save as", "cmd+s"),
+        ]);
+        assert_eq!(conflicts, vec!["Save", "Save as"]);
+        assert!(binding_conflicts(&[("Undo", "cmd+z"), ("Redo", "cmd+y")]).is_empty());
     }
 
     #[test]
