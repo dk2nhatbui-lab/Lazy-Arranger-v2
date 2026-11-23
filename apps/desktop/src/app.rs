@@ -3397,6 +3397,7 @@ impl ShellApp {
                                                 88.0,
                                                 color,
                                                 "Volume",
+                                                100.0,
                                             ) {
                                                 edits.push((
                                                     track.id,
@@ -3479,6 +3480,7 @@ impl ShellApp {
                                                 88.0,
                                                 theme::accent(),
                                                 "Master",
+                                                0.0,
                                             );
                                         });
                                         let (meter, _) = ui.allocate_exact_size(
@@ -11272,6 +11274,7 @@ fn track_level(track: &project::song::Track, tick: Tick) -> f32 {
     level.clamp(0.0, 1.0)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn mixer_fader(
     ui: &mut egui::Ui,
     value: &mut f32,
@@ -11280,14 +11283,28 @@ fn mixer_fader(
     height: f32,
     color: egui::Color32,
     label: &str,
+    default_value: f32,
 ) -> bool {
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(32.0, height), egui::Sense::click_and_drag());
-    let changed = response.dragged() && ui.input(|input| input.pointer.delta().y != 0.0);
-    if changed {
-        let delta = ui.input(|input| input.pointer.delta().y);
-        *value = (*value - delta / height * (max - min)).clamp(min, max);
+    let response =
+        response.on_hover_text(format!("{label}: drag (Shift fine), double-click to reset"));
+    let double_clicked = response.double_clicked();
+    let delta = ui.input(|input| input.pointer.delta().y);
+    let mut changed = false;
+    if double_clicked {
+        *value = default_value.clamp(min, max);
+        changed = true;
+    } else if response.dragged() && delta != 0.0 {
+        let scale = if ui.input(|input| input.modifiers.shift) {
+            0.25
+        } else {
+            1.0
+        };
+        *value = (*value - delta / height * (max - min) * scale).clamp(min, max);
+        changed = true;
     }
+    let rect = egui::Rect::from_min_size(rect.min, egui::vec2(32.0, height));
     let center_x = rect.center().x;
     let track = egui::Rect::from_min_max(
         egui::pos2(center_x - 2.0, rect.top() + 6.0),

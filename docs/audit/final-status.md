@@ -157,3 +157,4 @@ For the clef layout, choose either four measures per system without clefs
 - Generate part window exposes all seven rule-based generators with a seed (`docs/audit/generate-part.png`).
 - Sidebar has New/Open/Save/Save-as buttons (`docs/audit/ui-file-buttons.png`).
 - L6max mixer page controls imported takes with scenes, Reset and Compact; EQ/MONO/USB/device pages absent (`docs/audit/l6max-mixer.png`).
+- Mixer faders support Shift fine adjust and double-click reset.
