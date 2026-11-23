@@ -283,6 +283,29 @@ impl Vst3Effect {
         Ok(())
     }
 
+    /// Saves component state as base64 for a project slot.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the plug-in has no state.
+    pub fn save_state_base64(&self) -> Result<String, String> {
+        use base64::Engine as _;
+        Ok(base64::engine::general_purpose::STANDARD.encode(self.save_state()?))
+    }
+
+    /// Restores base64 component state from a project slot.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the text is not valid base64 or the plug-in rejects it.
+    pub fn load_state_base64(&mut self, state: &str) -> Result<(), String> {
+        use base64::Engine as _;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(state.trim())
+            .map_err(|error| format!("base64 state: {error}"))?;
+        self.load_state(&bytes)
+    }
+
     /// Parameters exposed by the edit controller: id, title, default and range.
     #[must_use]
     pub fn parameters(&self) -> Vec<(u32, String, f64)> {
@@ -543,8 +566,8 @@ mod tests {
             256,
         )
         .expect("effect");
-        let state = effect.save_state().expect("save state");
-        effect.load_state(&state).expect("load state");
+        let state = effect.save_state_base64().expect("save state");
+        effect.load_state_base64(&state).expect("load state");
     }
 
     #[test]

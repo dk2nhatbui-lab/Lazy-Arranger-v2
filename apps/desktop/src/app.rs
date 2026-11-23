@@ -2482,6 +2482,39 @@ impl ShellApp {
         self.patch_open = open;
     }
 
+    fn capture_vst3_state(&mut self, track: TrackId, slot: u32) {
+        let Some(plugin) = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.plugins.iter().find(|entry| entry.id == slot))
+            .cloned()
+        else {
+            self.status = Some(String::from("plug-in slot not found"));
+            return;
+        };
+        let effect = match plugin_host::Vst3Effect::new(
+            std::path::Path::new(&plugin.path),
+            &plugin.identifier,
+            48_000.0,
+            512,
+        ) {
+            Ok(effect) => effect,
+            Err(error) => {
+                self.status = Some(format!("VST3: {error}"));
+                return;
+            }
+        };
+        match effect.save_state_base64() {
+            Ok(state) => match self.editor.set_plugin_state(track, slot, &state) {
+                Ok(()) => self.status = Some(String::from("VST3 state captured")),
+                Err(error) => self.status = Some(error),
+            },
+            Err(error) => self.status = Some(format!("VST3: {error}")),
+        }
+    }
+
     fn open_au_parameters(&mut self, track: TrackId, slot: u32) {
         let Some(plugin) = self
             .song()
@@ -3957,6 +3990,11 @@ impl ShellApp {
                             && ui.small_button("Params").clicked()
                         {
                             self.open_au_parameters(track_id, slot.id);
+                        }
+                        if slot.format == project::song::PluginFormat::Vst3
+                            && ui.small_button("Capture").clicked()
+                        {
+                            self.capture_vst3_state(track_id, slot.id);
                         }
                         if ui
                             .small_button(if slot.bypassed { "Enable" } else { "Bypass" })

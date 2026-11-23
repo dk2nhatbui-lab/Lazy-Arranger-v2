@@ -346,6 +346,9 @@ fn apply_track_plugins(track: &project::song::Track, buffer: &mut [f32], sample_
                 ) else {
                     continue;
                 };
+                if !slot.state.is_empty() {
+                    let _ = effect.load_state_base64(&slot.state);
+                }
                 if effect.channels() == 2 {
                     let _ = effect.process_stereo(buffer);
                 }
