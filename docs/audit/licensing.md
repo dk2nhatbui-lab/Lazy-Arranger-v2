@@ -164,7 +164,7 @@ them, cite their SHAs, re-derive the patterns in our own words, then write the c
 
 ## 5. Actions required before any public release
 
-1. Licence text is present: the destination repository (`dk2nhatbui-lab/Lazy-Arranger-v2`) already
+1. Licence text is present: the destination repository (`nhth-mibu/Lazy-Arranger-v2`) already
    carried `LICENSE` with the Apache-2.0 text, and `Cargo.toml:9` now declares `Apache-2.0` to match. No
    separate MIT grant exists, so the workspace is Apache-2.0 only.
 2. Record the owner's written grant for the three copied fixtures, or replace them with synthetic
