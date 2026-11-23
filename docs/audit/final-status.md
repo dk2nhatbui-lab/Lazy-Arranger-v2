@@ -186,3 +186,4 @@ For the clef layout, choose either four measures per system without clefs
 - Mixer/bus meters use cached waveform peaks for audio tracks (approximate by clip fraction); waveform caching now runs in every view.
 - Audio-reference offset is render-tested against a half-silent source.
 - Audio-reference stretch is render-tested with a ramp source.
+- Audio takes can be stored, used and removed from a small window; recording does not auto-store the replaced take (`docs/audit/audio-takes.png`).

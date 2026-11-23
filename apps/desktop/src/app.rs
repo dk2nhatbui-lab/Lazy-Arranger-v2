@@ -983,6 +983,7 @@ pub struct ShellApp {
     midi_out_note: u8,
     midi_out_velocity: u8,
     midi_out_cc: u8,
+    takes_open: bool,
     xg_open: bool,
     xg_parts: [[u8; 4]; 16],
     psr_open: bool,
@@ -1307,6 +1308,7 @@ impl ShellApp {
             midi_out_note: 60,
             midi_out_velocity: 100,
             midi_out_cc: 7,
+            takes_open: std::env::var("ARRANGER_TAKES").is_ok(),
             xg_open: std::env::var("ARRANGER_XG").is_ok(),
             xg_parts: [[100, 64, 40, 0]; 16],
             psr_open: std::env::var("ARRANGER_PSR").is_ok(),
@@ -3979,6 +3981,83 @@ impl ShellApp {
         self.psr_reverb = reg.reverb;
         self.psr_chorus = reg.chorus;
         self.psr_send_state();
+    }
+
+    fn takes_window(&mut self, context: &Context) {
+        if !self.takes_open {
+            return;
+        }
+        let track_id = self.roll.selected.or_else(|| {
+            self.song()
+                .tracks
+                .iter()
+                .find(|track| track.audio.is_some())
+                .map(|track| track.id)
+        });
+        let Some(track_id) = track_id else {
+            self.takes_open = false;
+            return;
+        };
+        let (active, takes) = self
+            .song()
+            .tracks
+            .iter()
+            .find(|track| track.id == track_id)
+            .map(|track| (track.audio.clone(), track.takes.clone()))
+            .unwrap_or_default();
+        let mut open = self.takes_open;
+        let mut action = None;
+        egui::Window::new("Audio takes")
+            .open(&mut open)
+            .default_width(400.0)
+            .show(context, |ui| {
+                match &active {
+                    Some(reference) => {
+                        ui.label(format!("Active: {}", reference.path));
+                    }
+                    None => {
+                        ui.label("This track has no active audio reference.");
+                    }
+                }
+                if ui.button("Store active as take").clicked() {
+                    action = Some((0_usize, 0_u8));
+                }
+                ui.separator();
+                if takes.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No stored takes.")
+                            .size(10.0)
+                            .color(theme::text_dim()),
+                    );
+                }
+                for (index, take) in takes.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        let name = std::path::Path::new(&take.path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or(&take.path);
+                        ui.label(format!("{index}: {name} · {} tick(s)", take.length));
+                        if ui.small_button("Use").clicked() {
+                            action = Some((index, 1));
+                        }
+                        if ui.small_button("Remove").clicked() {
+                            action = Some((index, 2));
+                        }
+                    });
+                }
+            });
+        if let Some((index, kind)) = action {
+            let result = match kind {
+                0 => self.editor.store_audio_take(track_id).map(|_| ()),
+                1 => self.editor.use_audio_take(track_id, index),
+                _ => self.editor.remove_audio_take(track_id, index),
+            };
+            match result {
+                Ok(()) => self.status = Some(String::from("audio takes updated")),
+                Err(error) => self.status = Some(error),
+            }
+        }
+        self.takes_open = open;
     }
 
     fn xg_window(&mut self, context: &Context) {
@@ -10154,6 +10233,10 @@ impl ShellApp {
                                 self.midi_monitor_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Audio takes").clicked() {
+                                self.takes_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("XG part mixer").clicked() {
                                 self.xg_open = true;
                                 ui.close_menu();
@@ -10757,6 +10840,7 @@ impl eframe::App for ShellApp {
         self.bus_fx_window(context);
         self.psr_window(context);
         self.xg_window(context);
+        self.takes_window(context);
         self.midi_out_window(context);
         self.midi_monitor_window(context);
         self.au_parameters_window(context);
@@ -13213,6 +13297,7 @@ mod tests {
         app.style_clips_open = true;
         app.style_file_open = true;
         app.style_link_open = true;
+        app.takes_open = true;
         app.xg_open = true;
         let _ = context.run(egui::RawInput::default(), |context| {
             app.about_window(context);
@@ -13245,6 +13330,7 @@ mod tests {
             app.style_clips_window(context);
             app.style_file_window(context);
             app.style_link_window(context);
+            app.takes_window(context);
             app.xg_window(context);
         });
     }

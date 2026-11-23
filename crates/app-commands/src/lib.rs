@@ -162,6 +162,13 @@ pub enum Command {
         /// New reference, or none to remove it.
         reference: Option<project::song::AudioRef>,
     },
+    /// Replace a track's stored audio takes.
+    SetAudioTakes {
+        /// The track.
+        track: TrackId,
+        /// Stored takes.
+        takes: Vec<project::song::AudioRef>,
+    },
     /// Freeze a track: clear its notes and give it an audio reference.
     FreezeTrack {
         /// The track.
@@ -287,6 +294,7 @@ impl Command {
             Self::SetTrackGain { .. } => "set track gain",
             Self::SetAutomation { .. } => "set automation",
             Self::SetAudioRef { .. } => "set audio reference",
+            Self::SetAudioTakes { .. } => "set audio takes",
             Self::FreezeTrack { .. } => "freeze track",
             Self::RestoreTrack { .. } => "restore track",
             Self::SetBuses { .. } => "set buses",
@@ -877,6 +885,10 @@ impl EditSession {
                 track: *track,
                 reference: self.track(*track)?.audio.clone(),
             },
+            Command::SetAudioTakes { track, .. } => Command::SetAudioTakes {
+                track: *track,
+                takes: self.track(*track)?.takes.clone(),
+            },
             Command::SetAutomation { track, .. } => Command::SetAutomation {
                 track: *track,
                 lanes: self.track(*track)?.automation.clone(),
@@ -1085,6 +1097,9 @@ impl EditSession {
             Command::SetAudioRef { track, reference } => {
                 self.track_mut(*track)?.audio = reference.clone();
             }
+            Command::SetAudioTakes { track, takes } => {
+                self.track_mut(*track)?.takes = takes.clone();
+            }
             Command::SetBuses { buses } => {
                 self.project.song.buses = buses.clone();
             }
@@ -1266,6 +1281,9 @@ fn describe(command: &Command) -> String {
             format!("freeze track to {}", reference.path)
         }
         Command::RestoreTrack { track, .. } => format!("restore track {track}"),
+        Command::SetAudioTakes { track, takes } => {
+            format!("track {track}: {} audio take(s)", takes.len())
+        }
         Command::SetAudioRef { track, reference } => match reference {
             Some(reference) => format!(
                 "track {track}: audio {} from {} to {}",

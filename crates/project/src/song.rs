@@ -532,6 +532,9 @@ pub struct Track {
     /// Reference to an audio file, for audio tracks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<AudioRef>,
+    /// Stored alternate audio takes for this track.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub takes: Vec<AudioRef>,
     /// SoundFont preset used instead of the built-in timbre.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub soundfont: Option<SoundFontRef>,
@@ -618,6 +621,7 @@ impl Track {
             volume: 100,
             pan: 64,
             audio: None,
+            takes: Vec::new(),
             soundfont: None,
             slurs: Vec::new(),
             program: None,

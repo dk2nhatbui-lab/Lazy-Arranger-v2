@@ -1418,6 +1418,93 @@ impl Editor {
         Ok(out)
     }
 
+    /// Stores the active audio reference as an alternate take.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track has no active audio or the edit fails.
+    pub fn store_audio_take(&mut self, track: TrackId) -> Result<usize, String> {
+        let Some(reference) = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.audio.clone())
+        else {
+            return Err(String::from("track has no audio reference"));
+        };
+        let mut takes = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map(|entry| entry.takes.clone())
+            .unwrap_or_default();
+        if takes
+            .iter()
+            .any(|take| take.path == reference.path && take.start == reference.start)
+        {
+            return Ok(takes.len());
+        }
+        takes.push(reference);
+        self.session
+            .apply(app_commands::Command::SetAudioTakes {
+                track,
+                takes: takes.clone(),
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(takes.len())
+    }
+
+    /// Makes one stored take the active audio reference.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track or take is unknown.
+    pub fn use_audio_take(&mut self, track: TrackId, index: usize) -> Result<(), String> {
+        let take = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.takes.get(index))
+            .cloned()
+            .ok_or_else(|| String::from("unknown audio take"))?;
+        self.session
+            .apply(app_commands::Command::SetAudioRef {
+                track,
+                reference: Some(take),
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Removes one stored take.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the edit fails.
+    pub fn remove_audio_take(&mut self, track: TrackId, index: usize) -> Result<(), String> {
+        let mut takes = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map(|entry| entry.takes.clone())
+            .ok_or_else(|| String::from("unknown track"))?;
+        if index >= takes.len() {
+            return Err(String::from("unknown audio take"));
+        }
+        takes.remove(index);
+        self.session
+            .apply(app_commands::Command::SetAudioTakes { track, takes })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Enables or disables resampling a track's audio to its reference length.
     ///
     /// # Errors
@@ -2305,6 +2392,53 @@ mod tests {
             .find(|note| note.id == id)
             .expect("note");
         assert_eq!(note.duration, music_core::PPQ / 2);
+    }
+
+    #[test]
+    fn audio_takes_store_use_and_remove() {
+        let mut song = Song::new("Takes", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Audio");
+        track.audio = Some(project::song::AudioRef {
+            path: String::from("first.wav"),
+            start: 0,
+            length: music_core::PPQ,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
+        assert_eq!(
+            editor.store_audio_take(TrackId::new(1).expect("track")),
+            Ok(1)
+        );
+        editor
+            .session
+            .apply(app_commands::Command::SetAudioRef {
+                track: TrackId::new(1).expect("track"),
+                reference: Some(project::song::AudioRef {
+                    path: String::from("second.wav"),
+                    start: 0,
+                    length: music_core::PPQ,
+                    offset: 0,
+                    fade_in: 0,
+                    fade_out: 0,
+                    stretch: false,
+                }),
+            })
+            .expect("second take");
+        editor
+            .use_audio_take(TrackId::new(1).expect("track"), 0)
+            .expect("use");
+        assert_eq!(
+            editor.song().tracks[0].audio.as_ref().expect("audio").path,
+            "first.wav"
+        );
+        editor
+            .remove_audio_take(TrackId::new(1).expect("track"), 0)
+            .expect("remove");
+        assert!(editor.song().tracks[0].takes.is_empty());
     }
 
     #[test]
