@@ -337,9 +337,31 @@ impl ShellApp {
             }
             if paste {
                 let at = self.roll.hover.unwrap_or(self.position).max(0);
-                match self.editor.paste_chords(at) {
+                let bar = self.song().time_signature.bar_ticks().max(1);
+                let spacing = self
+                    .song()
+                    .chords
+                    .iter()
+                    .map(|event| event.tick)
+                    .find(|other| *other > tick)
+                    .map(|end| end - tick)
+                    .unwrap_or(bar);
+                let repeat = context
+                    .input_mut(|input| input.consume_key(egui::Modifiers::SHIFT, egui::Key::V));
+                let count = if repeat { 4 } else { 1 };
+                let result = if repeat {
+                    self.editor.paste_chords_repeated(at, count, spacing)
+                } else {
+                    self.editor.paste_chords(at)
+                };
+                match result {
                     Ok(0) => self.status = Some(String::from("clipboard has no chords")),
-                    Ok(count) => self.status = Some(format!("pasted {count} chord(s) at {at}")),
+                    Ok(copied) => {
+                        self.status = Some(format!(
+                            "pasted {copied} chord(s) at {at}{}",
+                            if repeat { " (x4)" } else { "" }
+                        ))
+                    }
                     Err(error) => self.status = Some(error),
                 }
             }

@@ -152,6 +152,42 @@ impl Clipboard {
     /// # Errors
     ///
     /// Returns a rejection when the edit cannot be applied.
+    /// Pastes the chord range `count` times, each `spacing` ticks after the
+    /// previous one, as one edit.
+    ///
+    /// # Errors
+    ///
+    /// Returns the rejection when the result is invalid, such as a duplicate
+    /// chord tick.
+    pub fn paste_chords_repeated(
+        &self,
+        session: &mut EditSession,
+        at: Tick,
+        count: usize,
+        spacing: Tick,
+    ) -> Result<usize, crate::CommandError> {
+        if self.chords.is_empty() || count == 0 {
+            return Ok(0);
+        }
+        let mut chords = session.song().chords.clone();
+        let mut added = 0;
+        for copy in 0..count {
+            let offset = Tick::try_from(copy)
+                .unwrap_or(0)
+                .saturating_mul(spacing.max(1));
+            for item in &self.chords {
+                chords.push(project::song::ChordEvent {
+                    tick: at.saturating_add(offset).saturating_add(item.offset),
+                    chord: item.chord,
+                });
+                added += 1;
+            }
+        }
+        chords.sort_by_key(|event| event.tick);
+        session.apply(crate::Command::SetChords { chords })?;
+        Ok(added)
+    }
+
     pub fn paste_chords(
         &self,
         session: &mut EditSession,
@@ -252,6 +288,39 @@ mod tests {
             .collect();
         assert!(ticks.contains(&3840) && ticks.contains(&4800));
         session.undo().expect("undo paste");
+        assert_eq!(session.song().chords.len(), 2);
+    }
+
+    #[test]
+    fn chord_ranges_paste_repeatedly() {
+        let mut session = session();
+        session
+            .apply(Command::SetChords {
+                chords: vec![
+                    project::song::ChordEvent {
+                        tick: 0,
+                        chord: Chord::parse("C").expect("valid"),
+                    },
+                    project::song::ChordEvent {
+                        tick: 960,
+                        chord: Chord::parse("G").expect("valid"),
+                    },
+                ],
+            })
+            .expect("chords");
+        let clipboard = Clipboard::from_chords(session.song(), 0, 1920);
+        let added = clipboard
+            .paste_chords_repeated(&mut session, 3840, 3, 1920)
+            .expect("repeat");
+        assert_eq!(added, 6);
+        assert_eq!(session.song().chords.len(), 8);
+        assert!(
+            clipboard
+                .paste_chords_repeated(&mut session, 0, 1, 1920)
+                .is_err(),
+            "a duplicate chord tick is rejected"
+        );
+        session.undo().expect("undo repeat");
         assert_eq!(session.song().chords.len(), 2);
     }
 

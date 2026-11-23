@@ -207,4 +207,6 @@ spaces) and the canvas returns either that note or an insertion position. The
 shell selects the matching project note, so the existing copy, cut, paste and
 delete keys work in the Score view. Clicking the chord lane selects the nearest chord and returns its tick; C/X/V
 copy the range from that chord to the next (or one bar), remove it, or paste
-chords at the hover/playhead tick. Multi-loop paste is still absent.
+chords at the hover/playhead tick. `paste_chords_repeated` (Shift+V) adds the range four times, spaced by the
+selected range's length, in one SetChords edit; a duplicate tick is rejected by
+validation. Note ranges still paste once.

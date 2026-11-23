@@ -870,6 +870,25 @@ impl Editor {
     /// # Errors
     ///
     /// Returns a message when the edit is rejected.
+    /// Pastes the chord range repeatedly as one edit.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn paste_chords_repeated(
+        &mut self,
+        at: Tick,
+        count: usize,
+        spacing: Tick,
+    ) -> Result<usize, String> {
+        let copied = self
+            .clipboard
+            .paste_chords_repeated(&mut self.session, at, count, spacing)
+            .map_err(|error| error.to_string())?;
+        self.dirty |= copied > 0;
+        Ok(copied)
+    }
+
     pub fn paste_chords(&mut self, at: Tick) -> Result<usize, String> {
         let copied = self
             .clipboard
