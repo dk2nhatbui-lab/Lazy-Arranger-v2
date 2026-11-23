@@ -4320,6 +4320,16 @@ impl ShellApp {
                                 project::song::PluginFormat::AudioUnit => "AU",
                             }
                         ));
+                        if ui.small_button("↑").on_hover_text("Move earlier").clicked()
+                            && let Err(error) = self.editor.move_plugin(track_id, slot.id, true)
+                        {
+                            self.status = Some(error);
+                        }
+                        if ui.small_button("↓").on_hover_text("Move later").clicked()
+                            && let Err(error) = self.editor.move_plugin(track_id, slot.id, false)
+                        {
+                            self.status = Some(error);
+                        }
                         if slot.format == project::song::PluginFormat::AudioUnit
                             && ui.small_button("Params").clicked()
                         {

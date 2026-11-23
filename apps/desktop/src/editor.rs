@@ -629,6 +629,39 @@ impl Editor {
         Ok(())
     }
 
+    /// Moves a plug-in slot earlier or later on its track.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track or slot is unknown.
+    pub fn move_plugin(&mut self, track: TrackId, id: u32, earlier: bool) -> Result<(), String> {
+        let mut plugins = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map(|entry| entry.plugins.clone())
+            .ok_or_else(|| String::from("unknown track"))?;
+        let index = plugins
+            .iter()
+            .position(|entry| entry.id == id)
+            .ok_or_else(|| String::from("unknown plug-in slot"))?;
+        let target = if earlier {
+            index.checked_sub(1)
+        } else {
+            (index + 1 < plugins.len()).then_some(index + 1)
+        };
+        let Some(target) = target else {
+            return Ok(());
+        };
+        plugins.swap(index, target);
+        self.session
+            .apply(app_commands::Command::SetPlugins { track, plugins })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Sets or clears a track's synth patch.
     ///
     /// # Errors
@@ -2238,6 +2271,10 @@ mod tests {
         assert_eq!(editor.song().tracks[0].plugins.len(), 1);
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].plugins.len(), 2);
+        editor.move_plugin(track, second, true).expect("move up");
+        assert_eq!(editor.song().tracks[0].plugins[0].id, second);
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].plugins[0].id, first);
     }
 
     #[test]
