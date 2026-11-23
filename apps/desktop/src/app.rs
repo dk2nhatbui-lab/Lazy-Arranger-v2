@@ -302,6 +302,7 @@ pub struct ShellApp {
     print_dialog: bool,
     print_copies: u32,
     print_pages: String,
+    monitor: Option<audio::monitor::Monitor>,
     marker_text: String,
     marker_selected: Option<Tick>,
     form_dialog: bool,
@@ -465,6 +466,7 @@ impl ShellApp {
             print_dialog: initial_window == "print",
             print_copies: 1,
             print_pages: String::new(),
+            monitor: None,
             marker_text: String::new(),
             marker_selected: None,
             form_dialog: false,
@@ -964,6 +966,20 @@ impl ShellApp {
                 Some(path) => self.save_to(path),
                 None => self.begin_save_as(),
             }
+        }
+    }
+
+    fn sync_monitor(&mut self) {
+        if self.settings.monitor && self.monitor.is_none() {
+            match audio::monitor::start(0.7) {
+                Ok(monitor) => self.monitor = Some(monitor),
+                Err(error) => {
+                    self.settings.monitor = false;
+                    self.status = Some(format!("monitor: {error}"));
+                }
+            }
+        } else if !self.settings.monitor {
+            self.monitor = None;
         }
     }
 
@@ -2735,6 +2751,10 @@ impl ShellApp {
                     ui.checkbox(
                         &mut self.settings.record_chords,
                         "detect chords after MIDI recording",
+                    );
+                    ui.checkbox(
+                        &mut self.settings.monitor,
+                        "monitor input through output (feedback risk)",
                     );
                     ui.checkbox(&mut self.settings.reduced_motion, "reduced motion");
                     ui.checkbox(&mut self.settings.kids_mode, "Kids Mode");
@@ -4562,6 +4582,7 @@ impl std::fmt::Debug for ShellApp {
 
 impl eframe::App for ShellApp {
     fn update(&mut self, context: &Context, frame: &mut eframe::Frame) {
+        self.sync_monitor();
         let _ = frame;
         // ADR-011: paint the first themed frame before the window becomes visible.
         let mut style = (*context.style()).clone();

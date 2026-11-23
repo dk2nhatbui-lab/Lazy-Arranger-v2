@@ -167,6 +167,8 @@ pub struct Settings {
     pub speech: bool,
     /// Detect chords after MIDI recording.
     pub record_chords: bool,
+    /// Monitor the audio input through the output.
+    pub monitor: bool,
     /// Folder holding the style library, empty when not configured.
     pub style_library: String,
     /// Master gain in decibels.
@@ -201,6 +203,7 @@ impl Default for Settings {
             light_theme: false,
             speech: false,
             record_chords: false,
+            monitor: false,
             style_library: String::new(),
             master_gain_db: 0.0,
             master_limiter: true,
@@ -259,6 +262,7 @@ impl Settings {
                 "light_theme" => settings.light_theme = value == "true",
                 "speech" => settings.speech = value == "true",
                 "record_chords" => settings.record_chords = value == "true",
+                "monitor" => settings.monitor = value == "true",
                 "style_library" => settings.style_library = value.to_string(),
                 "master_gain_db" => {
                     if let Ok(gain) = value.parse::<f32>() {
@@ -298,6 +302,7 @@ impl Settings {
         text.push_str(&format!("light_theme = {}\n", self.light_theme));
         text.push_str(&format!("speech = {}\n", self.speech));
         text.push_str(&format!("record_chords = {}\n", self.record_chords));
+        text.push_str(&format!("monitor = {}\n", self.monitor));
         if !self.style_library.is_empty() {
             text.push_str(&format!("style_library = {}\n", self.style_library));
         }
@@ -343,6 +348,7 @@ mod tests {
             kids_mode: true,
             light_theme: true,
             record_chords: true,
+            monitor: true,
             grade: 3,
             keyboard: Some(String::from("PSR-S970")),
             ..Settings::default()

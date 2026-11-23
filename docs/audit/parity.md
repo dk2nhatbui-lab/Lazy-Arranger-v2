@@ -10,7 +10,7 @@ This table grew over many rounds and some middle rows describe earlier states.
 The reconciled view is
 [`cpp-features-crosscheck.md`](cpp-features-crosscheck.md): 39 sections, **39
 partial and 0 missing at row level**, no section fully verified. `cargo test
---workspace` passes **648 tests**; fmt, clippy with `-D warnings` and rustdoc
+--workspace` passes **649 tests**; fmt, clippy with `-D warnings` and rustdoc
 pass.
 
 Verified by tests or offline evidence: project schema v19 with migrations,
@@ -32,9 +32,9 @@ every host, microphone capture, printing, YouTube download, and visual
 comparison with the C++ app.
 
 Still missing: plugin hosting/processing/editors, SF3 and modulators, Korg
-program/combi decoding, L6max project/mixer-page parsing, audio monitoring,
-takes and destructive waveform/slice editing, full plural rules and other
-locales, a real AI model and speech input.
+program/combi decoding, L6max project/mixer-page parsing, takes and destructive
+waveform/slice editing, full plural rules and other locales, a real AI model and
+speech input. Input monitoring exists but is hardware-unverified.
 
 | C++ capability | Rust module | Status | Evidence |
 | --- | --- | --- | --- |

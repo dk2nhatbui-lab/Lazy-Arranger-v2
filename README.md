@@ -105,7 +105,7 @@ apps/desktop           egui 0.31 desktop app
 - Korg PCG program/combi decoding and an L6max project/mixer page (scans/imports
   only).
 - SF3 and SoundFont modulators.
-- Audio monitoring, take comping/selection and destructive waveform editing.
+- Take comping/selection and destructive waveform editing (input monitoring exists but is hardware-unverified).
 - A real AI model, speech input and chat-driven tool use (the assistant is a
   local rule engine over the MCP registry).
 - Score clefs/key signatures and vertical rest/dot collision avoidance.

@@ -13,6 +13,7 @@ pub mod link;
 pub mod master;
 pub mod metronome;
 pub mod mix;
+pub mod monitor;
 pub mod player;
 pub mod record;
 pub mod soundfont;
