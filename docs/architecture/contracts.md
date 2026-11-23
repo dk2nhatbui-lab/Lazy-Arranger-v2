@@ -803,7 +803,12 @@ take comping.
 The L-key Library window loads a Music Finder book (JSON/CSV/MFD) or a playlist
 TSV, searches title and detail case-insensitively, and applies a Music Finder
 entry's tempo with `SetTempo` at tick zero (one undo step). Playlist rows are
-displayed but not opened, and there is no play/edit of the stored style.
+displayed but not opened. A row with a style can be imported: the window takes
+the style library root from Settings or `ARRANGER_STYLE_LIBRARY`, resolves the
+number or name, imports the style's decoded song, and inserts its tracks with
+fresh ids and a `Style ` prefix (one undo step per track). `copy_tracks` and the
+missing-file path are tested; a successful import of a real style is not yet
+exercised by an automated test.
 
 ### Style resolution
 

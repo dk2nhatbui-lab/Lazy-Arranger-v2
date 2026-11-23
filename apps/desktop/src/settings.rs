@@ -122,6 +122,8 @@ pub struct Settings {
     pub kids_mode: bool,
     /// Speak assistant replies with the local `say` command.
     pub speech: bool,
+    /// Folder holding the style library, empty when not configured.
+    pub style_library: String,
     /// Fields this build does not understand.
     pub extra: BTreeMap<String, String>,
 }
@@ -136,6 +138,7 @@ impl Default for Settings {
             reduced_motion: false,
             kids_mode: false,
             speech: false,
+            style_library: String::new(),
             extra: BTreeMap::new(),
         }
     }
@@ -183,6 +186,7 @@ impl Settings {
                 "reduced_motion" => settings.reduced_motion = value == "true",
                 "kids_mode" => settings.kids_mode = value == "true",
                 "speech" => settings.speech = value == "true",
+                "style_library" => settings.style_library = value.to_string(),
                 _ => {
                     settings.extra.insert(key.to_string(), value.to_string());
                 }
@@ -207,6 +211,9 @@ impl Settings {
         text.push_str(&format!("reduced_motion = {}\n", self.reduced_motion));
         text.push_str(&format!("kids_mode = {}\n", self.kids_mode));
         text.push_str(&format!("speech = {}\n", self.speech));
+        if !self.style_library.is_empty() {
+            text.push_str(&format!("style_library = {}\n", self.style_library));
+        }
         for (key, value) in &self.extra {
             text.push_str(&format!("{key} = {value}\n"));
         }

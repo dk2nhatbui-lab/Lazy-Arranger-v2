@@ -15,6 +15,10 @@ pub struct Row {
     pub detail: String,
     /// Tempo to apply, when the source has one.
     pub tempo: Option<f64>,
+    /// Style name hint.
+    pub style: Option<String>,
+    /// Style number, when the source has one.
+    pub style_number: Option<usize>,
 }
 
 /// A loaded book or playlist.
@@ -43,6 +47,8 @@ impl Browser {
                     title: item.title.clone(),
                     detail: format!("{} · regist {}", item.file_path, item.regist),
                     tempo: None,
+                    style: None,
+                    style_number: None,
                 })
                 .collect(),
             kind: String::from("Playlist"),
@@ -74,6 +80,12 @@ fn row_from_entry(entry: &Entry) -> Row {
             entry.style, entry.tempo, entry.time_numerator, entry.time_denominator
         ),
         tempo: Some(entry.tempo),
+        style: if entry.style.is_empty() {
+            None
+        } else {
+            Some(entry.style.clone())
+        },
+        style_number: (entry.style_number > 0).then_some(entry.style_number as usize),
     }
 }
 
@@ -115,8 +127,17 @@ pub fn load(path: &Path) -> Result<Browser, String> {
     }
 }
 
-/// Draws the browser; returns the tempo to apply when requested.
-pub fn show(ui: &mut egui::Ui, browser: &Browser, query: &mut String) -> Option<usize> {
+/// What the user asked the browser to do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Apply the row's tempo.
+    Apply(usize),
+    /// Import the row's style.
+    Import(usize),
+}
+
+/// Draws the browser; returns the requested action.
+pub fn show(ui: &mut egui::Ui, browser: &Browser, query: &mut String) -> Option<Action> {
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new(&browser.kind)
@@ -150,7 +171,10 @@ pub fn show(ui: &mut egui::Ui, browser: &Browser, query: &mut String) -> Option<
                         ))
                         .clicked()
                     {
-                        apply = Some(index);
+                        apply = Some(Action::Apply(index));
+                    }
+                    if row.style.is_some() && ui.small_button("Import").clicked() {
+                        apply = Some(Action::Import(index));
                     }
                     ui.label(
                         egui::RichText::new(&row.detail)
@@ -181,6 +205,7 @@ mod tests {
         assert_eq!(browser.filtered("").len(), 2);
         assert!(browser.filtered("nothing").is_empty());
         assert_eq!(browser.rows[0].tempo, Some(68.0));
+        assert_eq!(browser.rows[0].style.as_deref(), Some("Ballad.sty"));
     }
 
     #[test]

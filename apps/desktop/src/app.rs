@@ -787,18 +787,76 @@ impl ShellApp {
                     }
                 });
                 if let Some(browser) = &self.library {
-                    if let Some(index) =
+                    if let Some(action) =
                         crate::library_view::show(ui, browser, &mut self.library_query)
                     {
+                        let index = match action {
+                            crate::library_view::Action::Apply(index)
+                            | crate::library_view::Action::Import(index) => index,
+                        };
                         let row = &browser.rows[index];
-                        match row.tempo {
-                            Some(bpm) => match self.editor.set_tempo(bpm) {
-                                Ok(()) => {
-                                    self.status = Some(format!("{}: tempo {bpm} bpm", row.title))
+                        match action {
+                            crate::library_view::Action::Apply(_) => match row.tempo {
+                                Some(bpm) => match self.editor.set_tempo(bpm) {
+                                    Ok(()) => {
+                                        self.status =
+                                            Some(format!("{}: tempo {bpm} bpm", row.title))
+                                    }
+                                    Err(error) => self.status = Some(error),
+                                },
+                                None => {
+                                    self.status = Some(format!("{}: playlist entry", row.title))
                                 }
-                                Err(error) => self.status = Some(error),
                             },
-                            None => self.status = Some(format!("{}: playlist entry", row.title)),
+                            crate::library_view::Action::Import(_) => {
+                                let root = if self.settings.style_library.is_empty() {
+                                    std::env::var("ARRANGER_STYLE_LIBRARY").unwrap_or_default()
+                                } else {
+                                    self.settings.style_library.clone()
+                                };
+                                let hint = row
+                                    .style
+                                    .as_deref()
+                                    .unwrap_or(&row.title)
+                                    .rsplit_once('.')
+                                    .map_or_else(
+                                        || row.style.as_deref().unwrap_or(&row.title).to_string(),
+                                        |(stem, _)| stem.to_string(),
+                                    );
+                                let chosen = if root.is_empty() {
+                                    Err(String::from(
+                                        "set a style library folder in Settings first",
+                                    ))
+                                } else {
+                                    style_formats::catalog::catalog(std::path::Path::new(&root))
+                                        .map_err(|error| error.to_string())
+                                        .and_then(|entries| {
+                                            style_formats::catalog::resolve(
+                                                &entries,
+                                                row.style_number,
+                                                &hint,
+                                            )
+                                            .map(|entry| entry.path.clone())
+                                            .ok_or_else(|| format!("no style matched {hint:?}"))
+                                        })
+                                };
+                                match chosen {
+                                    Ok(path) => {
+                                        match self.editor.import_style_tracks(&path, "Style") {
+                                            Ok(imported) => {
+                                                self.status = Some(format!(
+                                                    "imported {} track(s), {} note(s) from {}",
+                                                    imported.tracks,
+                                                    imported.notes,
+                                                    path.display()
+                                                ));
+                                            }
+                                            Err(error) => self.status = Some(error),
+                                        }
+                                    }
+                                    Err(error) => self.status = Some(error),
+                                }
+                            }
                         }
                     }
                 } else {

@@ -41,7 +41,7 @@ the wider ~90-tool MCP surface.
 | MIDI devices, capture, all-notes-off | `midi-devices` | verified (hardware manual) | unit tests; hardware untested |
 | Music Finder books (JSON, CSV, MFD) | `library` | verified | MFD read 1,653 records from the real Nhat.mfd, matching the C++ doc; CLI music-finder-import |
 | Yamaha playlists (TSV) | `library` | verified | 4 round-trip tests, CRLF and ON/OFF flags |
-| Music Finder/playlist browser UI | `apps/desktop/src/library_view.rs` | implemented | search/filter tests; tempo apply through SetTempo |
+| Music Finder/playlist browser UI, tempo apply and style import | `library_view`, `style_import`, Library window | verified core | filter/copy tests; real style import not exercised |
 | Audio-to-MIDI, monophonic | `audio::analysis` | implemented | `a_440_hz_tone_is_found`, `audio_to_midi_finds_an_a4_note` |
 | Audio chord recognition (chroma + recogniser) | `audio::chords` | verified | 4 tests; 4 s C triad WAV found C twice and wrote ticks 0/3840 |
 | Audio-to-MIDI, polyphonic/models (Basic Pitch) | — | missing | C++ runs it as an external helper |

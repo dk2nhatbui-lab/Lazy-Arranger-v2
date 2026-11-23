@@ -567,6 +567,21 @@ impl Editor {
         Ok(copied)
     }
 
+    /// Imports a style file's tracks with a name prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the style cannot be imported.
+    pub fn import_style_tracks(
+        &mut self,
+        path: &std::path::Path,
+        prefix: &str,
+    ) -> Result<crate::style_import::Imported, String> {
+        let imported = crate::style_import::import_file(&mut self.session, path, prefix)?;
+        self.dirty |= imported.tracks > 0;
+        Ok(imported)
+    }
+
     /// Sets the tempo at tick zero.
     ///
     /// # Errors
