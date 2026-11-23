@@ -7068,6 +7068,14 @@ impl ShellApp {
                         .color(theme::text_dim()),
                     );
                 }
+                if ui.button("Clear all bindings").clicked() {
+                    self.midi_map.bindings.clear();
+                    let text = self.midi_map.to_text();
+                    match std::fs::write("lazy-arranger-midi-map.txt", text) {
+                        Ok(()) => self.status = Some(String::from("MIDI bindings cleared")),
+                        Err(error) => self.status = Some(format!("midi map: {error}")),
+                    }
+                }
             });
         self.controller_open = open;
     }

@@ -191,3 +191,4 @@ For the clef layout, choose either four measures per system without clefs
 - Stored audio takes round-trip through JSON; a project without the field loads an empty list.
 - Release bundle was rebuilt and launched after the audio fixes; capture `docs/audit/app-bundle.png`.
 - Settings round-trip test now covers the Whisper and custom speech command templates.
+- Controllers window can clear every MIDI binding and rewrite the map file.
