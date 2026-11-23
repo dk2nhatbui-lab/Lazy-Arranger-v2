@@ -255,6 +255,29 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         device: u8,
     },
+    /// Fit tracks to a synth's range and polyphony, optionally applying.
+    FitProject {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Lowest playable note.
+        #[arg(long, default_value_t = 21)]
+        low: u8,
+        /// Highest playable note.
+        #[arg(long, default_value_t = 108)]
+        high: u8,
+        /// Notes that may sound at once.
+        #[arg(long, default_value_t = 16)]
+        polyphony: usize,
+        /// Declare the synth has no drum kit.
+        #[arg(long)]
+        no_drum_kit: bool,
+        /// Apply the proposals and write `--out`.
+        #[arg(long)]
+        apply: bool,
+        /// Output project when applying.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Print chord inversions, or write an A/B pair of WAV files.
     Voicing {
         /// Chord symbol.
@@ -918,6 +941,48 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 bounce.track,
                 out.display()
             );
+            Ok(())
+        }
+        Commands::FitProject {
+            project,
+            low,
+            high,
+            polyphony,
+            no_drum_kit,
+            apply,
+            out,
+        } => {
+            let project = read_project(&project)?;
+            let spec = arranging::SynthSpec {
+                polyphony,
+                low,
+                high,
+                has_drum_kit: !no_drum_kit,
+            };
+            let proposals = arranging::fit_to_synth(&project.song, spec);
+            if proposals.is_empty() {
+                println!(
+                    "no fits needed for {}..{} with {polyphony} voice(s)",
+                    spec.low, spec.high
+                );
+            }
+            for proposal in &proposals {
+                println!("{}: {}", proposal.title, proposal.detail);
+            }
+            if apply {
+                let out = out.ok_or("--apply needs --out")?;
+                let mut session = EditSession::new(project)?;
+                let mut applied = 0;
+                for proposal in &proposals {
+                    if !proposal.is_empty() {
+                        applied += arranging::apply(&mut session, proposal)?;
+                    }
+                }
+                let json = session.project().to_json_pretty()?;
+                fs::write(&out, json)
+                    .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+                println!("applied {applied} edit(s) -> {}", out.display());
+            }
             Ok(())
         }
         Commands::Voicing {

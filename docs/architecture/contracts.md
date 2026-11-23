@@ -126,3 +126,10 @@ and lifting wrapped tones an octave; each voicing exposes ascending pitches and
 a label such as `C/E (1st inversion)`. `voicing C --out-dir DIR` prints them and
 writes `a.wav`/`b.wav` from the first two for an A/B comparison. Open spread,
 drop voicings and keyboard-pad audition are not implemented.
+
+### Fit from the command line
+
+`fit-project` builds a `SynthSpec` from `--low`, `--high`, `--polyphony` and
+`--no-drum-kit`, prints every fit proposal, and with `--apply --out` applies the
+non-empty ones as undoable edits. On the demo with 40..80 it moved 12 bass notes.
+Before/after audition is not implemented.
