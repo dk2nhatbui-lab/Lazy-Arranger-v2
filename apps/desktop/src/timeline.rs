@@ -32,8 +32,9 @@ pub fn show(
     let width =
         (LABEL_WIDTH + bars as f32 * 100.0 * zoom.clamp(0.5, 3.0)).max(ui.available_width());
     let mut result = (RollOutcome::default(), None);
-    egui::ScrollArea::horizontal()
+    egui::ScrollArea::both()
         .id_salt("timeline-scroll")
+        .auto_shrink([false, false])
         .show(ui, |ui| {
             result = draw(ui, song, position, selected, width);
         });

@@ -115,7 +115,7 @@ For the clef layout, choose either four measures per system without clefs
 - Right inspector now spans the full height; mixer ends at its edge so the master fader no longer sits under the inspector; chat pinned to the panel bottom (`docs/audit/ui-chat-panel.png`).
 - Mixer faders use one fixed-height custom widget for tracks and master; tooltips delay 0.6 s (`docs/audit/ui-master-fader.png`).
 - Inspector channel picker moves all track notes to a channel as one undoable edit (`docs/audit/ui-channel.png`).
-- Timeline scrolls horizontally and header +/- zooms it (`docs/audit/ui-timeline-scroll.png`).
+- Timeline scrolls in both directions and header +/- zooms it (`docs/audit/ui-timeline-scroll.png`).
 - Mixer meters follow active notes at the playhead; master meter takes the loudest track (`docs/audit/ui-meters.png`).
 - Undo glyph redrawn as a left arrow with a curved tail (`docs/audit/ui-undo.png`).
 - Tracks default to the first row; M/S/R clicks no longer change row selection; inspector key has Find.
