@@ -1089,3 +1089,15 @@ workflow is to record takes as separate tracks and mute/unmute or trim them.
 Clef images live in `crates/score/assets/` with `ATTRIBUTION.md`; they are
 public-domain Wikimedia files with staff lines removed. Canvas textures and PDF
 image XObjects use the same bytes.
+
+### C++ UI parity (in progress)
+
+The live C++ app (`/Applications/Arranger MIDI DAW.app`) was launched and
+captured for comparison. Shared layout now present: light cream theme, header
+transport, left tracks panel, central score/timeline, persistent right
+Track/Song/Metronome/Audio/MIDI inspector and a bottom mixer strip row. The
+Score tab uses the Cecilia page and a C++-style toolbar. Remaining differences:
+the Rust tab set/order (Perform/Arrange/Mix/Loops/Score vs C++ Timeline/Score/
+Drums/Loops/Map + Mixer), simple track rows instead of cards, compact horizontal
+mixer sliders instead of vertical faders/knobs, and no C++ Map/Drums views. The
+capture is `docs/audit/ui-cpp.png`.

@@ -2215,6 +2215,291 @@ impl ShellApp {
         }
     }
 
+    fn bottom_mixer(&mut self, context: &Context) {
+        if self.settings.kids_mode {
+            return;
+        }
+        let tracks = self.song().tracks.clone();
+        let mut edits: Vec<(TrackId, u8, u8, bool, bool)> = Vec::new();
+        egui::TopBottomPanel::bottom("bottom-mixer")
+            .exact_height(138.0)
+            .frame(
+                egui::Frame::new()
+                    .fill(theme::panel())
+                    .inner_margin(egui::Margin::symmetric(8, 6)),
+            )
+            .show(context, |ui| {
+                egui::ScrollArea::horizontal().show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for track in &tracks {
+                            ui.allocate_ui(egui::vec2(96.0, 120.0), |ui| {
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(if track.name.is_empty() {
+                                            "untitled"
+                                        } else {
+                                            &track.name
+                                        })
+                                        .size(11.0),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(
+                                            if track.name.to_ascii_lowercase().contains("drum") {
+                                                "Electronic Kit"
+                                            } else {
+                                                "Built-in SoundFont"
+                                            },
+                                        )
+                                        .size(9.0)
+                                        .color(theme::text_dim()),
+                                    );
+                                    let mut volume = i32::from(track.volume);
+                                    if ui
+                                        .add(
+                                            egui::Slider::new(&mut volume, 0..=127)
+                                                .show_value(false),
+                                        )
+                                        .changed()
+                                    {
+                                        edits.push((
+                                            track.id,
+                                            u8::try_from(volume).unwrap_or(track.volume),
+                                            track.pan,
+                                            track.muted,
+                                            track.soloed,
+                                        ));
+                                    }
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{} dB",
+                                            f32::from(track.volume) - 100.0
+                                        ))
+                                        .size(9.0)
+                                        .color(theme::text_muted()),
+                                    );
+                                    ui.horizontal(|ui| {
+                                        let mut muted = track.muted;
+                                        let mut soloed = track.soloed;
+                                        let muted_clicked = ui
+                                            .small_button(if muted { "M*" } else { "M" })
+                                            .clicked();
+                                        let soloed_clicked = ui
+                                            .small_button(if soloed { "S*" } else { "S" })
+                                            .clicked();
+                                        if muted_clicked {
+                                            muted = !muted;
+                                        }
+                                        if soloed_clicked {
+                                            soloed = !soloed;
+                                        }
+                                        if muted_clicked || soloed_clicked {
+                                            edits.push((
+                                                track.id,
+                                                track.volume,
+                                                track.pan,
+                                                muted,
+                                                soloed,
+                                            ));
+                                        }
+                                    });
+                                });
+                            });
+                        }
+                        ui.allocate_ui(egui::vec2(96.0, 120.0), |ui| {
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new("Master").size(11.0));
+                                ui.label(
+                                    egui::RichText::new(if self.player.is_some() {
+                                        "cpal"
+                                    } else {
+                                        "offline"
+                                    })
+                                    .size(9.0)
+                                    .color(theme::text_dim()),
+                                );
+                                let mut gain = self.settings.master_gain_db;
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut gain, -24.0..=12.0)
+                                            .show_value(false),
+                                    )
+                                    .changed()
+                                {
+                                    self.settings.master_gain_db = gain;
+                                }
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{:.1} dB",
+                                        self.settings.master_gain_db
+                                    ))
+                                    .size(9.0)
+                                    .color(theme::text_muted()),
+                                );
+                            });
+                        });
+                    });
+                });
+            });
+        for (id, volume, pan, muted, soloed) in edits {
+            let _ = self.editor.set_track_gain(id, volume, pan);
+            let _ = self.editor.set_track_flags(id, muted, soloed, false);
+        }
+    }
+
+    fn right_inspector(&mut self, context: &egui::Context) {
+        if self.settings.kids_mode {
+            return;
+        }
+        let track_id = self
+            .score_track
+            .or(self.roll.selected)
+            .or_else(|| self.song().tracks.first().map(|track| track.id));
+        if self.midi_ports.is_none()
+            && let Ok(ports) = midi_devices::devices::list_ports()
+        {
+            self.midi_ports = Some((ports.inputs, ports.outputs));
+        }
+        let track = track_id.and_then(|id| {
+            self.song()
+                .tracks
+                .iter()
+                .find(|track| track.id == id)
+                .cloned()
+        });
+        egui::SidePanel::right("right-inspector")
+            .exact_width(250.0)
+            .frame(
+                egui::Frame::new()
+                    .fill(theme::panel())
+                    .inner_margin(egui::Margin::same(10)),
+            )
+            .show(context, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("TRACK")
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                    );
+                    let Some(track) = &track else {
+                        ui.label("No track");
+                        return;
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(if track.name.is_empty() {
+                                "untitled"
+                            } else {
+                                &track.name
+                            })
+                            .size(15.0)
+                            .strong(),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "ch {}",
+                                track
+                                    .notes
+                                    .first()
+                                    .map_or(1, |note| note.channel.one_based())
+                            ))
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                        );
+                    });
+                    let instrument = track.soundfont.as_ref().map_or_else(
+                        || {
+                            track.program.map_or_else(
+                                || String::from("Built-in SoundFont"),
+                                |program| format!("Program {program}"),
+                            )
+                        },
+                        |font| format!("{}:{} {}", font.bank, font.program, font.path),
+                    );
+                    ui.label(
+                        egui::RichText::new(instrument)
+                            .size(10.0)
+                            .color(theme::text_muted()),
+                    );
+                    ui.horizontal(|ui| {
+                        let mut muted = track.muted;
+                        let mut soloed = track.soloed;
+                        let mut armed = track.armed;
+                        let changed = ui.checkbox(&mut muted, "M").changed()
+                            | ui.checkbox(&mut soloed, "S").changed()
+                            | ui.checkbox(&mut armed, "R").changed();
+                        if changed
+                            && let Err(error) =
+                                self.editor.set_track_flags(track.id, muted, soloed, armed)
+                        {
+                            self.status = Some(error);
+                        }
+                    });
+                    if ui.button("Effects…").clicked() {
+                        self.inspector_open = true;
+                    }
+                    if ui.button("SoundFont…").clicked() {
+                        self.inspector_open = true;
+                    }
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new("SONG")
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                    );
+                    ui.label(&self.song().name);
+                    let key = score::spelling::detect_key(self.song());
+                    ui.label(format!(
+                        "{} {}",
+                        if key.minor {
+                            key.tonic.name_flat()
+                        } else {
+                            key.tonic.name_sharp()
+                        },
+                        if key.minor { "minor" } else { "major" }
+                    ));
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new("METRONOME")
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                    );
+                    ui.checkbox(&mut self.settings.metronome, "Click on");
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new("AUDIO OUTPUT")
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                    );
+                    ui.label(audio_engine_label());
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new("MIDI INPUTS")
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                    );
+                    let inputs = self
+                        .midi_ports
+                        .as_ref()
+                        .map(|(inputs, _)| inputs.clone())
+                        .unwrap_or_default();
+                    if inputs.is_empty() {
+                        ui.label(
+                            egui::RichText::new("No MIDI inputs found")
+                                .size(10.0)
+                                .color(theme::text_dim()),
+                        );
+                    }
+                    for input in inputs.iter().take(4) {
+                        ui.label(
+                            egui::RichText::new(input)
+                                .size(10.0)
+                                .color(theme::text_muted()),
+                        );
+                    }
+                });
+            });
+    }
+
     fn help_window(&mut self, context: &egui::Context) {
         if !self.help_open {
             return;
@@ -5068,6 +5353,7 @@ impl eframe::App for ShellApp {
         self.pads_window(context);
         self.library_window(context);
         self.status_bar(context);
+        self.bottom_mixer(context);
         self.sidebar(context);
         let kids = self.settings.kids_mode;
         if kids {
@@ -5077,6 +5363,7 @@ impl eframe::App for ShellApp {
         let lesson = self.lesson.clone();
         let pads = music_core::roman::pads(self.key);
         let waveform = self.waveform.clone();
+        self.right_inspector(context);
         let panel = egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::timeline()))
             .show(context, |ui| {
@@ -5425,21 +5712,12 @@ impl eframe::App for ShellApp {
                             .iter()
                             .map(|track| (track.id, track.name.clone()))
                             .collect();
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             ui.label(egui::RichText::new("Score").strong());
                             let mut write = self.score_entry;
                             if ui.checkbox(&mut write, "Write notes").changed() {
                                 self.score_entry = write;
-                                if write {
-                                    self.score_preview = false;
-                                }
-                            }
-                            let mut preview = self.score_preview;
-                            if ui.checkbox(&mut preview, "Preview").changed() {
-                                self.score_preview = preview;
-                                if preview {
-                                    self.score_entry = false;
-                                }
+                                self.score_preview = !write;
                             }
                             let selected = self
                                 .score_track
@@ -5465,11 +5743,7 @@ impl eframe::App for ShellApp {
                             if ui.button("−").clicked() {
                                 self.score_zoom = (self.score_zoom - 0.1).max(0.5);
                             }
-                            ui.add(
-                                egui::Slider::new(&mut self.score_zoom, 0.5..=2.5)
-                                    .text("zoom")
-                                    .fixed_decimals(1),
-                            );
+                            ui.label(format!("{:.1}", self.score_zoom));
                             if ui.button("+").clicked() {
                                 self.score_zoom = (self.score_zoom + 0.1).min(2.5);
                             }

@@ -25,7 +25,7 @@ spacing, meter, measure numbers, PDF/canvas/print dialog); audio render, SF2,
 mixer with buses/sends/master reverb/chorus/meters, stems/freeze, float WAV;
 MIDI maps/learn/Launchkey preset/panic builders; arrangements, grooves, forms,
 theory/lessons; MCP server with 93 tools; five-view egui shell with eight
-languages; the Score view uses Cecilia 0.51, Kids Mode, named songs and tutorial.
+languages, persistent right inspector, bottom mixer and a Cecilia Score tab; the Score view uses Cecilia 0.51, Kids Mode, named songs and tutorial.
 
 ## Concrete blockers to full parity
 

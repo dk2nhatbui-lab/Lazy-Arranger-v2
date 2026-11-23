@@ -38,7 +38,7 @@ blockers are listed at the end.
 | L6max take scan/import; Korg recognition | synthetic and real-file scans | `audio::l6max`, `style-formats::korg` |
 | Library: JSON/CSV/TSV/MFD, playlists, browser | verified real MFD (1,653 rows) | `crates/library` |
 | MCP stdio/socket server, 93 tools | tool/reference tests and CLI runs | `crates/mcp` |
-| Desktop shell: Perform, Arrange, Mix, Loops, Score | runs; captures in `docs/audit/` | `apps/desktop` |
+| Desktop shell: Perform, Arrange, Mix, Loops, Score; persistent right inspector and bottom mixer | runs; C++ comparison capture `docs/audit/ui-cpp.png` | `apps/desktop` |
 | Light/dark palettes, eight languages with plural rules, Kids Mode, lessons | verified tests; light capture | `theme`, `strings`, `lesson` |
 | Plugin browser (VST3/AU) | scan/list/filter/add slots; no hosting | `crates/plugins`, My Plug-Ins window |
 | Real MIDI keyboard, PSR-S970, cpal audibility, print, microphone | **unverified** | no hardware here |
