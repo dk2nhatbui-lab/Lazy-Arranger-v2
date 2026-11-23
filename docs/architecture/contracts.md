@@ -943,3 +943,6 @@ selection. `apply_clip_click` returns the primary clip. Arrow keys move or
 resize (Shift) every selected clip, and Delete removes them all. Clip outlines
 mark every selected clip. A unit test covers add/remove/replace. There is no
 marquee drag.
+
+PDF and canvas both draw measure numbers above each staff; the PDF header test
+asserts the `(1) Tj` number.

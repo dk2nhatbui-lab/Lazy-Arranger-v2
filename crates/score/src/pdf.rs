@@ -103,6 +103,13 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     );
                 }
                 for measure in &system.measures {
+                    let _ = writeln!(
+                        content,
+                        "BT /F1 9 Tf {:.1} {:.1} Td ({}) Tj ET",
+                        measure.x + 2.0,
+                        settings.page_height - (top - 12.0),
+                        measure.number
+                    );
                     for x in [measure.x, measure.x_end] {
                         let _ = writeln!(
                             content,
@@ -516,6 +523,7 @@ mod tests {
         assert_eq!(page_count(&pdf), Some(2));
         assert!(text.contains("(Test score) Tj"));
         assert!(text.contains("(4) Tj"), "time signature digits");
+        assert!(text.contains("(1) Tj"), "measure number");
         assert!(!text.contains(" C? "), "no music glyphs from base fonts");
     }
 
