@@ -510,6 +510,33 @@ impl AuInstrument {
         Ok(())
     }
 
+    /// Sets one instrument parameter by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the unit rejects the value.
+    pub fn set_parameter(&self, id: u32, value: f32) -> Result<(), String> {
+        let result = unsafe { AudioUnitSetParameter(self.unit, id, SCOPE_GLOBAL, 0, value, 0) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(format!("AudioUnitSetParameter returned {result}"))
+        }
+    }
+
+    /// Applies a persisted `id=value;id=value` parameter state.
+    pub fn apply_state(&self, state: &str) {
+        for entry in state.split(';') {
+            let Some((id, value)) = entry.split_once('=') else {
+                continue;
+            };
+            let (Ok(id), Ok(value)) = (id.parse::<u32>(), value.parse::<f32>()) else {
+                continue;
+            };
+            let _ = self.set_parameter(id, value);
+        }
+    }
+
     /// Sends a MIDI note-on at the next render position.
     pub fn note_on(&self, key: u8, velocity: u8) {
         let _ = unsafe {

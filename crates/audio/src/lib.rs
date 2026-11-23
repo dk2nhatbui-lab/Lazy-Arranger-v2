@@ -211,37 +211,37 @@ pub fn render_with_soundfont(
             load(&reference.path).map(|font| (font, reference.bank, reference.program))
         });
         let mut track_buffer = vec![0.0_f32; frames * usize::from(CHANNELS)];
-        for note in &track.notes {
-            let (left_gain, right_gain) = gains_at(track, note.start);
-            let patch = track.patch.map(|mut patch| {
-                if let Some(brightness) = track.brightness_at(note.start) {
-                    patch.brightness = brightness;
-                }
-                patch
-            });
-            let send_level = track.send_at(note.start).min(127.0) / 100.0;
-            let start_seconds = song.tempo_map.seconds_at(note.start);
-            let end_seconds = song
-                .tempo_map
-                .seconds_at(note.start.saturating_add(note.duration.max(1)));
-            let start = (start_seconds * f64::from(sample_rate)).round() as usize;
-            let stop = (end_seconds * f64::from(sample_rate)).round() as usize;
-            let frequency = frequency(note.pitch);
-            let amplitude = f64::from(note.velocity.as_u8()) / 127.0 * 0.18;
-            let release = (0.08 * f64::from(sample_rate)) as usize;
-            let note_seconds = (stop - start) as f64 / f64::from(sample_rate);
-            if let Some((font, bank, program)) = &sampled {
-                let channels = soundfont::render_stereo(
-                    font,
-                    *bank,
-                    *program,
-                    note.pitch.as_u8(),
-                    note.velocity.as_u8(),
-                    note_seconds as f32,
-                    sample_rate,
-                )
-                .or_else(|| {
-                    soundfont::render_note(
+        if let Some(mut instrument) = instrument_for(track, sample_rate) {
+            render_instrument(
+                song,
+                track,
+                &mut instrument,
+                &mut track_buffer,
+                frames,
+                sample_rate,
+            );
+        } else {
+            for note in &track.notes {
+                let (left_gain, right_gain) = gains_at(track, note.start);
+                let patch = track.patch.map(|mut patch| {
+                    if let Some(brightness) = track.brightness_at(note.start) {
+                        patch.brightness = brightness;
+                    }
+                    patch
+                });
+                let send_level = track.send_at(note.start).min(127.0) / 100.0;
+                let start_seconds = song.tempo_map.seconds_at(note.start);
+                let end_seconds = song
+                    .tempo_map
+                    .seconds_at(note.start.saturating_add(note.duration.max(1)));
+                let start = (start_seconds * f64::from(sample_rate)).round() as usize;
+                let stop = (end_seconds * f64::from(sample_rate)).round() as usize;
+                let frequency = frequency(note.pitch);
+                let amplitude = f64::from(note.velocity.as_u8()) / 127.0 * 0.18;
+                let release = (0.08 * f64::from(sample_rate)) as usize;
+                let note_seconds = (stop - start) as f64 / f64::from(sample_rate);
+                if let Some((font, bank, program)) = &sampled {
+                    let channels = soundfont::render_stereo(
                         font,
                         *bank,
                         *program,
@@ -250,52 +250,63 @@ pub fn render_with_soundfont(
                         note_seconds as f32,
                         sample_rate,
                     )
-                    .map(|mono| (mono.clone(), mono))
-                });
-                if let Some((left_audio, right_audio)) = channels {
-                    for offset in 0..left_audio.len().min(right_audio.len()) {
-                        let frame = start + offset;
-                        if frame >= frames {
-                            break;
+                    .or_else(|| {
+                        soundfont::render_note(
+                            font,
+                            *bank,
+                            *program,
+                            note.pitch.as_u8(),
+                            note.velocity.as_u8(),
+                            note_seconds as f32,
+                            sample_rate,
+                        )
+                        .map(|mono| (mono.clone(), mono))
+                    });
+                    if let Some((left_audio, right_audio)) = channels {
+                        for offset in 0..left_audio.len().min(right_audio.len()) {
+                            let frame = start + offset;
+                            if frame >= frames {
+                                break;
+                            }
+                            let left = left_audio[offset] * left_gain;
+                            let right = right_audio[offset] * right_gain;
+                            track_buffer[frame * 2] += left;
+                            track_buffer[frame * 2 + 1] += right;
+                            if let Some(index) = track
+                                .send
+                                .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
+                            {
+                                bus_buffers[index][frame * 2] += left * send_level;
+                                bus_buffers[index][frame * 2 + 1] += right * send_level;
+                            }
                         }
-                        let left = left_audio[offset] * left_gain;
-                        let right = right_audio[offset] * right_gain;
-                        track_buffer[frame * 2] += left;
-                        track_buffer[frame * 2 + 1] += right;
-                        if let Some(index) = track
-                            .send
-                            .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
-                        {
-                            bus_buffers[index][frame * 2] += left * send_level;
-                            bus_buffers[index][frame * 2 + 1] += right * send_level;
-                        }
+                        continue;
                     }
-                    continue;
                 }
-            }
-            for frame in start..stop.min(frames) {
-                let t = (frame - start) as f64 / f64::from(sample_rate);
-                let remaining = stop.saturating_sub(frame);
-                let envelope = if remaining < release {
-                    remaining as f64 / release as f64
-                } else {
-                    1.0
-                };
-                let voice = match patch {
-                    Some(patch) => patch.sample(frequency, t as f32, note_seconds as f32),
-                    None => sample(timbre, frequency, t, note_seconds, note.pitch.as_u8()),
-                };
-                let value = (voice * amplitude * envelope) as f32;
-                let left = value * left_gain;
-                let right = value * right_gain;
-                track_buffer[frame * 2] += left;
-                track_buffer[frame * 2 + 1] += right;
-                if let Some(index) = track
-                    .send
-                    .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
-                {
-                    bus_buffers[index][frame * 2] += left * send_level;
-                    bus_buffers[index][frame * 2 + 1] += right * send_level;
+                for frame in start..stop.min(frames) {
+                    let t = (frame - start) as f64 / f64::from(sample_rate);
+                    let remaining = stop.saturating_sub(frame);
+                    let envelope = if remaining < release {
+                        remaining as f64 / release as f64
+                    } else {
+                        1.0
+                    };
+                    let voice = match patch {
+                        Some(patch) => patch.sample(frequency, t as f32, note_seconds as f32),
+                        None => sample(timbre, frequency, t, note_seconds, note.pitch.as_u8()),
+                    };
+                    let value = (voice * amplitude * envelope) as f32;
+                    let left = value * left_gain;
+                    let right = value * right_gain;
+                    track_buffer[frame * 2] += left;
+                    track_buffer[frame * 2 + 1] += right;
+                    if let Some(index) = track
+                        .send
+                        .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
+                    {
+                        bus_buffers[index][frame * 2] += left * send_level;
+                        bus_buffers[index][frame * 2 + 1] += right * send_level;
+                    }
                 }
             }
         }
@@ -328,6 +339,105 @@ pub fn render_with_soundfont(
     RenderedAudio {
         samples,
         sample_rate,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn instrument_for(
+    track: &project::song::Track,
+    sample_rate: u32,
+) -> Option<plugin_host::AuInstrument> {
+    for slot in &track.plugins {
+        if slot.bypassed
+            || slot.format != project::song::PluginFormat::AudioUnit
+            || slot.identifier.is_empty()
+        {
+            continue;
+        }
+        if let Ok(instrument) =
+            plugin_host::AuInstrument::new(&slot.identifier, f64::from(sample_rate))
+        {
+            instrument.apply_state(&slot.state);
+            return Some(instrument);
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn instrument_for(_track: &project::song::Track, _sample_rate: u32) -> Option<()> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn render_instrument(
+    song: &Song,
+    track: &project::song::Track,
+    instrument: &mut plugin_host::AuInstrument,
+    buffer: &mut [f32],
+    frames: usize,
+    sample_rate: u32,
+) {
+    struct Event {
+        frame: usize,
+        on: bool,
+        key: u8,
+        velocity: u8,
+    }
+    let mut events = Vec::new();
+    for note in &track.notes {
+        let start =
+            (song.tempo_map.seconds_at(note.start) * f64::from(sample_rate)).round() as usize;
+        let stop = (song
+            .tempo_map
+            .seconds_at(note.start.saturating_add(note.duration.max(1)))
+            * f64::from(sample_rate))
+        .round() as usize;
+        if start < frames {
+            events.push(Event {
+                frame: start,
+                on: true,
+                key: note.pitch.as_u8(),
+                velocity: note.velocity.as_u8(),
+            });
+        }
+        if stop < frames {
+            events.push(Event {
+                frame: stop,
+                on: false,
+                key: note.pitch.as_u8(),
+                velocity: 0,
+            });
+        }
+    }
+    events.sort_by_key(|event| (event.frame, event.on));
+    let (left_gain, right_gain) = track_gains(track);
+    let mut position = 0;
+    let mut next = 0;
+    while position < frames {
+        while next < events.len() && events[next].frame <= position {
+            let event = &events[next];
+            if event.on {
+                instrument.note_on(event.key, event.velocity);
+            } else {
+                instrument.note_off(event.key);
+            }
+            next += 1;
+        }
+        let block = (frames - position).min(512);
+        let mut left = vec![0.0_f32; block];
+        let mut right = vec![0.0_f32; block];
+        if instrument.process_block(&mut left, &mut right).is_err() {
+            return;
+        }
+        for index in 0..block {
+            buffer[(position + index) * 2] += left[index] * left_gain;
+            buffer[(position + index) * 2 + 1] += right[index] * right_gain;
+        }
+        position += block;
+    }
+    for note in &track.notes {
+        instrument.note_off(note.pitch.as_u8());
     }
 }
 
@@ -601,6 +711,38 @@ mod tests {
             .map(|(wet, dry)| (wet - dry).abs())
             .sum();
         assert!(difference > 0.01, "plugin made no audible change");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "loads the Apple DLSMusicDevice Audio Unit"]
+    fn an_au_instrument_renders_track_notes() {
+        use project::song::{PluginFormat, PluginSlot};
+        let mut song = song_with_note();
+        song.tracks[0].plugins.push(PluginSlot {
+            id: 1,
+            name: String::from("DLSMusicDevice"),
+            format: PluginFormat::AudioUnit,
+            path: String::new(),
+            identifier: String::from("appl:dls"),
+            bypassed: false,
+            state: String::new(),
+        });
+        let instrument = render(&song, SAMPLE_RATE);
+        song.tracks[0].plugins.clear();
+        let builtin = render(&song, SAMPLE_RATE);
+        let energy: f32 = instrument.samples.iter().map(|sample| sample.abs()).sum();
+        assert!(energy > 0.1, "instrument produced no audio");
+        let difference: f32 = instrument
+            .samples
+            .iter()
+            .zip(&builtin.samples)
+            .map(|(instrument, builtin)| (instrument - builtin).abs())
+            .sum();
+        assert!(
+            difference > 0.1,
+            "instrument did not replace the built-in synth"
+        );
     }
 
     #[cfg(target_os = "macos")]
