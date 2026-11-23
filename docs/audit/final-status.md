@@ -117,3 +117,4 @@ For the clef layout, choose either four measures per system without clefs
 - Inspector channel picker moves all track notes to a channel as one undoable edit (`docs/audit/ui-channel.png`).
 - Timeline scrolls horizontally and header +/- zooms it (`docs/audit/ui-timeline-scroll.png`).
 - Mixer meters follow active notes at the playhead; master meter takes the loudest track (`docs/audit/ui-meters.png`).
+- Undo glyph redrawn as a clean curved arrow (`docs/audit/ui-undo.png`).

@@ -716,7 +716,8 @@ impl ShellApp {
             .and_then(|value| TrackId::new(value).ok())
             .filter(|id| editor.song().tracks.iter().any(|track| track.id == *id));
         let mut roll = RollState::default();
-        roll.selected = initial_track;
+        roll.selected =
+            initial_track.or_else(|| editor.song().tracks.first().map(|track| track.id));
         Self {
             editor,
             icon,
@@ -7854,6 +7855,13 @@ impl ShellApp {
                 self.song_name_input = self.song().name.clone();
                 self.position = 0;
                 self.playing = false;
+                if self
+                    .roll
+                    .selected
+                    .is_none_or(|id| !self.song().tracks.iter().any(|track| track.id == id))
+                {
+                    self.roll.selected = self.song().tracks.first().map(|track| track.id);
+                }
                 self.load_error = None;
             }
             Err(error) => self.load_error = Some(error.to_string()),
@@ -9284,10 +9292,28 @@ fn draw_transport_icon(painter: &egui::Painter, rect: Rect, glyph: &str, color: 
         }
         "\u{21B6}" => {
             let stroke = egui::Stroke::new((s * 0.09).max(1.2), color);
-            let tip = egui::pos2(c.x - s * 0.02, c.y + s * 0.30);
-            painter.line_segment([tip, egui::pos2(c.x + s * 0.32, c.y + s * 0.30)], stroke);
-            painter.line_segment([tip, egui::pos2(c.x + s * 0.08, c.y - s * 0.02)], stroke);
-            painter.line_segment([tip, egui::pos2(c.x - s * 0.12, c.y + s * 0.16)], stroke);
+            let tip = egui::pos2(c.x - s * 0.30, c.y + s * 0.02);
+            let control = egui::pos2(c.x + s * 0.05, c.y - s * 0.40);
+            let end = egui::pos2(c.x + s * 0.30, c.y + s * 0.12);
+            let points: Vec<egui::Pos2> = (0..=16)
+                .map(|index| {
+                    let t = index as f32 / 16.0;
+                    let one = 1.0 - t;
+                    egui::pos2(
+                        one * one * tip.x + 2.0 * one * t * control.x + t * t * end.x,
+                        one * one * tip.y + 2.0 * one * t * control.y + t * t * end.y,
+                    )
+                })
+                .collect();
+            painter.add(egui::Shape::line(points, stroke));
+            painter.line_segment(
+                [tip, egui::pos2(tip.x + s * 0.18, tip.y - s * 0.05)],
+                stroke,
+            );
+            painter.line_segment(
+                [tip, egui::pos2(tip.x + s * 0.02, tip.y + s * 0.17)],
+                stroke,
+            );
         }
         _ => {
             painter.text(
