@@ -250,4 +250,6 @@ implemented.
 applies `FreezeTrack`, which clears the track's notes and sets its audio
 reference atomically; `RestoreTrack` is the inverse, so one undo restores both.
 The Mixer's Freeze button writes `freeze-<track>.wav` in the working directory
-and reports the path. Stem export is not implemented.
+and reports the path. `render_stems` renders each audible track alone (no buses)
+and `export-stems` writes `<id>-<slug>.wav` files plus a `stems.txt` manifest
+with name, file and duration.

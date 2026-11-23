@@ -115,6 +115,36 @@ impl RenderedAudio {
     }
 }
 
+/// One track rendered alone.
+#[derive(Clone, Debug)]
+pub struct Stem {
+    /// Track rendered.
+    pub track: project::TrackId,
+    /// Track name.
+    pub name: String,
+    /// Its audio.
+    pub audio: RenderedAudio,
+}
+
+/// Renders each audible track alone, without buses.
+#[must_use]
+pub fn render_stems(song: &Song, sample_rate: u32) -> Vec<Stem> {
+    song.tracks
+        .iter()
+        .filter(|track| song.is_audible(track))
+        .map(|track| {
+            let mut solo = song.clone();
+            solo.tracks = vec![track.clone()];
+            solo.buses.clear();
+            Stem {
+                track: track.id,
+                name: track.name.clone(),
+                audio: render(&solo, sample_rate),
+            }
+        })
+        .collect()
+}
+
 /// Renders every track of a song with a simple additive voice.
 #[must_use]
 pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
@@ -503,6 +533,23 @@ mod tests {
         });
         let bright = render(&song, SAMPLE_RATE);
         assert_ne!(dark.samples, bright.samples, "brightness lane is followed");
+    }
+
+    #[test]
+    fn stems_render_one_audible_track_each() {
+        let mut song = song_with_note();
+        let mut second = song.tracks[0].clone();
+        second.id = project::TrackId::new(2).expect("valid");
+        second.name = String::from("Bass");
+        second.notes[0].id = project::NoteId::new(2).expect("valid");
+        second.notes[0].pitch = music_core::Pitch::from_name("C2").expect("valid");
+        song.tracks.push(second);
+        let stems = render_stems(&song, SAMPLE_RATE);
+        assert_eq!(stems.len(), 2);
+        assert_eq!(stems[1].name, "Bass");
+        assert!(stems.iter().all(|stem| !stem.audio.samples.is_empty()));
+        song.tracks[1].muted = true;
+        assert_eq!(render_stems(&song, SAMPLE_RATE).len(), 1);
     }
 
     #[test]

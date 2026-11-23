@@ -286,6 +286,17 @@ enum Commands {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Render each audible track to its own WAV file.
+    ExportStems {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Output folder.
+        #[arg(long)]
+        out_dir: PathBuf,
+        /// Sample rate.
+        #[arg(long, default_value_t = 48_000)]
+        sample_rate: u32,
+    },
     /// Add a tempo change and print the map.
     TempoSet {
         /// Project `.json` path.
@@ -1086,6 +1097,43 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                     .map_err(|error| format!("could not write {}: {error}", out.display()))?;
                 println!("wrote {}", out.display());
             }
+            Ok(())
+        }
+        Commands::ExportStems {
+            project,
+            out_dir,
+            sample_rate,
+        } => {
+            let project = read_project(&project)?;
+            let stems = audio::render_stems(&project.song, sample_rate);
+            fs::create_dir_all(&out_dir)
+                .map_err(|error| format!("{}: {error}", out_dir.display()))?;
+            let mut manifest = String::new();
+            for stem in &stems {
+                let slug: String = stem
+                    .name
+                    .chars()
+                    .map(|character| {
+                        if character.is_ascii_alphanumeric() {
+                            character.to_ascii_lowercase()
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect();
+                let file = format!("{}-{slug}.wav", stem.track.get());
+                fs::write(out_dir.join(&file), stem.audio.to_wav())
+                    .map_err(|error| format!("{}: {error}", out_dir.display()))?;
+                manifest.push_str(&format!(
+                    "{}\t{file}\t{:.2}s\n",
+                    stem.name,
+                    stem.audio.duration_seconds()
+                ));
+                println!("{} -> {file}", stem.name);
+            }
+            fs::write(out_dir.join("stems.txt"), manifest)
+                .map_err(|error| format!("{}: {error}", out_dir.display()))?;
+            println!("{} stem(s) -> {}", stems.len(), out_dir.display());
             Ok(())
         }
         Commands::TempoSet {
