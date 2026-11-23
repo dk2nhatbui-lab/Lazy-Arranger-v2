@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 app-commands = { path = "../../crates/app-commands" }
 audio = { path = "../../crates/audio" }
+plugins = { path = "../../crates/plugins" }
 arranger = { path = "../../crates/arranger" }
 arranging = { path = "../../crates/arranging" }
 style-formats = { path = "../../crates/style-formats" }

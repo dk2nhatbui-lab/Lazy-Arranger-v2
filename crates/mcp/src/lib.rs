@@ -195,6 +195,14 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "plugin_scan",
+            description: "List installed VST3 and Audio Unit bundles (not hosted).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"directories": {"type": "array"}}
+            }),
+        },
+        Tool {
             name: "get_soundfonts",
             description: "Read SoundFont presets assigned to tracks.",
             input_schema: json!({"type": "object"}),
@@ -567,6 +575,32 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             target.velocity = music_core::Velocity::new(velocity.clamp(1, 127))?;
             session.apply(Command::ReplaceTrackNotes { track, notes })?;
             Ok(json!({"velocity": velocity.clamp(1, 127)}))
+        }
+        "plugin_scan" => {
+            let roots = arguments
+                .get("directories")
+                .and_then(Value::as_array)
+                .map(|directories| {
+                    directories
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .flat_map(|directory| {
+                            [
+                                plugins::root(plugins::Format::Vst3, directory),
+                                plugins::root(plugins::Format::AudioUnit, directory),
+                            ]
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_else(plugins::default_roots);
+            let found = plugins::scan_roots(&roots);
+            Ok(json!({
+                "plugins": found.iter().map(|plugin| json!({
+                    "name": plugin.name,
+                    "path": plugin.path.display().to_string(),
+                    "format": plugin.format.label()
+                })).collect::<Vec<_>>()
+            }))
         }
         "get_soundfonts" => Ok(json!({
             "tracks": session
@@ -1344,6 +1378,22 @@ mod tests {
         assert_eq!(result["korg_marker"], true);
         assert_eq!(result["model"], "KRONOS");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn plugin_scan_finds_synthetic_bundles() {
+        let directory = std::env::temp_dir().join("lazy-arranger-mcp-plugins");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(directory.join("Demo.vst3")).expect("bundle");
+        let mut session = session_with_track();
+        let result = call(
+            &mut session,
+            "plugin_scan",
+            &json!({"directories": [directory.display().to_string()]}),
+        )
+        .expect("scan");
+        assert_eq!(result["plugins"][0]["name"], "Demo");
+        let _ = std::fs::remove_dir_all(directory);
     }
 
     #[test]

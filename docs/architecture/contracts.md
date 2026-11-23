@@ -302,7 +302,7 @@ samples and SF3 remain absent.
 `get_soundfonts`/`set_soundfont`, `get_buses`/`set_buses` and
 `set_track_routing` expose the schema-v16 SoundFont preset, mix buses and
 bus/send routing through the same undoable commands as the UI and CLI. Missing
-or null path/bus/send values clear the field; the registry now holds 36 tools.
+or null path/bus/send values clear the field; the registry now holds 37 tools.
 
 ### Audio fades
 
@@ -312,3 +312,13 @@ converts them to seconds with the tempo map and applies linear ramps at the
 start and end of the reference. `Editor::set_audio_fades` writes one
 `SetAudioRef`, and the Arrange trim row has one-bar fade-in/out and clear
 buttons.
+
+### Plug-in discovery
+
+`plugins::scan_roots` reads each root's immediate children and keeps entries
+whose extension matches the root's format (`.vst3` or `.component`, case
+insensitive), naming them by bundle stem. `default_roots` covers the macOS
+system/user folders, Windows Common Files and Linux VST3 folders; missing roots
+are skipped. `plugin-scan` and the `plugin_scan` MCP tool list the result. This
+proves discovery only: bundles are not loaded, validated or hosted, and
+processing still ignores slots.

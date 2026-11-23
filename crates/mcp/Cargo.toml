@@ -11,6 +11,7 @@ app-commands = { path = "../app-commands" }
 audio = { path = "../audio" }
 arranging = { path = "../arranging" }
 music-core = { path = "../music-core" }
+plugins = { path = "../plugins" }
 project = { path = "../project" }
 style-formats = { path = "../style-formats" }
 serde_json = { workspace = true }

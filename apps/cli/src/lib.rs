@@ -325,6 +325,12 @@ enum Commands {
         #[arg(long)]
         out: PathBuf,
     },
+    /// List installed VST3 and Audio Unit bundles, without hosting them.
+    PluginScan {
+        /// Extra folders to scan; omitted scans the standard plug-in folders.
+        #[arg(long = "dir")]
+        dirs: Vec<PathBuf>,
+    },
     /// Parse an SF2 SoundFont and list its presets.
     Sf2Info {
         /// SF2 file.
@@ -1229,6 +1235,31 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 audio::soundfont::describe(&font),
                 out.display()
             );
+            Ok(())
+        }
+        Commands::PluginScan { dirs } => {
+            let roots = if dirs.is_empty() {
+                plugins::default_roots()
+            } else {
+                dirs.iter()
+                    .flat_map(|dir| {
+                        [
+                            plugins::root(plugins::Format::Vst3, dir),
+                            plugins::root(plugins::Format::AudioUnit, dir),
+                        ]
+                    })
+                    .collect()
+            };
+            let found = plugins::scan_roots(&roots);
+            for plugin in &found {
+                println!(
+                    "{:<4} {}  {}",
+                    plugin.format.label(),
+                    plugin.name,
+                    plugin.path.display()
+                );
+            }
+            println!("{} plug-in bundle(s)", found.len());
             Ok(())
         }
         Commands::Sf2Info { file } => {

@@ -115,7 +115,7 @@ the wider ~90-tool MCP surface.
 | MIDI control map (notes/CC to actions) with text persistence and learn capture | `midi-devices::map`, CLI `midi-map-*` | verified | 6 tests + CLI bind/show run |
 | Live MIDI input applies mapped actions (play/stop/undo/scene/fader) | `midi-devices::devices::LiveInput`, shell `poll_midi` | implemented | compiles and runs with no device; hardware untested |
 | Numbered style catalog, resolution and by-number rendering | `style-formats::catalog`, CLI `style-catalog`/`style-resolve`/`style-by-number` | verified | resolve test; real library matched 'ABBA Fernando'; number 2 rendered 124 notes |
-| MCP tools for automation, lyrics/marks, style catalog, theory, generation, plugins, L6max, Korg scan, quantise, velocity, tempo, SoundFonts, buses and routing | `crates/mcp` | verified | tool tests and CLI calls; 36 tools total |
+| MCP tools for automation, lyrics/marks, style catalog, theory, generation, plugins, L6max, Korg scan, quantise, velocity, tempo, SoundFonts, buses and routing | `crates/mcp` | verified | tool tests and CLI calls; 37 tools total |
 | Local assistant panel (help/song/undo/tool commands over the registry) | `mcp::assistant`, shell window | verified core | parse and dispatch tests; UI manual |
 | Speech output for replies (macOS `say`) | `apps/desktop/src/speech.rs` | verified builder | cleaning, truncation and argument tests; audible speech unverified |
 | Synth families: piano, bass, organ, strings, pad, drums (with noise percussion) | `audio::Timbre` | verified | timbre tests, pad swell, drum energy; demo RMS 0.129 |
@@ -147,7 +147,7 @@ the wider ~90-tool MCP surface.
 | Audio-reference fades (schema v17) | `project::song::AudioRef`, `audio::mix`, Editor, trim row | verified | fade ramp test; set/undo test; UI manual |
 | Per-track synth patch (schema v14, waveform + ADSR + brightness) | `project::song::Patch`, `audio` render, `app-commands` | verified | square-vs-sine, slow-attack, command and round-trip tests |
 | SysEx parameter-change builder, checksum and XG System On dump | `midi-devices::sysex`, CLI `sysex-xg-on` | verified | checksum/end-byte tests; 10-byte dump written |
-| Plugin slots (schema v15; state only, no hosting) | `project::song::PluginSlot`, `app-commands`, validation | verified model | round trip, duplicate-id validation, command undo |
+| Plugin slots (schema v15) and VST3/AU discovery (no hosting) | `project::song::PluginSlot`, `plugins`, CLI/MCP | verified discovery | slot round trip/validation; synthetic bundle scan; 21 real bundles listed |
 | L6max take scan and import (32-bit float aware) | `audio::l6max`, CLI `l6max-import` | verified | scan test; two synthetic takes imported at computed lengths |
 | Volume and pan automation lanes (schema v9) | `project`, `audio`, `app-commands` | verified | interpolation/hold, per-note render, command undo |
 | Automation lane UI (click to add/remove volume points) | `apps/desktop/src/automation_view.rs` | implemented | mapping tests; UI manual |

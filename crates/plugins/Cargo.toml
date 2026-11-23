@@ -1,0 +1,12 @@
+[package]
+name = "plugins"
+description = "Locate installed VST3 and Audio Unit bundles for Lazy Arranger"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
