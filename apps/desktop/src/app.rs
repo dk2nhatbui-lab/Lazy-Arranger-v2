@@ -2838,6 +2838,24 @@ impl ShellApp {
     }
 
     /// The Arrangement Doctor's proposal cards.
+    fn audition_proposal(&mut self, proposal: &arranging::Proposal, after: bool) {
+        let mut project = self.editor.project().clone();
+        if after
+            && let Ok(mut session) = app_commands::EditSession::new(project.clone())
+            && arranging::apply(&mut session, proposal).is_ok()
+        {
+            project = session.project().clone();
+        }
+        let mut rendered = audio::render(&project.song, audio::SAMPLE_RATE);
+        let _ = audio::mix::mix_audio_references(&mut rendered, &project.song, 0.9);
+        self.audition_player = audio::player::Player::new(rendered).ok();
+        self.status = Some(String::from(if after {
+            "audition: after"
+        } else {
+            "audition: before"
+        }));
+    }
+
     fn doctor_dialog(&mut self, context: &Context) {
         if !self.doctor_dialog {
             return;
@@ -2851,14 +2869,27 @@ impl ShellApp {
                     ui.label("Nothing to suggest: no crowded or repeated bars.");
                 }
                 let mut used = None;
+                let mut audition_doctor: Option<(usize, bool)> = None;
                 for (index, proposal) in self.doctor_proposals.iter().enumerate() {
                     ui.group(|ui| {
                         ui.label(egui::RichText::new(&proposal.title).strong());
                         ui.label(&proposal.detail);
-                        if ui.button("Use").clicked() {
-                            used = Some(index);
-                        }
+                        ui.horizontal(|ui| {
+                            if ui.button("Use").clicked() {
+                                used = Some(index);
+                            }
+                            if ui.small_button("A").on_hover_text("Hear before").clicked() {
+                                audition_doctor = Some((index, false));
+                            }
+                            if ui.small_button("B").on_hover_text("Hear after").clicked() {
+                                audition_doctor = Some((index, true));
+                            }
+                        });
                     });
+                }
+                if let Some((index, after)) = audition_doctor {
+                    let proposal = self.doctor_proposals[index].clone();
+                    self.audition_proposal(&proposal, after);
                 }
                 if let Some(index) = used {
                     let proposal = self.doctor_proposals[index].clone();
@@ -2911,21 +2942,7 @@ impl ShellApp {
                 }
                 if let Some((index, after)) = audition_fit {
                     let proposal = self.fit_proposals[index].clone();
-                    let mut project = self.editor.project().clone();
-                    if after
-                        && let Ok(mut session) = app_commands::EditSession::new(project.clone())
-                        && arranging::apply(&mut session, &proposal).is_ok()
-                    {
-                        project = session.project().clone();
-                    }
-                    let mut rendered = audio::render(&project.song, audio::SAMPLE_RATE);
-                    let _ = audio::mix::mix_audio_references(&mut rendered, &project.song, 0.9);
-                    self.audition_player = audio::player::Player::new(rendered).ok();
-                    self.status = Some(String::from(if after {
-                        "audition: after"
-                    } else {
-                        "audition: before"
-                    }));
+                    self.audition_proposal(&proposal, after);
                 }
                 if let Some(index) = use_fit {
                     let proposal = self.fit_proposals[index].clone();

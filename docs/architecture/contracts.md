@@ -554,7 +554,7 @@ undo.
 The Arrangement Doctor window has low/high/polyphony fields and a drum-kit
 checkbox; Compute fit calls `fit_to_synth` and shows its proposals with a Use
 button that applies through `Editor::apply_proposal`. The CLI path remains
-`fit-project`. A/B audition is implemented: each fit card has A and B buttons; B applies the proposal to a cloned session, renders both versions with audio references, and plays through a separate audition player so transport state is untouched.
+`fit-project`. A/B audition is implemented for both Doctor and fit cards through one helper: B applies the proposal to a cloned session, renders both versions with audio references, and plays through a separate audition player so transport state is untouched.
 
 ### Chord symbols in the score
 
