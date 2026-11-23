@@ -731,3 +731,10 @@ WAV count equal the returned stem count.
 `Editor::import_l6max` at a start tick, returning imported and problem counts.
 The sidebar Import L6max button uses folder mode. A test writes two synthetic
 takes and checks two tracks and no problems.
+
+### Lyric lane
+
+The piano roll reserves a 14 px lyric lane below the chord lane, draws each
+syllable at its tick and returns the nearest lyric tick on click; the shell opens
+the Lyrics window with that row selected. The lane is display and selection
+only; edits still go through the Lyrics window.

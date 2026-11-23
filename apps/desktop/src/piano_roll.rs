@@ -18,6 +18,8 @@ pub const CLIP_LANE_HEIGHT: f32 = 18.0;
 pub const CHORD_LANE_HEIGHT: f32 = 16.0;
 /// Height of the ruler above the lanes.
 pub const RULER_HEIGHT: f32 = 18.0;
+/// Height of the lyric lane under the chord lane.
+pub const LYRIC_LANE_HEIGHT: f32 = 14.0;
 
 /// Horizontal zoom: ticks per screen point.
 const MIN_TICKS_PER_POINT: f32 = 2.0;
@@ -82,7 +84,12 @@ fn geometry_hint(state: &RollState, song: &Song, rect: Rect) -> RollGeometry {
     RollGeometry {
         origin: Pos2::new(
             rect.left() + 48.0,
-            rect.top() + RULER_HEIGHT + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT + 6.0,
+            rect.top()
+                + RULER_HEIGHT
+                + CLIP_LANE_HEIGHT
+                + CHORD_LANE_HEIGHT
+                + LYRIC_LANE_HEIGHT
+                + 6.0,
         ),
         ticks_per_point: state.ticks_per_point,
         row_height: 10.0,
@@ -181,6 +188,8 @@ pub struct RollOutcome {
     pub chord: Option<Tick>,
     /// Tick clicked on the ruler, for seeking.
     pub seek: Option<Tick>,
+    /// Lyric tick clicked in the lyric lane.
+    pub lyric: Option<Tick>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -390,7 +399,12 @@ pub fn show(
     let geometry = RollGeometry {
         origin: Pos2::new(
             rect.left() + 48.0,
-            rect.top() + RULER_HEIGHT + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT + 6.0,
+            rect.top()
+                + RULER_HEIGHT
+                + CLIP_LANE_HEIGHT
+                + CHORD_LANE_HEIGHT
+                + LYRIC_LANE_HEIGHT
+                + 6.0,
         ),
         ticks_per_point: state.ticks_per_point,
         row_height: 10.0,
@@ -410,6 +424,7 @@ pub fn show(
         selected_clip,
     );
     draw_chord_lane(&painter, content, &geometry, song);
+    draw_lyric_lane(&painter, content, &geometry, song);
     draw_grid(&painter, content, &geometry, song);
     for (index, track) in song.tracks.iter().enumerate() {
         let colour = theme::track_colour(index);
@@ -464,6 +479,21 @@ pub fn show(
         };
     }
     if response.clicked()
+        && pointer.y >= content.top() + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT
+        && pointer.y < content.top() + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT + LYRIC_LANE_HEIGHT
+    {
+        let tick = geometry.tick_at(pointer.x).max(0);
+        let nearest = song
+            .lyrics
+            .iter()
+            .min_by_key(|event| (event.tick - tick).abs())
+            .map(|event| event.tick);
+        return RollOutcome {
+            lyric: nearest,
+            ..RollOutcome::default()
+        };
+    }
+    if response.clicked()
         && pointer.y >= content.top() + CLIP_LANE_HEIGHT
         && pointer.y < content.top() + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT
     {
@@ -506,6 +536,7 @@ pub fn show(
                     preview: None,
                     chord: None,
                     seek: None,
+                    lyric: None,
                 };
             }
         }
@@ -536,6 +567,7 @@ pub fn show(
                     preview: None,
                     chord: None,
                     seek: None,
+                    lyric: None,
                 };
             }
         }
@@ -549,6 +581,7 @@ pub fn show(
         preview: None,
         chord: None,
         seek: None,
+        lyric: None,
     }
 }
 
@@ -673,6 +706,31 @@ fn draw_clip_lane(
                 theme::text_muted(),
             );
         }
+    }
+}
+
+fn draw_lyric_lane(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song: &Song) {
+    let top = rect.top() + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT;
+    painter.rect_filled(
+        Rect::from_min_size(
+            Pos2::new(rect.left(), top),
+            Vec2::new(rect.width(), LYRIC_LANE_HEIGHT),
+        ),
+        0.0,
+        theme::raised(),
+    );
+    for event in &song.lyrics {
+        let x = geometry.x_at(event.tick);
+        if x < rect.left() || x > rect.right() - 8.0 {
+            continue;
+        }
+        painter.text(
+            Pos2::new(x + 2.0, top + LYRIC_LANE_HEIGHT / 2.0),
+            egui::Align2::LEFT_CENTER,
+            &event.text,
+            egui::FontId::proportional(9.0),
+            theme::text_muted(),
+        );
     }
 }
 

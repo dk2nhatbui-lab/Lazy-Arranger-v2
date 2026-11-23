@@ -3734,6 +3734,7 @@ impl eframe::App for ShellApp {
                 let mut velocity_edit: Option<(TrackId, project::NoteId, u8)> = None;
                 let mut preview_note: Option<u8> = None;
                 let mut chord_click: Option<Tick> = None;
+                let mut lyric_click: Option<Tick> = None;
                 let mut seek: Option<Tick> = None;
                 let Self { editor, roll, .. } = self;
                 let selected_clip = self.selected_clip;
@@ -3844,6 +3845,9 @@ impl eframe::App for ShellApp {
                         }
                         if let Some(tick) = outcome.chord {
                             chord_click = Some(tick);
+                        }
+                        if let Some(tick) = outcome.lyric {
+                            lyric_click = Some(tick);
                         }
                         if let Some(tick) = outcome.seek {
                             seek = Some(tick);
@@ -4180,6 +4184,7 @@ impl eframe::App for ShellApp {
                     preview_note,
                     chord_click,
                     seek,
+                    lyric_click,
                 )
             });
         let (
@@ -4199,6 +4204,7 @@ impl eframe::App for ShellApp {
             preview_note,
             chord_click,
             seek,
+            lyric_click,
         ) = panel.inner;
         if let Some(tick) = seek {
             let tick = tick.max(0);
@@ -4208,6 +4214,17 @@ impl eframe::App for ShellApp {
                 let _ = player.seek_seconds(self.song().tempo_map.seconds_at(tick));
             }
             self.position = tick;
+        }
+        if let Some(tick) = lyric_click {
+            self.lyrics_open = true;
+            self.lyric_selected = Some(tick);
+            self.lyric_text = self
+                .song()
+                .lyrics
+                .iter()
+                .find(|event| event.tick == tick)
+                .map(|event| event.text.clone())
+                .unwrap_or_default();
         }
         if let Some(tick) = chord_click {
             self.selected_chord = Some(tick);
