@@ -221,6 +221,29 @@ enum Commands {
         /// Action, e.g. `play`, `stop`, `scene 1`, `fader track-2`.
         action: String,
     },
+    /// Generate a part: humanise notes, drumify bars or write bass/pad/arp.
+    Generate {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Target track id.
+        #[arg(long)]
+        track: u32,
+        /// Operation: humanize, drumify, bass, pad or arp.
+        #[arg(long)]
+        op: String,
+        /// Output project `.json` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Timing jitter in ticks for humanize.
+        #[arg(long, default_value_t = 8)]
+        timing: i64,
+        /// Velocity jitter for humanize.
+        #[arg(long, default_value_t = 4)]
+        velocity: u8,
+        /// Random seed.
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+    },
     /// Slice a drum loop at its attacks and write one WAV per pad.
     DrumSlice {
         /// Source `.wav` file.
@@ -675,6 +698,50 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 entry.path.display()
             );
             style_command(&entry.path, section.as_deref(), out.as_ref(), &[], false)
+        }
+        Commands::Generate {
+            project,
+            track,
+            op,
+            out,
+            timing,
+            velocity,
+            seed,
+        } => {
+            let project = read_project(&project)?;
+            let mut session = EditSession::new(project)?;
+            let track = TrackId::new(track)?;
+            let song = session.song().clone();
+            let count = match op.as_str() {
+                "humanize" => {
+                    arranging::generate::humanize(&mut session, track, timing, velocity, seed)?
+                }
+                "drumify" => arranging::generate::drumify(&mut session, track, &song)?,
+                "bass" => arranging::generate::write_part(
+                    &mut session,
+                    track,
+                    arranging::generate::Part::Bass,
+                    &song,
+                )?,
+                "pad" => arranging::generate::write_part(
+                    &mut session,
+                    track,
+                    arranging::generate::Part::Pad,
+                    &song,
+                )?,
+                "arp" => arranging::generate::write_part(
+                    &mut session,
+                    track,
+                    arranging::generate::Part::Arpeggio,
+                    &song,
+                )?,
+                other => return Err(format!("unknown op {other}").into()),
+            };
+            let json = session.project().to_json_pretty()?;
+            fs::write(&out, json)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!("{op}: {count} note(s) -> {}", out.display());
+            Ok(())
         }
         Commands::DrumSlice { wav, out } => {
             let bytes = fs::read(&wav)

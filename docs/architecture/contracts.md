@@ -714,3 +714,12 @@ buffer, then sums it through the bus fader and pan, so a zero bus fader silences
 routed tracks and a bus pan moves them. The Mix view lists bus faders and a
 routing picker per track. There is no reverb/chorus processing, no send-level
 control in the UI and no master effects.
+
+### Generated parts
+
+`arranging::generate` holds rule-based assistants, not models. `humanize`
+nudges starts and velocities by a seeded amount and clamps them; `drumify`
+writes a basic kit for every bar containing a chord; `write_part` writes bass,
+pad or arpeggio notes from the chord timeline. Each call is one
+`ReplaceTrackNotes` edit. The `generate` CLI exposes them. There is no learned
+generation, continuation or melody writer, and no UI or MCP tool yet.
