@@ -1,0 +1,13 @@
+[package]
+name = "plugin-host"
+description = "Isolated VST3/AU FFI boundary for Lazy Arranger"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+libloading = "0.8"
+vst3 = "0.3"
+
+[lints]

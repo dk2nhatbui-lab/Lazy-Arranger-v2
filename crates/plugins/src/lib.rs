@@ -258,6 +258,22 @@ fn au_plugins(path: &Path) -> Vec<FoundPlugin> {
 }
 
 fn vst3_plugins(path: &Path) -> Vec<FoundPlugin> {
+    if let Ok(classes) = plugin_host::scan_vst3(path)
+        && !classes.is_empty()
+    {
+        return classes
+            .into_iter()
+            .map(|class| FoundPlugin {
+                name: class.name,
+                vendor: class.vendor,
+                version: class.version,
+                identifier: class.cid,
+                role: role_from_text(&class.subcategories),
+                path: path.to_path_buf(),
+                format: Format::Vst3,
+            })
+            .collect();
+    }
     let moduleinfo = path
         .join("Contents")
         .join("Resources")

@@ -36,12 +36,17 @@ plugin cache and a shared GUI/main-thread model.
   richer My Plug-Ins browser (vendor, role, count);
 - unit tests for AU, VST3 and catalog parsing.
 
-**Blocked next step:** loading VST3/AU binaries requires `unsafe` FFI, while the
-workspace currently uses `unsafe_code = "forbid"`. The correct next change is an
-isolated `plugin-host` crate (or scanner helper) that allows `unsafe` only at the
-FFI boundary, never a blanket workspace allowance. Then add class IDs, parameters,
-ports, state and processing; AU v2 needs the AudioToolbox C API and a macOS-only
-host module. Editors need a separate main-thread/event-loop subsystem.
+**Isolated FFI now exists:** `crates/plugin-host` is the only crate with
+`unsafe`, and it scans real VST3 modules through `IPluginFactory2`. It reports
+class id, name, vendor, version and subcategories for installed R0Verb, LABS,
+sforzando and Band-in-a-Box. `plugins` uses it when `moduleinfo.json` is absent.
+The crate has no lints inheritance by design; all other crates still forbid
+`unsafe`.
+
+The next step is instantiation/processing: component + controller, setup,
+audio-bus buffers and a `ProcessData` loop, then AU v2 (AudioToolbox C API) and
+editors (main-thread event loop). Production scanning should move to a
+subprocess, as both references do.
 
 ## MIDI engine
 
