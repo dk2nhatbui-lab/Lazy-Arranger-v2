@@ -334,6 +334,16 @@ fn count_in_audio(bpm: f64, bars: u8) -> audio::RenderedAudio {
     }
 }
 
+/// Formats bytes as space-separated uppercase hex.
+#[must_use]
+pub fn sysex_hex(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 pub fn parse_sysex(text: &str) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
     for token in text.split_whitespace() {
@@ -795,6 +805,7 @@ pub struct ShellApp {
     device_editor_profile: usize,
     device_editor_values: Vec<u8>,
     device_sysex: String,
+    device_dump_path: String,
     groove_open: bool,
     groove_entries: Vec<(String, std::path::PathBuf)>,
     groove_selected: usize,
@@ -1090,6 +1101,7 @@ impl ShellApp {
             device_editor_profile: 0,
             device_editor_values: Vec::new(),
             device_sysex: String::new(),
+            device_dump_path: String::from("dump.syx"),
             groove_open: initial_window == "groove",
             groove_entries: Vec::new(),
             groove_selected: 0,
@@ -6422,6 +6434,29 @@ impl ShellApp {
                 if controls.is_empty() {
                     ui.label("This profile has no controls.");
                 }
+                if ui
+                    .button("Send all")
+                    .on_hover_text("Send every control's current value")
+                    .clicked()
+                {
+                    let sends: Vec<(u8, u8, u8)> = controls
+                        .iter()
+                        .zip(&self.device_editor_values)
+                        .map(|(control, value)| (control.channel, control.cc, *value))
+                        .collect();
+                    for (channel_number, cc, value) in sends {
+                        if let (Ok(channel), Ok(controller)) = (
+                            music_core::Channel::from_one_based(channel_number),
+                            music_core::ControlNumber::new(cc),
+                        ) {
+                            self.send_midi(music_core::MidiMessage::ControlChange {
+                                channel,
+                                controller,
+                                value,
+                            });
+                        }
+                    }
+                }
                 ui.separator();
                 ui.label("System exclusive (hex)");
                 ui.add(
@@ -6435,6 +6470,47 @@ impl ShellApp {
                         Err(error) => self.status = Some(error),
                     }
                 }
+                ui.horizontal(|ui| {
+                    ui.label("Dump file");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.device_dump_path).desired_width(200.0),
+                    );
+                    if ui.button("Save dump").clicked() {
+                        match parse_sysex(&self.device_sysex) {
+                            Ok(bytes) => match std::fs::write(&self.device_dump_path, &bytes) {
+                                Ok(()) => {
+                                    self.status = Some(format!(
+                                        "wrote {} byte(s) to {}",
+                                        bytes.len(),
+                                        self.device_dump_path
+                                    ));
+                                }
+                                Err(error) => self.status = Some(error.to_string()),
+                            },
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                    if ui.button("Load dump").clicked() {
+                        match std::fs::read(&self.device_dump_path) {
+                            Ok(bytes) => {
+                                self.device_sysex = sysex_hex(&bytes);
+                                self.send_raw(&bytes);
+                                self.status =
+                                    Some(format!("loaded and sent {} byte(s)", bytes.len()));
+                            }
+                            Err(error) => self.status = Some(error.to_string()),
+                        }
+                    }
+                    if ui.button("Send file").clicked() {
+                        match std::fs::read(&self.device_dump_path) {
+                            Ok(bytes) => {
+                                self.send_raw(&bytes);
+                                self.status = Some(format!("sent {} byte(s)", bytes.len()));
+                            }
+                            Err(error) => self.status = Some(error.to_string()),
+                        }
+                    }
+                });
             });
         self.device_editor_open = open;
     }
@@ -11591,6 +11667,13 @@ mod tests {
         assert!(!plugin_matches(&plugin, "LABS", None));
         assert!(plugin_matches(&plugin, "", Some(Format::AudioUnit)));
         assert!(!plugin_matches(&plugin, "", Some(Format::Vst3)));
+    }
+
+    #[test]
+    fn sysex_hex_round_trips() {
+        let bytes = parse_sysex("F0 7E 7F 09 01 F7").expect("bytes");
+        assert_eq!(sysex_hex(&bytes), "F0 7E 7F 09 01 F7");
+        assert_eq!(parse_sysex(&sysex_hex(&bytes)).expect("back"), bytes);
     }
 
     #[test]
