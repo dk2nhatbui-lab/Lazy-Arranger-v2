@@ -183,6 +183,104 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
     })
 }
 
+/// Decodes one audio reference; WAV keeps stereo, other formats are mono.
+fn load_reference_audio(reference: &project::song::AudioRef) -> Option<RenderedAudio> {
+    let path = std::path::Path::new(&reference.path);
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.starts_with(b"RIFF") {
+        wav::decode_stereo(&bytes).ok()
+    } else {
+        let mono = decode::decode_mono(path).ok()?;
+        let mut samples = Vec::with_capacity(mono.frames() * usize::from(CHANNELS));
+        for frame in 0..mono.frames() {
+            let value = mono.samples.get(frame).copied().unwrap_or_default();
+            samples.extend_from_slice(&[value, value]);
+        }
+        Some(RenderedAudio {
+            samples,
+            sample_rate: mono.sample_rate,
+        })
+    }
+}
+
+/// Mixes one audio reference into a track buffer with offset, stretch and fades.
+fn mix_audio_reference(
+    song: &Song,
+    track: &project::song::Track,
+    track_buffer: &mut [f32],
+    reference: &project::song::AudioRef,
+    sample_rate: u32,
+) {
+    let Some(source) = load_reference_audio(reference) else {
+        return;
+    };
+    if source.samples.is_empty() || reference.length == 0 {
+        return;
+    }
+    let rate = f64::from(sample_rate.max(1));
+    let start_seconds = song.tempo_map.duration_seconds(0, reference.start);
+    let end_seconds = song
+        .tempo_map
+        .duration_seconds(0, reference.start.saturating_add(reference.length));
+    let offset_seconds = song.tempo_map.duration_seconds(0, reference.offset);
+    let target_start = (start_seconds * rate).round() as usize;
+    let target_frames = ((end_seconds - start_seconds).max(0.0) * rate).round() as usize;
+    if target_frames == 0 {
+        return;
+    }
+    let source_start = (offset_seconds * f64::from(source.sample_rate.max(1))).round() as usize;
+    let source_frames = source.frames().saturating_sub(source_start);
+    if source_frames == 0 {
+        return;
+    }
+    let ratio = if reference.stretch {
+        source_frames as f64 / target_frames as f64
+    } else {
+        f64::from(source.sample_rate.max(1)) / rate
+    };
+    let fade_in = if reference.fade_in > 0 {
+        song.tempo_map.duration_seconds(
+            reference.start,
+            reference.start.saturating_add(reference.fade_in),
+        ) * rate
+    } else {
+        0.0
+    };
+    let fade_out = if reference.fade_out > 0 {
+        let from = reference
+            .start
+            .saturating_add(reference.length.saturating_sub(reference.fade_out));
+        song.tempo_map
+            .duration_seconds(from, reference.start.saturating_add(reference.length))
+            * rate
+    } else {
+        0.0
+    };
+    let (left_gain, right_gain) = gains(f32::from(track.volume), track.pan);
+    for frame in 0..target_frames {
+        let target = target_start + frame;
+        if target >= track_buffer.len() / usize::from(CHANNELS) {
+            break;
+        }
+        let source_position = source_start + (frame as f64 * ratio).round() as usize;
+        if source_position >= source.frames() {
+            break;
+        }
+        let mut gain = 1.0_f64;
+        if fade_in > 0.0 {
+            gain = gain.min((frame as f64 / fade_in).min(1.0));
+        }
+        if fade_out > 0.0 {
+            gain = gain.min(((target_frames.saturating_sub(frame)) as f64 / fade_out).min(1.0));
+        }
+        let gain = gain as f32;
+        let left = source.samples[source_position * 2] * left_gain * gain;
+        let right = source.samples[source_position * 2 + 1] * right_gain * gain;
+        track_buffer[target * 2] += left;
+        track_buffer[target * 2 + 1] += right;
+    }
+}
+
 /// Renders every track, loading SoundFonts through `load`.
 #[must_use]
 pub fn render_with_soundfont(
@@ -228,6 +326,9 @@ pub fn render_with_soundfont(
             load(&reference.path).map(|font| (font, reference.bank, reference.program))
         });
         let mut track_buffer = vec![0.0_f32; frames * usize::from(CHANNELS)];
+        if let Some(reference) = &track.audio {
+            mix_audio_reference(song, track, &mut track_buffer, reference, sample_rate);
+        }
         if let Some(mut instrument) = instrument_for(track, sample_rate) {
             render_instrument(
                 song,
@@ -1521,6 +1622,73 @@ mod tests {
                 .fold(0.0_f32, |peak, sample| peak.max(sample.abs()))
         };
         assert!(peak(&with_send) > peak(&dry), "a send adds the wet copy");
+    }
+
+    #[test]
+    fn audio_references_are_mixed() {
+        use project::song::{AudioRef, Track};
+        let mut song = Song::new("Audio", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Take");
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-audio-mix-{}.wav",
+            std::process::id()
+        ));
+        let source = RenderedAudio {
+            samples: vec![0.5; SAMPLE_RATE as usize * 2],
+            sample_rate: SAMPLE_RATE,
+        };
+        std::fs::write(&path, source.to_wav32f()).expect("write wav");
+        track.audio = Some(AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: music_core::PPQ * 2,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let rendered = render(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            rendered.samples.iter().any(|sample| *sample > 0.3),
+            "audio reference reaches the mix"
+        );
+    }
+
+    #[test]
+    fn audio_reference_start_and_fade_are_applied() {
+        use project::song::{AudioRef, Track};
+        let mut song = Song::new("Audio", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Take");
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-audio-fade-{}.wav",
+            std::process::id()
+        ));
+        let source = RenderedAudio {
+            samples: vec![0.5; SAMPLE_RATE as usize * 2],
+            sample_rate: SAMPLE_RATE,
+        };
+        std::fs::write(&path, source.to_wav32f()).expect("write wav");
+        track.audio = Some(AudioRef {
+            path: path.display().to_string(),
+            start: music_core::PPQ,
+            length: music_core::PPQ * 2,
+            offset: 0,
+            fade_in: music_core::PPQ,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let rendered = render(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        let at = |seconds: f64| {
+            let frame = (seconds * f64::from(SAMPLE_RATE)).round() as usize;
+            rendered.samples[frame * 2]
+        };
+        assert!(at(0.1).abs() < 1.0e-6, "silent before the clip start");
+        assert!(at(0.6) < 0.12, "fade-in starts quietly");
+        assert!(at(1.1) > 0.3, "full gain after the fade");
     }
 
     #[test]

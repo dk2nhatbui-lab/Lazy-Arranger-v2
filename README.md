@@ -57,7 +57,7 @@ Korg PCG, built-in speech/model services and hardware acceptance.
 
 ## State at round 402
 
-`cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (**752 tests**) and
+`cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (**758 tests**) and
 rustdoc pass. A macOS bundle script creates an ad-hoc-signed
 `dist/Lazy Arranger Midi DAW.app`; the bundle was launched and captured in
 `docs/audit/app-bundle.png`.

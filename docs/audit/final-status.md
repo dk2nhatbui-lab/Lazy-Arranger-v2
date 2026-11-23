@@ -172,3 +172,4 @@ For the clef layout, choose either four measures per system without clefs
 - Controllers window loads a Launchkey mixer preset (CC 21-28 -> faders 1-8); hardware unverified (`docs/audit/controllers.png`).
 - Assistant speech can use a custom {text} command (e.g. Kokoro/Piper) instead of say; mock-tested.
 - XG part mixer sends 16-part volume/pan/reverb/chorus CCs; hardware unverified (`docs/audit/xg-mixer.png`).
+- Audio references are mixed in the offline render and cpal playback with start/offset/fades/stretch; render and bounce tests cover it.
