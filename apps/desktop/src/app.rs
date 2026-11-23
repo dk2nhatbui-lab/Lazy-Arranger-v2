@@ -6724,9 +6724,9 @@ impl ShellApp {
             soundfont,
             plugins,
             automation,
-            bus,
-            send,
-            send_level,
+            mut bus,
+            mut send,
+            mut send_level,
         )) = info
         else {
             self.inspector_open = false;
@@ -6912,7 +6912,76 @@ impl ShellApp {
                         }
                     }
                 });
-                ui.label(format!("bus {:?} · send {:?} at {send_level}", bus, send));
+                let bus_options: Vec<(u8, String)> = self
+                    .song()
+                    .buses
+                    .iter()
+                    .map(|bus| (bus.id, bus.name.clone()))
+                    .collect();
+                let mut routing_changed = false;
+                ui.horizontal(|ui| {
+                    ui.label("Bus");
+                    egui::ComboBox::from_id_salt("track-bus")
+                        .selected_text(
+                            bus.and_then(|id| {
+                                bus_options
+                                    .iter()
+                                    .find(|(option, _)| *option == id)
+                                    .map(|(_, name)| name.as_str())
+                            })
+                            .unwrap_or("None"),
+                        )
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(bus.is_none(), "None").clicked() {
+                                bus = None;
+                                routing_changed = true;
+                            }
+                            for (id, name) in &bus_options {
+                                if ui.selectable_label(bus == Some(*id), name).clicked() {
+                                    bus = Some(*id);
+                                    routing_changed = true;
+                                }
+                            }
+                        });
+                    ui.label("Send");
+                    egui::ComboBox::from_id_salt("track-send")
+                        .selected_text(
+                            send.and_then(|id| {
+                                bus_options
+                                    .iter()
+                                    .find(|(option, _)| *option == id)
+                                    .map(|(_, name)| name.as_str())
+                            })
+                            .unwrap_or("None"),
+                        )
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(send.is_none(), "None").clicked() {
+                                send = None;
+                                routing_changed = true;
+                            }
+                            for (id, name) in &bus_options {
+                                if ui.selectable_label(send == Some(*id), name).clicked() {
+                                    send = Some(*id);
+                                    routing_changed = true;
+                                }
+                            }
+                        });
+                    if ui
+                        .add(egui::Slider::new(&mut send_level, 0..=127).text("send level"))
+                        .changed()
+                    {
+                        routing_changed = true;
+                    }
+                });
+                if routing_changed {
+                    match self
+                        .editor
+                        .set_track_routing(track_id, bus, send, send_level)
+                    {
+                        Ok(()) => self.status = Some(String::from("routing updated")),
+                        Err(error) => self.status = Some(error),
+                    }
+                }
                 if let Some(reference) = &audio {
                     ui.label(
                         egui::RichText::new(format!(

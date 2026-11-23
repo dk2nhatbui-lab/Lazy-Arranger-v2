@@ -160,3 +160,4 @@ For the clef layout, choose either four measures per system without clefs
 - Mixer faders support Shift fine adjust and double-click reset.
 - MIDI monitor keeps two minutes of timestamped messages (`docs/audit/midi-monitor.png`); hardware unverified.
 - Mixer shows bus strips with pan and fader (`docs/audit/ui-bus-strips.png`).
+- Inspector edits track bus, send and send level (`docs/audit/ui-routing.png`).
