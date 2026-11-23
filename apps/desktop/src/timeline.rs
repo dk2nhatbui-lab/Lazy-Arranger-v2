@@ -8,6 +8,7 @@ use music_core::Tick;
 use project::ClipId;
 use project::TrackId;
 use project::song::Song;
+use std::collections::HashMap;
 
 const LABEL_WIDTH: f32 = 0.0;
 const DRAG_GRID: Tick = 240;
@@ -89,6 +90,7 @@ pub fn show(
     selected: Option<TrackId>,
     zoom: f32,
     follow_playhead: bool,
+    waveforms: &HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
 ) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
     let bar = song.time_signature.bar_ticks().max(1);
     let bars = ((song.end_tick().max(bar * 8) + bar - 1) / bar).max(8);
@@ -101,7 +103,9 @@ pub fn show(
         .id_salt("timeline-scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            result = draw(ui, song, position, selected, width, drag_id, edit_id);
+            result = draw(
+                ui, song, position, selected, width, drag_id, edit_id, waveforms,
+            );
             result.2 = ui.data_mut(|data| {
                 let edit = data.get_temp::<ClipEdit>(edit_id);
                 data.remove::<ClipEdit>(edit_id);
@@ -123,6 +127,7 @@ pub fn show(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw(
     ui: &mut egui::Ui,
     song: &Song,
@@ -131,6 +136,7 @@ fn draw(
     width: f32,
     drag_id: egui::Id,
     edit_id: egui::Id,
+    waveforms: &HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
 ) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
     let tracks = song.tracks.len().max(1);
     let height = RULER_HEIGHT + CHORD_HEIGHT + tracks as f32 * LANE_HEIGHT;
@@ -262,6 +268,29 @@ fn draw(
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or("audio");
+            if let Some((_, peaks)) = waveforms.get(&track.id)
+                && !peaks.is_empty()
+            {
+                let mut x = block.left() + 1.0;
+                while x < block.right() - 1.0 {
+                    let fraction = ((x - block.left()) / block.width().max(1.0)).clamp(0.0, 1.0);
+                    let index = (fraction * (peaks.len() - 1) as f32).round() as usize;
+                    let amplitude = peaks[index]
+                        .min
+                        .abs()
+                        .max(peaks[index].max.abs())
+                        .clamp(0.0, 1.0);
+                    let half = amplitude * (block.height() / 2.0 - 3.0);
+                    painter.line_segment(
+                        [
+                            pos2(x, block.center().y - half),
+                            pos2(x, block.center().y + half),
+                        ],
+                        Stroke::new(1.0_f32, theme::text().gamma_multiply(0.45)),
+                    );
+                    x += 2.0;
+                }
+            }
             painter.text(
                 pos2(block.left() + 6.0, block.center().y),
                 Align2::LEFT_CENTER,
@@ -418,7 +447,7 @@ mod tests {
         let _ = context.run(egui::RawInput::default(), |context| {
             egui::CentralPanel::default().show(context, |ui| {
                 let song = arranging::demo::demo_song();
-                let _ = show(ui, &song, 0, None, 1.0, false);
+                let _ = show(ui, &song, 0, None, 1.0, false, &HashMap::new());
                 ran = true;
             });
         });

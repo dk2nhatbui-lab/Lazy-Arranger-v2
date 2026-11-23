@@ -736,6 +736,7 @@ pub struct ShellApp {
     available_update: Option<crate::update::Release>,
     update_download: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>>,
     waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
+    timeline_waveforms: std::collections::HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
     audio_inputs: Option<Vec<String>>,
     audio_outputs: Option<Vec<String>>,
@@ -1024,6 +1025,7 @@ impl ShellApp {
             available_update: None,
             update_download: None,
             waveform: None,
+            timeline_waveforms: std::collections::HashMap::new(),
             midi_ports: None,
             audio_inputs: None,
             audio_outputs: None,
@@ -2071,6 +2073,39 @@ impl ShellApp {
     fn refresh_waveform(&mut self) {
         if self.view != View::Arrange {
             return;
+        }
+        let audio_tracks: Vec<(TrackId, String)> = self
+            .song()
+            .tracks
+            .iter()
+            .filter_map(|track| {
+                track
+                    .audio
+                    .as_ref()
+                    .map(|reference| (track.id, reference.path.clone()))
+            })
+            .collect();
+        for (id, path) in audio_tracks {
+            if self
+                .timeline_waveforms
+                .get(&id)
+                .is_some_and(|(cached, _)| *cached == path)
+            {
+                continue;
+            }
+            let source = std::path::Path::new(&path);
+            let peaks = std::fs::read(source)
+                .ok()
+                .and_then(|bytes| {
+                    if bytes.starts_with(b"RIFF") {
+                        audio::wav::decode_mono(&bytes).ok()
+                    } else {
+                        audio::decode::decode_mono(source).ok()
+                    }
+                })
+                .map(|decoded| audio::waveform::peaks(&decoded.samples, 240))
+                .unwrap_or_default();
+            self.timeline_waveforms.insert(id, (path, peaks));
         }
         let Some(track) = self
             .roll
@@ -7535,6 +7570,39 @@ impl ShellApp {
 
     /// The Beat view: four drum rows of sixteen steps for one bar.
     fn load_beat(&mut self) {
+        let audio_tracks: Vec<(TrackId, String)> = self
+            .song()
+            .tracks
+            .iter()
+            .filter_map(|track| {
+                track
+                    .audio
+                    .as_ref()
+                    .map(|reference| (track.id, reference.path.clone()))
+            })
+            .collect();
+        for (id, path) in audio_tracks {
+            if self
+                .timeline_waveforms
+                .get(&id)
+                .is_some_and(|(cached, _)| *cached == path)
+            {
+                continue;
+            }
+            let source = std::path::Path::new(&path);
+            let peaks = std::fs::read(source)
+                .ok()
+                .and_then(|bytes| {
+                    if bytes.starts_with(b"RIFF") {
+                        audio::wav::decode_mono(&bytes).ok()
+                    } else {
+                        audio::decode::decode_mono(source).ok()
+                    }
+                })
+                .map(|decoded| audio::waveform::peaks(&decoded.samples, 240))
+                .unwrap_or_default();
+            self.timeline_waveforms.insert(id, (path, peaks));
+        }
         let Some(track) = self
             .roll
             .selected
@@ -9320,6 +9388,7 @@ impl eframe::App for ShellApp {
                                 roll.selected,
                                 timeline_zoom,
                                 self.playing,
+                                &self.timeline_waveforms,
                             )
                         } else {
                             (
