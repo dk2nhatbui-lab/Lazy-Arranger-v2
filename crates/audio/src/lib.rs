@@ -1649,10 +1649,18 @@ mod tests {
         });
         song.tracks.push(track);
         let rendered = render(&song, SAMPLE_RATE);
-        let _ = std::fs::remove_file(&path);
         assert!(
             rendered.samples.iter().any(|sample| *sample > 0.3),
             "audio reference reaches the mix"
+        );
+        song.buses.push(project::song::Bus::new(1, "FX"));
+        song.tracks[0].bus = Some(1);
+        song.buses[0].volume = 0;
+        let silent = render(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            silent.samples.iter().all(|sample| sample.abs() < 1.0e-6),
+            "the audio reference follows bus routing"
         );
     }
 
