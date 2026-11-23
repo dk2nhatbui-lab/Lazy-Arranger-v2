@@ -114,6 +114,7 @@ struct Row {
     program: Option<u8>,
     muted: bool,
     soloed: bool,
+    armed: bool,
 }
 
 /// Which file action the path window is serving.
@@ -528,6 +529,7 @@ pub struct ShellApp {
     midi_recent: std::collections::VecDeque<String>,
     controller_action: usize,
     recording: Option<std::sync::mpsc::Receiver<Result<Song, String>>>,
+    record_target: Option<TrackId>,
     record_seconds: f64,
     rename_scene: Option<usize>,
     rename_scene_input: String,
@@ -718,6 +720,7 @@ impl ShellApp {
             midi_recent: std::collections::VecDeque::new(),
             controller_action: 0,
             recording: None,
+            record_target: None,
             record_seconds: 4.0,
             rename_scene: None,
             rename_scene_input: String::new(),
@@ -1371,7 +1374,12 @@ impl ShellApp {
                     if self.settings.record_quantise {
                         quantise_recorded(&mut notes, music_core::PPQ / 4);
                     }
-                    match self.editor.insert_recorded("Recorded", &notes) {
+                    let target = self.record_target.take();
+                    let inserted = match target {
+                        Some(track) => self.editor.append_recorded(track, &notes).map(|()| track),
+                        None => self.editor.insert_recorded("Recorded", &notes),
+                    };
+                    match inserted {
                         Ok(track) => {
                             self.roll.selected = Some(track);
                             self.status = Some(format!("recorded {} notes", notes.len()));
@@ -5212,6 +5220,7 @@ impl ShellApp {
                         program: track.program,
                         muted: track.muted,
                         soloed: track.soloed,
+                        armed: track.armed,
                     })
                     .collect();
                 for row in rows {
@@ -5292,6 +5301,12 @@ impl ShellApp {
                                     .map_err(|error| error.to_string());
                                     let _ = sender.send(result);
                                 });
+                                self.record_target = self
+                                    .song()
+                                    .tracks
+                                    .iter()
+                                    .find(|track| track.armed)
+                                    .map(|track| track.id);
                                 self.recording = Some(receiver);
                                 self.status = Some(if count_in == 0 {
                                     format!("recording {seconds} s")
@@ -5548,6 +5563,15 @@ impl ShellApp {
                     let _ = self
                         .editor
                         .set_track_flags(row.id, row.muted, !row.soloed, false);
+                }
+                if ui
+                    .selectable_label(row.armed, "R")
+                    .on_hover_text("Record-arm this track")
+                    .clicked()
+                {
+                    let _ = self
+                        .editor
+                        .set_track_flags(row.id, row.muted, row.soloed, !row.armed);
                 }
                 ui.vertical(|ui| {
                     let name = if row.name.is_empty() {

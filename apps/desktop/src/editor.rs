@@ -852,6 +852,40 @@ impl Editor {
         Ok(track_id)
     }
 
+    /// Appends recorded notes to an existing track with fresh ids.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the edit is rejected.
+    pub fn append_recorded(
+        &mut self,
+        track: TrackId,
+        notes: &[project::song::Note],
+    ) -> Result<(), String> {
+        let entry = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .ok_or_else(|| String::from("unknown track"))?;
+        let mut merged = entry.notes.clone();
+        let start = merged.iter().map(|note| note.id.get()).max().unwrap_or(0) + 1;
+        for (offset, note) in notes.iter().enumerate() {
+            let mut note = note.clone();
+            note.id =
+                project::NoteId::new(start + offset as u32).map_err(|error| error.to_string())?;
+            merged.push(note);
+        }
+        self.session
+            .apply(app_commands::Command::ReplaceTrackNotes {
+                track,
+                notes: merged,
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Sets the song meter.
     ///
     /// # Errors
@@ -2068,6 +2102,18 @@ mod tests {
         assert_eq!(editor.song().lyrics.len(), 1);
         assert!(editor.undo());
         assert_eq!(editor.song().lyrics.len(), 2);
+    }
+
+    #[test]
+    fn recorded_notes_can_append_to_an_armed_track() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let before = editor.song().tracks[0].notes.len();
+        let notes = vec![editor.song().tracks[0].notes[0].clone()];
+        editor.append_recorded(track, &notes).expect("append");
+        assert_eq!(editor.song().tracks[0].notes.len(), before + 1);
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].notes.len(), before);
     }
 
     #[test]
