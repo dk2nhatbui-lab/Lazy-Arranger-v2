@@ -124,6 +124,22 @@ pub enum Command {
         /// New reference, or none to remove it.
         reference: Option<project::song::AudioRef>,
     },
+    /// Freeze a track: clear its notes and give it an audio reference.
+    FreezeTrack {
+        /// The track.
+        track: TrackId,
+        /// Rendered audio.
+        reference: project::song::AudioRef,
+    },
+    /// Restore a frozen track's notes and audio reference.
+    RestoreTrack {
+        /// The track.
+        track: TrackId,
+        /// Notes to restore.
+        notes: Vec<project::song::Note>,
+        /// Audio reference to restore.
+        audio: Option<project::song::AudioRef>,
+    },
     /// Replace a track's automation lanes.
     SetAutomation {
         /// The track.
@@ -222,6 +238,8 @@ impl Command {
             Self::SetTrackGain { .. } => "set track gain",
             Self::SetAutomation { .. } => "set automation",
             Self::SetAudioRef { .. } => "set audio reference",
+            Self::FreezeTrack { .. } => "freeze track",
+            Self::RestoreTrack { .. } => "restore track",
             Self::SetBuses { .. } => "set buses",
             Self::SetTrackPatch { .. } => "set track patch",
             Self::SetPlugins { .. } => "set plugins",
@@ -735,6 +753,38 @@ impl EditSession {
                     send_level: found.send_level,
                 }
             }
+            Command::FreezeTrack { track, .. } => Command::RestoreTrack {
+                track: *track,
+                notes: self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == *track)
+                    .map(|entry| entry.notes.clone())
+                    .unwrap_or_default(),
+                audio: self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == *track)
+                    .and_then(|entry| entry.audio.clone()),
+            },
+            Command::RestoreTrack { track, .. } => Command::RestoreTrack {
+                track: *track,
+                notes: self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == *track)
+                    .map(|entry| entry.notes.clone())
+                    .unwrap_or_default(),
+                audio: self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == *track)
+                    .and_then(|entry| entry.audio.clone()),
+            },
             Command::SetAudioRef { track, .. } => Command::SetAudioRef {
                 track: *track,
                 reference: self.track(*track)?.audio.clone(),
@@ -885,6 +935,34 @@ impl EditSession {
             Command::SetAutomation { track, lanes } => {
                 self.track_mut(*track)?.automation = lanes.clone();
             }
+            Command::FreezeTrack { track, reference } => {
+                if let Some(entry) = self
+                    .project
+                    .song
+                    .tracks
+                    .iter_mut()
+                    .find(|entry| entry.id == *track)
+                {
+                    entry.notes.clear();
+                    entry.audio = Some(reference.clone());
+                }
+            }
+            Command::RestoreTrack {
+                track,
+                notes,
+                audio,
+            } => {
+                if let Some(entry) = self
+                    .project
+                    .song
+                    .tracks
+                    .iter_mut()
+                    .find(|entry| entry.id == *track)
+                {
+                    entry.notes = notes.clone();
+                    entry.audio = audio.clone();
+                }
+            }
             Command::SetAudioRef { track, reference } => {
                 self.track_mut(*track)?.audio = reference.clone();
             }
@@ -1003,6 +1081,10 @@ fn describe(command: &Command) -> String {
             send,
             send_level,
         } => format!("track {track}: bus {bus:?}, send {send:?} at {send_level}"),
+        Command::FreezeTrack { reference, .. } => {
+            format!("freeze track to {}", reference.path)
+        }
+        Command::RestoreTrack { track, .. } => format!("restore track {track}"),
         Command::SetAudioRef { track, reference } => match reference {
             Some(reference) => format!(
                 "track {track}: audio {} from {} to {}",
@@ -1615,6 +1697,38 @@ mod tests {
         assert!(edit.song().marks.is_empty());
         edit.undo().expect("undo lyrics");
         assert!(edit.song().lyrics.is_empty());
+    }
+
+    #[test]
+    fn freezing_a_track_clears_notes_and_undo_restores() {
+        let mut edit = session();
+        edit.apply(Command::InsertNote {
+            track: TrackId::new(1).expect("valid"),
+            note: project::song::Note {
+                id: project::NoteId::new(1).expect("valid"),
+                start: 0,
+                duration: music_core::PPQ,
+                pitch: music_core::Pitch::from_name("C4").expect("valid"),
+                velocity: music_core::Velocity::new(100).expect("valid"),
+                channel: music_core::Channel::first(),
+            },
+        })
+        .expect("note");
+        edit.apply(Command::FreezeTrack {
+            track: TrackId::new(1).expect("valid"),
+            reference: project::song::AudioRef {
+                path: String::from("/tmp/freeze.wav"),
+                start: 0,
+                length: music_core::PPQ,
+                offset: 0,
+            },
+        })
+        .expect("freeze");
+        assert!(edit.song().tracks[0].notes.is_empty());
+        assert!(edit.song().tracks[0].audio.is_some());
+        edit.undo().expect("undo freeze");
+        assert_eq!(edit.song().tracks[0].notes.len(), 1);
+        assert!(edit.song().tracks[0].audio.is_none());
     }
 
     #[test]

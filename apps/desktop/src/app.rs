@@ -1433,6 +1433,19 @@ impl ShellApp {
                         );
                     }
                 }
+                if ui
+                    .small_button("Freeze")
+                    .on_hover_text("Render this track to audio and clear its notes")
+                    .clicked()
+                {
+                    let path = std::path::PathBuf::from(format!("freeze-{id}.wav"));
+                    match self.editor.freeze_track(id, &path) {
+                        Ok(()) => {
+                            self.status = Some(format!("froze {id} -> {}", path.display()));
+                        }
+                        Err(error) => self.status = Some(error),
+                    }
+                }
                 if ui.selectable_label(muted, "M").clicked() {
                     let _ = self.editor.set_track_flags(id, !muted, soloed, false);
                 }

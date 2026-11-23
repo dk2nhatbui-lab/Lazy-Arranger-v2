@@ -671,6 +671,36 @@ impl Editor {
     /// # Errors
     ///
     /// Returns a message when the command is rejected.
+    /// Freezes a track: renders it alone to `path`, clears its notes and gives
+    /// it the audio reference in one command.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the render cannot be written or the edit is
+    /// rejected.
+    pub fn freeze_track(&mut self, track: TrackId, path: &std::path::Path) -> Result<(), String> {
+        let mut song = self.song().clone();
+        song.tracks.retain(|entry| entry.id == track);
+        song.buses.clear();
+        let rendered = audio::render(&song, audio::SAMPLE_RATE);
+        std::fs::write(path, rendered.to_wav())
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let length = self.song().end_tick().max(1);
+        self.session
+            .apply(app_commands::Command::FreezeTrack {
+                track,
+                reference: project::song::AudioRef {
+                    path: path.display().to_string(),
+                    start: 0,
+                    length,
+                    offset: 0,
+                },
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Sets a tempo change at a tick.
     ///
     /// # Errors
@@ -1380,6 +1410,21 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn freezing_renders_audio_and_undo_restores_notes() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let path = std::env::temp_dir().join("lazy-arranger-freeze-test.wav");
+        editor.freeze_track(track, &path).expect("freeze");
+        assert!(editor.song().tracks[0].notes.is_empty());
+        assert!(editor.song().tracks[0].audio.is_some());
+        assert!(std::fs::metadata(&path).expect("file").len() > 44);
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].notes.len(), 1);
+        assert!(editor.song().tracks[0].audio.is_none());
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

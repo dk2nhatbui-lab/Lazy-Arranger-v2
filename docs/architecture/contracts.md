@@ -243,3 +243,11 @@ persist `master_gain_db` and `master_limiter`; the Mixer has a master gain slide
 and limiter toggle, playback applies them, and `export-audio` takes `--gain-db`
 and `--no-limiter` then prints peak/RMS. Reverb/chorus and drawn meters are not
 implemented.
+
+### Track freeze
+
+`Editor::freeze_track` renders the track alone (no buses) to a WAV path, then
+applies `FreezeTrack`, which clears the track's notes and sets its audio
+reference atomically; `RestoreTrack` is the inverse, so one undo restores both.
+The Mixer's Freeze button writes `freeze-<track>.wav` in the working directory
+and reports the path. Stem export is not implemented.
