@@ -333,7 +333,7 @@ loaded, validated or hosted, and processing still ignores slots.
 `get_clips`/`set_clips` and `get_scene_names`/`set_scene_names` expose the
 project's basic state and edits. Clip ids are optional on input (the next free
 id is used) and markers/clips are sorted by tick on write. The registry now
-holds 59 tools.
+holds 62 tools.
 
 ### Track Inspector
 
@@ -366,7 +366,7 @@ against hardware. Controller pages remain absent.
 
 `set_track_name`, `set_track_gain`, `set_track_flags`, `set_track_program` and
 `set_audio_ref` edit the same fields as the Inspector. An empty or missing audio
-path clears the reference. The registry holds 59 tools; earlier counts were two
+path clears the reference. The registry holds 62 tools; earlier counts were two
 high because the counter also matched nested `name` keys in input schemas.
 
 ### Controller page
@@ -454,7 +454,7 @@ write project, keyboard MIDI, MusicXML, 16-bit WAV and per-track stem output.
 MIDI uses each track's program and sends drum tracks to channel 10; the WAV mix
 includes audio references and reports problem count; stems write a manifest.
 One test writes all five into a temporary folder and checks non-empty files. The
-registry holds 59 tools.
+registry holds 62 tools.
 
 ### Tempo in the Inspector
 
@@ -480,7 +480,7 @@ therefore restarts from a stopped state rather than resuming audio at the tick.
 
 `add_note` inserts one note with a fresh id and optional duration/velocity,
 `remove_note` deletes by id, `set_chord` parses a symbol and writes it, and
-`remove_chord` deletes at a tick. The registry holds 59 tools.
+`remove_chord` deletes at a tick. The registry holds 62 tools.
 
 ### Resample to fit
 
@@ -490,3 +490,9 @@ target frames) instead of playing at native speed; fades still apply. This
 compresses or expands by resampling, so pitch changes; it is not a
 phase-vocoder time-stretch. The trim row has a Stretch checkbox and the editor
 writes one `SetAudioRef`.
+
+### Single-object reads
+
+`get_track`, `get_note` and `get_audio_ref` return one track, note or audio
+reference (including fades and stretch), or an explicit unknown-id error. The
+registry holds 62 tools.
