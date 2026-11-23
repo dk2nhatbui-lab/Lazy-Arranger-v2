@@ -99,6 +99,8 @@ pub struct SoundFont {
     pub instruments: Vec<Instrument>,
     /// Samples in file order.
     pub samples: Vec<Sample>,
+    /// Sample frames from the `smpl` chunk, 16-bit signed.
+    pub pcm: Vec<i16>,
 }
 
 impl SoundFont {
@@ -385,12 +387,102 @@ pub fn parse(bytes: &[u8]) -> Result<SoundFont, String> {
         });
     }
 
+    let pcm: Vec<i16> = top
+        .iter()
+        .find(|(id, body)| id == b"LIST" && body.get(0..4) == Some(b"sdta"))
+        .and_then(|(_, body)| chunks(&body[4..]).ok())
+        .and_then(|list| {
+            find(&list, b"smpl").map(|body| {
+                body.chunks_exact(2)
+                    .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+                    .collect()
+            })
+        })
+        .unwrap_or_default();
     Ok(SoundFont {
         name,
         presets,
         instruments,
         samples,
+        pcm,
     })
+}
+
+/// Renders one note from a preset zone.
+///
+/// Samples are played mono with linear interpolation; loop mode 1 repeats the
+/// loop region. Envelopes, filters and modulators are not applied.
+#[must_use]
+pub fn render_note(
+    font: &SoundFont,
+    bank: u16,
+    program: u16,
+    key: u8,
+    velocity: u8,
+    seconds: f32,
+    rate: u32,
+) -> Option<Vec<f32>> {
+    if seconds <= 0.0 || rate == 0 {
+        return None;
+    }
+    let preset = font.preset(bank, program)?;
+    let preset_zone = preset.zones.iter().find(|zone| {
+        zone.instrument.is_some()
+            && key >= zone.key_low
+            && key <= zone.key_high
+            && velocity >= zone.vel_low
+            && velocity <= zone.vel_high
+    })?;
+    let instrument = font.instruments.get(preset_zone.instrument?)?;
+    let zone = instrument.zones.iter().find(|zone| {
+        zone.sample.is_some()
+            && key >= zone.key_low
+            && key <= zone.key_high
+            && velocity >= zone.vel_low
+            && velocity <= zone.vel_high
+    })?;
+    let sample = font.samples.get(zone.sample?)?;
+    let pcm_len = font.pcm.len();
+    let start = usize::try_from(sample.start).unwrap_or(0).min(pcm_len);
+    let end = usize::try_from(sample.end).unwrap_or(0).min(pcm_len);
+    if end <= start {
+        return None;
+    }
+    let loop_start = usize::try_from(sample.loop_start).unwrap_or(0).min(pcm_len);
+    let loop_end = usize::try_from(sample.loop_end).unwrap_or(0).min(pcm_len);
+    let looped = zone.sample_modes & 1 == 1 && loop_end > loop_start + 1;
+    let root = f32::from(zone.root_override.unwrap_or(sample.root));
+    let cents = f32::from(zone.coarse_tune) * 100.0 + f32::from(zone.fine_tune);
+    let semitones = f32::from(key) - root + cents / 100.0;
+    let ratio = rate as f32;
+    let sample_rate = sample.rate.max(1) as f32;
+    let step = (sample_rate / ratio) * 2.0_f32.powf(semitones / 12.0);
+    let frames = (seconds * ratio) as usize;
+    let gain = f32::from(velocity.min(127)) / 127.0 * 0.6;
+    let mut out = Vec::with_capacity(frames);
+    let mut position = start as f64;
+    for _ in 0..frames {
+        if looped {
+            if position >= loop_end as f64 {
+                let length = (loop_end - loop_start) as f64;
+                position = loop_start as f64 + (position - loop_end as f64) % length;
+            }
+        } else if position >= end as f64 {
+            break;
+        }
+        let base = position.floor() as usize;
+        let fraction = (position - base as f64) as f32;
+        let first = font.pcm.get(base).copied().unwrap_or(0) as f32 / 32_768.0;
+        let next_index = if looped && base + 1 >= loop_end {
+            loop_start
+        } else {
+            base + 1
+        };
+        let next = font.pcm.get(next_index).copied().unwrap_or(0) as f32 / 32_768.0;
+        out.push(((first + (next - first) * fraction) * gain).clamp(-1.0, 1.0));
+        position += f64::from(step);
+    }
+    Some(out)
 }
 
 /// One-line summary for a CLI.
@@ -488,7 +580,7 @@ mod tests {
 
         let mut shdr = Vec::new();
         let mut sample = record_name("Sine").to_vec();
-        for value in [0_u32, 16, 0, 16, 44_100] {
+        for value in [0_u32, 64, 0, 64, 44_100] {
             sample.extend_from_slice(&value.to_le_bytes());
         }
         sample.push(60);
@@ -510,7 +602,11 @@ mod tests {
                 chunk(b"shdr", &shdr),
             ],
         );
-        let sdta = list(b"sdta", &[chunk(b"smpl", &[0_u8; 32])]);
+        let mut pcm = Vec::new();
+        for index in 0..64_i16 {
+            pcm.extend_from_slice(&(index * 500).to_le_bytes());
+        }
+        let sdta = list(b"sdta", &[chunk(b"smpl", &pcm)]);
         let info = list(b"INFO", &[chunk(b"INAM", b"Test Bank\0")]);
         let mut body = b"sfbk".to_vec();
         body.extend_from_slice(&info);
@@ -536,10 +632,42 @@ mod tests {
         assert_eq!(font.samples[0].name, "Sine");
         assert_eq!(font.samples[0].rate, 44_100);
         assert_eq!(font.samples[0].root, 60);
+        assert_eq!(font.pcm.len(), 64);
+        let rendered = render_note(&font, 0, 0, 60, 127, 64.0 / 44_100.0, 44_100).expect("render");
+        assert_eq!(rendered.len(), 64);
+        assert!(rendered[0].abs() < 1.0e-6);
+        assert!(
+            rendered[32] > 0.2,
+            "ramp reaches the middle: {}",
+            rendered[32]
+        );
+        assert!(render_note(&font, 0, 1, 60, 127, 0.01, 44_100).is_none());
         assert!(describe(&font).contains("1 preset"));
         assert_eq!(
             font.preset(0, 0).map(|preset| preset.name.as_str()),
             Some("Test")
+        );
+    }
+
+    #[test]
+    fn loop_mode_and_root_override_change_the_length() {
+        let mut font = parse(&build()).expect("parse");
+        let short = render_note(&font, 0, 0, 60, 100, 200.0 / 44_100.0, 44_100).expect("short");
+        assert_eq!(short.len(), 64, "a non-looped sample ends after its frames");
+        font.instruments[0].zones[0].sample_modes = 1;
+        font.samples[0].loop_start = 0;
+        font.samples[0].loop_end = 64;
+        let looped = render_note(&font, 0, 0, 60, 100, 200.0 / 44_100.0, 44_100).expect("loop");
+        assert_eq!(looped.len(), 200, "loop mode fills the requested length");
+        font.instruments[0].zones[0].root_override = Some(48);
+        let higher = render_note(&font, 0, 0, 60, 100, 200.0 / 44_100.0, 44_100).expect("higher");
+        assert_eq!(higher.len(), 200, "looping still fills it");
+        font.instruments[0].zones[0].sample_modes = 0;
+        let short_high =
+            render_note(&font, 0, 0, 60, 100, 200.0 / 44_100.0, 44_100).expect("short high");
+        assert!(
+            short_high.len() < 40,
+            "twelve semitones consume the sample sooner"
         );
     }
 

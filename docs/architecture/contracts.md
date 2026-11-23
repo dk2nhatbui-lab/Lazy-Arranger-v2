@@ -276,4 +276,7 @@ indices and instrument zones to sample indices, key/velocity ranges, root
 override, coarse/fine tuning and loop mode. Modulators, filters and sample
 rendering are not implemented, and SF3 (compressed samples) is not decoded.
 `sf2-info` lists bank, preset, instrument and sample counts; a real 137-preset
-bank parsed in a test gated on `ARRANGER_SF2`.
+bank parsed in a test gated on `ARRANGER_SF2`. `render_note` plays one note mono
+with linear interpolation, a pitch ratio from key/root/coarse/fine tuning and
+loop mode 1; `sf2-render` writes it to WAV. Envelopes, filters, modulators,
+stereo samples, sampler integration and SF3 are not implemented.

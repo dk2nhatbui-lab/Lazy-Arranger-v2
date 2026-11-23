@@ -286,6 +286,25 @@ enum Commands {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Render one note from an SF2 preset to a WAV file.
+    Sf2Render {
+        /// SF2 file.
+        file: PathBuf,
+        /// Note name (`C4`) or MIDI number.
+        note: String,
+        /// Bank number.
+        #[arg(long, default_value_t = 0)]
+        bank: u16,
+        /// Program number.
+        #[arg(long, default_value_t = 0)]
+        program: u16,
+        /// Length in seconds.
+        #[arg(long, default_value_t = 1.0)]
+        seconds: f32,
+        /// Output `.wav` file.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Parse an SF2 SoundFont and list its presets.
     Sf2Info {
         /// SF2 file.
@@ -1107,6 +1126,57 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                     .map_err(|error| format!("could not write {}: {error}", out.display()))?;
                 println!("wrote {}", out.display());
             }
+            Ok(())
+        }
+        Commands::Sf2Render {
+            file,
+            note,
+            bank,
+            program,
+            seconds,
+            out,
+        } => {
+            let bytes = fs::read(&file).map_err(|error| format!("{}: {error}", file.display()))?;
+            let font = audio::soundfont::parse(&bytes)
+                .map_err(|error| format!("{}: {error}", file.display()))?;
+            let key = note
+                .parse::<u8>()
+                .ok()
+                .or_else(|| {
+                    music_core::Pitch::from_name(&note)
+                        .ok()
+                        .map(|pitch| pitch.as_u8())
+                })
+                .ok_or_else(|| format!("unrecognised note {note:?}"))?;
+            let velocity = 100_u8;
+            let mono = audio::soundfont::render_note(
+                &font,
+                bank,
+                program,
+                key,
+                velocity,
+                seconds.clamp(0.05, 30.0),
+                audio::SAMPLE_RATE,
+            )
+            .ok_or_else(|| format!("no zone in {bank}:{program} covers note {note}"))?;
+            let mut samples = Vec::with_capacity(mono.len() * 2);
+            for value in &mono {
+                samples.push(*value);
+                samples.push(*value);
+            }
+            let rendered = audio::RenderedAudio {
+                samples,
+                sample_rate: audio::SAMPLE_RATE,
+            };
+            fs::write(&out, rendered.to_wav())
+                .map_err(|error| format!("{}: {error}", out.display()))?;
+            println!(
+                "rendered {} frame(s), {:.2} s from {} -> {}",
+                mono.len(),
+                rendered.duration_seconds(),
+                audio::soundfont::describe(&font),
+                out.display()
+            );
             Ok(())
         }
         Commands::Sf2Info { file } => {
