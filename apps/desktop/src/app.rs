@@ -10458,6 +10458,7 @@ impl eframe::App for ShellApp {
                 let mut clicked = None;
                 let mut automation_edit: Option<(TrackId, project::song::Automation)> = None;
                 let mut audio_trim: Option<(TrackId, Tick)> = None;
+                let mut audio_length: Option<(TrackId, Tick)> = None;
                 let mut audio_fades: Option<(TrackId, Tick, Tick)> = None;
                 let mut audio_stretch: Option<(TrackId, bool)> = None;
                 let mut audio_normalize: Option<TrackId> = None;
@@ -10515,6 +10516,20 @@ impl eframe::App for ShellApp {
                                 if ui.button("Trim 1 beat").clicked() {
                                     let bar = project.song.time_signature.bar_ticks().max(1);
                                     audio_trim = Some((*track_id, bar / 4));
+                                }
+                                if ui
+                                    .button("End at playhead")
+                                    .on_hover_text("Trim the audio end to the playhead")
+                                    .clicked()
+                                    && let Some(reference) = project
+                                        .song
+                                        .tracks
+                                        .iter()
+                                        .find(|track| track.id == *track_id)
+                                        .and_then(|track| track.audio.as_ref())
+                                {
+                                    audio_length =
+                                        Some((*track_id, (position - reference.start).max(1)));
                                 }
                                 let bar = project.song.time_signature.bar_ticks().max(1);
                                 let current = project
@@ -11293,6 +11308,7 @@ impl eframe::App for ShellApp {
                     clicked,
                     automation_edit,
                     audio_trim,
+                    audio_length,
                     audio_fades,
                     audio_stretch,
                     audio_normalize,
@@ -11313,6 +11329,7 @@ impl eframe::App for ShellApp {
             clicked,
             automation_edit,
             audio_trim,
+            audio_length,
             audio_fades,
             audio_stretch,
             audio_normalize,
@@ -11417,6 +11434,11 @@ impl eframe::App for ShellApp {
         }
         if let Some(status) = score_status {
             self.status = Some(status);
+        }
+        if let Some((track, length)) = audio_length
+            && let Err(error) = self.editor.trim_audio_length(track, length)
+        {
+            self.status = Some(error);
         }
         if let Some((track, delta)) = audio_trim {
             if let Err(error) = self.editor.trim_audio_start(track, delta) {

@@ -1739,6 +1739,18 @@ impl Editor {
         Ok(())
     }
 
+    /// Sets the end of a track's audio reference.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn trim_audio_length(&mut self, track: TrackId, length: Tick) -> Result<(), String> {
+        app_commands::audio_ref::set_length(&mut self.session, track, length)
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Removes chords inside a range.
     ///
     /// # Errors
