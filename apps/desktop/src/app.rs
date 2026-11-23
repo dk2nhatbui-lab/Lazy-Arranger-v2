@@ -413,6 +413,39 @@ fn style_preview_song(style: &arranger::style::Style) -> Result<project::Song, S
     Ok(song)
 }
 
+fn style_section_song(
+    imported: &style_formats::ImportedStyle,
+    section: usize,
+) -> Result<project::Song, String> {
+    let names = imported.section_names();
+    let name = names
+        .get(section)
+        .ok_or_else(|| String::from("no section selected"))?;
+    let compiled = imported
+        .native
+        .compile(name, 0, &[])
+        .map_err(|error| error.to_string())?;
+    let mut song = project::Song::new("Style audition", imported.tempo_bpm.max(30.0));
+    let mut track = project::song::Track::new(
+        project::TrackId::new(1).map_err(|error| error.to_string())?,
+        "Style",
+    );
+    for (index, note) in compiled.into_iter().enumerate() {
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(u32::try_from(index + 1).map_err(|error| error.to_string())?)
+                .map_err(|error| error.to_string())?,
+            start: note.tick,
+            duration: note.duration,
+            pitch: music_core::Pitch::new(note.pitch).map_err(|error| error.to_string())?,
+            velocity: music_core::Velocity::new(note.velocity)
+                .map_err(|error| error.to_string())?,
+            channel: note.channel,
+        });
+    }
+    song.tracks.push(track);
+    Ok(song)
+}
+
 fn plugin_matches(
     plugin: &plugins::FoundPlugin,
     search: &str,
@@ -698,6 +731,12 @@ pub struct ShellApp {
     style_draft: Option<arranger::style::Style>,
     style_rules_open: bool,
     style_preview: Option<audio::player::Player>,
+    style_file_open: bool,
+    style_file_path: String,
+    style_import: Option<style_formats::ImportedStyle>,
+    style_section: usize,
+    style_file_loop: bool,
+    style_auto_load: bool,
     audio_style_open: bool,
     audio_style_path: String,
     audio_style_bpm: f64,
@@ -975,6 +1014,12 @@ impl ShellApp {
             style_draft: None,
             style_rules_open: false,
             style_preview: None,
+            style_file_open: std::env::var("ARRANGER_STYLE").is_ok(),
+            style_file_path: std::env::var("ARRANGER_STYLE_FILE").unwrap_or_default(),
+            style_import: None,
+            style_section: 0,
+            style_file_loop: true,
+            style_auto_load: std::env::var("ARRANGER_STYLE_FILE").is_ok(),
             audio_style_open: std::env::var("ARRANGER_AUDIO_STYLE").is_ok(),
             audio_style_path: String::new(),
             audio_style_bpm: 120.0,
@@ -4038,6 +4083,117 @@ impl ShellApp {
                 });
             });
         self.audio_style_open = open;
+    }
+
+    fn load_style_file(&mut self) {
+        match std::fs::read(&self.style_file_path)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                style_formats::import_style(&bytes).map_err(|error| error.to_string())
+            }) {
+            Ok(imported) => {
+                self.style_section = 0;
+                self.status = Some(format!(
+                    "style loaded: {} section(s)",
+                    imported.sections.len()
+                ));
+                self.style_import = Some(imported);
+            }
+            Err(error) => self.status = Some(error),
+        }
+    }
+
+    fn style_file_window(&mut self, context: &Context) {
+        if !self.style_file_open {
+            return;
+        }
+        if self.style_auto_load {
+            self.style_auto_load = false;
+            self.load_style_file();
+        }
+        let mut open = self.style_file_open;
+        egui::Window::new("Style file player")
+            .open(&mut open)
+            .resizable(false)
+            .default_width(360.0)
+            .show(context, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("File");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.style_file_path)
+                            .desired_width(220.0),
+                    );
+                    if ui.button("Load").clicked() {
+                        self.load_style_file();
+                    }
+                });
+                let Some(imported) = &self.style_import else {
+                    ui.label(
+                        egui::RichText::new("Load a Yamaha style to audition sections.")
+                            .size(10.0)
+                            .color(theme::text_dim()),
+                    );
+                    return;
+                };
+                let names = imported.section_names();
+                if names.is_empty() {
+                    ui.label("No sections.");
+                    return;
+                }
+                self.style_section = self.style_section.min(names.len() - 1);
+                egui::ComboBox::from_id_salt("style-file-section")
+                    .selected_text(names[self.style_section])
+                    .show_ui(ui, |ui| {
+                        for (index, name) in names.iter().enumerate() {
+                            ui.selectable_value(&mut self.style_section, index, *name);
+                        }
+                    });
+                ui.label(format!(
+                    "source chord {} · {:.1} BPM · {} ticks",
+                    imported.native.source_chord.name(),
+                    imported.tempo_bpm,
+                    imported.native.sections[self.style_section].length_ticks
+                ));
+                ui.horizontal(|ui| {
+                    if ui.button("Audition").clicked() {
+                        match self.style_file_preview_song() {
+                            Ok(song) => match audio::player::Player::new(audio::render(
+                                &song,
+                                audio::SAMPLE_RATE,
+                            )) {
+                                Ok(player) => {
+                                    player.play();
+                                    self.style_preview = Some(player);
+                                    self.status =
+                                        Some(String::from("auditioning style section"));
+                                }
+                                Err(error) => self.status = Some(error),
+                            },
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                    if ui.button("Stop").clicked() {
+                        self.style_preview = None;
+                    }
+                    ui.checkbox(&mut self.style_file_loop, "Loop");
+                });
+                ui.label(
+                    egui::RichText::new(
+                        "Sections restart immediately; keyboard chord input and next-bar section queues are not implemented.",
+                    )
+                    .size(9.0)
+                    .color(theme::text_dim()),
+                );
+            });
+        self.style_file_open = open;
+    }
+
+    fn style_file_preview_song(&self) -> Result<project::Song, String> {
+        let imported = self
+            .style_import
+            .as_ref()
+            .ok_or_else(|| String::from("load a style first"))?;
+        style_section_song(imported, self.style_section)
     }
 
     fn style_clips_window(&mut self, context: &Context) {
@@ -8254,6 +8410,10 @@ impl ShellApp {
                                 self.audio_style_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Style file player").clicked() {
+                                self.style_file_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Master effects").clicked() {
                                 self.master_fx_open = true;
                                 ui.close_menu();
@@ -8619,6 +8779,12 @@ impl eframe::App for ShellApp {
             context.set_style(style);
         }
         self.handle_keys(context);
+        if self.style_file_loop
+            && let Some(player) = &self.style_preview
+            && !player.is_playing()
+        {
+            player.play();
+        }
         self.poll_midi();
         self.poll_ai();
         if let Some(edit) = self.pending_clip_edit.take() {
@@ -8691,6 +8857,7 @@ impl eframe::App for ShellApp {
         self.plugins_window(context);
         self.patch_window(context);
         self.style_clips_window(context);
+        self.style_file_window(context);
         self.audio_style_window(context);
         self.style_rules_window(context);
         self.master_fx_window(context);
@@ -10643,6 +10810,32 @@ mod tests {
         quantise_recorded(&mut notes, music_core::PPQ / 4);
         assert_eq!(notes[0].start, 0);
         assert_eq!(notes[1].start, 960);
+    }
+
+    #[test]
+    fn a_style_section_song_contains_compiled_notes() {
+        let song = arranging::demo::demo_song();
+        let native = arranger::style::from_song(
+            &song,
+            "Demo",
+            arranger::ArrangerChord::new(
+                music_core::PitchClass::new(0),
+                arranger::ChordType::Major,
+            ),
+            music_core::PPQ * 4,
+        );
+        let imported = style_formats::ImportedStyle {
+            native,
+            source_ppq: 960,
+            tempo_bpm: 120.0,
+            time_signature: song.time_signature,
+            song,
+            sections: Vec::new(),
+            stats: style_formats::ImportStats::default(),
+        };
+        let preview = style_section_song(&imported, 0).expect("section");
+        assert_eq!(preview.tracks.len(), 1);
+        assert!(!preview.tracks[0].notes.is_empty());
     }
 
     #[test]
