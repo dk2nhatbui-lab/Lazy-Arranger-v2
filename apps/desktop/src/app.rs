@@ -3491,6 +3491,7 @@ impl eframe::App for ShellApp {
                     }
                     View::Score => {
                         let mut save_pdf = false;
+                        let mut print_pdf = false;
                         ui.horizontal(|ui| {
                             ui.checkbox(&mut self.score_entry, "Note entry");
                             ui.checkbox(&mut self.score_grand, "Grand staff");
@@ -3509,6 +3510,13 @@ impl eframe::App for ShellApp {
                             if ui.button("Save PDF").clicked() {
                                 save_pdf = true;
                             }
+                            if ui
+                                .button("Print")
+                                .on_hover_text("Send the score PDF to lp")
+                                .clicked()
+                            {
+                                print_pdf = true;
+                            }
                         });
                         if let Some(track) = roll
                             .selected
@@ -3521,6 +3529,48 @@ impl eframe::App for ShellApp {
                             let engraved = score::engrave(&project.song, track, score_settings);
                             self.score_page =
                                 crate::score_view::clamp_page(&engraved, self.score_page);
+                            if print_pdf {
+                                let pdf = score::pdf::to_pdf(
+                                    &engraved,
+                                    score_settings,
+                                    if project.song.name.is_empty() {
+                                        "Lazy Arranger score"
+                                    } else {
+                                        &project.song.name
+                                    },
+                                );
+                                let path = std::env::temp_dir().join(format!(
+                                    "lazy-arranger-score-{}.pdf",
+                                    std::process::id()
+                                ));
+                                match std::fs::write(&path, pdf) {
+                                    Ok(()) => match std::process::Command::new("lp")
+                                        .arg(&path)
+                                        .output()
+                                    {
+                                        Ok(output) if output.status.success() => {
+                                            let message = String::from_utf8_lossy(&output.stdout);
+                                            score_status = Some(format!(
+                                                "sent {} to lp: {}",
+                                                path.display(),
+                                                message.trim()
+                                            ));
+                                        }
+                                        Ok(output) => {
+                                            let message = String::from_utf8_lossy(&output.stderr);
+                                            score_status =
+                                                Some(format!("lp failed: {}", message.trim()));
+                                        }
+                                        Err(error) => {
+                                            score_status =
+                                                Some(format!("could not run lp: {error}"));
+                                        }
+                                    },
+                                    Err(error) => {
+                                        score_status = Some(format!("{}: {error}", path.display()));
+                                    }
+                                }
+                            }
                             if save_pdf {
                                 let pdf = score::pdf::to_pdf(
                                     &engraved,

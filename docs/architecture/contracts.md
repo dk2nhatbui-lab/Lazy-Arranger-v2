@@ -580,3 +580,10 @@ order and shifts one left when its base would cross the previous notehead's
 right edge (plus a small gap); notes at the same x (chord tones) keep their
 columns. Tests force a C-major key with C#/D# sixteenths. Noteheads, rests and
 dots are not otherwise collision-avoided.
+
+### Score print
+
+The Score view Print button writes the vector PDF to a process-specific temp
+file and runs `lp <path>` with no dialog or printer selection, reporting lp's
+stdout/stderr or a command error. A default printer exists on this machine, but
+no job was sent, so printing is unverified.
