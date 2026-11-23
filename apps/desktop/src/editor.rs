@@ -744,37 +744,7 @@ impl Editor {
     ///
     /// Returns a message when a track edit is rejected.
     pub fn quantize(&mut self, grid: Tick) -> Result<usize, String> {
-        let grid = grid.max(1);
-        let tracks: Vec<(TrackId, Vec<project::song::Note>)> = self
-            .song()
-            .tracks
-            .iter()
-            .map(|track| {
-                let mut notes = track.notes.clone();
-                for note in &mut notes {
-                    note.start = (note.start + grid / 2) / grid * grid;
-                }
-                notes.sort_by_key(|note| note.start);
-                (track.id, notes)
-            })
-            .collect();
-        let mut changed = 0;
-        for (track, notes) in tracks {
-            if notes
-                != self
-                    .song()
-                    .tracks
-                    .iter()
-                    .find(|entry| entry.id == track)
-                    .map(|entry| entry.notes.clone())
-                    .unwrap_or_default()
-            {
-                self.session
-                    .apply(app_commands::Command::ReplaceTrackNotes { track, notes })
-                    .map_err(|error| error.to_string())?;
-                changed += 1;
-            }
-        }
+        let changed = app_commands::quantize::quantize(&mut self.session, grid)?;
         self.dirty |= changed > 0;
         Ok(changed)
     }

@@ -126,6 +126,28 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "quantize",
+            description: "Snap every note start to a grid, one edit per changed track.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"grid": {"type": "integer"}},
+                "required": ["grid"]
+            }),
+        },
+        Tool {
+            name: "set_velocity",
+            description: "Set one note's velocity.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "note": {"type": "integer"},
+                    "velocity": {"type": "integer"}
+                },
+                "required": ["track", "note", "velocity"]
+            }),
+        },
+        Tool {
             name: "get_plugins",
             description: "Read a track's plugin slots (state only, not hosted).",
             input_schema: json!({
@@ -401,6 +423,40 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "tracks": grid.tracks.iter().map(|track| track.get()).collect::<Vec<_>>(),
                 "scenes": scenes,
             }))
+        }
+        "quantize" => {
+            let grid = arguments
+                .get("grid")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("grid is required")))?;
+            let changed =
+                app_commands::quantize::quantize(session, grid).map_err(ToolError::Arguments)?;
+            Ok(json!({"tracks_changed": changed}))
+        }
+        "set_velocity" => {
+            use project::NoteId;
+            let track = track_argument(arguments)?;
+            let note = arguments
+                .get("note")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("note is required")))?;
+            let note = NoteId::new(u32::try_from(note).unwrap_or(0))
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            let velocity = arguments
+                .get("velocity")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("velocity is required")))?
+                as u8;
+            let Some(entry) = session.song().tracks.iter().find(|entry| entry.id == track) else {
+                return Err(ToolError::Arguments(String::from("unknown track")));
+            };
+            let mut notes = entry.notes.clone();
+            let Some(target) = notes.iter_mut().find(|candidate| candidate.id == note) else {
+                return Err(ToolError::Arguments(String::from("unknown note")));
+            };
+            target.velocity = music_core::Velocity::new(velocity.clamp(1, 127))?;
+            session.apply(Command::ReplaceTrackNotes { track, notes })?;
+            Ok(json!({"velocity": velocity.clamp(1, 127)}))
         }
         "get_plugins" => {
             let track = track_argument(arguments)?;
@@ -1046,6 +1102,35 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn quantise_and_velocity_tools_work() {
+        let mut session = session_with_track();
+        session
+            .apply(Command::InsertNote {
+                track: TrackId::new(1).expect("valid"),
+                note: project::song::Note {
+                    id: project::NoteId::new(1).expect("valid"),
+                    start: 130,
+                    duration: music_core::PPQ,
+                    pitch: music_core::Pitch::from_name("C4").expect("valid"),
+                    velocity: music_core::Velocity::new(100).expect("valid"),
+                    channel: music_core::Channel::first(),
+                },
+            })
+            .expect("note");
+        let quantised = call(&mut session, "quantize", &json!({"grid": 240})).expect("quantise");
+        assert_eq!(quantised["tracks_changed"], 1);
+        assert_eq!(session.song().tracks[0].notes[0].start, 240);
+        let velocity = call(
+            &mut session,
+            "set_velocity",
+            &json!({"track": 1, "note": 1, "velocity": 70}),
+        )
+        .expect("velocity");
+        assert_eq!(velocity["velocity"], 70);
+        assert!(call(&mut session, "quantize", &json!({})).is_err());
     }
 
     #[test]

@@ -348,10 +348,18 @@ impl ShellApp {
                 .or_else(|| self.selected_note.map(|(track, _)| track))
                 .or_else(|| self.song().tracks.first().map(|track| track.id));
             if let Some(track) = track {
-                let at = snap(self.position, PPQ);
+                let (at, from_mouse) = match self.roll.hover {
+                    Some(tick) => (snap(tick, PPQ), true),
+                    None => (snap(self.position, PPQ), false),
+                };
                 match self.editor.paste_notes(track, at) {
                     Ok(0) => self.status = Some(String::from("clipboard is empty")),
-                    Ok(count) => self.status = Some(format!("pasted {count} note(s)")),
+                    Ok(count) => {
+                        self.status = Some(format!(
+                            "pasted {count} note(s) at tick {at}{}",
+                            if from_mouse { " (mouse)" } else { "" }
+                        ));
+                    }
                     Err(error) => self.status = Some(error),
                 }
             }
@@ -1082,7 +1090,7 @@ impl ShellApp {
                 }
                 ui.label(
                     egui::RichText::new(
-                        "Local commands over the same 26 tools; no network or model.\
+                        "Local commands over the same 28 tools; no network or model.\
                          Speech out uses the macOS say command; speech input is not implemented.",
                     )
                     .size(9.0)

@@ -13,6 +13,7 @@
 pub mod audio_ref;
 pub mod bounce;
 pub mod clipboard;
+pub mod quantize;
 pub mod style_import;
 
 use music_core::{Channel, Chord, Pitch, TempoMap, Tick, Velocity};

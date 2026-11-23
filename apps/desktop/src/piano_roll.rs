@@ -98,6 +98,8 @@ pub struct RollState {
     pub top_pitch: u8,
     /// Selected track, if any.
     pub selected: Option<TrackId>,
+    /// Tick under the pointer last frame, when it was over the roll.
+    pub hover: Option<Tick>,
     drag: Option<NoteDrag>,
 }
 
@@ -107,6 +109,7 @@ impl Default for RollState {
             ticks_per_point: 12.0,
             top_pitch: 96,
             selected: None,
+            hover: None,
             drag: None,
         }
     }

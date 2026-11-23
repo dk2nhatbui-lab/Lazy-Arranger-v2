@@ -192,3 +192,10 @@ The pitch strip on the roll's left edge draws black and white keys; a click
 there returns the pitch for audition (the shell renders a short note). Cmd/Ctrl+A
 fills `selected_notes` with every note of the selected track, and Delete removes
 them per track through `delete_notes` (one edit per track, undoable).
+
+### Quantise tool and mouse paste
+
+`app_commands::quantize::quantize` snaps every note start with half-step
+rounding, one edit per changed track, and is shared by the editor and the MCP
+`quantize` tool; `set_velocity` sets one note. Pasting uses the tick under the
+pointer when it is over the roll, otherwise the playhead.
