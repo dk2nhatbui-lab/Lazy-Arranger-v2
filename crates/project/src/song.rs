@@ -398,6 +398,9 @@ pub struct AudioRef {
     /// Fade-out length in ticks.
     #[serde(default, skip_serializing_if = "is_zero_tick")]
     pub fade_out: Tick,
+    /// Resample the source to fill the reference length (pitch shifts).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stretch: bool,
 }
 
 fn is_zero_tick(tick: &Tick) -> bool {
@@ -940,6 +943,11 @@ impl ProjectFile {
                     // behaviour.
                     self.version = 18;
                 }
+                18 => {
+                    // Version 19 adds a resample-to-fit flag; false keeps the
+                    // original playback speed from version 18.
+                    self.version = 19;
+                }
                 from => {
                     return Err(ProjectError::Migration {
                         from,
@@ -1388,6 +1396,8 @@ mod tests {
 
             fade_in: 0,
             fade_out: 0,
+
+            stretch: false,
         });
         song.tracks.push(track);
         let text = ProjectFile::new(song).to_json_pretty().expect("serialize");

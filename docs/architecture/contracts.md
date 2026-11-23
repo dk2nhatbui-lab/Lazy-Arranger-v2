@@ -481,3 +481,12 @@ therefore restarts from a stopped state rather than resuming audio at the tick.
 `add_note` inserts one note with a fresh id and optional duration/velocity,
 `remove_note` deletes by id, `set_chord` parses a symbol and writes it, and
 `remove_chord` deletes at a tick. The registry holds 59 tools.
+
+### Resample to fit
+
+Schema v19 adds `AudioRef.stretch`. When set, `mix_one` maps the source segment
+after the in-point onto the reference's frame count (step = available frames /
+target frames) instead of playing at native speed; fades still apply. This
+compresses or expands by resampling, so pitch changes; it is not a
+phase-vocoder time-stretch. The trim row has a Stretch checkbox and the editor
+writes one `SetAudioRef`.

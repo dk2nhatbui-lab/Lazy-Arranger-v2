@@ -1132,6 +1132,8 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                         .get("fade_out")
                         .and_then(Value::as_i64)
                         .unwrap_or(0),
+
+                    stretch: false,
                 })
             };
             session.apply(Command::SetAudioRef {

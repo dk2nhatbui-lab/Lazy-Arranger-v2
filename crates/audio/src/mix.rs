@@ -93,12 +93,17 @@ fn mix_one(
     };
     let fade_in_frames = (fade_in_seconds * f64::from(rate)).max(0.0);
     let fade_out_frames = (fade_out_seconds * f64::from(rate)).max(0.0);
+    let stretch_step = if reference.stretch && frames > 0 {
+        decoded.samples.len().saturating_sub(in_frames) as f64 / frames as f64
+    } else {
+        ratio
+    };
     for frame in 0..frames {
         let target = start + frame;
         if target * 2 + 1 >= rendered.samples.len() {
             break;
         }
-        let source = in_frames + (frame as f64 * ratio) as usize;
+        let source = in_frames + (frame as f64 * stretch_step) as usize;
         if source >= decoded.samples.len() {
             break;
         }
@@ -142,6 +147,8 @@ mod tests {
             offset: 0,
             fade_in: 0,
             fade_out: 0,
+
+            stretch: false,
         });
         track.muted = muted;
         song.tracks.push(track);
@@ -177,6 +184,8 @@ mod tests {
             offset: 1920,
             fade_in: 0,
             fade_out: 0,
+
+            stretch: false,
         });
         let mut rendered = RenderedAudio {
             samples: vec![0.0; 96_000 * 2],
@@ -202,6 +211,8 @@ mod tests {
             offset: 0,
             fade_in: 960,
             fade_out: 480,
+
+            stretch: false,
         });
         let mut rendered = RenderedAudio {
             samples: vec![0.0; 96_000 * 2],
@@ -212,6 +223,47 @@ mod tests {
         assert!(at(0) < 0.01, "fade-in starts near zero");
         assert!(at(24_000) > 0.2, "middle is full");
         assert!(at(47_000) < 0.05, "fade-out ends near zero");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn stretching_resamples_the_source_to_the_reference_length() {
+        let mut samples = vec![0.3_f32; 96_000 * 2];
+        samples.extend(vec![-0.3_f32; 96_000 * 2]);
+        let path = write_wav("lazy-arranger-mix-stretch.wav", samples);
+        let mut song = song_with(path.clone(), false);
+        song.tracks[0].audio = Some(AudioRef {
+            path: path.clone(),
+            start: 0,
+            length: 1920,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: true,
+        });
+        let mut rendered = RenderedAudio {
+            samples: vec![0.0; 96_000 * 2],
+            sample_rate: 48_000,
+        };
+        assert!(mix_audio_references(&mut rendered, &song, 1.0).is_empty());
+        assert!(
+            rendered.samples[12_000 * 2] > 0.1,
+            "first quarter is positive"
+        );
+        assert!(
+            rendered.samples[36_000 * 2] < -0.1,
+            "stretching reaches the negative half by 0.75 s"
+        );
+        song.tracks[0].audio.as_mut().expect("audio").stretch = false;
+        let mut plain = RenderedAudio {
+            samples: vec![0.0; 96_000 * 2],
+            sample_rate: 48_000,
+        };
+        assert!(mix_audio_references(&mut plain, &song, 1.0).is_empty());
+        assert!(
+            plain.samples[36_000 * 2] > 0.1,
+            "plain playback is still positive"
+        );
         let _ = std::fs::remove_file(path);
     }
 

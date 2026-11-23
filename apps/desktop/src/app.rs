@@ -3097,6 +3097,7 @@ impl eframe::App for ShellApp {
                 let mut automation_edit: Option<(TrackId, project::song::Automation)> = None;
                 let mut audio_trim: Option<(TrackId, Tick)> = None;
                 let mut audio_fades: Option<(TrackId, Tick, Tick)> = None;
+                let mut audio_stretch: Option<(TrackId, bool)> = None;
                 let mut score_status: Option<String> = None;
                 let entry_enabled_flag = self.score_entry;
                 let mut perform_chord: Option<music_core::Chord> = None;
@@ -3149,6 +3150,22 @@ impl eframe::App for ShellApp {
                                 }
                                 if ui.small_button("No fades").clicked() {
                                     audio_fades = Some((*track_id, 0, 0));
+                                }
+                                let mut stretch = project
+                                    .song
+                                    .tracks
+                                    .iter()
+                                    .find(|track| track.id == *track_id)
+                                    .and_then(|track| track.audio.as_ref())
+                                    .is_some_and(|reference| reference.stretch);
+                                if ui
+                                    .checkbox(&mut stretch, "Stretch")
+                                    .on_hover_text(
+                                        "Resample the source to the clip length (pitch shifts)",
+                                    )
+                                    .changed()
+                                {
+                                    audio_stretch = Some((*track_id, stretch));
                                 }
                             });
                             Self::draw_waveform(ui, peaks);
@@ -3446,6 +3463,7 @@ impl eframe::App for ShellApp {
                     automation_edit,
                     audio_trim,
                     audio_fades,
+                    audio_stretch,
                     score_status,
                     perform_chord,
                     lesson_next,
@@ -3463,6 +3481,7 @@ impl eframe::App for ShellApp {
             automation_edit,
             audio_trim,
             audio_fades,
+            audio_stretch,
             score_status,
             perform_chord,
             lesson_next,
@@ -3579,6 +3598,11 @@ impl eframe::App for ShellApp {
         }
         if let Some((track, fade_in, fade_out)) = audio_fades
             && let Err(error) = self.editor.set_audio_fades(track, fade_in, fade_out)
+        {
+            self.status = Some(error);
+        }
+        if let Some((track, stretch)) = audio_stretch
+            && let Err(error) = self.editor.set_audio_stretch(track, stretch)
         {
             self.status = Some(error);
         }

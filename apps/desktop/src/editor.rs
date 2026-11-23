@@ -894,6 +894,8 @@ impl Editor {
 
                 fade_in: 0,
                 fade_out: 0,
+
+                stretch: false,
             });
             self.session
                 .apply(app_commands::Command::InsertTrack { track })
@@ -902,6 +904,33 @@ impl Editor {
         }
         self.dirty |= imported > 0;
         Ok(imported)
+    }
+
+    /// Enables or disables resampling a track's audio to its reference length.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track has no audio or the edit is rejected.
+    pub fn set_audio_stretch(&mut self, track: TrackId, stretch: bool) -> Result<(), String> {
+        let Some(reference) = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.audio.clone())
+        else {
+            return Err(String::from("track has no audio reference"));
+        };
+        let mut updated = reference;
+        updated.stretch = stretch;
+        self.session
+            .apply(app_commands::Command::SetAudioRef {
+                track,
+                reference: Some(updated),
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
     }
 
     /// Sets the fade lengths of a track's audio reference.
@@ -963,6 +992,8 @@ impl Editor {
 
                     fade_in: 0,
                     fade_out: 0,
+
+                    stretch: false,
                 },
             })
             .map_err(|error| error.to_string())?;
@@ -1780,12 +1811,30 @@ mod tests {
                     offset: 0,
                     fade_in: 0,
                     fade_out: 0,
+
+                    stretch: false,
                 }),
             })
             .expect("audio");
         editor.set_audio_fades(track, 960, 480).expect("fades");
         let reference = editor.song().tracks[0].audio.as_ref().expect("audio");
         assert_eq!((reference.fade_in, reference.fade_out), (960, 480));
+        editor.set_audio_stretch(track, true).expect("stretch");
+        assert!(
+            editor.song().tracks[0]
+                .audio
+                .as_ref()
+                .expect("audio")
+                .stretch
+        );
+        assert!(editor.undo());
+        assert!(
+            !editor.song().tracks[0]
+                .audio
+                .as_ref()
+                .expect("audio")
+                .stretch
+        );
         assert!(editor.undo());
         assert_eq!(
             editor.song().tracks[0]

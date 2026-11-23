@@ -942,6 +942,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
 
                 fade_in: 0,
                 fade_out: 0,
+
+                stretch: false,
             });
             session.apply(Command::InsertTrack { track })?;
             let json = session.project().to_json_pretty()?;
@@ -1637,6 +1639,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
 
                     fade_in: 0,
                     fade_out: 0,
+
+                    stretch: false,
                 });
                 session.apply(Command::InsertTrack { track })?;
                 imported += 1;

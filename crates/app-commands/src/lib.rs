@@ -1651,6 +1651,8 @@ mod tests {
 
             fade_in: 0,
             fade_out: 0,
+
+            stretch: false,
         };
         edit.apply(Command::SetAudioRef {
             track,
@@ -1855,6 +1857,8 @@ mod tests {
 
                 fade_in: 0,
                 fade_out: 0,
+
+                stretch: false,
             },
         })
         .expect("freeze");
