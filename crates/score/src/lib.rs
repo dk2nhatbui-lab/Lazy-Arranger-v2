@@ -180,6 +180,14 @@ pub struct ScoreHit {
 
 /// The pitch a click at `y` means on a system whose staff starts at `system_y`.
 #[must_use]
+pub fn pitch_at_y_staff(system_y: f32, y: f32, settings: Settings, staves: usize) -> u8 {
+    let mut y = y;
+    if staves == 2 && y > system_y + 3.0 * settings.staff_space {
+        y -= 6.0 * settings.staff_space;
+    }
+    pitch_at_y(system_y, y, settings)
+}
+
 pub fn pitch_at_y(system_y: f32, y: f32, settings: Settings) -> u8 {
     let step = ((system_y - y) / settings.staff_space.max(1.0)).round();
     (60.0 + 2.0 * step).clamp(0.0, 127.0) as u8
@@ -877,6 +885,26 @@ mod grand_staff_tests {
         }
         song.tracks.push(track);
         song
+    }
+
+    #[test]
+    fn clicks_map_back_to_the_right_staff_octave() {
+        let settings = Settings::default();
+        let system_y = 100.0;
+        assert_eq!(
+            pitch_at_y_staff(system_y, system_y, settings, 2),
+            60,
+            "treble line keeps C4"
+        );
+        assert_eq!(
+            pitch_at_y_staff(system_y, system_y + 7.5 * settings.staff_space, settings, 2),
+            57,
+            "the bass offset maps back to A3"
+        );
+        assert!(
+            pitch_at_y_staff(system_y, system_y + 8.0 * settings.staff_space, settings, 2) < 60,
+            "the second staff stays below middle C"
+        );
     }
 
     #[test]

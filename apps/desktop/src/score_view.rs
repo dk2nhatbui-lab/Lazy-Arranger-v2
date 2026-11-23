@@ -244,7 +244,7 @@ fn hit_test(
     let local_x = (position.x - origin.x) / zoom;
     let local_y = (position.y - origin.y) / zoom;
     for system in &page.systems {
-        let height = 4.0 * settings.staff_space;
+        let height = if engraved.staves == 2 { 8.0 } else { 4.0 } * settings.staff_space;
         if local_y < system.y - 2.5 * settings.staff_space
             || local_y > system.y + height + 2.5 * settings.staff_space
         {
@@ -256,7 +256,7 @@ fn hit_test(
             }
             return Some(ScoreHit {
                 tick: score::tick_at_x(measure, local_x, music_core::PPQ / 4),
-                pitch: score::pitch_at_y(system.y, local_y, *settings),
+                pitch: score::pitch_at_y_staff(system.y, local_y, *settings, engraved.staves),
             });
         }
     }
