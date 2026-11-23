@@ -64,6 +64,12 @@ pub struct ScoreState {
     drag: Option<(Tick, u8, Tick, bool)>,
     clef_treble: Option<egui::TextureHandle>,
     clef_bass: Option<egui::TextureHandle>,
+    cecilia_pages: Vec<egui::TextureHandle>,
+    cecilia_key: Option<String>,
+    /// Pages produced by the Cecilia preview.
+    pub cecilia_page_count: usize,
+    /// Last Cecilia preview error, if any.
+    pub cecilia_error: Option<String>,
 }
 
 impl std::fmt::Debug for ScoreState {
@@ -73,7 +79,89 @@ impl std::fmt::Debug for ScoreState {
             .field("dragging", &self.drag.is_some())
             .field("treble_loaded", &self.clef_treble.is_some())
             .field("bass_loaded", &self.clef_bass.is_some())
+            .field("cecilia_pages", &self.cecilia_pages.len())
             .finish()
+    }
+}
+
+impl ScoreState {
+    /// Rebuilds the Cecilia preview when the track, title or note count changes.
+    pub fn ensure_cecilia(
+        &mut self,
+        context: &egui::Context,
+        song: &project::Song,
+        track_index: usize,
+        title: &str,
+        grand_staff: bool,
+    ) {
+        let key = format!(
+            "{track_index}:{}:{}:{}:{}:{}",
+            song.end_tick(),
+            u8::from(grand_staff),
+            song.tracks
+                .get(track_index)
+                .map_or(0, |track| track.notes.len()),
+            song.chords.len(),
+            title
+        );
+        if self.cecilia_key.as_deref() == Some(key.as_str()) {
+            return;
+        }
+        self.cecilia_pages.clear();
+        match score::cecilia::render_page_images(song, track_index, title, grand_staff, 1.6) {
+            Ok(pages) => {
+                for (index, page) in pages.into_iter().enumerate() {
+                    self.cecilia_pages.push(context.load_texture(
+                        format!("cecilia-page-{index}"),
+                        egui::ColorImage::from_rgba_unmultiplied(
+                            [page.width as usize, page.height as usize],
+                            &page.rgba,
+                        ),
+                        egui::TextureOptions::LINEAR,
+                    ));
+                }
+                self.cecilia_page_count = self.cecilia_pages.len();
+                self.cecilia_error = None;
+            }
+            Err(error) => {
+                self.cecilia_page_count = 0;
+                self.cecilia_error = Some(error);
+            }
+        }
+        self.cecilia_key = Some(key);
+    }
+
+    /// Forces the next preview to re-engrave.
+    pub fn invalidate_cecilia(&mut self) {
+        self.cecilia_key = None;
+    }
+}
+
+/// Draws a Cecilia preview page, scaled to the score viewport.
+pub fn show_preview(ui: &mut Ui, state: &mut ScoreState, page: usize, zoom: f32) {
+    let settings = Settings::default();
+    let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
+    let available = response.rect.size();
+    let fit = ((available.x - 24.0).max(120.0) / settings.page_width)
+        .min((available.y - 24.0).max(120.0) / settings.page_height)
+        .clamp(0.15, 1.0);
+    let page_rect = page_rect(response.rect.center(), settings, fit * zoom);
+    painter.rect_filled(page_rect, 0.0, Color32::WHITE);
+    if let Some(texture) = state.cecilia_pages.get(page) {
+        painter.image(
+            texture.id(),
+            page_rect,
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
+            Color32::WHITE,
+        );
+    } else {
+        painter.text(
+            page_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Cecilia preview unavailable",
+            egui::FontId::proportional(14.0),
+            Color32::from_rgb(0x80, 0x40, 0x40),
+        );
     }
 }
 

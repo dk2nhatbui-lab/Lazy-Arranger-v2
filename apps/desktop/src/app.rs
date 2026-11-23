@@ -180,6 +180,14 @@ pub fn quantise_recorded(notes: &mut [project::song::Note], grid: Tick) {
     });
 }
 
+/// True when a track's range or role calls for a piano-style grand staff.
+#[must_use]
+pub fn needs_grand_staff(track: &project::song::Track) -> bool {
+    let low = track.notes.iter().any(|note| note.pitch.as_u8() < 60);
+    let high = track.notes.iter().any(|note| note.pitch.as_u8() >= 60);
+    (low && high) || track.name.to_ascii_lowercase().contains("piano")
+}
+
 /// Filters the installed plug-in list by search text and format.
 #[must_use]
 pub fn plugin_matches(
@@ -426,6 +434,7 @@ pub struct ShellApp {
     score_page: usize,
     score_zoom: f32,
     score_grand: bool,
+    score_preview: bool,
     score_pdf_path: String,
     score_state: crate::score_view::ScoreState,
     lyrics_open: bool,
@@ -606,6 +615,7 @@ impl ShellApp {
             score_page: 0,
             score_zoom: 1.0,
             score_grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
+            score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err(),
             score_pdf_path: String::from("score.pdf"),
             score_state: crate::score_view::ScoreState::default(),
             lyrics_open: initial_window == "lyrics",
@@ -1997,17 +2007,47 @@ impl ShellApp {
             self.status = Some(String::from("pages must look like 1-4, 7"));
             return;
         }
+        let grand_staff = self.score_grand
+            || self
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .is_some_and(needs_grand_staff);
         let settings = score::Settings {
-            grand_staff: self.score_grand,
+            grand_staff,
             ..score::Settings::default()
         };
-        let engraved = score::engrave(self.song(), track, settings);
         let title = if self.song().name.is_empty() {
-            "Lazy Arranger score"
+            String::from("Lazy Arranger score")
         } else {
-            &self.song().name
+            self.song().name.clone()
         };
-        let pdf = score::pdf::to_pdf(&engraved, settings, title);
+        let pdf = if self.score_preview {
+            match self
+                .song()
+                .tracks
+                .iter()
+                .position(|entry| entry.id == track)
+            {
+                Some(index) => {
+                    match score::cecilia::render_pdf(self.song(), index, &title, self.score_grand) {
+                        Ok(pdf) => pdf,
+                        Err(error) => {
+                            self.status = Some(format!("Cecilia: {error}"));
+                            return;
+                        }
+                    }
+                }
+                None => {
+                    self.status = Some(String::from("track not found for print"));
+                    return;
+                }
+            }
+        } else {
+            let engraved = score::engrave(self.song(), track, settings);
+            score::pdf::to_pdf(&engraved, settings, &title)
+        };
         let path =
             std::env::temp_dir().join(format!("lazy-arranger-score-{}.pdf", std::process::id()));
         if let Err(error) = std::fs::write(&path, pdf) {
@@ -5347,7 +5387,8 @@ impl eframe::App for ShellApp {
                             self.printers_loaded = true;
                         }
                         ui.horizontal(|ui| {
-                            ui.checkbox(&mut self.score_entry, "Note entry");
+                            ui.checkbox(&mut self.score_preview, "Cecilia preview");
+                            ui.checkbox(&mut self.score_entry, "Write notes");
                             ui.checkbox(&mut self.score_grand, "Grand staff");
                             if ui.button("◀ Page").clicked() {
                                 self.score_page = self.score_page.saturating_sub(1);
@@ -5355,13 +5396,22 @@ impl eframe::App for ShellApp {
                             if ui.button("Page ▶").clicked() {
                                 self.score_page += 1;
                             }
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{}/{}",
+                                    self.score_page + 1,
+                                    self.score_state.cecilia_page_count.max(1)
+                                ))
+                                .size(10.0)
+                                .color(theme::text_dim()),
+                            );
                             ui.add(
                                 egui::Slider::new(&mut self.score_zoom, 0.5..=2.5)
                                     .text("zoom")
                                     .fixed_decimals(1),
                             );
                             ui.text_edit_singleline(&mut self.score_pdf_path);
-                            if ui.button("Save PDF").clicked() {
+                            if ui.button("Export PDF…").clicked() {
                                 save_pdf = true;
                             }
                             if ui
@@ -5401,48 +5451,94 @@ impl eframe::App for ShellApp {
                             .selected
                             .or_else(|| project.song.tracks.first().map(|track| track.id))
                         {
+                            let grand_staff = self.score_grand
+                                || needs_grand_staff(
+                                    project
+                                        .song
+                                        .tracks
+                                        .iter()
+                                        .find(|entry| entry.id == track)
+                                        .unwrap_or(&project.song.tracks[0]),
+                                );
                             let score_settings = score::Settings {
-                                grand_staff: self.score_grand,
+                                grand_staff,
                                 ..score::Settings::default()
                             };
                             let engraved = score::engrave(&project.song, track, score_settings);
-                            self.score_page =
-                                crate::score_view::clamp_page(&engraved, self.score_page);
+                            if !self.score_preview {
+                                self.score_page =
+                                    crate::score_view::clamp_page(&engraved, self.score_page);
+                            }
+                            let title = if project.song.name.is_empty() {
+                                "Lazy Arranger score"
+                            } else {
+                                &project.song.name
+                            };
+                            let track_index = project
+                                .song
+                                .tracks
+                                .iter()
+                                .position(|entry| entry.id == track)
+                                .unwrap_or(0);
                             if save_pdf {
-                                let pdf = score::pdf::to_pdf(
-                                    &engraved,
-                                    score_settings,
-                                    if project.song.name.is_empty() {
-                                        "Lazy Arranger score"
-                                    } else {
-                                        &project.song.name
+                                let pdf = if self.score_preview {
+                                    score::cecilia::render_pdf(
+                                        &project.song,
+                                        track_index,
+                                        title,
+                                        grand_staff,
+                                    )
+                                } else {
+                                    Ok(score::pdf::to_pdf(&engraved, score_settings, title))
+                                };
+                                match pdf {
+                                    Ok(pdf) => match std::fs::write(&self.score_pdf_path, pdf) {
+                                        Ok(()) => {
+                                            score_status =
+                                                Some(format!("wrote {}", self.score_pdf_path));
+                                        }
+                                        Err(error) => {
+                                            score_status =
+                                                Some(format!("{}: {error}", self.score_pdf_path));
+                                        }
                                     },
-                                );
-                                match std::fs::write(&self.score_pdf_path, pdf) {
-                                    Ok(()) => {
-                                        score_status =
-                                            Some(format!("wrote {}", self.score_pdf_path));
-                                    }
                                     Err(error) => {
-                                        score_status =
-                                            Some(format!("{}: {error}", self.score_pdf_path));
+                                        score_status = Some(format!("Cecilia: {error}"));
                                     }
                                 }
                             }
                             let zoom = self.score_zoom;
                             let page = self.score_page;
-                            let outcome = crate::score_view::show(
-                                ui,
-                                &engraved,
-                                page,
-                                zoom,
-                                if project.song.name.is_empty() {
-                                    "Lazy Arranger score"
-                                } else {
-                                    &project.song.name
-                                },
-                                &mut self.score_state,
-                            );
+                            let outcome = if self.score_preview {
+                                self.score_state.ensure_cecilia(
+                                    ui.ctx(),
+                                    &project.song,
+                                    track_index,
+                                    title,
+                                    grand_staff,
+                                );
+                                if let Some(error) = &self.score_state.cecilia_error {
+                                    score_status = Some(format!("Cecilia: {error}"));
+                                }
+                                let pages = self.score_state.cecilia_page_count.max(1);
+                                self.score_page = self.score_page.min(pages - 1);
+                                crate::score_view::show_preview(
+                                    ui,
+                                    &mut self.score_state,
+                                    self.score_page,
+                                    zoom,
+                                );
+                                crate::score_view::ScoreOutcome::default()
+                            } else {
+                                crate::score_view::show(
+                                    ui,
+                                    &engraved,
+                                    page,
+                                    zoom,
+                                    title,
+                                    &mut self.score_state,
+                                )
+                            };
                             if let Some(drag) = outcome.drag {
                                 if let Some(found) = project
                                     .song

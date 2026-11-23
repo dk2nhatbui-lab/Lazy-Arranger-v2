@@ -1033,15 +1033,16 @@ keeps it inside the decoded loop; the Drum pads window shows start/end/length an
 four ±10 ms buttons, re-auditioning after a change. A unit test covers clamping
 and the missing-pad case. There is no waveform dragging or drum-slice stretch.
 
-### Clefs and key-signature limitation
+### Cecilia engraving engine
 
-G and F clefs are drawn from bundled public-domain PNG glyphs on canvas and in
-the PDF. A single staff selects treble or bass from the average pitch; a grand
-staff draws treble and bass. They fit in the existing left margin without
-changing four-measures-per-system. Key signatures are still absent: the margin
-is already used by clef and time signature, and a key gutter would force three
-measures per system. Key spelling and accidentals are still applied.
-
+The primary Score view and PDF use cecilia-engrave 0.51. `score::cecilia`
+converts the selected project track to a one-track Cecilia score: bars, beats,
+note values, detected key signature and subtitle, tempo changes, markers,
+chords, drum/neutral clef and piano grand staff. Cecilia produces the PNG pages
+shown on the canvas and the PDF used by Export PDF/Print. The old vector editor
+remains behind the Cecilia-preview toggle for note entry/drag interactions.
+MSRV moves to 1.89 for the dependency. The preview capture is
+`docs/audit/score-cecilia.png`.
 ### Recorded-note quantise
 
 `record_quantise` (Settings, default off) calls `quantise_recorded` on the

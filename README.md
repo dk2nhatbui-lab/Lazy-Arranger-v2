@@ -26,7 +26,7 @@ blockers are listed at the end.
 | Style writer (SFF1/SFF2, 15 sections, programs) | verified round-trip | `style-formats::write_style` |
 | Arranger rules, performance capture, freeze | verified | `crates/arranger`, `crates/performance` |
 | Grooves, forms, transitions, doctor, fit, theory | verified model + CLI/MCP | `crates/arranging`, UI |
-| Score engraving: ties, beams, tuplets, rests, dots, slurs, percussion, lyrics, chord names, frames, spacing, drag/resize | verified tests; PDF/canvas checks | `crates/score`, `apps/desktop` |
+| Score engraving: Cecilia 0.51 (clefs/key/grand staff/PDF) plus legacy vector editor | verified adapter/PDF/PNG tests; captures | `crates/score`, `apps/desktop` |
 | Vector score PDF and print via `lp` (printer picker) | PDF verified; print unverified | `score::pdf`, Score view |
 | Offline audio render, SF2, cpal playback | rendered tests; audible cpal unverified | `crates/audio` |
 | Mixer: buses, sends, pan, automation, master gain/limiter/reverb/chorus, peak/RMS and per-track meters | verified render tests | `audio`, Mix view |
@@ -91,7 +91,7 @@ apps/desktop           egui 0.31 desktop app
 
 ## Platform notes
 
-- Rust 2024 workspace, MSRV 1.88; `./scripts/rust.sh` sets a workspace-local
+- Rust 2024 workspace, MSRV 1.89; `./scripts/rust.sh` sets a workspace-local
   `CARGO_HOME`.
 - `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` and rustdoc are
   expected green before a commit.
