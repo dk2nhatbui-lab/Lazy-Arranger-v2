@@ -103,6 +103,13 @@ unsafe extern "C" {
         element: u32,
         value: *mut f32,
     ) -> OsStatus;
+    fn MusicDeviceMIDIEvent(
+        unit: AudioUnit,
+        status: u32,
+        data1: u32,
+        data2: u32,
+        offset: u32,
+    ) -> OsStatus;
     fn AudioUnitSetParameter(
         unit: AudioUnit,
         id: u32,
@@ -120,9 +127,18 @@ unsafe extern "C" {
         frames: u32,
         data: *mut AudioBufferList2,
     ) -> OsStatus;
+    fn AudioUnitRender(
+        unit: AudioUnit,
+        flags: *mut u32,
+        timestamp: *const AudioTimeStamp,
+        output_bus: u32,
+        frames: u32,
+        data: *mut AudioBufferList2,
+    ) -> OsStatus;
 }
 
 const AU_EFFECT: u32 = 0x6175_6678; // 'aufx'
+const AU_MUSIC_DEVICE: u32 = 0x6175_6d75; // 'aumu'
 const STREAM_FORMAT: u32 = 8;
 const PARAMETER_LIST: u32 = 3;
 const PARAMETER_INFO: u32 = 4;
@@ -400,10 +416,176 @@ impl Drop for AuEffect {
     }
 }
 
+/// One active Audio Unit instrument.
+pub struct AuInstrument {
+    unit: AudioUnit,
+    sample_time: f64,
+}
+
+impl std::fmt::Debug for AuInstrument {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AuInstrument")
+            .field("sample_time", &self.sample_time)
+            .finish()
+    }
+}
+
+impl AuInstrument {
+    /// Opens an installed AU music device by `manufacturer:subtype`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the component is absent or initialization fails.
+    pub fn new(identifier: &str, sample_rate: f64) -> Result<Self, String> {
+        let (manufacturer, subtype) = identifier
+            .split_once(':')
+            .ok_or_else(|| String::from("AU id must be manufacturer:subtype"))?;
+        let description = AudioComponentDescription {
+            component_type: AU_MUSIC_DEVICE,
+            component_sub_type: fourcc(subtype),
+            component_manufacturer: fourcc(manufacturer),
+            ..AudioComponentDescription::default()
+        };
+        let component = unsafe { AudioComponentFindNext(std::ptr::null_mut(), &description) };
+        if component.is_null() {
+            return Err(format!("AU instrument {identifier} not found"));
+        }
+        let mut unit: AudioUnit = std::ptr::null_mut();
+        let result = unsafe { AudioComponentInstanceNew(component, &mut unit) };
+        if result != 0 || unit.is_null() {
+            return Err(format!("AudioComponentInstanceNew returned {result}"));
+        }
+        let instrument = Self {
+            unit,
+            sample_time: 0.0,
+        };
+        instrument.configure(sample_rate)?;
+        Ok(instrument)
+    }
+
+    fn configure(&self, sample_rate: f64) -> Result<(), String> {
+        let format = AudioStreamBasicDescription {
+            sample_rate,
+            format_id: LINEAR_PCM,
+            format_flags: FLOAT | PACKED | NON_INTERLEAVED,
+            bytes_per_packet: 4,
+            frames_per_packet: 1,
+            bytes_per_frame: 4,
+            channels_per_frame: 2,
+            bits_per_channel: 32,
+            reserved: 0,
+        };
+        let result = unsafe {
+            AudioUnitSetProperty(
+                self.unit,
+                STREAM_FORMAT,
+                SCOPE_OUTPUT,
+                0,
+                (&raw const format).cast(),
+                u32::try_from(std::mem::size_of::<AudioStreamBasicDescription>()).unwrap_or(0),
+            )
+        };
+        if result != 0 {
+            return Err(format!("set output format returned {result}"));
+        }
+        let frames = 4096_u32;
+        let result = unsafe {
+            AudioUnitSetProperty(
+                self.unit,
+                MAX_FRAMES,
+                0,
+                0,
+                (&raw const frames).cast(),
+                u32::try_from(std::mem::size_of::<u32>()).unwrap_or(0),
+            )
+        };
+        if result != 0 {
+            return Err(format!("set maximum frames returned {result}"));
+        }
+        let result = unsafe { AudioUnitInitialize(self.unit) };
+        if result != 0 {
+            return Err(format!("AudioUnitInitialize returned {result}"));
+        }
+        Ok(())
+    }
+
+    /// Sends a MIDI note-on at the next render position.
+    pub fn note_on(&self, key: u8, velocity: u8) {
+        let _ = unsafe {
+            MusicDeviceMIDIEvent(self.unit, 0x90, u32::from(key), u32::from(velocity), 0)
+        };
+    }
+
+    /// Sends a MIDI note-off at the next render position.
+    pub fn note_off(&self, key: u8) {
+        let _ = unsafe { MusicDeviceMIDIEvent(self.unit, 0x80, u32::from(key), 0, 0) };
+    }
+
+    /// Renders one stereo block into `left`/`right`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the unit rejects the block.
+    pub fn process_block(&mut self, left: &mut [f32], right: &mut [f32]) -> Result<(), String> {
+        let frames = left.len().min(right.len());
+        if frames == 0 {
+            return Ok(());
+        }
+        let mut buffers = AudioBufferList2 {
+            number_buffers: 2,
+            buffers: [
+                AudioBuffer {
+                    number_channels: 1,
+                    data_byte_size: u32::try_from(frames * 4).unwrap_or(0),
+                    data: left.as_mut_ptr().cast(),
+                },
+                AudioBuffer {
+                    number_channels: 1,
+                    data_byte_size: u32::try_from(frames * 4).unwrap_or(0),
+                    data: right.as_mut_ptr().cast(),
+                },
+            ],
+        };
+        let timestamp = AudioTimeStamp {
+            sample_time: self.sample_time,
+            flags: 2,
+            ..AudioTimeStamp::default()
+        };
+        let result = unsafe {
+            AudioUnitRender(
+                self.unit,
+                std::ptr::null_mut(),
+                &timestamp,
+                0,
+                u32::try_from(frames).unwrap_or(0),
+                &mut buffers,
+            )
+        };
+        if result != 0 {
+            return Err(format!("AudioUnitRender returned {result}"));
+        }
+        self.sample_time += frames as f64;
+        Ok(())
+    }
+}
+
+impl Drop for AuInstrument {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = AudioUnitUninitialize(self.unit);
+            let _ = AudioComponentInstanceDispose(self.unit);
+        }
+    }
+}
+
 fn fourcc(text: &str) -> u32 {
-    text.as_bytes()
+    let mut bytes = [b' '; 4];
+    for (slot, byte) in bytes.iter_mut().zip(text.bytes().take(4)) {
+        *slot = byte;
+    }
+    bytes
         .iter()
-        .take(4)
         .fold(0_u32, |value, byte| (value << 8) | u32::from(*byte))
 }
 
@@ -412,9 +594,24 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "loads the Apple DLSMusicDevice Audio Unit"]
+    fn apple_dls_instrument_renders_a_note() {
+        let mut instrument = AuInstrument::new("appl:dls", 48_000.0).expect("au");
+        instrument.note_on(60, 100);
+        let mut left = vec![0.0_f32; 1024];
+        let mut right = vec![0.0_f32; 1024];
+        instrument
+            .process_block(&mut left, &mut right)
+            .expect("render");
+        instrument.note_off(60);
+        assert!(left.iter().chain(&right).any(|sample| *sample != 0.0));
+    }
+
+    #[test]
     fn four_character_codes_are_big_endian() {
         assert_eq!(fourcc("aufx"), AU_EFFECT);
         assert_eq!(fourcc("rvrb"), 0x7276_7262);
+        assert_eq!(fourcc("dls"), 0x646c_7320, "short codes pad with spaces");
     }
 
     #[test]

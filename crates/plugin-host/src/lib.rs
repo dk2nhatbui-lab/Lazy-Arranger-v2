@@ -12,7 +12,7 @@ pub use instance::Vst3Effect;
 #[cfg(target_os = "macos")]
 mod au;
 #[cfg(target_os = "macos")]
-pub use au::AuEffect;
+pub use au::{AuEffect, AuInstrument};
 
 use std::path::{Path, PathBuf};
 
