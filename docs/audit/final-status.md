@@ -73,3 +73,4 @@ For the clef layout, choose either four measures per system without clefs
 - AU instruments are routed into track render: a track with a non-bypassed AU instrument slot renders its notes through DLSMusicDevice (ignored wet/dry test); VST3 instruments remain absent.
 - AU instrument note events carry sample offsets inside 512-frame blocks; block-boundary scheduling remains the resolution limit.
 - The AU parameter window opens instruments too; DLSMusicDevice exposes editable parameters and slot state.
+- MIDI recording supports a silent 0–2 bar count-in (settings/sidebar); no audible click or record-arm transport yet.

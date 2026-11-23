@@ -5238,8 +5238,16 @@ impl ShellApp {
                                 };
                                 let tempo = self.song().tempo_map.clone();
                                 let seconds = self.record_seconds;
+                                let count_in = self.settings.record_count_in;
+                                let delay =
+                                    f64::from(count_in) * 4.0 * 60.0 / tempo.bpm_at(0).max(1.0);
                                 let (sender, receiver) = std::sync::mpsc::channel();
                                 std::thread::spawn(move || {
+                                    if delay > 0.0 {
+                                        std::thread::sleep(std::time::Duration::from_secs_f64(
+                                            delay,
+                                        ));
+                                    }
                                     let result = midi_devices::devices::record_to_song(
                                         &keyboard, seconds, &tempo, "Recorded",
                                     )
@@ -5248,13 +5256,23 @@ impl ShellApp {
                                     let _ = sender.send(result);
                                 });
                                 self.recording = Some(receiver);
-                                self.status = Some(format!("recording {seconds} s"));
+                                self.status = Some(if count_in == 0 {
+                                    format!("recording {seconds} s")
+                                } else {
+                                    format!("count-in {count_in} bar(s), then {seconds} s")
+                                });
                             }
                             ui.add(
                                 egui::DragValue::new(&mut self.record_seconds)
                                     .range(1.0..=60.0)
                                     .suffix(" s"),
                             );
+                            ui.add(
+                                egui::DragValue::new(&mut self.settings.record_count_in)
+                                    .range(0..=2)
+                                    .suffix(" bar"),
+                            )
+                            .on_hover_text("Silent count-in before recording");
                             let audio_label = if self.audio_recording.is_some() {
                                 "Recording audio…"
                             } else {

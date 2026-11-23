@@ -171,6 +171,8 @@ pub struct Settings {
     pub monitor: bool,
     /// Snap recorded MIDI note starts to the 1/16 grid.
     pub record_quantise: bool,
+    /// Silent count-in bars before MIDI recording, 0..=2.
+    pub record_count_in: u8,
     /// Folder holding the style library, empty when not configured.
     pub style_library: String,
     /// Master gain in decibels.
@@ -211,6 +213,7 @@ impl Default for Settings {
             record_chords: false,
             monitor: false,
             record_quantise: false,
+            record_count_in: 0,
             style_library: String::new(),
             master_gain_db: 0.0,
             master_limiter: true,
@@ -273,6 +276,11 @@ impl Settings {
                 "record_chords" => settings.record_chords = value == "true",
                 "monitor" => settings.monitor = value == "true",
                 "record_quantise" => settings.record_quantise = value == "true",
+                "record_count_in" => {
+                    if let Ok(bars) = value.parse::<u8>() {
+                        settings.record_count_in = bars.min(2);
+                    }
+                }
                 "style_library" => settings.style_library = value.to_string(),
                 "master_gain_db" => {
                     if let Ok(gain) = value.parse::<f32>() {
@@ -320,6 +328,7 @@ impl Settings {
         text.push_str(&format!("record_chords = {}\n", self.record_chords));
         text.push_str(&format!("monitor = {}\n", self.monitor));
         text.push_str(&format!("record_quantise = {}\n", self.record_quantise));
+        text.push_str(&format!("record_count_in = {}\n", self.record_count_in));
         if !self.style_library.is_empty() {
             text.push_str(&format!("style_library = {}\n", self.style_library));
         }
@@ -369,6 +378,7 @@ mod tests {
             record_chords: true,
             monitor: true,
             record_quantise: true,
+            record_count_in: 2,
             master_reverb: 0.3,
             master_chorus: 0.2,
             grade: 3,
