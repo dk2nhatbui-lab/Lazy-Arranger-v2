@@ -731,9 +731,12 @@ enum Commands {
         /// Section name.
         #[arg(long, default_value = "Main A")]
         section: String,
-        /// Source chord.
+        /// Source chord, or `auto`.
         #[arg(long, default_value = "C")]
         chord: String,
+        /// Split notes below C3 into a bass part and the rest into melody.
+        #[arg(long)]
+        split_parts: bool,
         /// sff1 or sff2 (default).
         #[arg(long, default_value = "sff2")]
         version: String,
@@ -2047,8 +2050,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             bpm,
             section,
             chord,
+            split_parts,
             version,
-        } => style_from_audio(&audio, &out, bpm, &section, &chord, &version),
+        } => style_from_audio(&audio, &out, bpm, &section, &chord, split_parts, &version),
         Commands::StyleFromClips {
             project,
             out,
@@ -2652,6 +2656,7 @@ fn style_from_audio(
     bpm: f64,
     section: &str,
     chord: &str,
+    split_parts: bool,
     version: &str,
 ) -> Result<(), Box<dyn Error>> {
     let decoded = audio::decode::decode_mono(audio_path).or_else(|_| {
@@ -2689,15 +2694,15 @@ fn style_from_audio(
     };
     let source = arranger::chord_type::ArrangerChord::try_from(&source_chord)
         .map_err(|error| format!("unsupported style chord {chord:?}: {error:?}"))?;
-    let mut style = arranger::style::from_notes(
-        audio_path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("Audio style"),
-        source,
-        length,
-        notes,
-    );
+    let name = audio_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("Audio style");
+    let mut style = if split_parts {
+        arranger::style::from_notes_split(name, source, length, notes)
+    } else {
+        arranger::style::from_notes(name, source, length, notes)
+    };
     if let Some(first) = style.sections.first_mut() {
         first.name = section.to_string();
     }
@@ -2714,10 +2719,9 @@ fn style_from_audio(
         "wrote {}: source {}, {} detected note(s), {} section(s), {} byte(s); re-read {:?}",
         out.display(),
         source_chord.format(music_core::Spelling::Sharp),
-        style.sections.first().map_or(0, |section| section
-            .parts
-            .first()
-            .map_or(0, |part| part.notes.len())),
+        style.sections.first().map_or(0, |section| {
+            section.parts.iter().map(|part| part.notes.len()).sum()
+        }),
         style.sections.len(),
         bytes.len(),
         check.section_names()

@@ -242,6 +242,36 @@ pub fn from_notes(
     style
 }
 
+/// Builds a style from notes split into a bass part (below C3) and a melody part.
+#[must_use]
+pub fn from_notes_split(
+    name: &str,
+    source_chord: ArrangerChord,
+    length_ticks: Tick,
+    notes: Vec<StyleNote>,
+) -> Style {
+    let mut style = Style::new(name, source_chord);
+    let mut section = StyleSection::new("Main A", length_ticks.max(1));
+    let mut bass = StylePart::new("Bass", ChordRule::default_for_channel(11));
+    let mut melody = StylePart::new("Melody", ChordRule::default_for_channel(12));
+    for note in notes {
+        if note.pitch < 48 {
+            bass.notes.push(note);
+        } else {
+            melody.notes.push(note);
+        }
+    }
+    if !bass.notes.is_empty() {
+        section.parts.push(bass);
+    }
+    if !melody.notes.is_empty() {
+        section.parts.push(melody);
+    }
+    style.sections.push(section);
+    apply_source_chord(&mut style);
+    style
+}
+
 /// A chord change on the song timeline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChordAt {
@@ -730,5 +760,31 @@ mod tests {
         assert_eq!(style.sections.len(), 1);
         assert_eq!(style.sections[0].parts.len(), 1);
         assert_eq!(style.sections[0].parts[0].notes.len(), 1);
+    }
+
+    #[test]
+    fn notes_split_into_bass_and_melody_parts() {
+        let style = from_notes_split(
+            "Audio",
+            chord(0, ChordType::Major),
+            music_core::PPQ,
+            vec![
+                StyleNote {
+                    tick: 0,
+                    duration: music_core::PPQ / 2,
+                    pitch: 40,
+                    velocity: 100,
+                },
+                StyleNote {
+                    tick: music_core::PPQ / 2,
+                    duration: music_core::PPQ / 2,
+                    pitch: 72,
+                    velocity: 100,
+                },
+            ],
+        );
+        assert_eq!(style.sections[0].parts.len(), 2);
+        assert_eq!(style.sections[0].parts[0].name, "Bass");
+        assert_eq!(style.sections[0].parts[1].name, "Melody");
     }
 }
