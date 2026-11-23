@@ -593,6 +593,7 @@ pub struct ShellApp {
     l6max_folder: String,
     l6max_plan: Option<audio::l6max::Plan>,
     l6max_error: Option<String>,
+    l6max_selected: Vec<bool>,
     sf2_path: String,
     sf2_bank: u16,
     sf2_program: u16,
@@ -840,6 +841,7 @@ impl ShellApp {
             l6max_folder: String::new(),
             l6max_plan: None,
             l6max_error: None,
+            l6max_selected: Vec::new(),
             sf2_path: String::new(),
             sf2_bank: 0,
             sf2_program: 0,
@@ -5316,6 +5318,7 @@ impl ShellApp {
                     match audio::l6max::scan(std::path::Path::new(&self.l6max_folder)) {
                         Ok(plan) => {
                             self.l6max_error = None;
+                            self.l6max_selected = vec![true; plan.takes.len()];
                             self.l6max_plan = Some(plan);
                         }
                         Err(error) => {
@@ -5335,22 +5338,53 @@ impl ShellApp {
                     plan.float32(),
                     plan.seconds()
                 ));
-                for take in plan.takes.iter().take(6) {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} · {:.1} s · {} ch",
-                            take.name, take.seconds, take.channels
-                        ))
-                        .size(10.0)
-                        .color(theme::text_dim()),
-                    );
+                if self.l6max_selected.len() != plan.takes.len() {
+                    self.l6max_selected = vec![true; plan.takes.len()];
                 }
-                if ui.button("Import takes at playhead").clicked() {
-                    match self.editor.import_l6max(plan, self.position.max(0)) {
-                        Ok(count) => {
-                            self.status = Some(format!("imported {count} L6max take(s)"));
+                for (index, take) in plan.takes.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        let selected = self
+                            .l6max_selected
+                            .get_mut(index)
+                            .is_some_and(|selected| *selected);
+                        let mut chosen = selected;
+                        ui.checkbox(&mut chosen, "");
+                        if let Some(selected) = self.l6max_selected.get_mut(index) {
+                            *selected = chosen;
                         }
-                        Err(error) => self.status = Some(error),
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} · {:.1} s · {} ch",
+                                take.name, take.seconds, take.channels
+                            ))
+                            .size(10.0)
+                            .color(theme::text_dim()),
+                        );
+                    });
+                }
+                if ui.button("Import selected at playhead").clicked() {
+                    let takes: Vec<audio::l6max::Take> = plan
+                        .takes
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, _)| {
+                            self.l6max_selected.get(*index).copied().unwrap_or(true)
+                        })
+                        .map(|(_, take)| take.clone())
+                        .collect();
+                    if takes.is_empty() {
+                        self.status = Some(String::from("select at least one L6max take"));
+                    } else {
+                        let selected = audio::l6max::Plan {
+                            takes,
+                            problems: Vec::new(),
+                        };
+                        match self.editor.import_l6max(&selected, self.position.max(0)) {
+                            Ok(count) => {
+                                self.status = Some(format!("imported {count} L6max take(s)"));
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
                     }
                 }
             }
