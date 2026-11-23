@@ -102,3 +102,4 @@ For the clef layout, choose either four measures per system without clefs
 - Groove library window lists/loads/applies `.groove` files with timing and accent sliders (`docs/audit/groove-library.png`).
 - L6max take scan supports per-take selection; no mixer page/transport or project parsing.
 - MIDI out sends transport realtime messages; Device editor can send SysEx; both hardware-unverified.
+- UI pass started: C++-style square transport, light tabs, Mixer toggle, Ask AI and resizable left/right/mixer panels.

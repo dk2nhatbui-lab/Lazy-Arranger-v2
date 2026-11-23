@@ -549,6 +549,7 @@ pub struct ShellApp {
     settings_open: bool,
     shortcuts_open: bool,
     about_open: bool,
+    mixer_visible: bool,
     device_profiles: Vec<midi_devices::profiles::LoadedProfile>,
     device_editor_open: bool,
     device_editor_profile: usize,
@@ -802,6 +803,7 @@ impl ShellApp {
             settings_open: initial_window == "settings",
             shortcuts_open: initial_window == "shortcuts",
             about_open: initial_window == "about",
+            mixer_visible: true,
             device_profiles: load_device_profiles(),
             device_editor_open: initial_window == "device",
             device_editor_profile: 0,
@@ -2607,13 +2609,15 @@ impl ShellApp {
     }
 
     fn bottom_mixer(&mut self, context: &Context) {
-        if self.settings.kids_mode {
+        if self.settings.kids_mode || !self.mixer_visible {
             return;
         }
         let tracks = self.song().tracks.clone();
         let mut edits: Vec<(TrackId, u8, u8, bool, bool)> = Vec::new();
         egui::TopBottomPanel::bottom("bottom-mixer")
-            .exact_height(138.0)
+            .resizable(true)
+            .default_height(150.0)
+            .height_range(100.0..=360.0)
             .frame(
                 egui::Frame::new()
                     .fill(theme::panel())
@@ -3954,7 +3958,9 @@ impl ShellApp {
                 .cloned()
         });
         egui::SidePanel::right("right-inspector")
-            .exact_width(250.0)
+            .resizable(true)
+            .default_width(250.0)
+            .width_range(200.0..=420.0)
             .frame(
                 egui::Frame::new()
                     .fill(theme::panel())
@@ -6674,7 +6680,7 @@ impl ShellApp {
                 );
                 let mut area = rect.shrink2(egui::vec2(16.0, 0.0));
                 // Title area: badge, title, subtitle (HeaderBar::paint).
-                let title_area = Rect::from_min_size(area.min, egui::vec2(220.0, area.height()));
+                let title_area = Rect::from_min_size(area.min, egui::vec2(250.0, area.height()));
                 area = Rect::from_min_max(egui::pos2(title_area.right(), area.top()), area.max);
                 let badge = Rect::from_center_size(
                     egui::pos2(title_area.left() + 18.0, title_area.center().y),
@@ -6717,22 +6723,19 @@ impl ShellApp {
                 );
 
                 // Transport buttons: stop 44, play 54, 8 px gaps.
-                let buttons_rect = Rect::from_min_size(
-                    area.min,
-                    egui::vec2(54.0 + 4.0 * 44.0 + 4.0 * 8.0, area.height()),
-                );
+                let buttons_rect = Rect::from_min_size(area.min, egui::vec2(214.0, area.height()));
                 area = Rect::from_min_max(egui::pos2(buttons_rect.right(), area.top()), area.max);
                 let mut x = buttons_rect.left();
                 let stop = Rect::from_center_size(
+                    egui::pos2(x + 19.0, buttons_rect.center().y),
+                    egui::vec2(38.0, 38.0),
+                );
+                x += 44.0;
+                let play = Rect::from_center_size(
                     egui::pos2(x + 22.0, buttons_rect.center().y),
                     egui::vec2(44.0, 44.0),
                 );
-                x += 52.0;
-                let play = Rect::from_center_size(
-                    egui::pos2(x + 27.0, buttons_rect.center().y),
-                    egui::vec2(54.0, 54.0),
-                );
-                if transport_button(ui, stop, "\u{25A0}", !self.playing) {
+                if transport_button(ui, stop, "\u{25A0}", false) {
                     self.stop_playback();
                 }
                 if transport_button(
@@ -6744,15 +6747,31 @@ impl ShellApp {
                     self.toggle_playback();
                     context.request_repaint_after(std::time::Duration::from_millis(16));
                 }
-                x += 60.0;
+                x += 50.0;
                 let record = Rect::from_center_size(
-                    egui::pos2(x + 22.0, buttons_rect.center().y),
-                    egui::vec2(44.0, 44.0),
+                    egui::pos2(x + 19.0, buttons_rect.center().y),
+                    egui::vec2(38.0, 38.0),
                 );
                 if transport_button(ui, record, "\u{25CF}", self.recording.is_some()) {
                     self.start_midi_recording();
                 }
-                // LCD, 350 x 52, then the view tabs on the right.
+                x += 44.0;
+                let undo = Rect::from_center_size(
+                    egui::pos2(x + 16.0, buttons_rect.center().y),
+                    egui::vec2(32.0, 32.0),
+                );
+                if transport_button(ui, undo, "\u{21B6}", false) && !self.editor.undo() {
+                    self.status = Some(String::from("nothing to undo"));
+                }
+                x += 38.0;
+                let metronome = Rect::from_center_size(
+                    egui::pos2(x + 16.0, buttons_rect.center().y),
+                    egui::vec2(32.0, 32.0),
+                );
+                if transport_button(ui, metronome, "M", self.settings.metronome) {
+                    self.settings.metronome = !self.settings.metronome;
+                }
+                // LCD, 320 x 52, then the view tabs on the right.
                 let lcd_rect = Rect::from_center_size(
                     egui::pos2(area.left() + 16.0 + 175.0, rect.center().y),
                     widgets::LCD_SIZE,
@@ -6764,9 +6783,17 @@ impl ShellApp {
                     self.song().tempo_map.bpm_at(self.position),
                     self.song().time_signature,
                 );
+                let ai_rect = Rect::from_center_size(
+                    egui::pos2(rect.right() - 16.0 - 48.0, rect.center().y),
+                    egui::vec2(80.0, 34.0),
+                );
+                let mixer_rect = Rect::from_center_size(
+                    egui::pos2(ai_rect.left() - 8.0 - 28.0, rect.center().y),
+                    egui::vec2(56.0, 34.0),
+                );
                 let tabs_rect = Rect::from_center_size(
                     egui::pos2(
-                        rect.right() - 16.0 - widgets::TABS_SIZE.x * 0.5,
+                        mixer_rect.left() - 8.0 - widgets::TABS_SIZE.x * 0.5,
                         rect.center().y,
                     ),
                     widgets::TABS_SIZE,
@@ -6775,11 +6802,13 @@ impl ShellApp {
                 let views = View::allowed(self.settings.kids_mode);
                 let names: Vec<&str> = views
                     .iter()
-                    .map(|view| {
-                        crate::strings::text(
+                    .map(|view| match view {
+                        View::Arrange => "Timeline",
+                        View::Mix => "Mixer",
+                        other => crate::strings::text(
                             crate::strings::Language::parse(&self.settings.language),
-                            view.key(),
-                        )
+                            other.key(),
+                        ),
                     })
                     .collect();
                 let selected = views
@@ -6791,12 +6820,31 @@ impl ShellApp {
                 {
                     self.view = *view;
                 }
+                let ai_response =
+                    ui.interact(ai_rect, ui.id().with("ask-ai"), egui::Sense::click());
+                ui.painter().rect_filled(
+                    ai_rect,
+                    16.0,
+                    theme::accent().gamma_multiply(if ai_response.hovered() { 1.0 } else { 0.9 }),
+                );
+                ui.painter().text(
+                    ai_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Ask AI",
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::WHITE,
+                );
+                if ai_response.clicked() {
+                    self.assistant_open = true;
+                }
             });
     }
 
     fn sidebar(&mut self, context: &Context) {
         egui::SidePanel::left("tracks")
-            .exact_width(theme::SIDEBAR_WIDTH)
+            .resizable(true)
+            .default_width(theme::SIDEBAR_WIDTH)
+            .width_range(180.0..=420.0)
             .frame(
                 egui::Frame::new()
                     .fill(theme::panel())
@@ -8221,11 +8269,10 @@ fn transport_button(ui: &mut egui::Ui, rect: Rect, glyph: &str, active: bool) ->
     } else {
         theme::raised()
     };
-    ui.painter()
-        .circle_filled(rect.center(), rect.width() * 0.5, fill);
-    ui.painter().circle_stroke(
-        rect.center(),
-        rect.width() * 0.5,
+    ui.painter().rect_filled(rect, 4.0, fill);
+    ui.painter().rect_stroke(
+        rect,
+        4.0,
         egui::Stroke::new(
             1.0_f32,
             if active {
@@ -8234,6 +8281,7 @@ fn transport_button(ui: &mut egui::Ui, rect: Rect, glyph: &str, active: bool) ->
                 theme::line()
             },
         ),
+        egui::StrokeKind::Inside,
     );
     ui.painter().text(
         rect.center(),

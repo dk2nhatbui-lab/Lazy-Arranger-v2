@@ -10,11 +10,11 @@ use music_core::{PPQ, Tick, TimeSignature};
 use crate::theme;
 
 /// LCD panel size, from `HeaderBar::resized`: 350 x 52.
-pub const LCD_SIZE: Vec2 = Vec2::new(350.0, 52.0);
+pub const LCD_SIZE: Vec2 = Vec2::new(340.0, 48.0);
 /// Cell widths, from `LcdDisplay::cell`.
 const CELLS: [f32; 3] = [142.0, 116.0, 92.0];
 /// View tab strip size, from `HeaderBar::resized`.
-pub const TABS_SIZE: Vec2 = Vec2::new(440.0, 44.0);
+pub const TABS_SIZE: Vec2 = Vec2::new(320.0, 38.0);
 
 /// Bar, beat and sixteenth, one-based, as the LCD shows them.
 #[must_use]
@@ -144,7 +144,7 @@ pub fn lcd(ui: &mut Ui, position: Tick, bpm: f64, meter: TimeSignature) -> Respo
 pub fn view_tabs(ui: &mut Ui, current: usize, names: &[&str]) -> Option<usize> {
     let (response, painter) = ui.allocate_painter(TABS_SIZE, Sense::click());
     let rect = response.rect;
-    painter.rect_filled(rect, 0.0, theme::lcd());
+    painter.rect_filled(rect, 0.0, theme::panel());
     painter.rect_stroke(
         rect,
         0.0,
@@ -193,13 +193,11 @@ pub fn view_tabs(ui: &mut Ui, current: usize, names: &[&str]) -> Option<usize> {
             painter.rect_filled(
                 tab,
                 theme::RADIUS_SMALL,
-                theme::accent().gamma_multiply(0.14),
+                theme::accent().gamma_multiply(0.10),
             );
-            painter.rect_stroke(
-                tab.shrink(0.5),
-                theme::RADIUS_SMALL,
-                Stroke::new(1.0_f32, theme::accent().gamma_multiply(0.4)),
-                StrokeKind::Inside,
+            painter.line_segment(
+                [tab.left_bottom(), tab.right_bottom()],
+                Stroke::new(2.0_f32, theme::accent()),
             );
             let width = 26.0_f32.min(tab.width() * 0.4);
             let underline = Rect::from_center_size(
