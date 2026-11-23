@@ -834,6 +834,8 @@ pub struct ShellApp {
     audio_chords_open: bool,
     audio_chords_path: String,
     audio_chords: Vec<audio::chords::AudioChord>,
+    audio_chords_pending:
+        Option<std::sync::mpsc::Receiver<Result<Vec<audio::chords::AudioChord>, String>>>,
     style_file_open: bool,
     style_file_path: String,
     style_import: Option<style_formats::ImportedStyle>,
@@ -1133,6 +1135,7 @@ impl ShellApp {
             audio_chords_open: false,
             audio_chords_path: String::new(),
             audio_chords: Vec::new(),
+            audio_chords_pending: None,
             style_file_open: std::env::var("ARRANGER_STYLE").is_ok(),
             style_file_path: std::env::var("ARRANGER_STYLE_FILE").unwrap_or_default(),
             style_import: None,
@@ -4516,35 +4519,33 @@ impl ShellApp {
                     );
                     if ui.button("Analyze").clicked() {
                         let path = std::path::PathBuf::from(&self.audio_chords_path);
-                        let decoded = std::fs::read(&path)
-                            .map_err(|error| error.to_string())
-                            .and_then(|bytes| {
-                                if bytes.starts_with(b"RIFF") {
-                                    audio::wav::decode_mono(&bytes)
-                                        .map_err(|error| error.to_string())
-                                } else {
-                                    audio::decode::decode_mono(&path)
-                                        .map_err(|error| error.to_string())
-                                }
-                            });
-                        match decoded {
-                            Ok(decoded) => {
-                                let bpm = self.song().tempo_map.bpm_at(0);
-                                let bar_seconds = self.song().time_signature.bar_ticks() as f64
-                                    * 60.0
-                                    / (bpm.max(1.0) * music_core::PPQ as f64);
-                                self.audio_chords = audio::chords::recognize(
-                                    &decoded.samples,
-                                    decoded.sample_rate,
-                                    bar_seconds,
-                                );
-                                self.status = Some(format!(
-                                    "recognised {} chord(s)",
-                                    self.audio_chords.len()
-                                ));
-                            }
-                            Err(error) => self.status = Some(error),
-                        }
+                        let bpm = self.song().tempo_map.bpm_at(0);
+                        let bar_seconds = self.song().time_signature.bar_ticks() as f64 * 60.0
+                            / (bpm.max(1.0) * music_core::PPQ as f64);
+                        let (sender, receiver) = std::sync::mpsc::channel();
+                        self.audio_chords_pending = Some(receiver);
+                        self.status = Some(String::from("analysing audio…"));
+                        std::thread::spawn(move || {
+                            let result = std::fs::read(&path)
+                                .map_err(|error| error.to_string())
+                                .and_then(|bytes| {
+                                    if bytes.starts_with(b"RIFF") {
+                                        audio::wav::decode_mono(&bytes)
+                                            .map_err(|error| error.to_string())
+                                    } else {
+                                        audio::decode::decode_mono(&path)
+                                            .map_err(|error| error.to_string())
+                                    }
+                                })
+                                .map(|decoded| {
+                                    audio::chords::recognize(
+                                        &decoded.samples,
+                                        decoded.sample_rate,
+                                        bar_seconds,
+                                    )
+                                });
+                            let _ = sender.send(result);
+                        });
                     }
                 });
                 egui::ScrollArea::vertical()
@@ -9580,6 +9581,23 @@ impl eframe::App for ShellApp {
         }
         self.poll_midi();
         self.poll_ai();
+        if let Some(receiver) = &self.audio_chords_pending {
+            match receiver.try_recv() {
+                Ok(Ok(chords)) => {
+                    self.status = Some(format!("recognised {} chord(s)", chords.len()));
+                    self.audio_chords = chords;
+                    self.audio_chords_pending = None;
+                }
+                Ok(Err(error)) => {
+                    self.status = Some(error);
+                    self.audio_chords_pending = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.audio_chords_pending = None;
+                }
+            }
+        }
         if let Some(receiver) = &self.dictation_pending {
             match receiver.try_recv() {
                 Ok(Ok(text)) => {
