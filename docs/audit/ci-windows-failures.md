@@ -47,9 +47,14 @@ windows-latest 2m17s. The Windows headless demo now passes.
 
 The CLI also has a command-tree test and a per-subcommand `--help` test; both
 run on a 32 MiB thread because the debug clap tree exceeds the test harness's
-smaller default stack. They pass with 648 workspace tests.
+smaller default stack. They pass with 649 workspace tests.
 
 A second run, [45159756332](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45159756332)
 on `d321f73` (print dialog and CLI tests), passed all three jobs again:
 ubuntu-latest 1m9s, macos-latest 1m53s, windows-latest 2m33s. The marquee
 commit `f908e7b` also passed.
+
+A third run, [45160644152](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45160644152)
+on `a13882e` (cpal input monitoring), passed all three jobs: windows-latest
+2m17s, macos-latest 1m44s, ubuntu-latest 2m53s. The duplex cpal module builds
+and tests on every platform; no audio device was exercised.
