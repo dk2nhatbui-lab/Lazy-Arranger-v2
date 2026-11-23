@@ -1697,6 +1697,39 @@ mod tests {
     }
 
     #[test]
+    fn audio_reference_offset_skips_the_source_start() {
+        use project::song::{AudioRef, Track};
+        let mut song = Song::new("Audio", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Take");
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-audio-offset-{}.wav",
+            std::process::id()
+        ));
+        let mut samples = vec![0.0; SAMPLE_RATE as usize * 2];
+        for sample in samples.iter_mut().skip(SAMPLE_RATE as usize) {
+            *sample = 0.5;
+        }
+        let source = RenderedAudio {
+            samples,
+            sample_rate: SAMPLE_RATE,
+        };
+        std::fs::write(&path, source.to_wav32f()).expect("write wav");
+        track.audio = Some(AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: music_core::PPQ,
+            offset: music_core::PPQ,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let rendered = render(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        assert!(rendered.samples[0] > 0.4, "the offset source is used");
+    }
+
+    #[test]
     fn audio_references_feed_sends() {
         use project::song::{AudioRef, Bus, Track};
         let mut song = Song::new("Audio", 120.0);
