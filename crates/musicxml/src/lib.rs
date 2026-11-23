@@ -155,7 +155,8 @@ pub fn export(song: &Song, title: &str) -> String {
                 };
                 let (tie_start, tie_stop) =
                     ties.get(&note.id.get()).copied().unwrap_or((false, false));
-                let instrument = drums.then(|| format!("P{}-I{}", index + 1, note.pitch.as_u8()));
+                let is_drum = note.channel.zero_based() == 9;
+                let instrument = is_drum.then(|| format!("P{}-I{}", index + 1, note.pitch.as_u8()));
                 let chord = last_start == Some(note.start);
                 let marks = NoteMarks {
                     instrument,

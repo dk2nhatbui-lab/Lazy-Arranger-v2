@@ -98,7 +98,7 @@ the wider ~90-tool MCP surface.
 | Song Forms (sections, presets, plan, apply) | `arranging::forms` | verified | section/plan tests and apply/undo test |
 | Song Forms dialog (Y) | `apps/desktop` | implemented | four presets |
 | MusicXML export (partwise, rests, drum clef) | `crates/musicxml` | verified | 4 tests + valid XML from a real project |
-| MusicXML export/import (harmony, lyrics, marks, ties, drums, chords) and round-trip audit | `musicxml`, CLI `music-xml-audit` | verified | demo audit clean: pitched detail 186=186, 22 tie merges, chords/lyrics/marks/drums preserved |
+| MusicXML export/import (harmony, lyrics, marks, ties, drums, chords) and round-trip audit | `musicxml`, CLI `music-xml-audit` | verified with a known limitation | demo clean (186=186); style-derived project 1,403/1,423 pitched notes with a 10-tick shift |
 | Score layout engine (pages, systems, measures, positioned notes) | `crates/score` | verified core | 4 tests + real project layout |
 | Score canvas renderer, click note entry (quantised tick and staff pitch) | `apps/desktop/src/score_view.rs`, `score` mapping | verified mapping | entry mapping test; UI manual |
 | Key detection, spelling and accidentals | `score::spelling` | verified | 6 tests: scales, chromatic, signatures, flat keys, key detection |
