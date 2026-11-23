@@ -181,3 +181,4 @@ For the clef layout, choose either four measures per system without clefs
 - Removed the second post-render audio mix: playback/bounce now check references without mixing them twice.
 - MCP get_buses/set_buses expose bus mute and solo; the bus test covers both.
 - A small helper test covers the score-typing focus rule. Score note typing suppresses the letter shortcuts (D/F/T/Y/H/J/K/G/N) that overlap the A-J note row.
+- Update section offers Open download for the downloaded asset; install remains manual.

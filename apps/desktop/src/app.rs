@@ -882,6 +882,7 @@ pub struct ShellApp {
     assistant_proposal: Option<AssistantProposal>,
     available_update: Option<crate::update::Release>,
     update_download: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>>,
+    downloaded_update: Option<std::path::PathBuf>,
     dictation_pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
     timeline_waveforms: std::collections::HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
@@ -1198,6 +1199,7 @@ impl ShellApp {
             assistant_proposal: None,
             available_update: None,
             update_download: None,
+            downloaded_update: None,
             dictation_pending: None,
             waveform: None,
             timeline_waveforms: std::collections::HashMap::new(),
@@ -7945,12 +7947,18 @@ impl ShellApp {
                                     .join("Downloads");
                                 let (sender, receiver) = std::sync::mpsc::channel();
                                 self.update_download = Some(receiver);
+                                self.downloaded_update = None;
                                 self.status = Some(format!("downloading {}", asset.name));
                                 std::thread::spawn(move || {
                                     let _ = sender.send(crate::update::download_asset(
                                         &asset, &directory,
                                     ));
                                 });
+                            }
+                            if let Some(path) = &self.downloaded_update
+                                && ui.button("Open download").clicked()
+                            {
+                                crate::update::open_url(&path.display().to_string());
                             }
                             if ui.button("Skip this version").clicked() {
                                 self.settings.skipped_update = release.tag.clone();
@@ -10640,6 +10648,7 @@ impl eframe::App for ShellApp {
             match receiver.try_recv() {
                 Ok(Ok(path)) => {
                     self.status = Some(format!("downloaded {}", path.display()));
+                    self.downloaded_update = Some(path);
                     self.update_download = None;
                 }
                 Ok(Err(error)) => {
