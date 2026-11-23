@@ -100,6 +100,8 @@ pub struct ShellApp {
     recent_file: std::path::PathBuf,
     midi_input: Option<midi_devices::devices::LiveInput>,
     midi_map: midi_devices::map::MidiMap,
+    lesson: crate::kids::Lesson,
+    perform_player: Option<audio::player::Player>,
     library_open: bool,
     library_path: String,
     library_query: String,
@@ -181,6 +183,8 @@ impl ShellApp {
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
             midi_input: None,
+            lesson: crate::kids::Lesson::default(),
+            perform_player: None,
             library_open: false,
             library_path: String::new(),
             library_query: String::new(),
@@ -1959,6 +1963,14 @@ impl eframe::App for ShellApp {
         self.library_window(context);
         self.status_bar(context);
         self.sidebar(context);
+        let kids = self.settings.kids_mode;
+        if kids && self.lesson.is_empty() {
+            self.lesson = crate::kids::Lesson::new(
+                self.song().chords.iter().map(|event| event.chord).collect(),
+            );
+        }
+        let lesson = self.lesson.clone();
+        let pads = music_core::roman::pads(self.key);
         let waveform = self.waveform.clone();
         let panel = egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::TIMELINE))
@@ -1969,134 +1981,239 @@ impl eframe::App for ShellApp {
                 let mut automation_edit: Option<(TrackId, project::song::Automation)> = None;
                 let mut audio_trim: Option<(TrackId, Tick)> = None;
                 let mut score_status: Option<String> = None;
+                let mut perform_chord: Option<music_core::Chord> = None;
+                let mut lesson_next = false;
+                let mut lesson_reset = false;
                 let Self { editor, roll, .. } = self;
                 let selected_clip = self.selected_clip;
                 let project = editor.project();
                 match view {
-                View::Arrange => {
-                    if let Some((track_id, path, peaks)) = &waveform
-                        && roll.selected == Some(*track_id)
-                    {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(
-                                    std::path::Path::new(path)
-                                        .file_name()
-                                        .and_then(|name| name.to_str())
-                                        .unwrap_or("audio"),
-                                )
-                                .size(10.0)
-                                .color(theme::TEXT_MUTED),
-                            );
-                            if ui.button("Trim 1 beat").clicked() {
-                                let bar = project.song.time_signature.bar_ticks().max(1);
-                                audio_trim = Some((*track_id, bar / 4));
-                            }
-                        });
-                        Self::draw_waveform(ui, peaks);
-                    }
-                    if let Some(click) = piano_roll::show(
-                        ui,
-                        &project.song,
-                        roll,
-                        position,
-                        selected_clip.map(|(_, clip)| clip),
-                    ) {
-                        clicked = Some(click);
-                    }
-                    if let Some(track_id) = roll.selected
-                        && let Some(track) = project
-                            .song
-                            .tracks
-                            .iter()
-                            .find(|track| track.id == track_id)
-                    {
-                        let lane = track
-                            .automation
-                            .iter()
-                            .find(|lane| lane.target == project::song::AutomationTarget::Volume)
-                            .cloned()
-                            .unwrap_or(project::song::Automation {
-                                target: project::song::AutomationTarget::Volume,
-                                points: Vec::new(),
-                            });
-                        if let Some(edited) =
-                            crate::automation_view::show(ui, &lane, project.song.end_tick().max(1))
+                    View::Arrange => {
+                        if let Some((track_id, path, peaks)) = &waveform
+                            && roll.selected == Some(*track_id)
                         {
-                            automation_edit = Some((track_id, edited));
-                        }
-                    }
-                }
-                View::Perform => {
-                    ui.centered_and_justified(|ui| {
-                        ui.label(
-                            egui::RichText::new("Perform view arrives with the arranger keyboard controls (Stage 7).")
-                                .color(theme::TEXT_MUTED),
-                        );
-                    });
-                }
-                View::Mix => {
-                    self.mixer_panel(ui);
-                }
-                View::Loops => {
-                    self.grid_panel(ui);
-                }
-                View::Score => {
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.score_entry, "Note entry");
-                        if ui.button("◀ Page").clicked() {
-                            self.score_page = self.score_page.saturating_sub(1);
-                        }
-                        if ui.button("Page ▶").clicked() {
-                            self.score_page += 1;
-                        }
-                        ui.add(
-                            egui::Slider::new(&mut self.score_zoom, 0.5..=2.5)
-                                .text("zoom")
-                                .fixed_decimals(1),
-                        );
-                    });
-                    if let Some(track) = roll
-                        .selected
-                        .or_else(|| project.song.tracks.first().map(|track| track.id))
-                    {
-                        let engraved =
-                            score::engrave(&project.song, track, score::Settings::default());
-                        self.score_page = crate::score_view::clamp_page(&engraved, self.score_page);
-                        let zoom = self.score_zoom;
-                        let page = self.score_page;
-                        if let Some(hit) = crate::score_view::show(ui, &engraved, page, zoom)
-                            && self.score_entry
-                        {
-                            match music_core::Pitch::new(hit.pitch) {
-                                Ok(pitch) => match editor.insert(track, hit.tick, pitch) {
-                                    Ok(_) => {
-                                        score_status = Some(format!(
-                                            "inserted {} at tick {}",
-                                            pitch.as_u8(),
-                                            hit.tick
-                                        ));
-                                    }
-                                    Err(error) => score_status = Some(error.to_string()),
-                                },
-                                Err(error) => score_status = Some(error.to_string()),
-                            }
-                        }
-                    } else {
-                        ui.centered_and_justified(|ui| {
-                            ui.label(
-                                egui::RichText::new("Add a track to see a score.")
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(
+                                        std::path::Path::new(path)
+                                            .file_name()
+                                            .and_then(|name| name.to_str())
+                                            .unwrap_or("audio"),
+                                    )
+                                    .size(10.0)
                                     .color(theme::TEXT_MUTED),
+                                );
+                                if ui.button("Trim 1 beat").clicked() {
+                                    let bar = project.song.time_signature.bar_ticks().max(1);
+                                    audio_trim = Some((*track_id, bar / 4));
+                                }
+                            });
+                            Self::draw_waveform(ui, peaks);
+                        }
+                        if let Some(click) = piano_roll::show(
+                            ui,
+                            &project.song,
+                            roll,
+                            position,
+                            selected_clip.map(|(_, clip)| clip),
+                        ) {
+                            clicked = Some(click);
+                        }
+                        if let Some(track_id) = roll.selected
+                            && let Some(track) = project
+                                .song
+                                .tracks
+                                .iter()
+                                .find(|track| track.id == track_id)
+                        {
+                            let lane = track
+                                .automation
+                                .iter()
+                                .find(|lane| lane.target == project::song::AutomationTarget::Volume)
+                                .cloned()
+                                .unwrap_or(project::song::Automation {
+                                    target: project::song::AutomationTarget::Volume,
+                                    points: Vec::new(),
+                                });
+                            if let Some(edited) = crate::automation_view::show(
+                                ui,
+                                &lane,
+                                project.song.end_tick().max(1),
+                            ) {
+                                automation_edit = Some((track_id, edited));
+                            }
+                        }
+                    }
+                    View::Perform => {
+                        if kids && !lesson.is_empty() {
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    egui::RichText::new("Play the next chord")
+                                        .size(14.0)
+                                        .color(theme::TEXT_MUTED),
+                                );
+                                let current = lesson
+                                    .current()
+                                    .map(|chord| chord.format(music_core::Spelling::Sharp))
+                                    .unwrap_or_else(|| String::from("done"));
+                                ui.label(egui::RichText::new(current).size(34.0));
+                                let (at, total) = lesson.progress();
+                                ui.label(format!("chord {at} of {total}"));
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .add_sized([140.0, 40.0], egui::Button::new("Next chord"))
+                                        .clicked()
+                                    {
+                                        lesson_next = true;
+                                    }
+                                    if ui
+                                        .add_sized([140.0, 40.0], egui::Button::new("Start over"))
+                                        .clicked()
+                                    {
+                                        lesson_reset = true;
+                                    }
+                                });
+                            });
+                            ui.separator();
+                        }
+                        ui.label(
+                            egui::RichText::new("Chord pads")
+                                .size(12.0)
+                                .color(theme::TEXT_DIM),
+                        );
+                        for row in 0..4 {
+                            ui.horizontal(|ui| {
+                                for column in 0..4 {
+                                    let index = row * 4 + column;
+                                    let Some(chord) = pads.get(index) else {
+                                        continue;
+                                    };
+                                    let text = chord.format(music_core::Spelling::Sharp);
+                                    if ui
+                                        .add_sized(
+                                            [86.0, 40.0],
+                                            egui::Button::new(
+                                                egui::RichText::new(&text).size(12.0),
+                                            ),
+                                        )
+                                        .clicked()
+                                    {
+                                        perform_chord = Some(*chord);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    View::Mix => {
+                        self.mixer_panel(ui);
+                    }
+                    View::Loops => {
+                        self.grid_panel(ui);
+                    }
+                    View::Score => {
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut self.score_entry, "Note entry");
+                            if ui.button("◀ Page").clicked() {
+                                self.score_page = self.score_page.saturating_sub(1);
+                            }
+                            if ui.button("Page ▶").clicked() {
+                                self.score_page += 1;
+                            }
+                            ui.add(
+                                egui::Slider::new(&mut self.score_zoom, 0.5..=2.5)
+                                    .text("zoom")
+                                    .fixed_decimals(1),
                             );
                         });
+                        if let Some(track) = roll
+                            .selected
+                            .or_else(|| project.song.tracks.first().map(|track| track.id))
+                        {
+                            let engraved =
+                                score::engrave(&project.song, track, score::Settings::default());
+                            self.score_page =
+                                crate::score_view::clamp_page(&engraved, self.score_page);
+                            let zoom = self.score_zoom;
+                            let page = self.score_page;
+                            if let Some(hit) = crate::score_view::show(ui, &engraved, page, zoom)
+                                && self.score_entry
+                            {
+                                match music_core::Pitch::new(hit.pitch) {
+                                    Ok(pitch) => match editor.insert(track, hit.tick, pitch) {
+                                        Ok(_) => {
+                                            score_status = Some(format!(
+                                                "inserted {} at tick {}",
+                                                pitch.as_u8(),
+                                                hit.tick
+                                            ));
+                                        }
+                                        Err(error) => score_status = Some(error.to_string()),
+                                    },
+                                    Err(error) => score_status = Some(error.to_string()),
+                                }
+                            }
+                        } else {
+                            ui.centered_and_justified(|ui| {
+                                ui.label(
+                                    egui::RichText::new("Add a track to see a score.")
+                                        .color(theme::TEXT_MUTED),
+                                );
+                            });
+                        }
                     }
                 }
-                }
-                (clicked, automation_edit, audio_trim, score_status)
+                (
+                    clicked,
+                    automation_edit,
+                    audio_trim,
+                    score_status,
+                    perform_chord,
+                    lesson_next,
+                    lesson_reset,
+                )
             });
-        let (clicked, automation_edit, audio_trim, score_status) = panel.inner;
+        let (
+            clicked,
+            automation_edit,
+            audio_trim,
+            score_status,
+            perform_chord,
+            lesson_next,
+            lesson_reset,
+        ) = panel.inner;
         if let Some(click) = clicked {
             self.edit_click(click);
+        }
+        if lesson_next {
+            self.lesson.advance();
+        }
+        if lesson_reset {
+            self.lesson.reset();
+        }
+        if let Some(chord) = perform_chord {
+            let mut song = Song::new("Pads", 120.0);
+            let mut track = project::song::Track::new(TrackId::new(1).expect("valid"), "Pad");
+            for (index, pitch) in chord.tones(4).iter().enumerate() {
+                if let Ok(id) = NoteId::new(index as u32 + 1) {
+                    track.notes.push(project::song::Note {
+                        id,
+                        start: 0,
+                        duration: music_core::PPQ * 4,
+                        pitch: *pitch,
+                        velocity: music_core::Velocity::new(90).expect("valid"),
+                        channel: music_core::Channel::first(),
+                    });
+                }
+            }
+            song.tracks.push(track);
+            let rendered = audio::render(&song, audio::SAMPLE_RATE);
+            match audio::player::Player::new(rendered) {
+                Ok(player) => {
+                    self.perform_player = Some(player);
+                    self.status = Some(chord.format(music_core::Spelling::Sharp));
+                }
+                Err(error) => self.status = Some(error),
+            }
         }
         if let Some(status) = score_status {
             self.status = Some(status);

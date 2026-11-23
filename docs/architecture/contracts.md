@@ -84,3 +84,11 @@ off; `playlist-from-csv` writes the Yamaha TSV. Strings now ship in English,
 Danish, French and Vietnamese: every key has text in all four tables, and the
 language setting switches them at once. Plural rules and localized help do not
 exist.
+
+### Kids lesson and Perform
+
+Kids Mode keeps two tabs and builds a `kids::Lesson` from the song's chords; the
+Perform view shows the current chord large, progress, Next chord and Start
+over, plus 16 big chord pads that audition through the cpal player. The lesson
+does not follow song edits after it is built, and there are no kid-specific
+songs or simplified editor.
