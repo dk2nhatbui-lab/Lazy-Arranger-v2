@@ -795,3 +795,12 @@ Gap decomposition prefers whole, dotted half, half, dotted quarter, quarter,
 dotted eighth and eighth; `PlacedRest.dots` carries one dot. Canvas now draws
 rest glyphs (it previously drew none) and both canvas/PDF add the dot. Tests
 cover a 2880-tick gap (dotted half) and a 1440-tick gap (dotted quarter).
+
+### Score vertical reserve and PDF text
+
+When a page has room for several systems, the engraver reserves 8.2 staff
+spaces for chord frames (3 when only names exist), so first-system chord symbols
+and frames stay on the page. PDF text sets the dark fill before any text; it
+previously inherited the near-white page fill and was invisible. Lyrics are
+deduplicated by tick, so a chord prints one syllable. The rendered demo page is
+saved at `docs/audit/score-page.png`.
