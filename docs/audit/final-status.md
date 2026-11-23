@@ -121,3 +121,4 @@ For the clef layout, choose either four measures per system without clefs
 - Tracks default to the first row; M/S/R clicks no longer change row selection; inspector key has Find.
 - Transport uses green play, red record and an undo arrow rotated 10° CCW (`docs/audit/ui-transport-colors.png`).
 - Kids Mode is full-window Perform with a minimal header: any key, click or MIDI message plays, loops, and auto-pauses after the configured delay; undo arrow now points 45° CCW (`docs/audit/ui-kids.png`, `docs/audit/ui-undo45.png`).
+- PSR-S970 remote panel sends voice/CC/chord auditions; hardware sends remain unverified (`docs/audit/psr-remote.png`).

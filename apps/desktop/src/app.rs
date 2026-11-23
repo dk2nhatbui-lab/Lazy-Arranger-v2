@@ -617,6 +617,15 @@ pub struct ShellApp {
     midi_out_note: u8,
     midi_out_velocity: u8,
     midi_out_cc: u8,
+    psr_open: bool,
+    psr_channel: u8,
+    psr_bank_msb: u8,
+    psr_bank_lsb: u8,
+    psr_program: u8,
+    psr_volume: u8,
+    psr_pan: u8,
+    psr_reverb: u8,
+    psr_chorus: u8,
     midi_out_cc_value: u8,
     midi_out_bank_msb: u8,
     midi_out_bank_lsb: u8,
@@ -880,6 +889,15 @@ impl ShellApp {
             midi_out_note: 60,
             midi_out_velocity: 100,
             midi_out_cc: 7,
+            psr_open: std::env::var("ARRANGER_PSR").is_ok(),
+            psr_channel: 1,
+            psr_bank_msb: 0,
+            psr_bank_lsb: 0,
+            psr_program: 0,
+            psr_volume: 100,
+            psr_pan: 64,
+            psr_reverb: 40,
+            psr_chorus: 0,
             midi_out_cc_value: 100,
             midi_out_bank_msb: 0,
             midi_out_bank_lsb: 0,
@@ -2865,6 +2883,140 @@ impl ShellApp {
                     .set_track_routing(id, track.bus, track.send, send_level);
             }
         }
+    }
+
+    fn send_chord_notes(
+        &mut self,
+        chord: &music_core::Chord,
+        channel: music_core::Channel,
+        velocity: music_core::Velocity,
+        hold_ms: u64,
+    ) {
+        let root = 60 + i32::from(chord.root.as_u8());
+        let mut pitches = Vec::new();
+        for interval in chord.quality.intervals() {
+            if let Ok(pitch) =
+                music_core::Pitch::new(u8::try_from(root + i32::from(*interval)).unwrap_or(60))
+            {
+                self.send_midi(music_core::MidiMessage::note_on(channel, pitch, velocity));
+                pitches.push(pitch);
+            }
+        }
+        let port = self.midi_out_port.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(hold_ms));
+            if let Some(port) = port
+                && let Ok(mut connection) = midi_devices::devices::open_output(&port)
+                && let Ok(release) = music_core::Velocity::new(0)
+            {
+                for pitch in pitches {
+                    let bytes = music_core::MidiMessage::note_off(channel, pitch, release);
+                    let _ = connection.send(&bytes.to_bytes()[..3]);
+                }
+            }
+        });
+    }
+
+    fn psr_window(&mut self, context: &Context) {
+        if !self.psr_open {
+            return;
+        }
+        let mut open = self.psr_open;
+        egui::Window::new("PSR-S970 remote")
+            .open(&mut open)
+            .resizable(false)
+            .show(context, |ui| {
+                ui.label(
+                    egui::RichText::new("Yamaha PSR-S970 · MIDI channel 1")
+                        .size(10.0)
+                        .color(theme::text_dim()),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("bank");
+                    ui.add(egui::DragValue::new(&mut self.psr_bank_msb).range(0..=127));
+                    ui.label("/");
+                    ui.add(egui::DragValue::new(&mut self.psr_bank_lsb).range(0..=127));
+                    ui.label("program");
+                    ui.add(egui::DragValue::new(&mut self.psr_program).range(0..=127));
+                    if ui.button("Send voice").clicked()
+                        && let Ok(channel) = music_core::Channel::from_one_based(self.psr_channel)
+                        && let Ok(msb) = music_core::ControlNumber::new(0)
+                        && let Ok(lsb) = music_core::ControlNumber::new(32)
+                    {
+                        self.send_midi(music_core::MidiMessage::ControlChange {
+                            channel,
+                            controller: msb,
+                            value: self.psr_bank_msb,
+                        });
+                        self.send_midi(music_core::MidiMessage::ControlChange {
+                            channel,
+                            controller: lsb,
+                            value: self.psr_bank_lsb,
+                        });
+                        self.send_midi(music_core::MidiMessage::ProgramChange {
+                            channel,
+                            program: self.psr_program,
+                        });
+                    }
+                });
+                for (label, controller, current) in [
+                    ("Volume", 7_u8, self.psr_volume),
+                    ("Pan", 10, self.psr_pan),
+                    ("Reverb", 91, self.psr_reverb),
+                    ("Chorus", 93, self.psr_chorus),
+                ] {
+                    let mut value = current;
+                    let changed = ui
+                        .horizontal(|ui| {
+                            ui.label(label);
+                            ui.add(egui::Slider::new(&mut value, 0..=127).show_value(true))
+                                .changed()
+                        })
+                        .inner;
+                    if changed {
+                        match controller {
+                            7 => self.psr_volume = value,
+                            10 => self.psr_pan = value,
+                            91 => self.psr_reverb = value,
+                            _ => self.psr_chorus = value,
+                        }
+                        if let (Ok(channel), Ok(control)) = (
+                            music_core::Channel::from_one_based(self.psr_channel),
+                            music_core::ControlNumber::new(controller),
+                        ) {
+                            self.send_midi(music_core::MidiMessage::ControlChange {
+                                channel,
+                                controller: control,
+                                value,
+                            });
+                        }
+                    }
+                }
+                ui.separator();
+                ui.label(egui::RichText::new("Chord audition").strong());
+                for row in [["C", "Dm", "Em", "F"], ["G", "Am", "G7", "D7"]] {
+                    ui.horizontal(|ui| {
+                        for name in row {
+                            if ui
+                                .add_sized([70.0, 34.0], egui::Button::new(name))
+                                .clicked()
+                                && let Ok(chord) = music_core::Chord::parse(name)
+                                && let Ok(channel) =
+                                    music_core::Channel::from_one_based(self.psr_channel)
+                                && let Ok(velocity) = music_core::Velocity::new(100)
+                            {
+                                self.send_chord_notes(&chord, channel, velocity, 500);
+                            }
+                        }
+                    });
+                }
+                ui.label(
+                    egui::RichText::new("Choose an output in Windows > MIDI out.")
+                        .size(9.0)
+                        .color(theme::text_dim()),
+                );
+            });
+        self.psr_open = open;
     }
 
     fn send_raw(&mut self, bytes: &[u8]) {
@@ -7636,6 +7788,10 @@ impl ShellApp {
                                 self.midi_out_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("PSR-S970 remote").clicked() {
+                                self.psr_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Shortcuts").clicked() {
                                 self.shortcuts_open = true;
                                 ui.close_menu();
@@ -8037,6 +8193,7 @@ impl eframe::App for ShellApp {
         self.style_rules_window(context);
         self.master_fx_window(context);
         self.bus_fx_window(context);
+        self.psr_window(context);
         self.midi_out_window(context);
         self.au_parameters_window(context);
         self.vst3_parameters_window(context);
