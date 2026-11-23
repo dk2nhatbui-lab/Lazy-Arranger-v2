@@ -183,3 +183,4 @@ For the clef layout, choose either four measures per system without clefs
 - A small helper test covers the score-typing focus rule. Score note typing suppresses the letter shortcuts (D/F/T/Y/H/J/K/G/N) that overlap the A-J note row.
 - Update section offers Open download for the downloaded asset; install remains manual.
 - Score note entry draws its cursor as a blue line (vector editor); a canvas-shape test checks the stroke (`docs/audit/score-entry-cursor.png`).
+- Mixer/bus meters use cached waveform peaks for audio tracks (approximate by clip fraction); waveform caching now runs in every view.

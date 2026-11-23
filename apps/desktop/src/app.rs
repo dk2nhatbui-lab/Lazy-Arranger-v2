@@ -2340,11 +2340,8 @@ impl ShellApp {
         }
     }
 
-    /// Loads and caches the selected audio track's waveform peaks.
+    /// Loads and caches audio waveform peaks for the meters and timeline.
     fn refresh_waveform(&mut self) {
-        if self.view != View::Arrange {
-            return;
-        }
         let audio_tracks: Vec<(TrackId, String)> = self
             .song()
             .tracks
@@ -3506,7 +3503,8 @@ impl ShellApp {
                     .iter()
                     .filter(|track| track.bus == Some(bus.id) || track.send == Some(bus.id))
                     .map(|track| {
-                        let level = track_level(track, self.position);
+                        let level =
+                            track_meter_level(track, self.position, &self.timeline_waveforms);
                         if track.bus == Some(bus.id) {
                             level
                         } else {
@@ -3663,7 +3661,11 @@ impl ShellApp {
                                         );
                                         ui.painter().rect_filled(meter, 1.0, theme::raised());
                                         let level = if self.playing {
-                                            track_level(track, self.position)
+                                            track_meter_level(
+                                                track,
+                                                self.position,
+                                                &self.timeline_waveforms,
+                                            )
                                         } else {
                                             0.0
                                         };
@@ -3781,7 +3783,13 @@ impl ShellApp {
                                     self.song()
                                         .tracks
                                         .iter()
-                                        .map(|track| track_level(track, self.position))
+                                        .map(|track| {
+                                            track_meter_level(
+                                                track,
+                                                self.position,
+                                                &self.timeline_waveforms,
+                                            )
+                                        })
                                         .fold(0.0_f32, f32::max)
                                 } else {
                                     0.0
@@ -12032,6 +12040,26 @@ fn track_level(track: &project::song::Track, tick: Tick) -> f32 {
     level.clamp(0.0, 1.0)
 }
 
+type WaveformCache =
+    std::collections::HashMap<project::TrackId, (String, Vec<audio::waveform::Peak>)>;
+
+fn track_meter_level(track: &project::song::Track, tick: Tick, waveforms: &WaveformCache) -> f32 {
+    let mut level = track_level(track, tick);
+    if let Some(reference) = &track.audio
+        && let Some((_, peaks)) = waveforms.get(&track.id)
+        && !peaks.is_empty()
+        && reference.start <= tick
+        && tick < reference.start.saturating_add(reference.length)
+    {
+        let fraction = (tick - reference.start) as f32 / reference.length.max(1) as f32;
+        let index = (fraction * (peaks.len() - 1) as f32).round() as usize;
+        let peak = peaks[index.min(peaks.len() - 1)];
+        let audio_level = peak.min.abs().max(peak.max.abs()) * f32::from(track.volume) / 100.0;
+        level = level.max(audio_level);
+    }
+    level.clamp(0.0, 1.0)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn mixer_fader(
     ui: &mut egui::Ui,
@@ -12701,6 +12729,33 @@ mod tests {
         song.tracks.push(track);
         assert!(track_level(&song.tracks[0], 0) > 0.5);
         assert_eq!(track_level(&song.tracks[0], music_core::PPQ), 0.0);
+        let mut audio_track =
+            project::song::Track::new(project::TrackId::new(2).expect("track"), "Audio");
+        audio_track.audio = Some(project::song::AudioRef {
+            path: String::from("take.wav"),
+            start: 0,
+            length: music_core::PPQ,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        let mut cache = WaveformCache::new();
+        cache.insert(
+            audio_track.id,
+            (
+                String::from("take.wav"),
+                vec![audio::waveform::Peak {
+                    min: -0.5,
+                    max: 0.5,
+                }],
+            ),
+        );
+        assert!(track_meter_level(&audio_track, 0, &cache) > 0.4);
+        assert_eq!(
+            track_meter_level(&audio_track, music_core::PPQ, &cache),
+            0.0
+        );
     }
 
     #[test]
