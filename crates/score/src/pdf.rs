@@ -235,11 +235,16 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     content,
                     "0.15 0.15 0.15 rg {x:.1} {y:.1} {width:.1} {height:.1} re f"
                 );
+                let dot_center = engraved
+                    .system_for(index, rest.measure)
+                    .map_or(rest.y, |system| {
+                        crate::dot_y(rest.y, system.y, settings.staff_space)
+                    });
                 for dot in 0..rest.dots {
                     circle(
                         &mut content,
                         x + width + 1.2 + f32::from(dot) * 2.2,
-                        y + height / 2.0,
+                        settings.page_height - dot_center,
                         1.0,
                     );
                 }
@@ -294,11 +299,16 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     x + radius,
                     y + 3.4 * settings.staff_space
                 );
+                let dot_center = engraved
+                    .system_for(index, note.measure)
+                    .map_or(note.y, |system| {
+                        crate::dot_y(note.y, system.y, settings.staff_space)
+                    });
                 for dot in 0..note.dots {
                     circle(
                         &mut content,
                         x + radius * (1.9 + f32::from(dot) * 1.3),
-                        y,
+                        settings.page_height - dot_center,
                         radius * 0.34,
                     );
                 }

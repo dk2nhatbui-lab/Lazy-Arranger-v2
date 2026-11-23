@@ -50,7 +50,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 ## Scorecard
 
 39 sections at round 216: 0 fully verified beyond their Rust subset, 39 partial,
-0 missing; 657 tests pass. No section is missing at row level; partials need hardware,
+0 missing; 658 tests pass. No section is missing at row level; partials need hardware,
 proprietary formats, plugin hosting or a model. See
 `docs/audit/cpp-features-crosscheck.md` for row evidence.
 
@@ -1060,3 +1060,11 @@ buttons still operate on the selected track.
 at 0/1, Vietnamese invariant, English/Danish/German/Spanish singular at 1. The
 Inspector count label uses them; a unit test covers every rule and checks all
 six noun tables. Other locales are not shipped.
+
+### Dot placement
+
+`score::dot_y` moves an augmentation dot from a staff line to the space above
+(within 0.2 staff spaces of a line). Canvas and PDF use the placed system’s y,
+so grand-staff and ledger-line notes share the phase. A unit test covers line,
+space, ledger and zero-space cases. Other vertical rest collisions are not
+handled. The refreshed PDF capture is `docs/audit/score-page.png`.

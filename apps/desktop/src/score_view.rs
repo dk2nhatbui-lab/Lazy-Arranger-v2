@@ -360,9 +360,17 @@ pub fn show(
                 0.0,
                 colour,
             );
+            let dot_space = engraved
+                .system_for(page_index, rest.measure)
+                .map_or(rest.y, |system| {
+                    score::dot_y(rest.y, system.y, settings.staff_space)
+                });
             for dot in 0..rest.dots {
                 painter.circle_filled(
-                    Pos2::new(x + width / 2.0 + space * (0.35 + f32::from(dot) * 0.45), y),
+                    Pos2::new(
+                        x + width / 2.0 + space * (0.35 + f32::from(dot) * 0.45),
+                        origin.y + dot_space * zoom,
+                    ),
                     space * 0.1,
                     colour,
                 );
@@ -412,9 +420,17 @@ pub fn show(
                 ],
                 Stroke::new(1.1_f32, Color32::from_rgb(0x14, 0x14, 0x14)),
             );
+            let dot_space = engraved
+                .system_for(page_index, note.measure)
+                .map_or(note.y, |system| {
+                    score::dot_y(note.y, system.y, settings.staff_space)
+                });
             for dot in 0..note.dots {
                 painter.circle_filled(
-                    Pos2::new(x + radius * (1.9 + f32::from(dot) * 1.3), y),
+                    Pos2::new(
+                        x + radius * (1.9 + f32::from(dot) * 1.3),
+                        origin.y + dot_space * zoom,
+                    ),
                     radius * 0.34,
                     Color32::from_rgb(0x14, 0x14, 0x14),
                 );

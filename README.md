@@ -109,7 +109,7 @@ apps/desktop           egui 0.31 desktop app
 - Take comping/selection and destructive waveform editing (input monitoring exists but is hardware-unverified).
 - A real AI model, speech input and chat-driven tool use (the assistant is a
   local rule engine over the MCP registry).
-- Score clefs/key signatures and vertical rest/dot collision avoidance.
+- Score clefs/key signatures and broader vertical rest collision avoidance (augmentation dots already move off staff lines).
 - Channel-count-preserving WAV edits.
 - Hardware acceptance: real MIDI keyboards, PSR-S970, cpal output, printers.
 

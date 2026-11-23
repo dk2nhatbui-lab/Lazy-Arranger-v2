@@ -286,6 +286,21 @@ pub fn pitch_at_y(system_y: f32, y: f32, settings: Settings) -> u8 {
     (60.0 + 2.0 * steps).round().clamp(0.0, 127.0) as u8
 }
 
+/// Vertical position for an augmentation dot: on a staff line, move the dot to
+/// the space above; otherwise keep the notehead position.
+#[must_use]
+pub fn dot_y(y: f32, system_y: f32, staff_space: f32) -> f32 {
+    if staff_space <= 0.0 {
+        return y;
+    }
+    let relative = (y - system_y) / staff_space;
+    if (relative - relative.round()).abs() < 0.2 {
+        y - staff_space * 0.5
+    } else {
+        y
+    }
+}
+
 /// The tick a click at `x` means inside a measure, quantised.
 #[must_use]
 pub fn tick_at_x(measure: &Measure, x: f32, quantum: Tick) -> Tick {
@@ -336,6 +351,17 @@ pub struct Engraved {
 }
 
 impl Engraved {
+    /// The system holding a zero-based measure on a page.
+    #[must_use]
+    pub fn system_for(&self, page: usize, measure: usize) -> Option<&System> {
+        self.pages.get(page)?.systems.iter().find(|system| {
+            system
+                .measures
+                .iter()
+                .any(|item| item.number == measure + 1)
+        })
+    }
+
     /// Every page's systems.
     #[must_use]
     pub fn systems(&self) -> usize {
@@ -1617,6 +1643,14 @@ mod lyric_spacing_tests {
     use music_core::{Channel, PPQ, Pitch, Velocity};
     use project::TrackId;
     use project::song::{LyricEvent, Note, Song, Track};
+
+    #[test]
+    fn dots_on_lines_move_to_the_space_above() {
+        assert!((dot_y(100.0, 100.0, 10.0) - 95.0).abs() < 1.0e-6);
+        assert!((dot_y(105.0, 100.0, 10.0) - 105.0).abs() < 1.0e-6);
+        assert!((dot_y(120.0, 100.0, 10.0) - 115.0).abs() < 1.0e-6);
+        assert!((dot_y(100.0, 100.0, 0.0) - 100.0).abs() < 1.0e-6);
+    }
 
     #[test]
     fn dotted_durations_get_one_or_two_dots() {
