@@ -14,6 +14,7 @@ music-core = { path = "../music-core" }
 musicxml = { path = "../musicxml" }
 plugins = { path = "../plugins" }
 project = { path = "../project" }
+score = { path = "../score" }
 smf = { path = "../smf" }
 style-formats = { path = "../style-formats" }
 serde_json = { workspace = true }

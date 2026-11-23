@@ -1612,6 +1612,7 @@ dependencies = [
  "musicxml",
  "plugins",
  "project",
+ "score",
  "serde_json",
  "smf",
  "style-formats",

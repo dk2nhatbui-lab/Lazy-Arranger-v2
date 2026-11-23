@@ -376,6 +376,64 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "export_pdf",
+            description: "Write the engraved score as a vector PDF.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "track": {"type": "integer"},
+                    "title": {"type": "string"}
+                },
+                "required": ["path"]
+            }),
+        },
+        Tool {
+            name: "get_clip",
+            description: "Read one clip region.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}, "clip": {"type": "integer"}},
+                "required": ["track", "clip"]
+            }),
+        },
+        Tool {
+            name: "add_clip",
+            description: "Add a clip region to a track.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "start": {"type": "integer"},
+                    "length": {"type": "integer"},
+                    "name": {"type": "string"}
+                },
+                "required": ["track", "start", "length"]
+            }),
+        },
+        Tool {
+            name: "move_clip",
+            description: "Move a clip region to a new start.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "clip": {"type": "integer"},
+                    "start": {"type": "integer"}
+                },
+                "required": ["track", "clip", "start"]
+            }),
+        },
+        Tool {
+            name: "remove_clip",
+            description: "Remove one clip region.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}, "clip": {"type": "integer"}},
+                "required": ["track", "clip"]
+            }),
+        },
+        Tool {
             name: "save_project",
             description: "Write the project JSON to a path.",
             input_schema: json!({
@@ -1342,6 +1400,117 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 patch: parsed.clone(),
             })?;
             Ok(json!({"patch": parsed}))
+        }
+        "export_pdf" => {
+            let path = arguments
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("path is required")))?;
+            let title = arguments
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("Lazy Arranger score");
+            let track = match arguments.get("track").and_then(Value::as_u64) {
+                Some(value) => project::TrackId::new(u32::try_from(value).unwrap_or(0))
+                    .map_err(|error| ToolError::Arguments(error.to_string()))?,
+                None => session
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|track| !track.notes.is_empty())
+                    .map(|track| track.id)
+                    .ok_or_else(|| ToolError::Arguments(String::from("no track to engrave")))?,
+            };
+            let engraved = score::engrave(session.song(), track, score::Settings::default());
+            let pdf = score::pdf::to_pdf(&engraved, score::Settings::default(), title);
+            std::fs::write(path, &pdf)
+                .map_err(|error| ToolError::Arguments(format!("{path}: {error}")))?;
+            Ok(json!({"path": path, "bytes": pdf.len(), "pages": engraved.pages.len()}))
+        }
+        "get_clip" => {
+            let track = track_argument(arguments)?;
+            let clip_id = clip_argument(arguments)?;
+            let found = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .and_then(|entry| entry.clips.iter().find(|clip| clip.id == clip_id))
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown clip")))?;
+            Ok(json!({
+                "id": found.id.get(),
+                "name": found.name,
+                "start": found.start,
+                "length": found.length
+            }))
+        }
+        "add_clip" => {
+            let track = track_argument(arguments)?;
+            let start = arguments
+                .get("start")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("start is required")))?;
+            let length = arguments
+                .get("length")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("length is required")))?;
+            if length <= 0 {
+                return Err(ToolError::Arguments(String::from(
+                    "length must be positive",
+                )));
+            }
+            let mut clips = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?
+                .clips
+                .clone();
+            let next = clips
+                .iter()
+                .map(|clip| clip.id.get())
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1);
+            let id = project::ClipId::new(next)
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            clips.push(project::song::Clip {
+                id,
+                name: arguments
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                start,
+                length,
+            });
+            session.apply(Command::SetClips { track, clips })?;
+            Ok(json!({"clip": id.get()}))
+        }
+        "move_clip" => {
+            let track = track_argument(arguments)?;
+            let clip = clip_argument(arguments)?;
+            let start = arguments
+                .get("start")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("start is required")))?;
+            let mut clips = track_clips(session, track)?;
+            let found = clips
+                .iter_mut()
+                .find(|entry| entry.id == clip)
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown clip")))?;
+            found.start = start;
+            session.apply(Command::SetClips { track, clips })?;
+            Ok(json!({"start": start}))
+        }
+        "remove_clip" => {
+            let track = track_argument(arguments)?;
+            let clip = clip_argument(arguments)?;
+            let mut clips = track_clips(session, track)?;
+            clips.retain(|entry| entry.id != clip);
+            session.apply(Command::SetClips { track, clips })?;
+            Ok(json!({"removed": clip.get()}))
         }
         "save_project" => {
             let path = arguments
@@ -2315,6 +2484,29 @@ fn chord_arguments(arguments: &Value) -> Result<Vec<music_core::Chord>, ToolErro
         .collect()
 }
 
+fn clip_argument(arguments: &Value) -> Result<project::ClipId, ToolError> {
+    let value = arguments
+        .get("clip")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| ToolError::Arguments(String::from("clip is required")))?;
+    project::ClipId::new(u32::try_from(value).unwrap_or(0))
+        .map_err(|error| ToolError::Arguments(error.to_string()))
+}
+
+fn track_clips(
+    session: &EditSession,
+    track: TrackId,
+) -> Result<Vec<project::song::Clip>, ToolError> {
+    Ok(session
+        .song()
+        .tracks
+        .iter()
+        .find(|entry| entry.id == track)
+        .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?
+        .clips
+        .clone())
+}
+
 fn track_argument(arguments: &Value) -> Result<TrackId, ToolError> {
     let value = arguments
         .get("track")
@@ -2781,6 +2973,52 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn clip_and_pdf_tools_work() {
+        let directory = std::env::temp_dir().join("lazy-arranger-mcp-clips");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("dir");
+        let mut session = session_with_track();
+        call(
+            &mut session,
+            "add_note",
+            &json!({"track": 1, "start": 0, "pitch": 60}),
+        )
+        .expect("note");
+        let added = call(
+            &mut session,
+            "add_clip",
+            &json!({"track": 1, "start": 0, "length": 1920}),
+        )
+        .expect("add clip");
+        let clip = added["clip"].as_u64().expect("id");
+        let read =
+            call(&mut session, "get_clip", &json!({"track": 1, "clip": clip})).expect("get clip");
+        assert_eq!(read["length"], 1920);
+        call(
+            &mut session,
+            "move_clip",
+            &json!({"track": 1, "clip": clip, "start": 960}),
+        )
+        .expect("move clip");
+        call(
+            &mut session,
+            "remove_clip",
+            &json!({"track": 1, "clip": clip}),
+        )
+        .expect("remove clip");
+        let pdf = directory.join("score.pdf");
+        let exported = call(
+            &mut session,
+            "export_pdf",
+            &json!({"path": pdf.display().to_string(), "title": "Test"}),
+        )
+        .expect("pdf");
+        assert!(exported["bytes"].as_u64().unwrap_or(0) > 0);
+        assert!(std::fs::metadata(&pdf).is_ok_and(|meta| meta.len() > 0));
+        let _ = std::fs::remove_dir_all(directory);
     }
 
     #[test]
