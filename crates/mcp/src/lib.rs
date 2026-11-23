@@ -273,6 +273,50 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "set_lyrics",
+            description: "Replace all lyric syllables.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"lyrics": {"type": "array"}},
+                "required": ["lyrics"]
+            }),
+        },
+        Tool {
+            name: "get_marks",
+            description: "List score marks (dynamics and articulations).",
+            input_schema: json!({"type": "object"}),
+        },
+        Tool {
+            name: "set_marks",
+            description: "Replace score marks; kind is a dynamic or articulation name.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"marks": {"type": "array"}},
+                "required": ["marks"]
+            }),
+        },
+        Tool {
+            name: "get_patch",
+            description: "Read a track's synth patch.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}},
+                "required": ["track"]
+            }),
+        },
+        Tool {
+            name: "set_patch",
+            description: "Set or clear a track's synth patch.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "patch": {"type": ["object", "null"]}
+                },
+                "required": ["track"]
+            }),
+        },
+        Tool {
             name: "save_project",
             description: "Write the project JSON to a path.",
             input_schema: json!({
@@ -719,6 +763,32 @@ pub fn tool_list_json() -> Value {
 /// # Errors
 ///
 /// Returns [`ToolError`] for an unknown tool, bad arguments or a rejected edit.
+fn mark_label(kind: project::song::MarkKind) -> &'static str {
+    use project::song::{Articulation, Dynamic, MarkKind};
+    match kind {
+        MarkKind::Dynamic(Dynamic::Pp) => "pp",
+        MarkKind::Dynamic(Dynamic::P) => "p",
+        MarkKind::Dynamic(Dynamic::Mp) => "mp",
+        MarkKind::Dynamic(Dynamic::Mf) => "mf",
+        MarkKind::Dynamic(Dynamic::F) => "f",
+        MarkKind::Dynamic(Dynamic::Ff) => "ff",
+        MarkKind::Articulation(Articulation::Staccato) => "staccato",
+        MarkKind::Articulation(Articulation::Accent) => "accent",
+        MarkKind::Articulation(Articulation::Tenuto) => "tenuto",
+        MarkKind::Articulation(Articulation::Marcato) => "marcato",
+        MarkKind::Articulation(Articulation::Fermata) => "fermata",
+    }
+}
+
+fn patch_waveform(waveform: project::song::Waveform) -> &'static str {
+    match waveform {
+        project::song::Waveform::Sine => "sine",
+        project::song::Waveform::Saw => "saw",
+        project::song::Waveform::Square => "square",
+        project::song::Waveform::Triangle => "triangle",
+    }
+}
+
 pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<Value, ToolError> {
     match name {
         "get_song" => Ok(song_summary(session.song())),
@@ -924,6 +994,125 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
             session.apply(Command::RemoveChord { tick })?;
             Ok(json!({"removed": tick}))
+        }
+        "set_lyrics" => {
+            let lyrics = arguments
+                .get("lyrics")
+                .and_then(Value::as_array)
+                .ok_or_else(|| ToolError::Arguments(String::from("lyrics must be an array")))?;
+            let mut parsed = Vec::new();
+            for lyric in lyrics {
+                parsed.push(project::song::LyricEvent {
+                    tick: lyric
+                        .get("tick")
+                        .and_then(Value::as_i64)
+                        .ok_or_else(|| ToolError::Arguments(String::from("lyric needs a tick")))?,
+                    text: lyric
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                });
+            }
+            parsed.sort_by_key(|event| event.tick);
+            session.apply(Command::SetLyrics {
+                lyrics: parsed.clone(),
+            })?;
+            Ok(json!({"lyrics": parsed.len()}))
+        }
+        "get_marks" => Ok(json!({
+            "marks": session.song().marks.iter().map(|mark| json!({
+                "tick": mark.tick,
+                "kind": mark_label(mark.kind),
+            })).collect::<Vec<_>>()
+        })),
+        "set_marks" => {
+            use project::song::{Articulation, Dynamic, Mark, MarkKind};
+            let marks = arguments
+                .get("marks")
+                .and_then(Value::as_array)
+                .ok_or_else(|| ToolError::Arguments(String::from("marks must be an array")))?;
+            let mut parsed = Vec::new();
+            for mark in marks {
+                let tick = mark
+                    .get("tick")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| ToolError::Arguments(String::from("mark needs a tick")))?;
+                let kind = match mark.get("kind").and_then(Value::as_str) {
+                    Some("pp") => MarkKind::Dynamic(Dynamic::Pp),
+                    Some("p") => MarkKind::Dynamic(Dynamic::P),
+                    Some("mp") => MarkKind::Dynamic(Dynamic::Mp),
+                    Some("mf") => MarkKind::Dynamic(Dynamic::Mf),
+                    Some("f") => MarkKind::Dynamic(Dynamic::F),
+                    Some("ff") => MarkKind::Dynamic(Dynamic::Ff),
+                    Some("staccato") => MarkKind::Articulation(Articulation::Staccato),
+                    Some("accent") => MarkKind::Articulation(Articulation::Accent),
+                    Some("tenuto") => MarkKind::Articulation(Articulation::Tenuto),
+                    Some("marcato") => MarkKind::Articulation(Articulation::Marcato),
+                    Some("fermata") => MarkKind::Articulation(Articulation::Fermata),
+                    _ => {
+                        return Err(ToolError::Arguments(String::from("unknown mark kind")));
+                    }
+                };
+                parsed.push(Mark { tick, kind });
+            }
+            parsed.sort_by_key(|mark| mark.tick);
+            session.apply(Command::SetMarks {
+                marks: parsed.clone(),
+            })?;
+            Ok(json!({"marks": parsed.len()}))
+        }
+        "get_patch" => {
+            let track = track_argument(arguments)?;
+            let found = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
+            Ok(json!({"patch": found.patch.map(|patch| json!({
+                "waveform": patch_waveform(patch.waveform),
+                "attack": patch.attack,
+                "decay": patch.decay,
+                "sustain": patch.sustain,
+                "release": patch.release,
+                "brightness": patch.brightness
+            }))}))
+        }
+        "set_patch" => {
+            use project::song::{Patch, Waveform};
+            let track = track_argument(arguments)?;
+            let patch = arguments.get("patch").filter(|value| !value.is_null());
+            let parsed = match patch {
+                None => None,
+                Some(patch) => {
+                    let waveform = match patch.get("waveform").and_then(Value::as_str) {
+                        Some("saw") => Waveform::Saw,
+                        Some("square") => Waveform::Square,
+                        Some("triangle") => Waveform::Triangle,
+                        Some("sine") | None => Waveform::Sine,
+                        Some(other) => {
+                            return Err(ToolError::Arguments(format!("unknown waveform {other}")));
+                        }
+                    };
+                    Some(Box::new(Patch {
+                        waveform,
+                        attack: patch.get("attack").and_then(Value::as_f64).unwrap_or(0.01) as f32,
+                        decay: patch.get("decay").and_then(Value::as_f64).unwrap_or(0.1) as f32,
+                        sustain: patch.get("sustain").and_then(Value::as_f64).unwrap_or(0.8) as f32,
+                        release: patch.get("release").and_then(Value::as_f64).unwrap_or(0.1) as f32,
+                        brightness: patch
+                            .get("brightness")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.5) as f32,
+                    }))
+                }
+            };
+            session.apply(Command::SetTrackPatch {
+                track,
+                patch: parsed.clone(),
+            })?;
+            Ok(json!({"patch": parsed}))
         }
         "save_project" => {
             let path = arguments
@@ -2260,6 +2449,43 @@ mod tests {
                 &mut session,
                 "set_chord",
                 &json!({"tick": 0, "symbol": "H"})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn lyrics_marks_and_patch_tools_work() {
+        let mut session = session_with_track();
+        call(
+            &mut session,
+            "set_lyrics",
+            &json!({"lyrics": [{"tick": 0, "text": "la"}, {"tick": 960, "text": "da"}]}),
+        )
+        .expect("lyrics");
+        assert_eq!(session.song().lyrics.len(), 2);
+        call(
+            &mut session,
+            "set_marks",
+            &json!({"marks": [{"tick": 0, "kind": "ff"}, {"tick": 960, "kind": "staccato"}]}),
+        )
+        .expect("marks");
+        let marks = call(&mut session, "get_marks", &json!({})).expect("get marks");
+        assert_eq!(marks["marks"][0]["kind"], "ff");
+        call(
+            &mut session,
+            "set_patch",
+            &json!({"track": 1, "patch": {"waveform": "square", "brightness": 0.7}}),
+        )
+        .expect("patch");
+        let patch = call(&mut session, "get_patch", &json!({"track": 1})).expect("get patch");
+        assert_eq!(patch["patch"]["waveform"], "square");
+        call(&mut session, "set_patch", &json!({"track": 1})).expect("clear patch");
+        assert!(
+            call(
+                &mut session,
+                "set_marks",
+                &json!({"marks": [{"tick": 0, "kind": "loud"}]})
             )
             .is_err()
         );
