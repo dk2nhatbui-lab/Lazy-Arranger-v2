@@ -169,7 +169,7 @@ mod tests {
         let cuts = slices(&samples, rate);
         assert_eq!(cuts.len(), 3, "lead-in plus two hits");
         assert_eq!(cuts[0].start, 0);
-        assert!(cuts.iter().all(|slice| slice.len() > 0));
+        assert!(cuts.iter().all(|slice| !slice.is_empty()));
     }
 
     #[test]
