@@ -4989,6 +4989,7 @@ impl ShellApp {
                 .find(|track| track.id == id)
                 .cloned()
         });
+        let mut meter_change = None;
         egui::SidePanel::right("right-inspector")
             .resizable(true)
             .default_width(300.0)
@@ -5166,6 +5167,31 @@ impl ShellApp {
                             self.songs_open = true;
                         }
                     });
+                    let meter = self.song().time_signature;
+                    ui.horizontal(|ui| {
+                        ui.label("Meter");
+                        egui::ComboBox::from_id_salt("song-meter")
+                            .selected_text(format!(
+                                "{}/{}",
+                                meter.numerator, meter.denominator
+                            ))
+                            .show_ui(ui, |ui| {
+                                for (numerator, denominator) in
+                                    [(4_u8, 4_u8), (3, 4), (2, 4), (6, 8), (5, 4), (7, 8)]
+                                {
+                                    if ui
+                                        .selectable_label(
+                                            meter.numerator == numerator
+                                                && meter.denominator == denominator,
+                                            format!("{numerator}/{denominator}"),
+                                        )
+                                        .clicked()
+                                    {
+                                        meter_change = Some((numerator, denominator));
+                                    }
+                                }
+                            });
+                    });
                     ui.separator();
                     ui.label(
                         egui::RichText::new("METRONOME")
@@ -5272,6 +5298,14 @@ impl ShellApp {
                 );
                 self.assistant_inline(&mut chat_ui, chat_height);
             });
+        if let Some((numerator, denominator)) = meter_change {
+            match self.editor.set_time_signature(numerator, denominator) {
+                Ok(()) => {
+                    self.status = Some(format!("meter {numerator}/{denominator}"));
+                }
+                Err(error) => self.status = Some(error),
+            }
+        }
     }
 
     fn assistant_inline(&mut self, ui: &mut egui::Ui, height: f32) {
