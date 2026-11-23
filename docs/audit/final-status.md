@@ -194,3 +194,4 @@ For the clef layout, choose either four measures per system without clefs
 - Controllers window can clear every MIDI binding and rewrite the map file.
 - Full workspace suite also passes with one test thread (770/770), so no test-order dependency was observed.
 - Stem render test covers an audio-only track.
+- MCP get_audio_ref reports comp spans and set_audio_ref accepts them.

@@ -2166,6 +2166,11 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     takes.iter().filter_map(audio_ref_from_value).collect();
                 session.apply(Command::SetAudioTakes { track, takes })?;
             }
+            if let Some(comps) = arguments.get("comps").and_then(Value::as_array) {
+                let comps: Vec<project::song::AudioComp> =
+                    comps.iter().filter_map(audio_comp_from_value).collect();
+                session.apply(Command::SetAudioComps { track, comps })?;
+            }
             Ok(json!({"audio": reference.map(|reference| audio_ref_json(&reference))}))
         }
         "get_audio_ref" => {
@@ -2178,7 +2183,8 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
             Ok(json!({
                 "audio": track.audio.as_ref().map(audio_ref_json),
-                "takes": track.takes.iter().map(audio_ref_json).collect::<Vec<_>>()
+                "takes": track.takes.iter().map(audio_ref_json).collect::<Vec<_>>(),
+                "comps": track.comps.iter().map(audio_comp_json).collect::<Vec<_>>()
             }))
         }
         "get_tracks" => Ok(json!({
@@ -3145,6 +3151,18 @@ fn track_clips(
         .clone())
 }
 
+fn audio_comp_json(comp: &project::song::AudioComp) -> Value {
+    json!({"take": comp.take, "start": comp.start, "length": comp.length})
+}
+
+fn audio_comp_from_value(value: &Value) -> Option<project::song::AudioComp> {
+    Some(project::song::AudioComp {
+        take: usize::try_from(value.get("take").and_then(Value::as_u64)?).ok()?,
+        start: value.get("start").and_then(Value::as_i64).unwrap_or(0),
+        length: value.get("length").and_then(Value::as_i64).unwrap_or(0),
+    })
+}
+
 fn audio_ref_json(reference: &project::song::AudioRef) -> Value {
     json!({
         "path": reference.path,
@@ -3613,12 +3631,14 @@ mod tests {
             &mut session,
             "set_audio_ref",
             &json!({"track": 1, "path": "/tmp/take.wav", "length": 960, "stretch": true,
-                "takes": [{"path": "/tmp/old.wav", "length": 960}]}),
+                "takes": [{"path": "/tmp/old.wav", "length": 960}],
+                "comps": [{"take": 0, "start": 0, "length": 480}]}),
         )
         .expect("audio");
         let audio = call(&mut session, "get_audio_ref", &json!({"track": 1})).expect("audio ref");
         assert_eq!(audio["audio"]["stretch"], true);
         assert_eq!(audio["takes"][0]["path"], "/tmp/old.wav");
+        assert_eq!(audio["comps"][0]["length"], 480);
         assert!(call(&mut session, "get_note", &json!({"track": 1, "note": 99})).is_err());
     }
 
