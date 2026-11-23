@@ -755,6 +755,7 @@ pub struct ShellApp {
     style_file_loop: bool,
     style_auto_load: bool,
     style_queued_section: Option<usize>,
+    style_queued_chord: Option<String>,
     style_queue_at: f64,
     audio_style_open: bool,
     audio_style_path: String,
@@ -1040,6 +1041,7 @@ impl ShellApp {
             style_file_loop: true,
             style_auto_load: std::env::var("ARRANGER_STYLE_FILE").is_ok(),
             style_queued_section: None,
+            style_queued_chord: None,
             style_queue_at: 0.0,
             audio_style_open: std::env::var("ARRANGER_AUDIO_STYLE").is_ok(),
             audio_style_path: String::new(),
@@ -4143,6 +4145,30 @@ impl ShellApp {
         self.status = Some(String::from("section queued at the next bar"));
     }
 
+    fn queue_style_chord(&mut self, chord: &str) {
+        let Some(imported) = self.style_import.as_ref() else {
+            return;
+        };
+        let Some(player) = self.style_preview.as_ref() else {
+            self.style_chord = chord.to_string();
+            self.audition_style_section();
+            return;
+        };
+        if !player.is_playing() {
+            self.style_chord = chord.to_string();
+            self.audition_style_section();
+            return;
+        }
+        let bar_ticks = imported.time_signature.bar_ticks().max(1);
+        let seconds = 60.0 / (imported.tempo_bpm.max(30.0) * music_core::PPQ as f64);
+        let bar_seconds = bar_ticks as f64 * seconds;
+        let now = player.frame() as f64 / f64::from(audio::SAMPLE_RATE);
+        self.style_chord = chord.to_string();
+        self.style_queued_chord = Some(chord.to_string());
+        self.style_queue_at = next_bar_seconds(now, bar_seconds);
+        self.status = Some(format!("chord {chord} queued at the next bar"));
+    }
+
     fn load_style_file(&mut self) {
         match std::fs::read(&self.style_file_path)
             .map_err(|error| error.to_string())
@@ -4171,6 +4197,7 @@ impl ShellApp {
         }
         let mut open = self.style_file_open;
         let mut queue_choice = None;
+        let mut chord_choice = None;
         egui::Window::new("Style file player")
             .open(&mut open)
             .resizable(false)
@@ -4219,6 +4246,11 @@ impl ShellApp {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.style_chord).desired_width(70.0),
                     );
+                    for chord in ["C", "Dm", "Em", "F", "G", "Am", "G7"] {
+                        if ui.small_button(chord).clicked() {
+                            chord_choice = Some(chord);
+                        }
+                    }
                 });
                 ui.label(format!(
                     "style written in {} · {:.1} BPM · {} ticks",
@@ -4229,6 +4261,7 @@ impl ShellApp {
                 ui.horizontal(|ui| {
                     if ui.button("Audition").clicked() {
                         self.style_queued_section = None;
+                        self.style_queued_chord = None;
                         self.audition_style_section();
                     }
                     if ui.button("Stop").clicked() {
@@ -4238,13 +4271,16 @@ impl ShellApp {
                 });
                 ui.label(
                     egui::RichText::new(
-                        "Sections restart immediately; keyboard chord input and next-bar section queues are not implemented.",
+                        "Section and chord changes queue at the next bar; keyboard chord input and fill/ending transitions are not implemented.",
                     )
                     .size(9.0)
                     .color(theme::text_dim()),
                 );
             });
         self.style_file_open = open;
+        if let Some(chord) = chord_choice {
+            self.queue_style_chord(chord);
+        }
         if let Some(index) = queue_choice {
             self.queue_style_section(index);
         }
@@ -8841,17 +8877,22 @@ impl eframe::App for ShellApp {
             context.set_style(style);
         }
         self.handle_keys(context);
-        if let Some(index) = self.style_queued_section
+        if (self.style_queued_section.is_some() || self.style_queued_chord.is_some())
             && let Some(player) = &self.style_preview
             && (!player.is_playing()
                 || player.frame() as f64 / f64::from(audio::SAMPLE_RATE) >= self.style_queue_at)
         {
-            self.style_queued_section = None;
-            self.style_section = index;
+            if let Some(index) = self.style_queued_section.take() {
+                self.style_section = index;
+            }
+            if let Some(chord) = self.style_queued_chord.take() {
+                self.style_chord = chord;
+            }
             self.audition_style_section();
         }
         if self.style_file_loop
             && self.style_queued_section.is_none()
+            && self.style_queued_chord.is_none()
             && let Some(player) = &self.style_preview
             && !player.is_playing()
         {
