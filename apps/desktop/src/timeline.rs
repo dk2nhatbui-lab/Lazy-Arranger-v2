@@ -246,6 +246,30 @@ fn draw(
                 StrokeKind::Inside,
             );
         }
+        if let Some(audio) = &track.audio {
+            let audio_start = audio.start.max(0);
+            let audio_end = (audio_start + audio.length.max(1)).min(end.max(audio_start + 1));
+            let block = Rect::from_min_max(
+                pos2(x_for(audio_start), top + 4.0),
+                pos2(
+                    x_for(audio_end).max(x_for(audio_start) + 2.0),
+                    top + LANE_HEIGHT - 4.0,
+                ),
+            );
+            painter.rect_filled(block, 3.0, color.gamma_multiply(0.58));
+            painter.rect_stroke(block, 3.0, Stroke::new(1.0_f32, color), StrokeKind::Inside);
+            let name = std::path::Path::new(&audio.path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("audio");
+            painter.text(
+                pos2(block.left() + 6.0, block.center().y),
+                Align2::LEFT_CENTER,
+                format!("audio · {name}"),
+                FontId::proportional(9.0),
+                theme::text(),
+            );
+        }
         for note in &track.notes {
             if note.start > end {
                 continue;
