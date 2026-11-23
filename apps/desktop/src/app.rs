@@ -285,11 +285,30 @@ pub fn parse_sysex(text: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+fn seed_default_device_profiles(folder: &std::path::Path) {
+    if std::fs::create_dir_all(folder).is_err() {
+        return;
+    }
+    for (name, body) in [
+        (
+            "xiosynth.yaml",
+            include_str!("../assets/profiles/xiosynth.yaml"),
+        ),
+        ("d05.yaml", include_str!("../assets/profiles/d05.yaml")),
+    ] {
+        let path = folder.join(name);
+        if !path.exists() {
+            let _ = std::fs::write(path, body);
+        }
+    }
+}
+
 fn load_device_profiles() -> Vec<midi_devices::profiles::LoadedProfile> {
     let folder = crate::settings::Settings::path()
         .parent()
         .map(|path| path.join("profiles"))
         .unwrap_or_else(|| std::path::PathBuf::from("profiles"));
+    seed_default_device_profiles(&folder);
     midi_devices::profiles::load_directory(&folder)
         .map(|(profiles, _)| profiles)
         .unwrap_or_default()
@@ -10164,6 +10183,19 @@ mod tests {
         let info = audio::wav::info(&bytes).expect("info");
         assert!(info.frames > 0);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn default_device_profiles_are_seeded() {
+        let folder = std::env::temp_dir().join("lazy-arranger-seed-profiles");
+        let _ = std::fs::remove_dir_all(&folder);
+        seed_default_device_profiles(&folder);
+        let (profiles, problems) = midi_devices::profiles::load_directory(&folder).expect("load");
+        assert_eq!(profiles.len(), 2);
+        assert!(problems.is_empty());
+        assert!(profiles.iter().any(|profile| profile.id == "xiosynth"));
+        assert!(profiles.iter().any(|profile| profile.id == "d05"));
+        let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]
