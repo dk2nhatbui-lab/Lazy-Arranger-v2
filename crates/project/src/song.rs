@@ -392,6 +392,12 @@ pub struct AudioRef {
     /// In-point into the audio file, in ticks at the import tempo.
     #[serde(default, skip_serializing_if = "is_zero_tick")]
     pub offset: Tick,
+    /// Fade-in length in ticks.
+    #[serde(default, skip_serializing_if = "is_zero_tick")]
+    pub fade_in: Tick,
+    /// Fade-out length in ticks.
+    #[serde(default, skip_serializing_if = "is_zero_tick")]
+    pub fade_out: Tick,
 }
 
 fn is_zero_tick(tick: &Tick) -> bool {
@@ -911,6 +917,11 @@ impl ProjectFile {
                     // the built-in timbre, as in version 15.
                     self.version = 16;
                 }
+                16 => {
+                    // Version 17 adds audio fade lengths; zero is no fade, as
+                    // in version 16.
+                    self.version = 17;
+                }
                 from => {
                     return Err(ProjectError::Migration {
                         from,
@@ -1356,6 +1367,9 @@ mod tests {
             start: 0,
             length: 3840,
             offset: 0,
+
+            fade_in: 0,
+            fade_out: 0,
         });
         song.tracks.push(track);
         let text = ProjectFile::new(song).to_json_pretty().expect("serialize");

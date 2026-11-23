@@ -918,6 +918,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 start,
                 length,
                 offset: 0,
+
+                fade_in: 0,
+                fade_out: 0,
             });
             session.apply(Command::InsertTrack { track })?;
             let json = session.project().to_json_pretty()?;
@@ -1572,6 +1575,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                     start,
                     length: audio::chords::to_ticks(take.seconds, bpm),
                     offset: 0,
+
+                    fade_in: 0,
+                    fade_out: 0,
                 });
                 session.apply(Command::InsertTrack { track })?;
                 imported += 1;

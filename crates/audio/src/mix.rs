@@ -79,6 +79,20 @@ fn mix_one(
     let frames = (length_seconds * f64::from(rate)).round() as usize;
     let ratio = f64::from(decoded.sample_rate) / f64::from(rate);
     let in_frames = (in_point * f64::from(decoded.sample_rate)).round() as usize;
+    let fade_in_seconds = if reference.fade_in > 0 {
+        song.tempo_map
+            .duration_seconds(reference.start, reference.start + reference.fade_in)
+    } else {
+        0.0
+    };
+    let fade_out_seconds = if reference.fade_out > 0 {
+        song.tempo_map
+            .duration_seconds(reference.start, reference.start + reference.fade_out)
+    } else {
+        0.0
+    };
+    let fade_in_frames = (fade_in_seconds * f64::from(rate)).max(0.0);
+    let fade_out_frames = (fade_out_seconds * f64::from(rate)).max(0.0);
     for frame in 0..frames {
         let target = start + frame;
         if target * 2 + 1 >= rendered.samples.len() {
@@ -88,7 +102,14 @@ fn mix_one(
         if source >= decoded.samples.len() {
             break;
         }
-        let value = decoded.samples[source] * gain;
+        let mut envelope = 1.0_f64;
+        if fade_in_frames > 0.0 {
+            envelope *= (frame as f64 / fade_in_frames).clamp(0.0, 1.0);
+        }
+        if fade_out_frames > 0.0 {
+            envelope *= ((frames.saturating_sub(frame)) as f64 / fade_out_frames).clamp(0.0, 1.0);
+        }
+        let value = decoded.samples[source] * gain * envelope as f32;
         rendered.samples[target * 2] += value * left_gain;
         rendered.samples[target * 2 + 1] += value * right_gain;
     }
@@ -119,6 +140,8 @@ mod tests {
             start: 0,
             length: 1920,
             offset: 0,
+            fade_in: 0,
+            fade_out: 0,
         });
         track.muted = muted;
         song.tracks.push(track);
@@ -152,6 +175,8 @@ mod tests {
             start: 0,
             length: 960,
             offset: 1920,
+            fade_in: 0,
+            fade_out: 0,
         });
         let mut rendered = RenderedAudio {
             samples: vec![0.0; 96_000 * 2],
@@ -163,6 +188,30 @@ mod tests {
             rendered.samples[0] < 0.0,
             "the in-point starts in the quiet half"
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn fades_ramp_the_reference_edges() {
+        let path = write_wav("lazy-arranger-mix-fade.wav", vec![0.4; 48_000 * 2]);
+        let mut song = song_with(path.clone(), false);
+        song.tracks[0].audio = Some(AudioRef {
+            path: path.clone(),
+            start: 0,
+            length: 1920,
+            offset: 0,
+            fade_in: 960,
+            fade_out: 480,
+        });
+        let mut rendered = RenderedAudio {
+            samples: vec![0.0; 96_000 * 2],
+            sample_rate: 48_000,
+        };
+        assert!(mix_audio_references(&mut rendered, &song, 1.0).is_empty());
+        let at = |frame: usize| rendered.samples[frame * 2].abs();
+        assert!(at(0) < 0.01, "fade-in starts near zero");
+        assert!(at(24_000) > 0.2, "middle is full");
+        assert!(at(47_000) < 0.05, "fade-out ends near zero");
         let _ = std::fs::remove_file(path);
     }
 

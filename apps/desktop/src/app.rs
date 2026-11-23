@@ -2404,6 +2404,7 @@ impl eframe::App for ShellApp {
                 let mut clicked = None;
                 let mut automation_edit: Option<(TrackId, project::song::Automation)> = None;
                 let mut audio_trim: Option<(TrackId, Tick)> = None;
+                let mut audio_fades: Option<(TrackId, Tick, Tick)> = None;
                 let mut score_status: Option<String> = None;
                 let entry_enabled_flag = self.score_entry;
                 let mut perform_chord: Option<music_core::Chord> = None;
@@ -2436,6 +2437,25 @@ impl eframe::App for ShellApp {
                                 if ui.button("Trim 1 beat").clicked() {
                                     let bar = project.song.time_signature.bar_ticks().max(1);
                                     audio_trim = Some((*track_id, bar / 4));
+                                }
+                                let bar = project.song.time_signature.bar_ticks().max(1);
+                                let current = project
+                                    .song
+                                    .tracks
+                                    .iter()
+                                    .find(|track| track.id == *track_id)
+                                    .and_then(|track| track.audio.as_ref())
+                                    .map_or((0, 0), |reference| {
+                                        (reference.fade_in, reference.fade_out)
+                                    });
+                                if ui.small_button("Fade in bar").clicked() {
+                                    audio_fades = Some((*track_id, bar, current.1));
+                                }
+                                if ui.small_button("Fade out bar").clicked() {
+                                    audio_fades = Some((*track_id, current.0, bar));
+                                }
+                                if ui.small_button("No fades").clicked() {
+                                    audio_fades = Some((*track_id, 0, 0));
                                 }
                             });
                             Self::draw_waveform(ui, peaks);
@@ -2659,6 +2679,7 @@ impl eframe::App for ShellApp {
                     clicked,
                     automation_edit,
                     audio_trim,
+                    audio_fades,
                     score_status,
                     perform_chord,
                     lesson_next,
@@ -2674,6 +2695,7 @@ impl eframe::App for ShellApp {
             clicked,
             automation_edit,
             audio_trim,
+            audio_fades,
             score_status,
             perform_chord,
             lesson_next,
@@ -2780,6 +2802,11 @@ impl eframe::App for ShellApp {
             } else {
                 self.status = Some(format!("trimmed {delta} tick(s)"));
             }
+        }
+        if let Some((track, fade_in, fade_out)) = audio_fades
+            && let Err(error) = self.editor.set_audio_fades(track, fade_in, fade_out)
+        {
+            self.status = Some(error);
         }
         if let Some((track, lane)) = automation_edit
             && let Err(error) = self.editor.merge_automation(track, lane)

@@ -506,6 +506,9 @@ mod tests {
             start: 0,
             length: 7680,
             offset: 0,
+
+            fade_in: 0,
+            fade_out: 0,
         });
         song.tracks.push(take);
         let rendered = render(&song, SAMPLE_RATE);

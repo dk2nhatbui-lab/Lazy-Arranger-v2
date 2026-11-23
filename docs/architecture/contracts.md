@@ -303,3 +303,12 @@ samples and SF3 remain absent.
 `set_track_routing` expose the schema-v16 SoundFont preset, mix buses and
 bus/send routing through the same undoable commands as the UI and CLI. Missing
 or null path/bus/send values clear the field; the registry now holds 36 tools.
+
+### Audio fades
+
+Schema v17 adds `fade_in` and `fade_out` ticks to `AudioRef`; validation rejects
+negative fades or a sum longer than the reference. `mix_audio_references`
+converts them to seconds with the tempo map and applies linear ramps at the
+start and end of the reference. `Editor::set_audio_fades` writes one
+`SetAudioRef`, and the Arrange trim row has one-bar fade-in/out and clear
+buttons.

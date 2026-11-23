@@ -711,6 +711,9 @@ impl Editor {
                 start,
                 length: audio::chords::to_ticks(take.seconds, bpm),
                 offset: 0,
+
+                fade_in: 0,
+                fade_out: 0,
             });
             self.session
                 .apply(app_commands::Command::InsertTrack { track })
@@ -719,6 +722,39 @@ impl Editor {
         }
         self.dirty |= imported > 0;
         Ok(imported)
+    }
+
+    /// Sets the fade lengths of a track's audio reference.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track has no audio or the edit is rejected.
+    pub fn set_audio_fades(
+        &mut self,
+        track: TrackId,
+        fade_in: Tick,
+        fade_out: Tick,
+    ) -> Result<(), String> {
+        let Some(reference) = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.audio.clone())
+        else {
+            return Err(String::from("track has no audio reference"));
+        };
+        let mut updated = reference;
+        updated.fade_in = fade_in.max(0);
+        updated.fade_out = fade_out.max(0);
+        self.session
+            .apply(app_commands::Command::SetAudioRef {
+                track,
+                reference: Some(updated),
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
     }
 
     /// Freezes a track: renders it alone to `path`, clears its notes and gives
@@ -744,6 +780,9 @@ impl Editor {
                     start: 0,
                     length,
                     offset: 0,
+
+                    fade_in: 0,
+                    fade_out: 0,
                 },
             })
             .map_err(|error| error.to_string())?;
@@ -1460,6 +1499,38 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn audio_fades_apply_and_undo() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        editor
+            .session
+            .apply(app_commands::Command::SetAudioRef {
+                track,
+                reference: Some(project::song::AudioRef {
+                    path: String::from("/tmp/take.wav"),
+                    start: 0,
+                    length: 3840,
+                    offset: 0,
+                    fade_in: 0,
+                    fade_out: 0,
+                }),
+            })
+            .expect("audio");
+        editor.set_audio_fades(track, 960, 480).expect("fades");
+        let reference = editor.song().tracks[0].audio.as_ref().expect("audio");
+        assert_eq!((reference.fade_in, reference.fade_out), (960, 480));
+        assert!(editor.undo());
+        assert_eq!(
+            editor.song().tracks[0]
+                .audio
+                .as_ref()
+                .expect("audio")
+                .fade_in,
+            0
+        );
     }
 
     #[test]

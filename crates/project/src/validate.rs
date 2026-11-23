@@ -72,6 +72,18 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
     let mut track_ids: HashSet<u32> = HashSet::new();
     for (track_index, track) in song.tracks.iter().enumerate() {
         let track_path = format!("song.tracks[{track_index}]");
+        if let Some(reference) = &track.audio
+            && (reference.fade_in < 0
+                || reference.fade_out < 0
+                || (reference.length > 0
+                    && reference.fade_in.saturating_add(reference.fade_out) > reference.length))
+        {
+            issues.push(issue(
+                Severity::Error,
+                format!("{track_path}.audio"),
+                String::from("fades must be non-negative and fit inside the audio length"),
+            ));
+        }
         if let Some(font) = &track.soundfont
             && font.path.trim().is_empty()
         {

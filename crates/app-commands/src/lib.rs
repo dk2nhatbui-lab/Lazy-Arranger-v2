@@ -1616,6 +1616,9 @@ mod tests {
             start: 0,
             length: 3840,
             offset: 0,
+
+            fade_in: 0,
+            fade_out: 0,
         };
         edit.apply(Command::SetAudioRef {
             track,
@@ -1792,6 +1795,9 @@ mod tests {
                 start: 0,
                 length: music_core::PPQ,
                 offset: 0,
+
+                fade_in: 0,
+                fade_out: 0,
             },
         })
         .expect("freeze");

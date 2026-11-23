@@ -97,6 +97,9 @@ mod tests {
             start: 0,
             length: 3840,
             offset: 0,
+
+            fade_in: 0,
+            fade_out: 0,
         });
         song.tracks.push(track);
         EditSession::new(ProjectFile::new(song)).expect("valid")
