@@ -202,6 +202,56 @@ pub fn apply(
     Ok(added.len())
 }
 
+/// Writes the pattern repeatedly across `total_bars`, as one note edit.
+///
+/// # Errors
+///
+/// Returns [`ArrangingError::Command`] when the edit is rejected.
+pub fn put_in_bars(
+    session: &mut EditSession,
+    track: TrackId,
+    start: Tick,
+    bar: Tick,
+    pattern: &BeatPattern,
+    total_bars: usize,
+) -> Result<usize, ArrangingError> {
+    let Some(entry) = session.song().tracks.iter().find(|entry| entry.id == track) else {
+        return Ok(0);
+    };
+    let channel = entry
+        .notes
+        .iter()
+        .find(|note| note.channel.zero_based() == 9)
+        .map_or_else(|| Channel::new(9).expect("valid"), |note| note.channel);
+    let bars = total_bars.max(1);
+    let end = start + bar * bars as Tick;
+    let mut notes: Vec<Note> = entry
+        .notes
+        .iter()
+        .filter(|note| note.start < start || note.start >= end)
+        .cloned()
+        .collect();
+    let span = pattern.bars().max(1);
+    let mut copy = 0;
+    while copy * span < bars {
+        let at = start + (copy * span) as Tick * bar;
+        notes.extend(pattern.to_notes(at, bar, channel));
+        copy += 1;
+    }
+    notes.sort_by_key(|note| note.start);
+    for (index, note) in notes.iter_mut().enumerate() {
+        if let Ok(id) = NoteId::new(index as u32 + 1) {
+            note.id = id;
+        }
+    }
+    let added = notes
+        .iter()
+        .filter(|note| note.start >= start && note.start < end)
+        .count();
+    session.apply(Command::ReplaceTrackNotes { track, notes })?;
+    Ok(added)
+}
+
 /// One sixteenth in ticks.
 #[must_use]
 pub fn step_ticks() -> Tick {
@@ -232,6 +282,34 @@ mod tests {
             channel: Channel::new(9).expect("valid"),
         });
         track
+    }
+
+    #[test]
+    fn put_in_bars_repeats_the_pattern_across_the_span() {
+        let mut song = Song::new("Beat", 120.0);
+        song.tracks
+            .push(Track::new(TrackId::new(1).expect("valid"), "Drums"));
+        let mut session = EditSession::new(ProjectFile::new(song)).expect("valid");
+        let mut pattern = BeatPattern::default();
+        pattern.grid[0][0] = 120;
+        let added = put_in_bars(
+            &mut session,
+            TrackId::new(1).expect("valid"),
+            0,
+            3840,
+            &pattern,
+            4,
+        )
+        .expect("put");
+        assert_eq!(added, 4);
+        let starts: Vec<i64> = session.song().tracks[0]
+            .notes
+            .iter()
+            .map(|note| note.start)
+            .collect();
+        assert_eq!(starts, vec![0, 3840, 7680, 11_520]);
+        session.undo().expect("undo");
+        assert!(session.song().tracks[0].notes.is_empty());
     }
 
     #[test]

@@ -2431,6 +2431,25 @@ impl ShellApp {
                             Err(error) => self.status = Some(error),
                         }
                     }
+                    if ui
+                        .button("Put in 4 bars")
+                        .on_hover_text("Repeat the pattern across four bars as one edit")
+                        .clicked()
+                        && let Some(track) = self.beat_track
+                    {
+                        let bar = self.beat_bar;
+                        let start = self.beat_start;
+                        match self
+                            .editor
+                            .put_in_bars(track, start, bar, &self.beat_pattern, 4)
+                        {
+                            Ok(added) => {
+                                self.status = Some(format!("beat: {added} hit(s) in 4 bars"));
+                                self.beat_dialog = false;
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
                     if ui.button("Close").clicked() {
                         self.beat_dialog = false;
                     }

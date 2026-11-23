@@ -544,3 +544,10 @@ there is no monitoring, takes or waveform editing.
 1/16 grid to `<slug>.groove`, and `apply_groove_file` loads by name and writes
 adjusted notes with timing/accent amounts. A temp-folder test saves, lists and
 applies. The registry holds 70 tools.
+
+### Put-in-bars
+
+`put_in_bars` clears `start..start + bar × total_bars`, writes the pattern
+repeatedly by its span and applies one `ReplaceTrackNotes`. The Beat window's
+Put in 4 bars button calls it with four bars; a test checks the four starts and
+undo.

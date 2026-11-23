@@ -507,6 +507,26 @@ impl Editor {
         Ok(added)
     }
 
+    /// Writes the pattern into `total_bars` bars as one edit.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn put_in_bars(
+        &mut self,
+        track: TrackId,
+        start: Tick,
+        bar: Tick,
+        pattern: &arranging::beat::BeatPattern,
+        total_bars: usize,
+    ) -> Result<usize, String> {
+        let added =
+            arranging::beat::put_in_bars(&mut self.session, track, start, bar, pattern, total_bars)
+                .map_err(|error| error.to_string())?;
+        self.dirty |= added > 0;
+        Ok(added)
+    }
+
     /// The clip grid for the current song.
     #[must_use]
     pub fn grid(&self, bars_per_scene: usize) -> arranging::grid::Grid {
