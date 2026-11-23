@@ -572,3 +572,11 @@ symbols without a frame.
 `add_marker`/`remove_marker` and `add_lyric`/`remove_lyric` replace one event by
 tick; `get_chord_at`, `get_note_at` and `get_time_signature` read one position
 or the meter. The registry holds 77 tools.
+
+### Accidental spacing
+
+`shift_accidentals` groups accidentals by page and measure, walks them in x
+order and shifts one left when its base would cross the previous notehead's
+right edge (plus a small gap); notes at the same x (chord tones) keep their
+columns. Tests force a C-major key with C#/D# sixteenths. Noteheads, rests and
+dots are not otherwise collision-avoided.

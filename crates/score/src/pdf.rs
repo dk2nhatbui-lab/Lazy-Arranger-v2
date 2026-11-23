@@ -249,7 +249,13 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     continue;
                 }
                 if let Some(alter) = note.spelled.accidental {
-                    accidental(&mut content, alter, x - radius * 2.6, y, radius);
+                    accidental(
+                        &mut content,
+                        alter,
+                        x - radius * 2.6 - note.accidental_shift,
+                        y,
+                        radius,
+                    );
                 }
                 circle(&mut content, x, y, radius);
                 let _ = writeln!(

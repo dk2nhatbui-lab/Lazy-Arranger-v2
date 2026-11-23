@@ -239,7 +239,7 @@ pub fn show(
                     _ => "\u{266E}",
                 };
                 painter.text(
-                    Pos2::new(x - radius * 2.4, y),
+                    Pos2::new(x - radius * 2.4 - note.accidental_shift * zoom, y),
                     egui::Align2::CENTER_CENTER,
                     glyph,
                     egui::FontId::proportional(radius * 2.2),

@@ -73,6 +73,8 @@ pub struct PlacedNote {
     pub tie_start: bool,
     /// True when this note continues a tie: no notehead is drawn.
     pub tied: bool,
+    /// Extra leftward shift for a crowded accidental.
+    pub accidental_shift: f32,
 }
 
 /// A beam joining short notes.
@@ -339,6 +341,39 @@ impl Engraved {
 #[must_use]
 pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
     engrave_with(song, track, settings, &[])
+}
+
+fn shift_accidentals(notes: &mut [PlacedNote], settings: Settings) {
+    use std::collections::BTreeMap;
+    let mut groups: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
+    for (index, note) in notes.iter().enumerate() {
+        if note.spelled.accidental.is_some() {
+            groups
+                .entry((note.page, note.measure))
+                .or_default()
+                .push(index);
+        }
+    }
+    for indices in groups.values_mut() {
+        indices.sort_by(|left, right| {
+            notes[*left]
+                .x
+                .partial_cmp(&notes[*right].x)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut right_edge = f32::MIN;
+        let mut previous_x = f32::MIN;
+        for index in indices.iter() {
+            let note = &mut notes[*index];
+            let base = note.x - 1.45 * settings.staff_space;
+            if (note.x - previous_x).abs() > 0.5 && base < right_edge + 0.15 * settings.staff_space
+            {
+                note.accidental_shift = right_edge + 0.15 * settings.staff_space - base;
+            }
+            previous_x = note.x;
+            right_edge = note.x + 0.65 * settings.staff_space;
+        }
+    }
 }
 
 fn placed_chord_symbols(song: &Song, pages: &[Page], settings: Settings) -> Vec<ChordSymbol> {
@@ -742,6 +777,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
                             spelled: spelling::spell(note.pitch, key, &mut state),
                             tie_start,
                             tied,
+                            accidental_shift: 0.0,
                         });
                         let pushed = notes.len() - 1;
                         open_ties.insert(
@@ -860,6 +896,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
             }
         }
     }
+    shift_accidentals(&mut notes, settings);
     let (beams, tuplets) = beams_and_tuplets(&notes);
     let ties = tie_pairs(&notes);
     let rests = placed_rests(&notes, &pages, settings);
@@ -1473,6 +1510,33 @@ mod lyric_spacing_tests {
     use music_core::{Channel, PPQ, Pitch, Velocity};
     use project::TrackId;
     use project::song::{LyricEvent, Note, Song, Track};
+
+    #[test]
+    fn crowded_accidentals_shift_left() {
+        let mut song = Song::new("Accidentals", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for (index, (start, pitch)) in [(0_i64, "C#4"), (240, "D#4")].into_iter().enumerate() {
+            track.notes.push(Note {
+                id: project::NoteId::new(index as u32 + 1).expect("valid"),
+                start,
+                duration: 240,
+                pitch: Pitch::from_name(pitch).expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        song.chords.push(project::song::ChordEvent {
+            tick: 0,
+            chord: music_core::Chord::parse("C").expect("valid"),
+        });
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        assert!(engraved.notes.len() == 2);
+        assert!(
+            engraved.notes[1].accidental_shift > 0.0,
+            "the second accidental moves left"
+        );
+    }
 
     #[test]
     fn crowded_lyrics_are_shifted_apart() {
