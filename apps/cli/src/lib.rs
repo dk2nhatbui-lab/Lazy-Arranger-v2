@@ -712,7 +712,7 @@ enum Commands {
         #[arg(long)]
         keep: bool,
     },
-    /// Render a project to a 16-bit stereo WAV file.
+    /// Render a project to a WAV file (16/24-bit PCM or 32-bit float).
     ExportAudio {
         /// Project `.json` path.
         project: PathBuf,

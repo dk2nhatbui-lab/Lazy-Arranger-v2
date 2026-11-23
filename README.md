@@ -57,7 +57,7 @@ cargo run -p lazy-arranger-cli -- export-audio demo.json --out demo.wav --bits 2
 
 # Import/export.
 cargo run -p lazy-arranger-cli -- midi-import song.mid --out song.json
-cargo run -p lazy-arranger-cli -- export-musicxml song.json --out score.musicxml
+cargo run -p lazy-arranger-cli -- export-music-xml song.json --out score.musicxml
 cargo run -p lazy-arranger-cli -- score-pdf demo.json --out score.pdf --track 2
 
 # MCP over stdio (also mcp-socket).
