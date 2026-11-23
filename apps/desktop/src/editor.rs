@@ -240,6 +240,20 @@ impl Editor {
         Ok(())
     }
 
+    /// Writes one parsed chord at a tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message for an unreadable chord or a rejected command.
+    pub fn set_chord(&mut self, tick: Tick, chord: &str) -> Result<(), String> {
+        let chord = music_core::Chord::parse(chord).map_err(|error| error.to_string())?;
+        self.session
+            .apply(app_commands::Command::SetChord { tick, chord })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Replaces the chords from `start` with a typed progression.
     ///
     /// Returns the number of chords placed.
@@ -2209,6 +2223,28 @@ mod tests {
         assert!(editor.set_note_duration(track, note, 0).is_err());
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].notes[0].duration, PPQ);
+    }
+
+    #[test]
+    fn setting_one_chord_is_undoable() {
+        let mut editor = editor();
+        let expected = Chord::parse("G7").expect("valid");
+        editor.set_chord(960, "G7").expect("chord");
+        assert!(
+            editor
+                .song()
+                .chords
+                .iter()
+                .any(|event| event.tick == 960 && event.chord == expected)
+        );
+        editor.undo();
+        assert!(
+            !editor
+                .song()
+                .chords
+                .iter()
+                .any(|event| event.tick == 960 && event.chord == expected)
+        );
     }
 
     #[test]

@@ -4992,6 +4992,7 @@ impl ShellApp {
                 .cloned()
         });
         let mut meter_change = None;
+        let held_chord = self.midi_chord.clone();
         egui::SidePanel::right("right-inspector")
             .resizable(true)
             .default_width(300.0)
@@ -5288,12 +5289,29 @@ impl ShellApp {
                                 .color(theme::text_muted()),
                         );
                     }
-                    if let Some(chord) = &self.midi_chord {
-                        ui.label(
-                            egui::RichText::new(format!("Held chord: {chord}"))
-                                .size(11.0)
-                                .color(theme::accent()),
-                        );
+                    if let Some(chord) = &held_chord {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(format!("Held chord: {chord}"))
+                                    .size(11.0)
+                                    .color(theme::accent()),
+                            );
+                            if ui
+                                .small_button("Write at playhead")
+                                .on_hover_text("Add this chord to the song at the playhead")
+                                .clicked()
+                            {
+                                match self.editor.set_chord(self.position.max(0), chord) {
+                                    Ok(()) => {
+                                        self.status = Some(format!(
+                                            "wrote chord {chord} at {}",
+                                            self.position
+                                        ));
+                                    }
+                                    Err(error) => self.status = Some(error),
+                                }
+                            }
+                        });
                     }
                 });
                 let chat_rect = egui::Rect::from_min_max(
