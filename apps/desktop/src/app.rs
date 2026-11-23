@@ -436,6 +436,7 @@ pub struct ShellApp {
     score_grand: bool,
     score_preview: bool,
     score_pdf_path: String,
+    score_track: Option<TrackId>,
     score_state: crate::score_view::ScoreState,
     lyrics_open: bool,
     lyric_text: String,
@@ -617,6 +618,7 @@ impl ShellApp {
             score_grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
             score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err(),
             score_pdf_path: String::from("score.pdf"),
+            score_track: None,
             score_state: crate::score_view::ScoreState::default(),
             lyrics_open: initial_window == "lyrics",
             lyric_text: String::new(),
@@ -681,8 +683,8 @@ impl ShellApp {
             return;
         }
         let Some(track) = self
-            .roll
-            .selected
+            .score_track
+            .or(self.roll.selected)
             .or_else(|| self.song().tracks.first().map(|track| track.id))
         else {
             return;
@@ -1969,6 +1971,20 @@ impl ShellApp {
                     ui.label("Pages");
                     ui.text_edit_singleline(&mut self.print_pages);
                 });
+                if !self.printers.is_empty() {
+                    egui::ComboBox::from_id_salt("print-dialog-printer")
+                        .selected_text(self.printer_choice.as_deref().unwrap_or("Default printer"))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.printer_choice, None, "Default printer");
+                            for name in &self.printers {
+                                ui.selectable_value(
+                                    &mut self.printer_choice,
+                                    Some(name.clone()),
+                                    name,
+                                );
+                            }
+                        });
+                }
                 ui.label(
                     egui::RichText::new("Example: 1-4, 7. Leave empty for all pages.")
                         .size(10.0)
@@ -1991,8 +2007,8 @@ impl ShellApp {
 
     fn print_score_pdf(&mut self) {
         let Some(track) = self
-            .roll
-            .selected
+            .score_track
+            .or(self.roll.selected)
             .or_else(|| self.song().tracks.first().map(|track| track.id))
         else {
             self.status = Some(String::from("no track to print"));
@@ -5386,14 +5402,81 @@ impl eframe::App for ShellApp {
                             self.printers = available_printers();
                             self.printers_loaded = true;
                         }
+                        if self.score_track.is_none() {
+                            self.score_track = project
+                                .song
+                                .tracks
+                                .iter()
+                                .find(|track| needs_grand_staff(track))
+                                .or_else(|| {
+                                    project.song.tracks.iter().find(|track| {
+                                        !track
+                                            .notes
+                                            .iter()
+                                            .any(|note| note.channel.zero_based() == 9)
+                                    })
+                                })
+                                .or_else(|| project.song.tracks.first())
+                                .map(|track| track.id);
+                        }
+                        let score_tracks: Vec<(TrackId, String)> = project
+                            .song
+                            .tracks
+                            .iter()
+                            .map(|track| (track.id, track.name.clone()))
+                            .collect();
                         ui.horizontal(|ui| {
-                            ui.checkbox(&mut self.score_preview, "Cecilia preview");
-                            ui.checkbox(&mut self.score_entry, "Write notes");
+                            ui.label(egui::RichText::new("Score").strong());
+                            let mut write = self.score_entry;
+                            if ui.checkbox(&mut write, "Write notes").changed() {
+                                self.score_entry = write;
+                                if write {
+                                    self.score_preview = false;
+                                }
+                            }
+                            let mut preview = self.score_preview;
+                            if ui.checkbox(&mut preview, "Preview").changed() {
+                                self.score_preview = preview;
+                                if preview {
+                                    self.score_entry = false;
+                                }
+                            }
+                            let selected = self
+                                .score_track
+                                .or_else(|| score_tracks.first().map(|(id, _)| *id));
+                            egui::ComboBox::from_id_salt("score-track")
+                                .selected_text(
+                                    selected
+                                        .and_then(|id| {
+                                            score_tracks
+                                                .iter()
+                                                .find(|(track, _)| *track == id)
+                                                .map(|(_, name)| name.as_str())
+                                        })
+                                        .unwrap_or("Selected track"),
+                                )
+                                .show_ui(ui, |ui| {
+                                    for (id, name) in &score_tracks {
+                                        ui.selectable_value(&mut roll.selected, Some(*id), name);
+                                    }
+                                });
+                            ui.label("Staves: automatic");
                             ui.checkbox(&mut self.score_grand, "Grand staff");
-                            if ui.button("◀ Page").clicked() {
+                            if ui.button("−").clicked() {
+                                self.score_zoom = (self.score_zoom - 0.1).max(0.5);
+                            }
+                            ui.add(
+                                egui::Slider::new(&mut self.score_zoom, 0.5..=2.5)
+                                    .text("zoom")
+                                    .fixed_decimals(1),
+                            );
+                            if ui.button("+").clicked() {
+                                self.score_zoom = (self.score_zoom + 0.1).min(2.5);
+                            }
+                            if ui.button("◀").clicked() {
                                 self.score_page = self.score_page.saturating_sub(1);
                             }
-                            if ui.button("Page ▶").clicked() {
+                            if ui.button("▶").clicked() {
                                 self.score_page += 1;
                             }
                             ui.label(
@@ -5405,50 +5488,16 @@ impl eframe::App for ShellApp {
                                 .size(10.0)
                                 .color(theme::text_dim()),
                             );
-                            ui.add(
-                                egui::Slider::new(&mut self.score_zoom, 0.5..=2.5)
-                                    .text("zoom")
-                                    .fixed_decimals(1),
-                            );
-                            ui.text_edit_singleline(&mut self.score_pdf_path);
                             if ui.button("Export PDF…").clicked() {
                                 save_pdf = true;
                             }
-                            if ui
-                                .button("Print…")
-                                .on_hover_text("Choose copies, pages and a printer")
-                                .clicked()
-                            {
+                            if ui.button("Print…").clicked() {
                                 self.print_dialog = true;
                             }
-                            if !self.printers.is_empty() {
-                                egui::ComboBox::from_id_salt("printer-choice")
-                                    .selected_text(
-                                        self.printer_choice.as_deref().unwrap_or("Default printer"),
-                                    )
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(
-                                            &mut self.printer_choice,
-                                            None,
-                                            "Default printer",
-                                        );
-                                        for name in &self.printers {
-                                            ui.selectable_value(
-                                                &mut self.printer_choice,
-                                                Some(name.clone()),
-                                                name,
-                                            );
-                                        }
-                                    });
-                            }
-                            ui.label(
-                                egui::RichText::new("Shift-drag to resize")
-                                    .size(10.0)
-                                    .color(theme::text_dim()),
-                            );
                         });
-                        if let Some(track) = roll
-                            .selected
+                        if let Some(track) = self
+                            .score_track
+                            .or(roll.selected)
                             .or_else(|| project.song.tracks.first().map(|track| track.id))
                         {
                             let grand_staff = self.score_grand
