@@ -5,6 +5,8 @@ use project::song::Song;
 
 /// Sorted drum (pitch, velocity) pairs.
 pub type DrumPairs = Vec<(u8, u8)>;
+/// A pitched note not involved in a tie: start, pitch, velocity, duration.
+pub type NoteSignature = (Tick, u8, u8, Tick);
 
 /// Counts on both sides of a round trip, with the differences named.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -23,6 +25,8 @@ pub struct Delta {
     pub ties_merged: usize,
     /// Drum (pitch, velocity) pairs before and after.
     pub drums: (DrumPairs, DrumPairs),
+    /// Untied pitched notes before and after.
+    pub detail: (Vec<NoteSignature>, Vec<NoteSignature>),
     /// Human-readable differences that are losses.
     pub changes: Vec<String>,
     /// Differences explained by tie merging.
@@ -48,6 +52,7 @@ pub fn audit(original: &Song, imported: &Song) -> Delta {
         marks: (original.marks.len(), imported.marks.len()),
         ties_merged: tie_merges(original),
         drums: (drum_notes(original), drum_notes(imported)),
+        detail: (untied_notes(original), untied_notes(imported)),
         changes: Vec::new(),
         info: Vec::new(),
     };
@@ -62,6 +67,23 @@ pub fn audit(original: &Song, imported: &Song) -> Delta {
                 .changes
                 .push(format!("{name}: {} -> {}", pair.0, pair.1));
         }
+    }
+    if delta.detail.0 != delta.detail.1 {
+        let mut example = String::new();
+        if let Some((left, right)) = delta
+            .detail
+            .0
+            .iter()
+            .zip(&delta.detail.1)
+            .find(|(left, right)| left != right)
+        {
+            example = format!(" (e.g. {left:?} vs {right:?})");
+        }
+        delta.changes.push(format!(
+            "pitched notes: {} -> {}{example}",
+            delta.detail.0.len(),
+            delta.detail.1.len()
+        ));
     }
     if delta.drums.0 != delta.drums.1 {
         delta.changes.push(format!(
@@ -82,6 +104,16 @@ pub fn audit(original: &Song, imported: &Song) -> Delta {
         ));
     }
     for (index, (left, right)) in original.tracks.iter().zip(&imported.tracks).enumerate() {
+        let left_detail = merged_track_notes(left);
+        let right_detail = merged_track_notes(right);
+        if left_detail != right_detail {
+            delta.changes.push(format!(
+                "track {index} ({}): {} -> {} untied pitched note(s)",
+                left.name,
+                left_detail.len(),
+                right_detail.len()
+            ));
+        }
         let allowed = track_tie_merges(left);
         let lost = left.notes.len().saturating_sub(right.notes.len());
         if right.notes.len() > left.notes.len() || lost > allowed {
@@ -120,6 +152,39 @@ fn track_tie_merges(track: &project::song::Track) -> usize {
         open.insert(pitch, note.start.saturating_add(note.duration.max(1)));
     }
     merges
+}
+
+fn untied_notes(song: &Song) -> Vec<NoteSignature> {
+    song.tracks.iter().flat_map(merged_track_notes).collect()
+}
+
+fn merged_track_notes(track: &project::song::Track) -> Vec<NoteSignature> {
+    let mut notes: Vec<&project::song::Note> = track.notes.iter().collect();
+    notes.sort_by_key(|note| note.start);
+    let mut merged: Vec<NoteSignature> = Vec::new();
+    let mut open: std::collections::BTreeMap<u8, usize> = std::collections::BTreeMap::new();
+    for note in notes {
+        if note.channel.zero_based() == 9 {
+            continue;
+        }
+        let pitch = note.pitch.as_u8();
+        if let Some(index) = open.get(&pitch).copied() {
+            let (start, _, velocity, duration) = merged[index];
+            if start.saturating_add(duration) == note.start {
+                merged[index] = (
+                    start,
+                    pitch,
+                    velocity,
+                    duration.saturating_add(note.duration.max(1)),
+                );
+                continue;
+            }
+        }
+        merged.push((note.start, pitch, note.velocity.as_u8(), note.duration));
+        open.insert(pitch, merged.len() - 1);
+    }
+    merged.sort_unstable();
+    merged
 }
 
 fn drum_notes(song: &Song) -> Vec<(u8, u8)> {

@@ -813,6 +813,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             for note in &delta.info {
                 println!("  {note}");
             }
+            println!(
+                "pitched detail {}->{} untied note(s)",
+                delta.detail.0.len(),
+                delta.detail.1.len()
+            );
             for change in &delta.changes {
                 println!("  {change}");
             }
