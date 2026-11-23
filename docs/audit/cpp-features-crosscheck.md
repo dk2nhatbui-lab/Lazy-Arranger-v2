@@ -13,7 +13,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 4 | Transport: play/stop, start, record, loop, metronome, ruler, tempo/meter edit, MIDI record, all-notes-off, auto inputs | partial | Audio play/pause/stop with silence on stop; CLI MIDI record/echo and clip-grid take recording. No transport record arm, loop, metronome, ruler, tempo edit, quantise or auto inputs |
 | 5 | Timeline clips | partial | Clip and chord lanes: click select, arrow move, shift+arrow resize, J join, N add, Delete remove; clip commands are undoable with overlap rejection. No snap, timeline lyrics or multi-clip editing |
 | 6 | Note editor: add/select/move/resize/delete, arrows, velocity lane, grid, quantise, piano keys, select all | partial | Click insert, select, delete, undo/redo, save, scroll/zoom. No drag-move, resize, velocity lane, quantise, piano keys, select all or copy/paste |
-| 7 | Cut/copy/paste in every view | missing | No clipboard commands in any view |
+| 7 | Cut/copy/paste in every view | partial | Notes copy, cut and paste in Arrange with Cmd/Ctrl+C/X/V at the playhead, each paste one undo step; a chord range can be copied and pasted through the same clipboard. No clipboard in other views, pasting at the mouse position or multi-loop paste |
 | 8 | Audio tracks | partial | Audio references on tracks (schema v7) with WAV header import and tempo-derived length. Referenced WAVs mix into render and cpal playback, honouring mute/solo, with linear resampling and reported missing files; the buffer extends to cover them. No waveforms, recording, monitoring, trimming, fades, takes or stretching |
 | 9 | Audio analysis | partial | Monophonic audio→MIDI, chroma-based chord recognition with a CLI, transcription answers still missing. No stems, instrument tags, lyrics or model-based polyphony |
 | 10 | Drum sampler and slicer | missing | — |
@@ -49,15 +49,15 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections at round 60: 0 fully verified beyond their Rust subset, 31 partial, 8 missing.
+39 sections at round 61: 0 fully verified beyond their Rust subset, 32 partial, 7 missing.
 The partials with the most depth are styles (open, import, compile, SFF1/SFF2 write), project files, the score layout/PDF path, audio references, the MIDI map and the MCP surface.
 
 ## State at round 60
 
 `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (438 tests) and
-`cargo doc` pass. The eight missing sections are clipboard work (§7), the drum
-sampler/slicer (§10), VST3/AU (§19), synth editors and sysex (§22), the L6max
-page/import (§26), the AI chat UI (§27), speech (§29) and AI music tools (§30).
+`cargo doc` pass. The seven missing sections are the drum sampler/slicer (§10), VST3/AU (§19),
+synth editors and sysex (§22), the L6max page/import (§26), the AI chat UI
+(§27), speech (§29) and AI music tools (§30).
 Korg import, PSR style import, SoundFont loading, the L6max page (its 32-bit float audio
 recordings already decode), waveform audio editing,
 grand-staff/beam engraving, note entry, socket transport and a 90-tool MCP
@@ -69,7 +69,7 @@ unverified; CI builds and tests are the only continuous evidence.
 
 ## Next blocks, in dependency order
 
-1. Clipboard commands in every view (§7), then drum sampler/slicer (§10).
+1. Clipboard in the other views (§7), then drum sampler/slicer (§10).
 2. Waveform audio editing and recording takes (§8), then buses/sends/effects (§17).
 3. Korg import, PSR style import and SoundFont loading (§14, §20, §24).
 4. Grand staff, beams, tuplets and note entry in the score (§16).

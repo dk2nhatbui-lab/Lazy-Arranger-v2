@@ -10,6 +10,8 @@
 //! is deferred to ADR-006, which also covers preview and approval for
 //! destructive model-proposed edits.
 
+pub mod clipboard;
+
 use music_core::{Channel, Chord, Pitch, TempoMap, Tick, Velocity};
 use project::provenance;
 use project::song::{ChordEvent, Clip, Note, Song, Track};

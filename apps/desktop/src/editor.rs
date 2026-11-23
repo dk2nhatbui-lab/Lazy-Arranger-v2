@@ -12,6 +12,7 @@ use project::{NoteId, ProjectError, TrackId};
 #[derive(Debug)]
 pub struct Editor {
     session: EditSession,
+    clipboard: app_commands::clipboard::Clipboard,
     dirty: bool,
 }
 
@@ -24,6 +25,7 @@ impl Editor {
     pub fn new(project: ProjectFile) -> Result<Self, ProjectError> {
         Ok(Self {
             session: EditSession::new(project)?,
+            clipboard: app_commands::clipboard::Clipboard::default(),
             dirty: false,
         })
     }
@@ -535,6 +537,55 @@ impl Editor {
         Ok(())
     }
 
+    /// Copies one note into the clipboard.
+    pub fn copy_note(&mut self, track: TrackId, note: NoteId) {
+        self.clipboard =
+            app_commands::clipboard::Clipboard::from_notes(self.song(), track, &[note]);
+    }
+
+    /// Copies then deletes one note; true when it was copied.
+    pub fn cut_note(&mut self, track: TrackId, note: NoteId) -> bool {
+        self.copy_note(track, note);
+        let copied = !self.clipboard.is_empty();
+        if copied {
+            let _ = self.delete(track, note);
+        }
+        copied
+    }
+
+    /// Pastes copied notes at a tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn paste_notes(&mut self, track: TrackId, at: Tick) -> Result<usize, String> {
+        let copied = self
+            .clipboard
+            .paste_notes(&mut self.session, track, at)
+            .map_err(|error| error.to_string())?;
+        self.dirty |= copied > 0;
+        Ok(copied)
+    }
+
+    /// Copies chords inside a range.
+    pub fn copy_chords(&mut self, start: Tick, end: Tick) {
+        self.clipboard = app_commands::clipboard::Clipboard::from_chords(self.song(), start, end);
+    }
+
+    /// Pastes copied chords at a tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn paste_chords(&mut self, at: Tick) -> Result<usize, String> {
+        let copied = self
+            .clipboard
+            .paste_chords(&mut self.session, at)
+            .map_err(|error| error.to_string())?;
+        self.dirty |= copied > 0;
+        Ok(copied)
+    }
+
     /// Undoes one step; true when something was undone.
     pub fn undo(&mut self) -> bool {
         if self.session.undo().is_ok() {
@@ -962,6 +1013,21 @@ mod tests {
         assert_eq!(grid.rows[0].scene.name, "Verse");
         assert!(editor.undo());
         assert!(editor.song().scene_names.is_empty());
+    }
+
+    #[test]
+    fn a_note_can_be_copied_and_pasted() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let note = editor.song().tracks[0].notes[0].id;
+        editor.copy_note(track, note);
+        let pasted = editor.paste_notes(track, 3840).expect("paste");
+        assert_eq!(pasted, 1);
+        assert_eq!(editor.song().tracks[0].notes.len(), 2);
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].notes.len(), 1);
+        assert!(editor.cut_note(track, note));
+        assert!(editor.song().tracks[0].notes.is_empty());
     }
 
     #[test]

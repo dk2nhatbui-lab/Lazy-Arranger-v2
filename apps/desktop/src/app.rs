@@ -236,6 +236,12 @@ impl ShellApp {
         });
         let save =
             context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::S));
+        let copy =
+            context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::C));
+        let cut =
+            context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::X));
+        let paste =
+            context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::V));
         let delete = context.input(|input| {
             input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace)
         });
@@ -246,6 +252,31 @@ impl ShellApp {
         if redo {
             self.editor.redo();
             self.selected_note = None;
+        }
+        if let Some((track, note)) = self.selected_note {
+            if copy {
+                self.editor.copy_note(track, note);
+                self.status = Some(String::from("note copied"));
+            }
+            if cut && self.editor.cut_note(track, note) {
+                self.selected_note = None;
+                self.status = Some(String::from("note cut"));
+            }
+        }
+        if paste {
+            let track = self
+                .roll
+                .selected
+                .or_else(|| self.selected_note.map(|(track, _)| track))
+                .or_else(|| self.song().tracks.first().map(|track| track.id));
+            if let Some(track) = track {
+                let at = snap(self.position, PPQ);
+                match self.editor.paste_notes(track, at) {
+                    Ok(0) => self.status = Some(String::from("clipboard is empty")),
+                    Ok(count) => self.status = Some(format!("pasted {count} note(s)")),
+                    Err(error) => self.status = Some(error),
+                }
+            }
         }
         if delete {
             if let Some((track, clip)) = self.selected_clip.take() {

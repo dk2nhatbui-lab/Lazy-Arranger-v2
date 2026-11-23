@@ -25,7 +25,7 @@ strings, the sixteen-bar demo and the 22-tool MCP server.
 Unverified: real MIDI hardware, PSR-S970 acceptance, audible cpal output on
 every host, YouTube download, and visual comparison with the C++ app.
 
-Still missing: clipboard work, drum sampler/slicer, VST3/AU, synth editors and
+Still missing: clipboard outside Arrange, drum sampler/slicer, VST3/AU, synth editors and
 sysex, L6max, AI chat/speech/music tools, Korg and PSR style import, SoundFont
 loading, waveform audio editing, score note entry with grand staff/beams, and
 the wider ~90-tool MCP surface.
@@ -57,6 +57,7 @@ the wider ~90-tool MCP surface.
 | Clip edit commands (insert, move, resize, split, remove) | `app-commands::EditSession` | verified | one undo step each; overlap rejected |
 | Clip lane: draw, select, arrow-move, shift+arrow resize, J join, N add, Delete remove | `apps/desktop` | implemented | geometry test; UI manual |
 | Clip join command | `app-commands::join_clips` | verified | spans both, one undo step |
+| Note clipboard (copy, cut, paste at playhead; chord range copy/paste) | `app-commands::clipboard` | verified | 3 clipboard tests + editor test; Cmd/Ctrl+C/X/V |
 | Chord progression text parser (`\|` bar, `%` repeat, `/` hold) | `music-core::progression` | verified | 6 parser tests |
 | Chord lane: draw and K dialog writing through commands | `apps/desktop` | implemented | editor progression test; UI manual |
 | Roman numerals in the song key | `music-core::roman` | verified | 5 tests, key transposition, suffix rejection |
