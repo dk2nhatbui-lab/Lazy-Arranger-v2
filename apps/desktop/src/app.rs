@@ -3548,7 +3548,7 @@ impl ShellApp {
                                     ui.horizontal(|ui| {
                                         let rev =
                                             mixer_knob(ui, &mut send, 0.0, 127.0, "Rev", true);
-                                        let _ = mixer_knob(ui, &mut 0.0, 0.0, 127.0, "Cho", false);
+                                        ui.add_space(28.0);
                                         if rev {
                                             edits.push((
                                                 track.id,
