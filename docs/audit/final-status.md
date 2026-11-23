@@ -86,5 +86,5 @@ For the clef layout, choose either four measures per system without clefs
 - Master effect slots run after the bus sum (capture `docs/audit/master-effects.png`); bus effect chains are still absent.
 - Buses carry effect chains (`Bus.plugins`), applied to the bus sum; the Bus effects window edits them.
 - A basic Style rules window edits destination channel, written root/type, NTR/NTT, held-note RTR, bass and note limits in the export draft.
-- Track/bus plug-in chains apply reported latency compensation; no nonzero-latency plug-in fixture exists, so only the delay helper is verified.
+- Track/bus plug-in chains apply reported latency compensation; the local test VST3 gain fixture reports 32 samples and the delayed/dry track alignment test passes.
 - VST3 parameter changes use an `IParameterChanges` queue; a generic window edits them and saves state, but no installed VST3 exposes parameters, so it is unverified.

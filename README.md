@@ -84,6 +84,7 @@ crates/audio           synth, SF2 (loop crossfade), WAV/FLAC/MP3/M4A/AIFF/OGG de
 crates/library         Music Finder books, playlists
 crates/midi-devices    profiles, ports, maps, SysEx, dispatch
 crates/plugins         VST3/AU metadata, catalog cache and browser (no hosting)
+crates/test-plugin     local VST3 gain fixture (MIT/Apache vst3-rs example)
 crates/plugin-host     isolated unsafe VST3/AU FFI: child-process class scan + stereo effects + AU/VST3 instrument tracks (slots applied in render; VST3 state capture; AU parameter window; VST3 params/editors pending)
 crates/mcp             stdio/socket MCP server, 94 tools, local assistant
 apps/cli               headless binary

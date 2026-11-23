@@ -1,0 +1,15 @@
+[package]
+name = "lazy-arranger-test-plugin"
+description = "Test VST3 gain plug-in for Lazy Arranger host tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vst3 = "0.3"
+
+[lints]

@@ -234,6 +234,7 @@ version = "0.1.0"
 dependencies = [
  "arranger",
  "cpal",
+ "lazy-arranger-test-plugin",
  "music-core",
  "plugin-host",
  "project",
@@ -1592,6 +1593,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazy-arranger-test-plugin"
+version = "0.1.0"
+dependencies = [
+ "vst3",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2438,6 +2446,7 @@ name = "plugin-host"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "lazy-arranger-test-plugin",
  "libloading",
  "serde",
  "serde_json",

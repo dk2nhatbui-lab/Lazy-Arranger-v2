@@ -791,6 +791,62 @@ mod tests {
         song
     }
 
+    #[cfg(target_os = "macos")]
+    fn test_gain_bundle() -> Option<std::path::PathBuf> {
+        let exe = std::env::current_exe().ok()?;
+        let debug = exe.parent()?.parent()?;
+        let library = debug.join("liblazy_arranger_test_plugin.dylib");
+        if !library.is_file() {
+            return None;
+        }
+        let root =
+            std::env::temp_dir().join(format!("lazy-arranger-pdc-plugin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let macos = root.join("Test.vst3").join("Contents").join("MacOS");
+        std::fs::create_dir_all(&macos).ok()?;
+        std::fs::copy(&library, macos.join("Test")).ok()?;
+        Some(root.join("Test.vst3"))
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn latency_compensation_aligns_a_delayed_plugin_track() {
+        use project::song::{PluginFormat, PluginSlot};
+        let Some(bundle) = test_gain_bundle() else {
+            return;
+        };
+        let classes = plugin_host::scan_vst3(&bundle).expect("scan");
+        assert!(!classes.is_empty());
+        let mut song = song_with_note();
+        song.tracks[0].plugins.push(PluginSlot {
+            id: 1,
+            name: String::from("Test Gain"),
+            format: PluginFormat::Vst3,
+            path: bundle.display().to_string(),
+            identifier: classes[0].cid.clone(),
+            bypassed: false,
+            state: String::new(),
+        });
+        let mut dry = song.tracks[0].clone();
+        dry.id = TrackId::new(2).expect("track");
+        dry.plugins.clear();
+        for note in &mut dry.notes {
+            note.id = project::NoteId::new(note.id.get() + 10).expect("note");
+        }
+        song.tracks.push(dry);
+        let rendered = render(&song, SAMPLE_RATE);
+        let early = rendered.samples[..32 * 2]
+            .iter()
+            .map(|sample| sample.abs())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            early < 1.0e-6,
+            "compensation should delay both tracks: {early}"
+        );
+        assert!(rendered.samples.iter().any(|sample| sample.abs() > 0.01));
+        let _ = std::fs::remove_dir_all(bundle.parent().expect("root"));
+    }
+
     #[test]
     fn latency_delay_shifts_stereo_frames() {
         let mut buffer = vec![1.0, 2.0, 3.0, 4.0];

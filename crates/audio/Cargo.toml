@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[dev-dependencies]
+lazy-arranger-test-plugin = { path = "../test-plugin" }
+
 [dependencies]
 arranger = { path = "../arranger" }
 cpal = "0.16"
