@@ -1115,6 +1115,58 @@ fn patch_waveform(waveform: project::song::Waveform) -> &'static str {
 
 pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<Value, ToolError> {
     match name {
+        "get_track" => {
+            let track_id = track_argument(arguments)?;
+            let track = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track_id)
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
+            Ok(json!({
+                "id": track.id.get(),
+                "name": track.name,
+                "volume": track.volume,
+                "pan": track.pan,
+                "muted": track.muted,
+                "soloed": track.soloed,
+                "armed": track.armed,
+                "program": track.program,
+                "bus": track.bus,
+                "send": track.send,
+                "send_level": track.send_level,
+                "soundfont": track.soundfont,
+                "plugins": track.plugins.len(),
+                "clips": track.clips.len(),
+                "notes": track.notes.len(),
+                "automation": track.automation.len(),
+                "slurs": track.slurs.len()
+            }))
+        }
+        "get_note" => {
+            let track_id = track_argument(arguments)?;
+            let note_id = arguments
+                .get("note")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("note is required")))?;
+            let note_id = project::NoteId::new(u32::try_from(note_id).unwrap_or(0))
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            let note = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track_id)
+                .and_then(|entry| entry.notes.iter().find(|note| note.id == note_id))
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown note")))?;
+            Ok(json!({
+                "id": note.id.get(),
+                "start": note.start,
+                "duration": note.duration,
+                "pitch": note.pitch.as_u8(),
+                "velocity": note.velocity.as_u8(),
+                "channel": note.channel.zero_based()
+            }))
+        }
         "get_song_name" => Ok(json!({"name": session.song().name})),
         "set_song_name" => {
             let name = arguments
@@ -2098,93 +2150,23 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             Ok(json!({"muted": muted, "soloed": soloed, "armed": armed}))
         }
         "set_audio_ref" => {
-            use project::song::AudioRef;
             let track = track_argument(arguments)?;
-            let path = arguments
+            let reference = arguments
                 .get("path")
                 .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            let reference = if path.is_empty() {
-                None
-            } else {
-                Some(AudioRef {
-                    path,
-                    start: arguments.get("start").and_then(Value::as_i64).unwrap_or(0),
-                    length: arguments.get("length").and_then(Value::as_i64).unwrap_or(0),
-                    offset: arguments.get("offset").and_then(Value::as_i64).unwrap_or(0),
-                    fade_in: arguments
-                        .get("fade_in")
-                        .and_then(Value::as_i64)
-                        .unwrap_or(0),
-                    fade_out: arguments
-                        .get("fade_out")
-                        .and_then(Value::as_i64)
-                        .unwrap_or(0),
-
-                    stretch: arguments
-                        .get("stretch")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false),
-                })
-            };
+                .filter(|path| !path.is_empty())
+                .map(|_| audio_ref_from_value(arguments))
+                .unwrap_or(None);
             session.apply(Command::SetAudioRef {
                 track,
                 reference: reference.clone(),
             })?;
-            Ok(json!({"audio": reference}))
-        }
-        "get_track" => {
-            let track_id = track_argument(arguments)?;
-            let track = session
-                .song()
-                .tracks
-                .iter()
-                .find(|entry| entry.id == track_id)
-                .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
-            Ok(json!({
-                "id": track.id.get(),
-                "name": track.name,
-                "volume": track.volume,
-                "pan": track.pan,
-                "muted": track.muted,
-                "soloed": track.soloed,
-                "armed": track.armed,
-                "program": track.program,
-                "bus": track.bus,
-                "send": track.send,
-                "send_level": track.send_level,
-                "soundfont": track.soundfont,
-                "plugins": track.plugins.len(),
-                "clips": track.clips.len(),
-                "notes": track.notes.len(),
-                "automation": track.automation.len(),
-                "slurs": track.slurs.len()
-            }))
-        }
-        "get_note" => {
-            let track_id = track_argument(arguments)?;
-            let note_id = arguments
-                .get("note")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| ToolError::Arguments(String::from("note is required")))?;
-            let note_id = project::NoteId::new(u32::try_from(note_id).unwrap_or(0))
-                .map_err(|error| ToolError::Arguments(error.to_string()))?;
-            let note = session
-                .song()
-                .tracks
-                .iter()
-                .find(|entry| entry.id == track_id)
-                .and_then(|entry| entry.notes.iter().find(|note| note.id == note_id))
-                .ok_or_else(|| ToolError::Arguments(String::from("unknown note")))?;
-            Ok(json!({
-                "id": note.id.get(),
-                "start": note.start,
-                "duration": note.duration,
-                "pitch": note.pitch.as_u8(),
-                "velocity": note.velocity.as_u8(),
-                "channel": note.channel.zero_based()
-            }))
+            if let Some(takes) = arguments.get("takes").and_then(Value::as_array) {
+                let takes: Vec<project::song::AudioRef> =
+                    takes.iter().filter_map(audio_ref_from_value).collect();
+                session.apply(Command::SetAudioTakes { track, takes })?;
+            }
+            Ok(json!({"audio": reference.map(|reference| audio_ref_json(&reference))}))
         }
         "get_audio_ref" => {
             let track_id = track_argument(arguments)?;
@@ -2195,15 +2177,8 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .find(|entry| entry.id == track_id)
                 .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
             Ok(json!({
-                "audio": track.audio.as_ref().map(|reference| json!({
-                    "path": reference.path,
-                    "start": reference.start,
-                    "length": reference.length,
-                    "offset": reference.offset,
-                    "fade_in": reference.fade_in,
-                    "fade_out": reference.fade_out,
-                    "stretch": reference.stretch
-                }))
+                "audio": track.audio.as_ref().map(audio_ref_json),
+                "takes": track.takes.iter().map(audio_ref_json).collect::<Vec<_>>()
             }))
         }
         "get_tracks" => Ok(json!({
@@ -3170,6 +3145,37 @@ fn track_clips(
         .clone())
 }
 
+fn audio_ref_json(reference: &project::song::AudioRef) -> Value {
+    json!({
+        "path": reference.path,
+        "start": reference.start,
+        "length": reference.length,
+        "offset": reference.offset,
+        "fade_in": reference.fade_in,
+        "fade_out": reference.fade_out,
+        "stretch": reference.stretch
+    })
+}
+
+fn audio_ref_from_value(value: &Value) -> Option<project::song::AudioRef> {
+    let path = value.get("path").and_then(Value::as_str)?.to_string();
+    if path.is_empty() {
+        return None;
+    }
+    Some(project::song::AudioRef {
+        path,
+        start: value.get("start").and_then(Value::as_i64).unwrap_or(0),
+        length: value.get("length").and_then(Value::as_i64).unwrap_or(0),
+        offset: value.get("offset").and_then(Value::as_i64).unwrap_or(0),
+        fade_in: value.get("fade_in").and_then(Value::as_i64).unwrap_or(0),
+        fade_out: value.get("fade_out").and_then(Value::as_i64).unwrap_or(0),
+        stretch: value
+            .get("stretch")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
 fn track_argument(arguments: &Value) -> Result<TrackId, ToolError> {
     let value = arguments
         .get("track")
@@ -3576,6 +3582,16 @@ mod tests {
     }
 
     #[test]
+    fn every_registered_tool_has_a_handler() {
+        let mut session = session_with_track();
+        for tool in tools() {
+            if let Err(ToolError::UnknownTool(name)) = call(&mut session, tool.name, &json!({})) {
+                panic!("{name} has no handler");
+            }
+        }
+    }
+
+    #[test]
     fn single_object_read_tools_work() {
         let mut session = session_with_track();
         let track = call(&mut session, "get_track", &json!({"track": 1})).expect("track");
@@ -3596,11 +3612,13 @@ mod tests {
         call(
             &mut session,
             "set_audio_ref",
-            &json!({"track": 1, "path": "/tmp/take.wav", "length": 960, "stretch": true}),
+            &json!({"track": 1, "path": "/tmp/take.wav", "length": 960, "stretch": true,
+                "takes": [{"path": "/tmp/old.wav", "length": 960}]}),
         )
         .expect("audio");
         let audio = call(&mut session, "get_audio_ref", &json!({"track": 1})).expect("audio ref");
         assert_eq!(audio["audio"]["stretch"], true);
+        assert_eq!(audio["takes"][0]["path"], "/tmp/old.wav");
         assert!(call(&mut session, "get_note", &json!({"track": 1, "note": 99})).is_err());
     }
 
