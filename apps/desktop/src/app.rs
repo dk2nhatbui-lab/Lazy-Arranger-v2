@@ -100,6 +100,8 @@ pub struct ShellApp {
     beat_pattern: arranging::beat::BeatPattern,
     beat_clipboard: Option<Vec<u8>>,
     beat_bars: usize,
+    waveform_zoom: f32,
+    waveform_position: f32,
     launcher: arranging::grid::Launcher,
     recent: Vec<std::path::PathBuf>,
     recent_file: std::path::PathBuf,
@@ -219,6 +221,8 @@ impl ShellApp {
             beat_pattern: arranging::beat::BeatPattern::default(),
             beat_clipboard: None,
             beat_bars: 1,
+            waveform_zoom: 1.0,
+            waveform_position: 0.0,
             launcher: arranging::grid::Launcher::default(),
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
@@ -900,7 +904,7 @@ impl ShellApp {
         self.waveform = Some((track.id, reference.path.clone(), peaks));
     }
 
-    fn draw_waveform(ui: &mut egui::Ui, peaks: &[audio::waveform::Peak]) {
+    fn draw_waveform(ui: &mut egui::Ui, peaks: &[audio::waveform::Peak], zoom: f32, position: f32) {
         let (response, painter) = ui.allocate_painter(
             egui::Vec2::new(ui.available_width(), 44.0),
             egui::Sense::hover(),
@@ -912,8 +916,10 @@ impl ShellApp {
         }
         let centre = rect.center().y;
         let height = rect.height() * 0.45;
-        for (index, peak) in peaks.iter().enumerate() {
-            let x = rect.left() + rect.width() * index as f32 / peaks.len() as f32;
+        let (start, end) = audio::waveform::visible(peaks.len(), zoom, position);
+        let visible = &peaks[start..end];
+        for (index, peak) in visible.iter().enumerate() {
+            let x = rect.left() + rect.width() * index as f32 / visible.len() as f32;
             painter.line_segment(
                 [
                     egui::Pos2::new(x, centre - peak.max * height),
@@ -3211,7 +3217,29 @@ impl eframe::App for ShellApp {
                                     audio_stretch = Some((*track_id, stretch));
                                 }
                             });
-                            Self::draw_waveform(ui, peaks);
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("waveform")
+                                        .size(10.0)
+                                        .color(theme::TEXT_DIM),
+                                );
+                                ui.add(
+                                    egui::Slider::new(&mut self.waveform_zoom, 1.0..=8.0)
+                                        .text("zoom")
+                                        .fixed_decimals(1),
+                                );
+                                ui.add(
+                                    egui::Slider::new(&mut self.waveform_position, 0.0..=1.0)
+                                        .text("position")
+                                        .fixed_decimals(2),
+                                );
+                            });
+                            Self::draw_waveform(
+                                ui,
+                                peaks,
+                                self.waveform_zoom,
+                                self.waveform_position,
+                            );
                         }
                         let outcome = piano_roll::show(
                             ui,

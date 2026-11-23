@@ -516,3 +516,10 @@ or 2); `from_track_bars` reads the full span. `apply` clears notes from `start`
 through `bar * pattern.bars()` and writes every slot, so a two-bar pattern
 replaces both bars. The Beat window shows a 1/2-bar selector that reloads the
 pattern from the track; reloading discards unsaved edits.
+
+### Waveform window
+
+`audio::waveform::visible(len, zoom, position)` returns the column range for the
+Arrange waveform; zoom 1 shows all and position slides from start to end. The
+trim row has zoom and position sliders. This is display only: sample editing and
+recording are still absent.

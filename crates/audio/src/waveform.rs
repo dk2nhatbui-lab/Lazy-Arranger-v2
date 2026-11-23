@@ -9,6 +9,21 @@ pub struct Peak {
     pub max: f32,
 }
 
+/// Start and end indices for a zoomed window over `len` columns.
+///
+/// `position` slides the window from 0 (start) to 1 (end); `zoom` is 1 for the
+/// whole waveform and larger to show less.
+#[must_use]
+pub fn visible(len: usize, zoom: f32, position: f32) -> (usize, usize) {
+    if len == 0 {
+        return (0, 0);
+    }
+    let count = ((len as f32 / zoom.max(1.0)).ceil() as usize).clamp(1, len);
+    let max_start = len - count;
+    let start = (max_start as f32 * position.clamp(0.0, 1.0)).round() as usize;
+    (start, start + count)
+}
+
 /// Reduces samples to `bins` min/max columns; the last bin takes any remainder.
 #[must_use]
 pub fn peaks(samples: &[f32], bins: usize) -> Vec<Peak> {
@@ -48,5 +63,19 @@ mod tests {
         assert!(columns[0].min >= -1.0);
         assert!(peaks(&[], 4).is_empty());
         assert!(peaks(&samples, 0).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    #[test]
+    fn zoom_and_position_select_a_window() {
+        assert_eq!(visible(100, 1.0, 0.0), (0, 100));
+        assert_eq!(visible(100, 2.0, 0.0), (0, 50));
+        assert_eq!(visible(100, 2.0, 1.0), (50, 100));
+        assert_eq!(visible(100, 4.0, 0.5), (38, 63));
+        assert_eq!(visible(0, 4.0, 0.5), (0, 0));
     }
 }
