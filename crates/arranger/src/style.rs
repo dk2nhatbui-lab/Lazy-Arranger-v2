@@ -122,7 +122,56 @@ pub fn from_song(
     length_ticks: Tick,
 ) -> Style {
     let length = length_ticks.max(1);
-    let mut section = StyleSection::new("Main A", length);
+    let mut style = Style::new(name, source_chord);
+    if let Some(section) = section_from_range(song, "Main A", 0, length) {
+        style.sections.push(section);
+    }
+    style
+}
+
+/// Builds a multi-section style by splitting the song at its markers.
+///
+/// A leading marker at tick 0 becomes the first section. Without markers the
+/// song becomes one `Main A` section running to `song.end_tick()`.
+#[must_use]
+pub fn from_song_sections(song: &Song, name: &str, source_chord: ArrangerChord) -> Style {
+    let mut style = Style::new(name, source_chord);
+    let end = song.end_tick().max(1);
+    let mut markers: Vec<&project::ids::Marker> = song.markers.iter().collect();
+    markers.sort_by_key(|marker| marker.tick);
+    if markers.is_empty() {
+        if let Some(section) = section_from_range(song, "Main A", 0, end) {
+            style.sections.push(section);
+        }
+        return style;
+    }
+    for (index, marker) in markers.iter().enumerate() {
+        let start = marker.tick.min(end);
+        let stop = markers
+            .get(index + 1)
+            .map_or(end, |next| next.tick.min(end))
+            .max(start);
+        if stop <= start {
+            continue;
+        }
+        let section_name = if marker.name.trim().is_empty() {
+            format!("Section {}", index + 1)
+        } else {
+            marker.name.clone()
+        };
+        if let Some(section) = section_from_range(song, &section_name, start, stop) {
+            style.sections.push(section);
+        }
+    }
+    style
+}
+
+fn section_from_range(song: &Song, name: &str, start: Tick, end: Tick) -> Option<StyleSection> {
+    let length = end.saturating_sub(start);
+    if length <= 0 {
+        return None;
+    }
+    let mut section = StyleSection::new(name, length);
     for track in &song.tracks {
         if track.notes.is_empty() {
             continue;
@@ -137,15 +186,16 @@ pub fn from_song(
             ChordRule::default_for_channel(channel),
         );
         for note in &track.notes {
-            if note.start >= length {
+            if note.start < start || note.start >= end {
                 continue;
             }
-            let duration = note.duration.max(1).min(length.saturating_sub(note.start));
+            let relative = note.start.saturating_sub(start);
+            let duration = note.duration.max(1).min(length.saturating_sub(relative));
             if duration == 0 {
                 continue;
             }
             part.notes.push(StyleNote {
-                tick: note.start,
+                tick: relative,
                 duration,
                 pitch: note.pitch.as_u8(),
                 velocity: note.velocity.as_u8(),
@@ -155,9 +205,7 @@ pub fn from_song(
             section.parts.push(part);
         }
     }
-    let mut style = Style::new(name, source_chord);
-    style.sections.push(section);
-    style
+    (!section.parts.is_empty()).then_some(section)
 }
 
 /// A chord change on the song timeline.
@@ -568,7 +616,7 @@ mod tests {
 
     #[test]
     fn a_style_can_be_built_from_song_tracks() {
-        use music_core::{Channel, PPQ, Pitch, PitchClass, Velocity};
+        use music_core::{Channel, PPQ, Pitch, Velocity};
         use project::ids::{NoteId, TrackId};
         use project::song::{Note, Track};
         let mut song = Song::new("Clips", 120.0);
@@ -596,5 +644,39 @@ mod tests {
         assert_eq!(style.sections[0].parts[0].notes.len(), 1);
         assert_eq!(style.sections[0].parts[0].notes[0].tick, PPQ / 2);
         assert_eq!(style.sections[0].parts[0].notes[0].duration, PPQ / 2);
+    }
+
+    #[test]
+    fn song_markers_split_style_sections() {
+        use music_core::{Channel, PPQ, Pitch, Velocity};
+        use project::ids::{Marker, NoteId, TrackId};
+        use project::song::{Note, Track};
+        let mut song = Song::new("Clips", 120.0);
+        song.markers.push(Marker {
+            tick: 0,
+            name: String::from("Main A"),
+        });
+        song.markers.push(Marker {
+            tick: PPQ * 4,
+            name: String::from("Fill AA"),
+        });
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Bass");
+        for (index, start) in [0, PPQ * 4].into_iter().enumerate() {
+            track.notes.push(Note {
+                id: NoteId::new(index as u32 + 1).expect("note"),
+                start,
+                duration: PPQ,
+                pitch: Pitch::from_name("C2").expect("pitch"),
+                velocity: Velocity::new(100).expect("velocity"),
+                channel: Channel::from_one_based(11).expect("channel"),
+            });
+        }
+        song.tracks.push(track);
+        let style = from_song_sections(&song, "Clips", chord(0, ChordType::Major));
+        assert_eq!(style.sections.len(), 2);
+        assert_eq!(style.sections[0].name, "Main A");
+        assert_eq!(style.sections[1].name, "Fill AA");
+        assert_eq!(style.sections[0].parts[0].notes.len(), 1);
+        assert_eq!(style.sections[1].parts[0].notes[0].tick, 0);
     }
 }

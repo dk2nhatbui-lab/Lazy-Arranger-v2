@@ -79,3 +79,4 @@ For the clef layout, choose either four measures per system without clefs
 - Settings lists audio input devices and persists a preferred input; audio capture uses it with a default fallback.
 - Input monitoring restarts when the preferred audio input changes; it uses the named device or the default.
 - `style-from-clips` writes a one-section SFF from project tracks; the demo produced 4 parts/21 notes and re-imported as Main A.
+- `style-from-clips --from-markers` splits the demo into A/B sections and writes a re-readable SFF; default channel rules only.

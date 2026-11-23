@@ -711,6 +711,9 @@ enum Commands {
         /// Section length in ticks (960 per quarter note).
         #[arg(long, default_value_t = 3840)]
         length: u32,
+        /// Split sections at the project's markers instead of one section.
+        #[arg(long)]
+        from_markers: bool,
         /// sff1 or sff2 (default).
         #[arg(long, default_value = "sff2")]
         version: String,
@@ -2024,8 +2027,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             section,
             chord,
             length,
+            from_markers,
             version,
-        } => style_from_clips(&project, &out, &section, &chord, length, &version),
+        } => style_from_clips(
+            &project,
+            &out,
+            &section,
+            &chord,
+            length,
+            from_markers,
+            &version,
+        ),
         Commands::LinkToMidi {
             link,
             out,
@@ -2599,6 +2611,7 @@ fn style_from_clips(
     section: &str,
     chord: &str,
     length: u32,
+    from_markers: bool,
     version: &str,
 ) -> Result<(), Box<dyn Error>> {
     let text = fs::read_to_string(project)
@@ -2607,13 +2620,17 @@ fn style_from_clips(
     let source_text = Chord::parse(chord)?;
     let source = arranger::chord_type::ArrangerChord::try_from(&source_text)
         .map_err(|error| format!("unsupported style chord {chord:?}: {error:?}"))?;
-    let mut style = arranger::style::from_song(
-        &file.song,
-        &file.song.name,
-        source,
-        Tick::from(length.max(1)),
-    );
-    if let Some(first) = style.sections.first_mut() {
+    let mut style = if from_markers {
+        arranger::style::from_song_sections(&file.song, &file.song.name, source)
+    } else {
+        arranger::style::from_song(
+            &file.song,
+            &file.song.name,
+            source,
+            Tick::from(length.max(1)),
+        )
+    };
+    if !from_markers && let Some(first) = style.sections.first_mut() {
         first.name = section.to_string();
     }
     let version = match version {
