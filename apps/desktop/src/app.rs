@@ -845,6 +845,7 @@ pub struct ShellApp {
     beat_dialog: bool,
     beat_track: Option<TrackId>,
     beat_start: Tick,
+    pending_beat_start: Option<Tick>,
     beat_bar: Tick,
     beat_pattern: arranging::beat::BeatPattern,
     beat_clipboard: Option<Vec<u8>>,
@@ -1159,6 +1160,7 @@ impl ShellApp {
             beat_dialog: initial_window == "beat",
             beat_track: None,
             beat_start: 0,
+            pending_beat_start: None,
             beat_bar: 3840,
             beat_pattern: arranging::beat::BeatPattern::default(),
             beat_clipboard: None,
@@ -10519,6 +10521,9 @@ impl eframe::App for ShellApp {
                 }
             }
         }
+        if let Some(start) = self.pending_beat_start.take() {
+            self.load_beat_from(start);
+        }
         if let Some(edit) = self.pending_clip_edit.take() {
             let result = match edit.kind {
                 crate::timeline::ClipEditKind::Move => {
@@ -10925,6 +10930,14 @@ impl eframe::App for ShellApp {
                                 .clicked()
                             {
                                 self.beat_dialog = true;
+                            }
+                            if ui.small_button("◀").on_hover_text("Previous bar").clicked() {
+                                self.pending_beat_start =
+                                    Some((self.beat_start - self.beat_bar).max(0));
+                            }
+                            if ui.small_button("▶").on_hover_text("Next bar").clicked() {
+                                self.pending_beat_start =
+                                    Some((self.beat_start + self.beat_bar).max(0));
                             }
                             if let Some(track) = self.beat_track {
                                 let name = project
