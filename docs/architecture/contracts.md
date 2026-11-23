@@ -751,3 +751,10 @@ tempo map, like a ruler click.
 named port and sends them in channel order. CLI `midi-panic --output NAME`
 reports the count. No MIDI ports are attached here, so only the builder is
 verified; a missing port reports the available list.
+
+### Transport loop controls
+
+Loop and From bar live at the top of the track sidebar, not in the painted
+header; the earlier position overlapped the title badge. From bar sets the loop
+to the current bar and enables it. A light-theme window capture confirmed the
+header is clear and the controls are visible.

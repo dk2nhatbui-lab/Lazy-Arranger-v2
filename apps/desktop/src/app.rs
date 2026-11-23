@@ -3224,28 +3224,6 @@ impl ShellApp {
                     self.toggle_playback();
                     context.request_repaint_after(std::time::Duration::from_millis(16));
                 }
-                if ui
-                    .selectable_label(self.loop_enabled, "Loop")
-                    .on_hover_text("Repeat the loop region")
-                    .clicked()
-                {
-                    self.loop_enabled = !self.loop_enabled;
-                    if self.loop_enabled && self.loop_region.is_none() {
-                        let bar = self.song().time_signature.bar_ticks().max(1);
-                        self.loop_region = Some(crate::transport::bar_region(self.position, bar));
-                    }
-                }
-                if ui
-                    .small_button("From bar")
-                    .on_hover_text("Set the loop to the current bar")
-                    .clicked()
-                {
-                    let bar = self.song().time_signature.bar_ticks().max(1);
-                    self.loop_region = Some(crate::transport::bar_region(self.position, bar));
-                    self.loop_enabled = true;
-                    self.loop_buffer = None;
-                }
-
                 // LCD, 350 x 52, then the view tabs on the right.
                 let lcd_rect = Rect::from_center_size(
                     egui::pos2(area.left() + 16.0 + 175.0, rect.center().y),
@@ -3315,6 +3293,30 @@ impl ShellApp {
                     }
                 });
                 ui.separator();
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(self.loop_enabled, "Loop")
+                        .on_hover_text("Repeat the loop region")
+                        .clicked()
+                    {
+                        self.loop_enabled = !self.loop_enabled;
+                        if self.loop_enabled && self.loop_region.is_none() {
+                            let bar = self.song().time_signature.bar_ticks().max(1);
+                            self.loop_region =
+                                Some(crate::transport::bar_region(self.position, bar));
+                        }
+                    }
+                    if ui
+                        .small_button("From bar")
+                        .on_hover_text("Set the loop to the current bar")
+                        .clicked()
+                    {
+                        let bar = self.song().time_signature.bar_ticks().max(1);
+                        self.loop_region = Some(crate::transport::bar_region(self.position, bar));
+                        self.loop_enabled = true;
+                        self.loop_buffer = None;
+                    }
+                });
                 ui.label(
                     egui::RichText::new("TRACKS")
                         .size(10.0)

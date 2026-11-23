@@ -138,7 +138,7 @@ plurals, a real AI model and speech input.
 | Setup events, voices, CSEG children | `style-formats` | partial | SFF write verified; voices/setup events not written |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
 | Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/slur/percussion/lyric/accidental-spacing/frame/chord-symbol/PDF tests; slurs round-trip; Save PDF, Print via lp (unverified) and score drag-move |
-| UI shell (Perform/Arrange/Mix) with dark/light palettes | `apps/desktop` | implemented | palette unit test; dark run; light run; visual comparison pending |
+| UI shell (Perform/Arrange/Mix) with dark/light palettes | `apps/desktop` | implemented | palette test; light screenshot checked; header overlap fixed |
 | Audio playback | `audio` | implemented | cpal; audible check pending |
 | WAV/offline render | `audio` | verified | 5.36 s real-style render |
 | Device profile voice matching | `midi-devices::profiles` | partial | PSR-S970 subset + keyword fallback; EP/Rhodes mapping; 3 tests |
