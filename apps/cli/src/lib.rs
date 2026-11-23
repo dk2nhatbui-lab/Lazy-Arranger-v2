@@ -221,6 +221,14 @@ enum Commands {
         /// Action, e.g. `play`, `stop`, `scene 1`, `fader track-2`.
         action: String,
     },
+    /// Slice a drum loop at its attacks and write one WAV per pad.
+    DrumSlice {
+        /// Source `.wav` file.
+        wav: PathBuf,
+        /// Output folder for `pad-<note>.wav` files.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Print a scale as pitch-class names.
     TheoryScale {
         /// Tonic, e.g. C, F# or Bb.
@@ -666,6 +674,32 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 entry.path.display()
             );
             style_command(&entry.path, section.as_deref(), out.as_ref(), &[], false)
+        }
+        Commands::DrumSlice { wav, out } => {
+            let bytes = fs::read(&wav)
+                .map_err(|error| format!("could not read {}: {error}", wav.display()))?;
+            let decoded = audio::wav::decode_mono(&bytes)?;
+            let cuts = audio::drums::slices(&decoded.samples, decoded.sample_rate);
+            let kit = audio::drums::kit(&cuts);
+            if kit.pads.is_empty() {
+                return Err(format!("no slices found in {}", wav.display()).into());
+            }
+            fs::create_dir_all(&out)
+                .map_err(|error| format!("could not create {}: {error}", out.display()))?;
+            for pad in &kit.pads {
+                let rendered = audio::drums::audition(&decoded.samples, *pad, decoded.sample_rate);
+                let path = out.join(format!("pad-{}.wav", pad.note));
+                fs::write(&path, rendered.to_wav())
+                    .map_err(|error| format!("could not write {}: {error}", path.display()))?;
+            }
+            println!(
+                "{} slice(s) from {} -> {} pad file(s) in {}",
+                cuts.len(),
+                wav.display(),
+                kit.pads.len(),
+                out.display()
+            );
+            Ok(())
         }
         Commands::MidiMapShow { file } => {
             let text = fs::read_to_string(&file).unwrap_or_default();

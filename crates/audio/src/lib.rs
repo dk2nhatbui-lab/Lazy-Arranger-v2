@@ -6,6 +6,7 @@
 
 pub mod analysis;
 pub mod chords;
+pub mod drums;
 pub mod link;
 pub mod mix;
 pub mod player;

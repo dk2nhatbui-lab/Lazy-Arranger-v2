@@ -688,3 +688,11 @@ name gives noise percussion, then program ranges (0-7 piano, 16-23 organ,
 32-39 bass, 40-55 strings, 88-95 pad), then name hints. Each family has its own
 attack, decay and harmonic weights; the demo renders at RMS 0.129. There is
 still no SoundFont loading, filter, or metronome click.
+
+### Drum slicing
+
+`audio::drums` finds attacks from a short-time energy envelope compared with
+the recent average (narrower than a 50 ms gap is ignored), cuts the buffer at
+those points, and maps slices to the first 16 GM drum notes. `drum-slice`
+writes one WAV per pad. There is no pad UI, slice editing or time-stretch, and
+a pad is not yet wired to the keyboard or the sequencer.

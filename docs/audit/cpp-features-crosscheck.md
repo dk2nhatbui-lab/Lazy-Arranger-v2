@@ -16,7 +16,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 7 | Cut/copy/paste in every view | partial | Notes copy, cut and paste in Arrange with Cmd/Ctrl+C/X/V at the playhead, each paste one undo step; a chord range can be copied and pasted through the same clipboard. No clipboard in other views, pasting at the mouse position or multi-loop paste |
 | 8 | Audio tracks | partial | Audio references on tracks (schema v7) with WAV header import and tempo-derived length. Referenced WAVs mix into render and cpal playback, honouring mute/solo, with linear resampling and reported missing files; the buffer extends to cover them. No waveforms, recording, monitoring, trimming, fades, takes or stretching |
 | 9 | Audio analysis | partial | Monophonic audio→MIDI, chroma-based chord recognition with a CLI, transcription answers still missing. No stems, instrument tags, lyrics or model-based polyphony |
-| 10 | Drum sampler and slicer | missing | — |
+| 10 | Drum sampler and slicer | partial | Energy-envelope onset detection, slicing at attacks, mapping to the first 16 GM drum pads, pad audition buffers and `drum-slice` writing one WAV per pad (3 slices from a click loop). No pad UI, slice editing, time-stretch or playing pads from the keyboard |
 | 11 | Beat view | partial | Four drum rows by sixteen steps with off/soft/normal/loud cycling, read from and written to a bar as one undo step, B opens the grid. No pattern length, copy/paste rows, Put-in-bars or scrolling long clips |
 | 12 | Clip grid | partial | Scenes of N bars, slots, a bar-quantised launcher with waiting/cancel/log, scene recording to the timeline as undoable edits, `get_clip_grid`. Loops view shows scene rows and track slots, queues on click and records a take. Scene names persist and can be renamed; slot length, clear and copy-to-tick work and are exposed as `edit_slot`. No audio loops, slot UI controls or Launchkey mapping |
 | 13 | Smart chords | partial | Chord parsing, transposition, progression text, roman numerals in the chosen key, chord lane with K entry, 16 key-aware pads, and a suggestion function with dialog buttons. Reharmonize rules and dialog. Find Chords from the Music (pitch-class recognition, slash bass). No A/B audition, Launchkey pads, inversions/voicings, chord recording |
@@ -49,15 +49,15 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections at round 61: 0 fully verified beyond their Rust subset, 32 partial, 7 missing.
+39 sections at round 62: 0 fully verified beyond their Rust subset, 33 partial, 6 missing.
 The partials with the most depth are styles (open, import, compile, SFF1/SFF2 write), project files, the score layout/PDF path, audio references, the MIDI map and the MCP surface.
 
 ## State at round 60
 
 `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (438 tests) and
-`cargo doc` pass. The seven missing sections are the drum sampler/slicer (§10), VST3/AU (§19),
-synth editors and sysex (§22), the L6max page/import (§26), the AI chat UI
-(§27), speech (§29) and AI music tools (§30).
+`cargo doc` pass. The six missing sections are VST3/AU (§19), synth editors and sysex (§22),
+the L6max page/import (§26), the AI chat UI (§27), speech (§29) and AI music
+tools (§30).
 Korg import, PSR style import, SoundFont loading, the L6max page (its 32-bit float audio
 recordings already decode), waveform audio editing,
 grand-staff/beam engraving, note entry, socket transport and a 90-tool MCP
@@ -69,7 +69,7 @@ unverified; CI builds and tests are the only continuous evidence.
 
 ## Next blocks, in dependency order
 
-1. Clipboard in the other views (§7), then drum sampler/slicer (§10).
+1. Clipboard in the other views (§7), then a drum pad UI and slice editing (§10).
 2. Waveform audio editing and recording takes (§8), then buses/sends/effects (§17).
 3. Korg import, PSR style import and SoundFont loading (§14, §20, §24).
 4. Grand staff, beams, tuplets and note entry in the score (§16).
