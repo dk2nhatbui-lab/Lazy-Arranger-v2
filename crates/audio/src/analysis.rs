@@ -155,6 +155,44 @@ pub fn as_pitch(pitch: u8) -> Option<Pitch> {
     Pitch::new(pitch).ok()
 }
 
+/// Estimates tempo from the median gap between detected onsets.
+///
+/// Returns `None` when fewer than four onsets are found. The result is folded
+/// into 60..=180 bpm.
+#[must_use]
+pub fn estimate_tempo(samples: &[f32], sample_rate: u32) -> Option<f64> {
+    if sample_rate == 0 {
+        return None;
+    }
+    let onsets = crate::drums::onsets(samples, sample_rate);
+    if onsets.len() < 4 {
+        return None;
+    }
+    let mut gaps: Vec<f64> = onsets
+        .windows(2)
+        .filter_map(|pair| {
+            let gap = pair[1].saturating_sub(pair[0]) as f64 / f64::from(sample_rate);
+            (0.15..=2.0).contains(&gap).then_some(gap)
+        })
+        .collect();
+    if gaps.len() < 3 {
+        return None;
+    }
+    gaps.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+    let median = gaps[gaps.len() / 2];
+    if median <= 0.0 {
+        return None;
+    }
+    let mut bpm = 60.0 / median;
+    while bpm < 60.0 {
+        bpm *= 2.0;
+    }
+    while bpm > 180.0 {
+        bpm /= 2.0;
+    }
+    (60.0..=180.0).contains(&bpm).then_some(bpm)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,6 +205,21 @@ mod tests {
                     * 0.5
             })
             .collect()
+    }
+
+    #[test]
+    fn regular_clicks_estimate_a_tempo() {
+        let rate = 48_000_u32;
+        let mut samples = vec![0.0_f32; rate as usize * 4];
+        for click in 0..8 {
+            let start = click as usize * rate as usize / 2;
+            for (index, sample) in samples.iter_mut().skip(start).take(200).enumerate() {
+                let envelope = 1.0 - index as f32 / 200.0;
+                *sample = if index % 2 == 0 { envelope } else { -envelope };
+            }
+        }
+        let tempo = estimate_tempo(&samples, rate).expect("tempo");
+        assert!((tempo - 120.0).abs() < 2.0, "got {tempo}");
     }
 
     #[test]

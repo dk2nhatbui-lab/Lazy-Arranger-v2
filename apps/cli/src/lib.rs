@@ -743,6 +743,9 @@ enum Commands {
         /// Derive a Drums part from onsets.
         #[arg(long)]
         drums: bool,
+        /// Detect BPM from onsets instead of using --bpm.
+        #[arg(long)]
+        detect_tempo: bool,
         /// sff1 or sff2 (default).
         #[arg(long, default_value = "sff2")]
         version: String,
@@ -2059,6 +2062,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             split_parts,
             section_bars,
             drums,
+            detect_tempo,
             version,
         } => style_from_audio(
             &audio,
@@ -2069,6 +2073,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             split_parts,
             section_bars,
             drums,
+            detect_tempo,
             &version,
         ),
         Commands::StyleFromClips {
@@ -2665,6 +2670,7 @@ fn style_from_audio(
     split_parts: bool,
     section_bars: u32,
     drums: bool,
+    detect_tempo: bool,
     version: &str,
 ) -> Result<(), Box<dyn Error>> {
     let decoded = audio::decode::decode_mono(audio_path).or_else(|_| {
@@ -2690,6 +2696,7 @@ fn style_from_audio(
             split_parts,
             section_bars,
             include_drums: drums,
+            detect_tempo,
         },
     )?;
     let style = built.style;
@@ -2703,9 +2710,10 @@ fn style_from_audio(
         .map_err(|error| format!("could not write {}: {error}", out.display()))?;
     let check = style_formats::import_style(&bytes)?;
     println!(
-        "wrote {}: source {}, {} detected note(s), {} section(s), {} byte(s); re-read {:?}",
+        "wrote {}: source {}, {:.2} bpm, {} detected note(s), {} section(s), {} byte(s); re-read {:?}",
         out.display(),
         built.source_chord.name(),
+        built.bpm,
         built.notes,
         style.sections.len(),
         bytes.len(),

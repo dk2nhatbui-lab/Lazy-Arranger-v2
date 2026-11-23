@@ -19,6 +19,8 @@ pub struct AudioStyleOptions<'a> {
     pub section_bars: u32,
     /// Derive a Drums part from onsets and band energy.
     pub include_drums: bool,
+    /// Replace `bpm` with an onset-derived tempo when one is found.
+    pub detect_tempo: bool,
 }
 
 /// A built audio style and what was detected.
@@ -30,6 +32,8 @@ pub struct BuiltAudioStyle {
     pub source_chord: ArrangerChord,
     /// Number of detected notes placed in the style.
     pub notes: usize,
+    /// Tempo used, after optional detection.
+    pub bpm: f64,
 }
 
 /// Builds a style from monophonic notes in `audio`.
@@ -41,7 +45,13 @@ pub fn style_from_audio(
     audio: &RenderedAudio,
     options: AudioStyleOptions<'_>,
 ) -> Result<BuiltAudioStyle, String> {
-    let bpm = options.bpm.max(1.0);
+    let bpm = if options.detect_tempo {
+        audio::analysis::estimate_tempo(&audio.samples, audio.sample_rate)
+            .unwrap_or(options.bpm)
+            .max(1.0)
+    } else {
+        options.bpm.max(1.0)
+    };
     let detected = audio::analysis::to_midi(&audio.samples, audio.sample_rate);
     let seconds = audio.samples.len() as f64 / f64::from(audio.sample_rate);
     let length = audio::chords::to_ticks(seconds, bpm);
@@ -102,6 +112,7 @@ pub fn style_from_audio(
         style,
         source_chord: source,
         notes,
+        bpm,
     })
 }
 
@@ -268,6 +279,7 @@ mod tests {
                 split_parts: false,
                 section_bars: 0,
                 include_drums: true,
+                detect_tempo: false,
             },
         )
         .expect("style");
@@ -293,6 +305,7 @@ mod tests {
                 split_parts: false,
                 section_bars: 0,
                 include_drums: false,
+                detect_tempo: false,
             },
         )
         .expect("style");

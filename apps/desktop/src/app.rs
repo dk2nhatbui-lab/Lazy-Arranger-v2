@@ -545,6 +545,7 @@ pub struct ShellApp {
     audio_style_split: bool,
     audio_style_section_bars: u32,
     audio_style_drums: bool,
+    audio_style_detect_tempo: bool,
     audio_style_out: String,
     audio_style_sff1: bool,
     master_fx_open: bool,
@@ -782,6 +783,7 @@ impl ShellApp {
             audio_style_split: false,
             audio_style_section_bars: 0,
             audio_style_drums: false,
+            audio_style_detect_tempo: false,
             audio_style_out: String::from("audio-style.sty"),
             audio_style_sff1: false,
             master_fx_open: std::env::var("ARRANGER_MASTER_FX").is_ok(),
@@ -3230,6 +3232,7 @@ impl ShellApp {
                 split_parts: self.audio_style_split,
                 section_bars: self.audio_style_section_bars,
                 include_drums: self.audio_style_drums,
+                detect_tempo: self.audio_style_detect_tempo,
             },
         )
     }
@@ -3275,6 +3278,7 @@ impl ShellApp {
                 });
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.audio_style_drums, "add drums from onsets");
+                    ui.checkbox(&mut self.audio_style_detect_tempo, "detect BPM");
                     ui.checkbox(&mut self.audio_style_sff1, "SFF1 instead of SFF2");
                 });
                 ui.horizontal(|ui| {

@@ -2776,6 +2776,10 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .get("drums")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
+            let detect_tempo = arguments
+                .get("detect_tempo")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let version = match arguments
                 .get("version")
                 .and_then(Value::as_str)
@@ -2819,6 +2823,7 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     split_parts,
                     section_bars,
                     include_drums: drums,
+                    detect_tempo,
                 },
             )
             .map_err(ToolError::Arguments)?;
