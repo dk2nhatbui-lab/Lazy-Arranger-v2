@@ -12054,7 +12054,7 @@ fn track_meter_level(track: &project::song::Track, tick: Tick, waveforms: &Wavef
         let fraction = (tick - reference.start) as f32 / reference.length.max(1) as f32;
         let index = (fraction * (peaks.len() - 1) as f32).round() as usize;
         let peak = peaks[index.min(peaks.len() - 1)];
-        let audio_level = peak.min.abs().max(peak.max.abs()) * f32::from(track.volume) / 100.0;
+        let audio_level = peak.min.abs().max(peak.max.abs()) * track.volume_at(tick) / 100.0;
         level = level.max(audio_level);
     }
     level.clamp(0.0, 1.0)
