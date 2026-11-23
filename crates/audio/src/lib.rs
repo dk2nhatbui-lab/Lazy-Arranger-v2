@@ -1519,6 +1519,36 @@ mod tests {
     }
 
     #[test]
+    fn stems_include_audio_references() {
+        use project::song::{AudioRef, Track};
+        let mut song = Song::new("Stem", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Audio");
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-stem-audio-{}.wav",
+            std::process::id()
+        ));
+        let source = RenderedAudio {
+            samples: vec![0.4; SAMPLE_RATE as usize * 2],
+            sample_rate: SAMPLE_RATE,
+        };
+        std::fs::write(&path, source.to_wav32f()).expect("wav");
+        track.audio = Some(AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: music_core::PPQ * 2,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let stems = render_stems(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(stems.len(), 1);
+        assert!(stems[0].audio.samples.iter().any(|sample| *sample > 0.3));
+    }
+
+    #[test]
     fn stems_render_one_audible_track_each() {
         let mut song = song_with_note();
         let mut second = song.tracks[0].clone();

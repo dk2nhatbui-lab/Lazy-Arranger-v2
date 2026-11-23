@@ -49,15 +49,15 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections at round 442: 0 fully verified beyond their Rust subset, 39 partial,
+39 sections at round 444: 0 fully verified beyond their Rust subset, 39 partial,
 0 missing. No section is missing at row level, but several rows are partial
 because they need hardware, proprietary formats, plugin editors or a model.
 The deepest partials are styles, full score, plugin editors, L6max device pages,
 Korg PCG, built-in speech/model services and hardware acceptance.
 
-## State at round 442
+## State at round 444
 
-`cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (**770 tests**) and
+`cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (**771 tests**) and
 rustdoc pass. A macOS bundle script creates an ad-hoc-signed
 `dist/Lazy Arranger Midi DAW.app`; the bundle was launched and captured in
 `docs/audit/app-bundle.png`.
