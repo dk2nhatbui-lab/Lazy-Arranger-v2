@@ -900,3 +900,9 @@ still absent.
 The Windows menu opens Songs & tutorial. It loads the arranger demo, kids demo
 or an empty song through `replace_project` (new Editor, untitled, position 0)
 and lists four tutorial steps. A test validates all three songs.
+
+### Developer window override
+
+`ARRANGER_WINDOW=settings|inspector|library|pads|assistant|midi-map|controllers|
+lyrics|markers|theory|lessons|songs` opens that window at startup. The Settings
+capture is `docs/audit/settings.png`; the same override is used for visual QA.

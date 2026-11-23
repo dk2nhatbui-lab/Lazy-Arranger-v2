@@ -316,6 +316,10 @@ impl ShellApp {
     #[must_use]
     pub fn new(context: &Context, project: ProjectFile, project_path: Option<PathBuf>) -> Self {
         let settings = crate::settings::Settings::load(&crate::settings::Settings::path());
+        let initial_window = std::env::var("ARRANGER_WINDOW")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
         let initial_view = std::env::var("ARRANGER_VIEW")
             .ok()
             .and_then(|value| View::parse(&value))
@@ -369,10 +373,10 @@ impl ShellApp {
             audio_record_seconds: 3.0,
             audio_record_start: 0,
             song_name_input,
-            markers_open: false,
-            theory_open: false,
-            songs_open: false,
-            lessons_open: false,
+            markers_open: initial_window == "markers",
+            theory_open: initial_window == "theory",
+            songs_open: initial_window == "songs",
+            lessons_open: initial_window == "lessons",
             lesson_kind: music_core::lesson::LessonKind::ChordQuality,
             lesson_seed: 1,
             lesson_question: None,
@@ -402,15 +406,15 @@ impl ShellApp {
             loop_buffer: None,
             lesson: crate::kids::Lesson::default(),
             perform_player: None,
-            library_open: false,
+            library_open: initial_window == "library",
             library_path: String::new(),
             library_query: String::new(),
             library: None,
-            pads_open: false,
+            pads_open: initial_window == "pads",
             pad_state: None,
             pad_path: String::new(),
             pad_player: None,
-            assistant_open: false,
+            assistant_open: initial_window == "assistant",
             assistant_input: String::new(),
             assistant_log: Vec::new(),
             waveform: None,
@@ -420,7 +424,7 @@ impl ShellApp {
                 .and_then(|text| midi_devices::map::MidiMap::from_text(&text).ok())
                 .unwrap_or_default(),
             settings,
-            settings_open: false,
+            settings_open: initial_window == "settings",
             shortcuts_open: false,
             score_entry: false,
             score_page: 0,
@@ -428,7 +432,7 @@ impl ShellApp {
             score_grand: false,
             score_pdf_path: String::from("score.pdf"),
             score_state: crate::score_view::ScoreState::default(),
-            lyrics_open: false,
+            lyrics_open: initial_window == "lyrics",
             lyric_text: String::new(),
             lyric_selected: None,
             tempo_input: 120.0,
@@ -441,13 +445,13 @@ impl ShellApp {
             sf2_program: 0,
             plugin_scan: None,
             plugin_error: None,
-            inspector_open: false,
+            inspector_open: initial_window == "inspector",
             inspector_track: None,
             inspector_name: String::new(),
-            midi_map_open: false,
+            midi_map_open: initial_window == "midi-map" || initial_window == "midi_map",
             midi_learn: None,
             midi_learn_choice: 0,
-            controller_open: false,
+            controller_open: initial_window == "controllers",
             midi_cc_values: [0; 128],
             controller_action: 0,
             recording: None,
