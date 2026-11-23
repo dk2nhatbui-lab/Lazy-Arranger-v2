@@ -117,7 +117,7 @@ speech input. Input monitoring exists but is hardware-unverified.
 | MCP tools (song, score, audio, arranging, files) | `crates/mcp` | verified | 93 tools; per-tool tests and CLI calls |
 | Setup events, voices, CSEG children | `style-formats` | partial | SFF write verified; voices/setup events not written |
 | Retrigger on section change | typed, not acted on | missing | ADR-003 |
-| Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/slur/percussion/lyric/accidental/rhythmic-spacing/dots/dotted-rests/frame/chord-symbol/PDF tests; slurs round-trip; Save PDF, Print dialog (printer/copies/page ranges via lp; unverified), score drag-move/Shift-resize; PDF/canvas checks, four-measure systems, meter digits and a headless canvas-text test |
+| Notation/score engraving | `score`, `score_view`, `pdf`, `musicxml` | verified | layout/ties/beams/tuplets/grand-staff/rest/slur/percussion/lyric/accidental/rhythmic-spacing/dots/dotted-rests/frame/chord-symbol/PDF tests; slurs round-trip; Save PDF, Print dialog (printer/copies/page ranges via lp; unverified), score drag-move/Shift-resize; PDF/canvas checks, four-measure systems, meter digits, a headless canvas-text test; clef/key signatures are a documented layout limitation |
 | Record-and-detect chords toggle | `record_chords`, `editor.find_chords` | verified pieces | settings round trip; chord detection tests |
 | Editable shortcuts and Shortcuts window | `parse_shortcut`, `handle_keys`, Shortcuts window | verified parser | parse/round-trip tests; `docs/audit/shortcuts.png` |
 | Settings/Inspector windows (captures checked) | `apps/desktop` | implemented | `docs/audit/settings.png`, `docs/audit/inspector.png`; interactions manual |

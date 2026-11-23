@@ -67,3 +67,6 @@ on `fbead10` (schema v20) passed ubuntu 1m24s, windows 2m49s, macos 1m41s.
 
 Run [45165033518](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45165033518)
 on `9e3bfe0` (bank controls) passed macos 1m34s, ubuntu 1m32s, windows 1m47s.
+
+Run [45165596546](https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45165596546)
+on `d3b0199` (slice nudging) passed ubuntu 1m16s, macos 1m18s, windows 2m37s.

@@ -1032,3 +1032,16 @@ is `docs/audit/inspector.png`.
 keeps it inside the decoded loop; the Drum pads window shows start/end/length and
 four ±10 ms buttons, re-auditioning after a change. A unit test covers clamping
 and the missing-pad case. There is no waveform dragging or drum-slice stretch.
+
+### Clef/key-signature layout limitation (scoped, not implemented)
+
+The engraver deliberately fits four 4/4 measures on a 595 pt-wide page with
+48 pt margins: four required widths of about 112 pt plus three 16 pt gaps use
+496 of 499 pt of content. A standard clef + key-signature gutter needs roughly
+30 pt before the first note; reserving it leaves 469 pt and forces three
+measures per system, changing every page/system count and capture. Drawing a
+key signature inside the existing 16 pt margin before the time signature is not
+musically legible. Clefs and key signatures are therefore a **scoped
+limitation** pending a page-size or system-density decision (for example an
+opt-in three-measure layout), not a hidden bug. Time signatures and measure
+numbers are drawn; accidentals are spelled from the detected key.
