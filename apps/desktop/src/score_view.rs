@@ -240,6 +240,7 @@ pub fn page_at_tick(engraved: &Engraved, tick: music_core::Tick) -> Option<usize
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut Ui,
     engraved: &Engraved,
@@ -248,6 +249,7 @@ pub fn show(
     title: &str,
     state: &mut ScoreState,
     playhead: music_core::Tick,
+    entry_cursor: Option<music_core::Tick>,
 ) -> ScoreOutcome {
     let settings = Settings::default();
     let page_index = clamp_page(engraved, page);
@@ -684,6 +686,32 @@ pub fn show(
             egui::FontId::proportional(10.0),
             Color32::from_rgb(0x55, 0x55, 0x55),
         );
+        if let Some(entry) = entry_cursor {
+            'entry: for system in &page.systems {
+                for measure in &system.measures {
+                    if entry < measure.start || entry >= measure.start + measure.length {
+                        continue;
+                    }
+                    let ratio = ((entry - measure.start) as f32 / measure.length.max(1) as f32)
+                        .clamp(0.0, 1.0);
+                    let x = origin.x + (measure.x + ratio * (measure.x_end - measure.x)) * zoom;
+                    let top = origin.y + staff_line_y(system.y, 0, settings, zoom);
+                    let bottom_line = if engraved.staves == 2 && !engraved.percussion {
+                        8
+                    } else {
+                        4
+                    };
+                    let bottom = origin.y + staff_line_y(system.y, bottom_line, settings, zoom);
+                    let blue = Color32::from_rgb(0x2A, 0x6F, 0xB5);
+                    painter.line_segment(
+                        [Pos2::new(x, top), Pos2::new(x, bottom)],
+                        Stroke::new(2.0_f32, blue),
+                    );
+                    painter.circle_filled(Pos2::new(x, top - 6.0), 3.0, blue);
+                    break 'entry;
+                }
+            }
+        }
         'cursor: for system in &page.systems {
             for measure in &system.measures {
                 if playhead < measure.start || playhead >= measure.start + measure.length {
@@ -833,6 +861,58 @@ mod tests {
         }
     }
 
+    fn count_stroke(shape: &egui::Shape, colour: Color32, count: &mut usize) {
+        match shape {
+            egui::Shape::LineSegment { stroke, .. } if stroke.color == colour => *count += 1,
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    count_stroke(shape, colour, count);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn the_entry_cursor_draws() {
+        use project::song::{Note, Song, Track};
+        let mut song = Song::new("Entry", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        song.tracks.push(track);
+        let engraved = score::engrave(
+            &song,
+            project::TrackId::new(1).expect("valid"),
+            Settings::default(),
+        );
+        let context = egui::Context::default();
+        let mut state = ScoreState::default();
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0))),
+                ..egui::RawInput::default()
+            },
+            |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    let _ = show(ui, &engraved, 0, 1.0, "Entry", &mut state, 0, Some(PPQ));
+                });
+            },
+        );
+        let blue = Color32::from_rgb(0x2A, 0x6F, 0xB5);
+        let mut count = 0;
+        for clipped in &output.shapes {
+            count_stroke(&clipped.shape, blue, &mut count);
+        }
+        assert!(count > 0, "entry cursor line is drawn");
+    }
+
     #[test]
     fn the_canvas_draws_the_title_chords_and_measure_numbers() {
         use project::song::{ChordEvent, Note, Song, Track};
@@ -865,7 +945,7 @@ mod tests {
             },
             |context| {
                 egui::CentralPanel::default().show(context, |ui| {
-                    let _ = show(ui, &engraved, 0, 1.0, "Canvas & Test", &mut state, 0);
+                    let _ = show(ui, &engraved, 0, 1.0, "Canvas & Test", &mut state, 0, None);
                 });
             },
         );

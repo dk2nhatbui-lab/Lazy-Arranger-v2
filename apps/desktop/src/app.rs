@@ -1234,15 +1234,19 @@ impl ShellApp {
             groove_timing: 1.0,
             groove_accents: 1.0,
             help_open: initial_window == "help",
-            score_entry: false,
+            score_entry: std::env::var("ARRANGER_SCORE_ENTRY").is_ok(),
             score_octave: 4,
             score_note_length: music_core::PPQ,
             score_dotted: false,
-            score_cursor: 0,
+            score_cursor: std::env::var("ARRANGER_SCORE_CURSOR")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0),
             score_page: 0,
             score_zoom: 1.0,
             score_grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
-            score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err(),
+            score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err()
+                && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
             patch_track: None,
             patch_draft: None,
@@ -11590,6 +11594,7 @@ impl eframe::App for ShellApp {
                                     title,
                                     &mut self.score_state,
                                     position,
+                                    self.score_entry.then_some(self.score_cursor),
                                 )
                             };
                             if let Some(drag) = outcome.drag {
