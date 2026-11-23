@@ -199,3 +199,4 @@ For the clef layout, choose either four measures per system without clefs
 - Validation rejects empty take paths, out-of-range take fades, unknown comp takes, non-positive comp lengths and overlapping comps.
 - Timeline draws comp-span boundaries on the audio block (`docs/audit/audio-comps-timeline.png`).
 - `scripts/check.sh` runs fmt, clippy, the workspace suite and rustdoc; all gates pass.
+- Corrected stale audit text: VST3 parameter UI and automation target exist; native editors still do not.
