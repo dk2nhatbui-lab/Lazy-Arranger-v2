@@ -22,10 +22,12 @@ pub mod casm;
 pub mod catalog;
 pub mod import;
 pub mod korg;
+pub mod native;
 pub mod write;
 
 pub use casm::{CasmRules, CasmStats, SectionRules, SffVersion, read_rules};
 pub use import::{ImportStats, ImportedSection, ImportedStyle, import_style};
+pub use native::write_native_style;
 pub use write::write_style;
 
 /// Errors raised while reading a style container.

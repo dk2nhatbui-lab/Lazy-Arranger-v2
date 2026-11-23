@@ -14,6 +14,7 @@
 //! turning CASM bytes into these rules is the next Stage 4 step.
 
 use music_core::{Channel, Tick};
+use project::Song;
 use thiserror::Error;
 
 use crate::chord_type::ArrangerChord;
@@ -106,6 +107,57 @@ impl Style {
     pub fn section(&self, name: &str) -> Option<&StyleSection> {
         self.sections.iter().find(|section| section.name == name)
     }
+}
+
+/// Builds a one-section style from a song's current tracks.
+///
+/// Notes are clipped to `length_ticks` and stored relative to zero. Each track
+/// becomes one part with the oracle's default rule for its channel; a drum track
+/// keeps its recorded pitches.
+#[must_use]
+pub fn from_song(
+    song: &Song,
+    name: &str,
+    source_chord: ArrangerChord,
+    length_ticks: Tick,
+) -> Style {
+    let length = length_ticks.max(1);
+    let mut section = StyleSection::new("Main A", length);
+    for track in &song.tracks {
+        if track.notes.is_empty() {
+            continue;
+        }
+        let channel = track.notes[0].channel.one_based();
+        let mut part = StylePart::new(
+            if track.name.is_empty() {
+                format!("Part {channel}")
+            } else {
+                track.name.clone()
+            },
+            ChordRule::default_for_channel(channel),
+        );
+        for note in &track.notes {
+            if note.start >= length {
+                continue;
+            }
+            let duration = note.duration.max(1).min(length.saturating_sub(note.start));
+            if duration == 0 {
+                continue;
+            }
+            part.notes.push(StyleNote {
+                tick: note.start,
+                duration,
+                pitch: note.pitch.as_u8(),
+                velocity: note.velocity.as_u8(),
+            });
+        }
+        if !part.notes.is_empty() {
+            section.parts.push(part);
+        }
+    }
+    let mut style = Style::new(name, source_chord);
+    style.sections.push(section);
+    style
 }
 
 /// A chord change on the song timeline.
@@ -512,5 +564,37 @@ mod tests {
             first_bass.pitch, 36,
             "C major from the style's source chord"
         );
+    }
+
+    #[test]
+    fn a_style_can_be_built_from_song_tracks() {
+        use music_core::{Channel, PPQ, Pitch, PitchClass, Velocity};
+        use project::ids::{NoteId, TrackId};
+        use project::song::{Note, Track};
+        let mut song = Song::new("Clips", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Bass");
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("note"),
+            start: PPQ / 2,
+            duration: PPQ,
+            pitch: Pitch::from_name("C2").expect("pitch"),
+            velocity: Velocity::new(100).expect("velocity"),
+            channel: Channel::from_one_based(11).expect("channel"),
+        });
+        track.notes.push(Note {
+            id: NoteId::new(2).expect("note"),
+            start: PPQ * 2,
+            duration: PPQ,
+            pitch: Pitch::from_name("D2").expect("pitch"),
+            velocity: Velocity::new(90).expect("velocity"),
+            channel: Channel::from_one_based(11).expect("channel"),
+        });
+        song.tracks.push(track);
+        let style = from_song(&song, "Clips", chord(0, ChordType::Major), PPQ);
+        assert_eq!(style.sections.len(), 1);
+        assert_eq!(style.sections[0].parts.len(), 1);
+        assert_eq!(style.sections[0].parts[0].notes.len(), 1);
+        assert_eq!(style.sections[0].parts[0].notes[0].tick, PPQ / 2);
+        assert_eq!(style.sections[0].parts[0].notes[0].duration, PPQ / 2);
     }
 }

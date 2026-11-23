@@ -179,6 +179,7 @@ name = "arranger"
 version = "0.1.0"
 dependencies = [
  "music-core",
+ "project",
  "thiserror 2.0.21",
 ]
 

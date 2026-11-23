@@ -695,6 +695,26 @@ enum Commands {
         #[arg(long, default_value = "sff2")]
         version: String,
     },
+    /// Build a style section from a project's tracks.
+    StyleFromClips {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Output style path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Section name written to the style.
+        #[arg(long, default_value = "Main A")]
+        section: String,
+        /// Source chord, for example C or Am7.
+        #[arg(long, default_value = "C")]
+        chord: String,
+        /// Section length in ticks (960 per quarter note).
+        #[arg(long, default_value_t = 3840)]
+        length: u32,
+        /// sff1 or sff2 (default).
+        #[arg(long, default_value = "sff2")]
+        version: String,
+    },
     /// Turn a YouTube (or other yt-dlp) link into a MIDI file.
     LinkToMidi {
         /// Link to a video or audio page.
@@ -1998,6 +2018,14 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             out,
             version,
         } => style_save(&style, &out, &version),
+        Commands::StyleFromClips {
+            project,
+            out,
+            section,
+            chord,
+            length,
+            version,
+        } => style_from_clips(&project, &out, &section, &chord, length, &version),
         Commands::LinkToMidi {
             link,
             out,
@@ -2562,6 +2590,52 @@ fn mcp_call(
             .map_err(|error| format!("could not write {}: {error}", path.display()))?;
         eprintln!("wrote {}", path.display());
     }
+    Ok(())
+}
+
+fn style_from_clips(
+    project: &PathBuf,
+    out: &PathBuf,
+    section: &str,
+    chord: &str,
+    length: u32,
+    version: &str,
+) -> Result<(), Box<dyn Error>> {
+    let text = fs::read_to_string(project)
+        .map_err(|error| format!("could not read {}: {error}", project.display()))?;
+    let file = ProjectFile::from_json(&text)?;
+    let source_text = Chord::parse(chord)?;
+    let source = arranger::chord_type::ArrangerChord::try_from(&source_text)
+        .map_err(|error| format!("unsupported style chord {chord:?}: {error:?}"))?;
+    let mut style = arranger::style::from_song(
+        &file.song,
+        &file.song.name,
+        source,
+        Tick::from(length.max(1)),
+    );
+    if let Some(first) = style.sections.first_mut() {
+        first.name = section.to_string();
+    }
+    let version = match version {
+        "sff1" => style_formats::casm::SffVersion::Sff1,
+        "sff2" => style_formats::casm::SffVersion::Sff2,
+        other => return Err(format!("--version must be sff1 or sff2, found {other:?}").into()),
+    };
+    let bytes = style_formats::write_native_style(&style, version)?;
+    fs::write(out, &bytes)
+        .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+    let check = style_formats::import_style(&bytes)?;
+    println!(
+        "wrote {}: {} part(s), {} section(s), {} byte(s); re-read sections {:?}",
+        out.display(),
+        style
+            .sections
+            .first()
+            .map_or(0, |section| section.parts.len()),
+        style.sections.len(),
+        bytes.len(),
+        check.section_names()
+    );
     Ok(())
 }
 

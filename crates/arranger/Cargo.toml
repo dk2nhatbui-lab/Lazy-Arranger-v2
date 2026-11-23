@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 music-core = { path = "../music-core" }
+project = { path = "../project" }
 thiserror.workspace = true
 
 [lints]
