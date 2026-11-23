@@ -1602,6 +1602,41 @@ mod tests {
     }
 
     #[test]
+    fn audio_takes_round_trip_and_default_to_empty() {
+        let mut song = Song::new("Takes", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Audio");
+        track.audio = Some(AudioRef {
+            path: String::from("active.wav"),
+            start: 0,
+            length: 960,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        track.takes.push(AudioRef {
+            path: String::from("old.wav"),
+            start: 0,
+            length: 480,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let json = serde_json::to_value(&song).expect("serialize");
+        let back: Song = serde_json::from_value(json.clone()).expect("deserialize");
+        assert_eq!(back.tracks[0].takes, song.tracks[0].takes);
+        let mut older = json;
+        older["tracks"][0]
+            .as_object_mut()
+            .expect("track")
+            .remove("takes");
+        let older: Song = serde_json::from_value(older).expect("older project");
+        assert!(older.tracks[0].takes.is_empty());
+    }
+
+    #[test]
     fn rejects_duplicate_note_ids_and_unsorted_chords() {
         let mut song = Song::new("x", 120.0);
         let mut track = Track::new(TrackId::new(1).expect("valid"), "t");
