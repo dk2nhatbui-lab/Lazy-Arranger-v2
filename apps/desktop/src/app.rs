@@ -6132,7 +6132,7 @@ impl ShellApp {
                         }
                     });
                     if ui.button("Check for updates").clicked() {
-                        self.status = Some(String::from(crate::settings::update_status()));
+                        self.status = Some(crate::update::check_status());
                     }
                     if ui.button("Show device profiles folder").clicked() {
                         let folder = crate::settings::Settings::path()

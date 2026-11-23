@@ -21,6 +21,7 @@ pub mod strings;
 pub mod theme;
 pub mod timeline;
 pub mod transport;
+pub mod update;
 pub mod widgets;
 
 pub use app::{ShellApp, demo_project, load_project};

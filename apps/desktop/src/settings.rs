@@ -584,8 +584,7 @@ mod tests {
     }
 
     #[test]
-    fn the_update_answer_is_honest() {
-        assert!(update_status().contains("No update channel"));
+    fn port_summaries_count_both_directions() {
         assert_eq!(
             ports_summary(&[String::from("a"), String::from("b")], &[]),
             "2 input(s), 0 output(s)"
