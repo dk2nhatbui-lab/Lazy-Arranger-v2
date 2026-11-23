@@ -10401,6 +10401,12 @@ impl eframe::App for ShellApp {
                             };
                             let engraved = score::engrave(&project.song, track, score_settings);
                             if !self.score_preview {
+                                if self.playing
+                                    && let Some(page) =
+                                        crate::score_view::page_at_tick(&engraved, position)
+                                {
+                                    self.score_page = page;
+                                }
                                 self.score_page =
                                     crate::score_view::clamp_page(&engraved, self.score_page);
                             }

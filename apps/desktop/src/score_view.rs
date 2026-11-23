@@ -225,6 +225,21 @@ pub fn hit_note(
 }
 
 /// Draws one page and maps a click to a note or an insertion position.
+/// Page that contains a tick, when the engraved layout has one.
+#[must_use]
+pub fn page_at_tick(engraved: &Engraved, tick: music_core::Tick) -> Option<usize> {
+    for (index, page) in engraved.pages.iter().enumerate() {
+        for system in &page.systems {
+            for measure in &system.measures {
+                if tick >= measure.start && tick < measure.start + measure.length.max(1) {
+                    return Some(index);
+                }
+            }
+        }
+    }
+    None
+}
+
 pub fn show(
     ui: &mut Ui,
     engraved: &Engraved,
@@ -897,6 +912,18 @@ mod tests {
         let found = hit_note(&engraved, 0, 1.0, origin, Pos2::new(note.x, note.y)).expect("hit");
         assert_eq!(found.0, note.tick);
         assert!(hit_note(&engraved, 0, 1.0, origin, Pos2::new(note.x + 500.0, note.y)).is_none());
+    }
+
+    #[test]
+    fn a_tick_selects_its_page() {
+        let score = score_song();
+        let engraved = score::engrave(
+            &score,
+            project::TrackId::new(1).expect("valid"),
+            Settings::default(),
+        );
+        assert_eq!(page_at_tick(&engraved, 0), Some(0));
+        assert!(page_at_tick(&engraved, 10_000_000).is_none());
     }
 
     #[test]
