@@ -36,8 +36,28 @@ pub fn show(
     song: &Song,
     position: Tick,
     selected: Option<TrackId>,
+    zoom: f32,
 ) -> (RollOutcome, Option<TrackId>) {
-    let width = ui.available_width().max(420.0);
+    let bar = song.time_signature.bar_ticks().max(1);
+    let bars = ((song.end_tick().max(bar * 8) + bar - 1) / bar).max(8);
+    let width =
+        (LABEL_WIDTH + bars as f32 * 100.0 * zoom.clamp(0.5, 3.0)).max(ui.available_width());
+    let mut result = (RollOutcome::default(), None);
+    egui::ScrollArea::horizontal()
+        .id_salt("timeline-scroll")
+        .show(ui, |ui| {
+            result = draw(ui, song, position, selected, width);
+        });
+    result
+}
+
+fn draw(
+    ui: &mut egui::Ui,
+    song: &Song,
+    position: Tick,
+    selected: Option<TrackId>,
+    width: f32,
+) -> (RollOutcome, Option<TrackId>) {
     let tracks = song.tracks.len().max(1);
     let height = RULER_HEIGHT + CHORD_HEIGHT + tracks as f32 * LANE_HEIGHT;
     let (response, painter) = ui.allocate_painter(vec2(width, height), Sense::click());
@@ -252,7 +272,7 @@ mod tests {
         let _ = context.run(egui::RawInput::default(), |context| {
             egui::CentralPanel::default().show(context, |ui| {
                 let song = arranging::demo::demo_song();
-                let _ = show(ui, &song, 0, None);
+                let _ = show(ui, &song, 0, None, 1.0);
                 ran = true;
             });
         });

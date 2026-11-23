@@ -115,3 +115,4 @@ For the clef layout, choose either four measures per system without clefs
 - Right inspector now spans the full height; mixer ends at its edge so the master fader no longer sits under the inspector; chat pinned to the panel bottom (`docs/audit/ui-chat-panel.png`).
 - Mixer faders use one fixed-height custom widget for tracks and master; tooltips delay 0.6 s (`docs/audit/ui-master-fader.png`).
 - Inspector channel picker moves all track notes to a channel as one undoable edit (`docs/audit/ui-channel.png`).
+- Timeline scrolls horizontally and header +/- zooms it (`docs/audit/ui-timeline-scroll.png`).

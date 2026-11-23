@@ -560,6 +560,7 @@ pub struct ShellApp {
     about_open: bool,
     mixer_visible: bool,
     timeline_mode: bool,
+    timeline_zoom: f32,
     inspector_name_track: Option<TrackId>,
     inspector_name: String,
     device_profiles: Vec<midi_devices::profiles::LoadedProfile>,
@@ -816,6 +817,7 @@ impl ShellApp {
             about_open: initial_window == "about",
             mixer_visible: true,
             timeline_mode: true,
+            timeline_zoom: 1.0,
             inspector_name_track: None,
             inspector_name: String::new(),
             device_profiles: load_device_profiles(),
@@ -7193,8 +7195,13 @@ impl ShellApp {
                             })
                             .clicked()
                         {
-                            self.roll.ticks_per_point =
-                                (self.roll.ticks_per_point * direction).clamp(2.0, 64.0);
+                            if self.view == View::Arrange && self.timeline_mode {
+                                self.timeline_zoom =
+                                    (self.timeline_zoom * direction).clamp(0.5, 3.0);
+                            } else {
+                                self.roll.ticks_per_point =
+                                    (self.roll.ticks_per_point * direction).clamp(2.0, 64.0);
+                            }
                         }
                     }
                 }
@@ -7961,6 +7968,7 @@ impl eframe::App for ShellApp {
                 let mut lyric_click: Option<Tick> = None;
                 let mut seek: Option<Tick> = None;
                 let timeline_mode = self.timeline_mode;
+                let timeline_zoom = self.timeline_zoom;
                 let Self { editor, roll, .. } = self;
                 let project = editor.project();
                 match view {
@@ -8070,7 +8078,7 @@ impl eframe::App for ShellApp {
                         }
                         let selected_clips = self.selected_clips.clone();
                         let (outcome, timeline_track) = if timeline_mode {
-                            crate::timeline::show(ui, &project.song, position, roll.selected)
+                            crate::timeline::show(ui, &project.song, position, roll.selected, timeline_zoom)
                         } else {
                             (
                                 piano_roll::show(
