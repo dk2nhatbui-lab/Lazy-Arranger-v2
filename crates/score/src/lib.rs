@@ -30,6 +30,8 @@ pub struct Settings {
     pub quarter_width: f32,
     /// Gap between measures.
     pub measure_gap: f32,
+    /// Lay the track out on treble and bass staves, splitting at middle C.
+    pub grand_staff: bool,
 }
 
 impl Default for Settings {
@@ -42,6 +44,7 @@ impl Default for Settings {
             system_gap: 110.0,
             quarter_width: 28.0,
             measure_gap: 18.0,
+            grand_staff: false,
         }
     }
 }
@@ -213,6 +216,8 @@ pub struct Engraved {
     pub beams: Vec<Beam>,
     /// Tuplet brackets.
     pub tuplets: Vec<Tuplet>,
+    /// One staff, or two for a grand staff.
+    pub staves: usize,
 }
 
 impl Engraved {
@@ -479,6 +484,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
             lyric.y = system.y + 4.0 * settings.staff_space + 12.0;
         }
     }
+    let grand = settings.grand_staff;
     for note in &mut notes {
         let system = pages.get(note.page).and_then(|page| {
             page.systems.iter().find(|system| {
@@ -491,6 +497,9 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         if let Some(system) = system {
             let step = (f64::from(note.pitch.as_u8()) - 60.0) / 2.0;
             note.y = system.y - (step as f32) * settings.staff_space;
+            if grand && note.pitch.as_u8() < 60 {
+                note.y += 6.0 * settings.staff_space;
+            }
         }
     }
     let (beams, tuplets) = beams_and_tuplets(&notes);
@@ -504,6 +513,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         marks: placed_marks,
         beams,
         tuplets,
+        staves: if settings.grand_staff { 2 } else { 1 },
     }
 }
 
@@ -545,6 +555,7 @@ mod tests {
             system_gap: 60.0,
             quarter_width: 20.0,
             measure_gap: 8.0,
+            grand_staff: false,
         }
     }
 
@@ -841,5 +852,71 @@ mod notation_tests {
         assert_eq!(engraved.tuplets.len(), 1);
         assert_eq!(engraved.tuplets[0].count, 3);
         assert!(engraved.beams.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod grand_staff_tests {
+    use super::*;
+    use music_core::{Channel, PPQ, Pitch, Velocity};
+    use project::TrackId;
+    use project::song::{Note, Song, Track};
+
+    fn piano() -> Song {
+        let mut song = Song::new("Grand", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for (index, name) in ["C4", "A3"].iter().enumerate() {
+            track.notes.push(Note {
+                id: project::NoteId::new(index as u32 + 1).expect("valid"),
+                start: index as i64 * PPQ,
+                duration: PPQ,
+                pitch: Pitch::from_name(name).expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        song
+    }
+
+    #[test]
+    fn a_grand_staff_splits_at_middle_c_and_offsets_bass_notes() {
+        let song = piano();
+        let settings = Settings {
+            grand_staff: true,
+            ..Settings::default()
+        };
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), settings);
+        assert_eq!(engraved.staves, 2);
+        let treble = engraved
+            .notes
+            .iter()
+            .find(|note| note.pitch.as_u8() == 60)
+            .expect("treble");
+        let bass = engraved
+            .notes
+            .iter()
+            .find(|note| note.pitch.as_u8() == 57)
+            .expect("bass");
+        assert!(
+            (bass.y - treble.y - 7.5 * settings.staff_space).abs() < 0.001,
+            "bass sits seven and a half staff spaces lower"
+        );
+        let single = engrave(
+            &song,
+            TrackId::new(1).expect("valid"),
+            Settings {
+                grand_staff: false,
+                ..Settings::default()
+            },
+        );
+        assert_eq!(single.staves, 1);
+        assert!(
+            single
+                .notes
+                .iter()
+                .all(|note| (note.y - treble.y).abs() <= 2.0 * settings.staff_space),
+            "single staff keeps both notes around one staff"
+        );
     }
 }

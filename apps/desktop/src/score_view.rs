@@ -95,6 +95,24 @@ pub fn show(ui: &mut Ui, engraved: &Engraved, page: usize, zoom: f32) -> ScoreOu
                     Stroke::new(0.8_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
                 );
             }
+            if engraved.staves == 2 {
+                for line in 4..=8 {
+                    let y = origin.y + staff_line_y(system.y, line, settings, zoom);
+                    let left = origin.x + settings.margin * zoom;
+                    let right = page_rect.max.x - settings.margin * zoom;
+                    painter.line_segment(
+                        [Pos2::new(left, y), Pos2::new(right, y)],
+                        Stroke::new(0.8_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
+                    );
+                }
+                let left = origin.x + settings.margin * zoom - 10.0 * zoom;
+                let top = origin.y + staff_line_y(system.y, 0, settings, zoom);
+                let bottom = origin.y + staff_line_y(system.y, 8, settings, zoom);
+                painter.line_segment(
+                    [Pos2::new(left, top), Pos2::new(left, bottom)],
+                    Stroke::new(1.6_f32, Color32::from_rgb(0x14, 0x14, 0x14)),
+                );
+            }
             let top = origin.y + staff_line_y(system.y, 0, settings, zoom);
             let bottom = origin.y + staff_line_y(system.y, 4, settings, zoom);
             for measure in &system.measures {

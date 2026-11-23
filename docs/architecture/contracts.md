@@ -218,3 +218,11 @@ runs become a beam (a second line joins sixteenths), and runs of exactly three
 equal notes whose duration triples to a quarter or eighth become a tuplet
 bracket with its count. The canvas draws both. Slurs and articulations are not
 implemented.
+
+### Grand staff
+
+`Settings.grand_staff` splits a track at middle C: notes below MIDI 60 sit on a
+second schematic staff 7.5 staff spaces below the first, and the canvas draws
+five more lines plus a brace. The split is not a true clef layout; the PDF
+renderer and score click editing still assume one staff, so both remain
+single-staff.

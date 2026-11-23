@@ -127,6 +127,7 @@ pub struct ShellApp {
     score_entry: bool,
     score_page: usize,
     score_zoom: f32,
+    score_grand: bool,
     rename_scene: Option<usize>,
     rename_scene_input: String,
     last_bar: i64,
@@ -220,6 +221,7 @@ impl ShellApp {
             score_entry: false,
             score_page: 0,
             score_zoom: 1.0,
+            score_grand: false,
             rename_scene: None,
             rename_scene_input: String::new(),
             last_bar: 0,
@@ -2386,6 +2388,7 @@ impl eframe::App for ShellApp {
                     View::Score => {
                         ui.horizontal(|ui| {
                             ui.checkbox(&mut self.score_entry, "Note entry");
+                            ui.checkbox(&mut self.score_grand, "Grand staff");
                             if ui.button("◀ Page").clicked() {
                                 self.score_page = self.score_page.saturating_sub(1);
                             }
@@ -2402,8 +2405,11 @@ impl eframe::App for ShellApp {
                             .selected
                             .or_else(|| project.song.tracks.first().map(|track| track.id))
                         {
-                            let engraved =
-                                score::engrave(&project.song, track, score::Settings::default());
+                            let score_settings = score::Settings {
+                                grand_staff: self.score_grand,
+                                ..score::Settings::default()
+                            };
+                            let engraved = score::engrave(&project.song, track, score_settings);
                             self.score_page =
                                 crate::score_view::clamp_page(&engraved, self.score_page);
                             let zoom = self.score_zoom;

@@ -333,6 +333,7 @@ mod tests {
             staff_space: 6.0,
             system_gap: 60.0,
             quarter_width: 20.0,
+            grand_staff: false,
             measure_gap: 8.0,
         }
     }
