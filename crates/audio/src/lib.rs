@@ -109,6 +109,11 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
     let duration = song.tempo_map.duration_seconds(0, end_tick.max(1)) + 0.75;
     let frames = (duration * f64::from(sample_rate)).ceil() as usize;
     let mut samples = vec![0.0_f32; frames * usize::from(CHANNELS)];
+    let mut bus_buffers: Vec<Vec<f32>> = song
+        .buses
+        .iter()
+        .map(|_| vec![0.0_f32; frames * usize::from(CHANNELS)])
+        .collect();
 
     for track in song.tracks.iter().filter(|track| song.is_audible(track)) {
         let timbre = timbre_for(track);
@@ -135,8 +140,35 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
                 let value = (sample(timbre, frequency, t, note_seconds, note.pitch.as_u8())
                     * amplitude
                     * envelope) as f32;
-                samples[frame * 2] += value * left_gain;
-                samples[frame * 2 + 1] += value * right_gain;
+                let left = value * left_gain;
+                let right = value * right_gain;
+                if let Some(index) = track
+                    .bus
+                    .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
+                {
+                    bus_buffers[index][frame * 2] += left;
+                    bus_buffers[index][frame * 2 + 1] += right;
+                } else {
+                    samples[frame * 2] += left;
+                    samples[frame * 2 + 1] += right;
+                }
+                if let Some(index) = track
+                    .send
+                    .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
+                {
+                    let level = f32::from(track.send_level.min(127)) / 100.0;
+                    bus_buffers[index][frame * 2] += left * level;
+                    bus_buffers[index][frame * 2 + 1] += right * level;
+                }
+            }
+        }
+    }
+    for (index, bus) in song.buses.iter().enumerate() {
+        let (left_gain, right_gain) = gains(f32::from(bus.volume), bus.pan);
+        if let Some(buffer) = bus_buffers.get(index) {
+            for (frame, pair) in buffer.chunks(2).enumerate() {
+                samples[frame * 2] += pair[0] * left_gain;
+                samples[frame * 2 + 1] += pair[1] * right_gain;
             }
         }
     }
@@ -158,8 +190,17 @@ pub fn frequency(pitch: Pitch) -> f64 {
 /// Left and right gains for a track's fader and pan at a tick.
 #[must_use]
 pub fn gains_at(track: &project::song::Track, tick: music_core::Tick) -> (f32, f32) {
-    let volume = track.volume_at(tick).min(127.0) / 100.0;
-    let pan = track.pan_at(tick).clamp(0.0, 127.0) as u8;
+    gains(
+        track.volume_at(tick),
+        track.pan_at(tick).clamp(0.0, 127.0) as u8,
+    )
+}
+
+/// Left and right gains for a volume and pan.
+#[must_use]
+pub fn gains(volume: f32, pan: u8) -> (f32, f32) {
+    let volume = volume.min(127.0) / 100.0;
+    let pan = pan.min(127);
     let left = if pan <= 64 {
         1.0
     } else {
@@ -420,6 +461,59 @@ mod tests {
         let second_frame = rendered.samples[(24_000 + 1000) * 2].abs();
         assert!(first > 0.001, "first note sounds");
         assert!(second_frame < first * 0.5, "fade reached the second note");
+    }
+
+    #[test]
+    fn buses_and_sends_change_the_mix() {
+        use project::song::Bus;
+        let mut song = song_with_note();
+        song.buses.push(Bus::new(1, "Reverb"));
+        song.tracks[0].bus = Some(1);
+        let routed = render(&song, SAMPLE_RATE);
+        assert!(routed.samples.iter().any(|sample| sample.abs() > 0.001));
+        song.buses[0].volume = 0;
+        let silent = render(&song, SAMPLE_RATE);
+        assert!(
+            silent.samples.iter().all(|sample| sample.abs() < 1.0e-6),
+            "zero bus fader silences the track"
+        );
+
+        let mut sent = song_with_note();
+        sent.buses.push(Bus::new(1, "Reverb"));
+        sent.tracks[0].send = Some(1);
+        sent.tracks[0].send_level = 100;
+        let with_send = render(&sent, SAMPLE_RATE);
+        let dry = render(&song_with_note(), SAMPLE_RATE);
+        let peak = |audio: &RenderedAudio| {
+            audio
+                .samples
+                .iter()
+                .fold(0.0_f32, |peak, sample| peak.max(sample.abs()))
+        };
+        assert!(peak(&with_send) > peak(&dry), "a send adds the wet copy");
+    }
+
+    #[test]
+    fn a_bus_pan_places_its_tracks() {
+        use project::song::Bus;
+        let mut song = song_with_note();
+        let mut bus = Bus::new(1, "Left");
+        bus.pan = 127;
+        song.buses.push(bus);
+        song.tracks[0].bus = Some(1);
+        let rendered = render(&song, SAMPLE_RATE);
+        assert!(
+            rendered
+                .samples
+                .chunks(2)
+                .all(|frame| frame[0].abs() < 1.0e-6)
+        );
+        assert!(
+            rendered
+                .samples
+                .chunks(2)
+                .any(|frame| frame[1].abs() > 0.001)
+        );
     }
 
     #[test]

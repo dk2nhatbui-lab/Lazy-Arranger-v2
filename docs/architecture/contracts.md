@@ -704,3 +704,13 @@ for the selected audio track and offers "Trim 1 beat", which moves start and
 in-point together and shortens the reference through `SetAudioRef` (one undo
 step). `audio_ref::set_length` changes the span. Recording, monitoring, fades,
 takes and stretching remain missing.
+
+### Buses and sends
+
+Schema v13 adds `Song.buses` (volume and pan per bus) and track routing: `Track.bus`
+is the destination bus (none means master), and `Track.send` with `send_level`
+adds a copy of the track to another bus. The render accumulates each bus's own
+buffer, then sums it through the bus fader and pan, so a zero bus fader silences
+routed tracks and a bus pan moves them. The Mix view lists bus faders and a
+routing picker per track. There is no reverb/chorus processing, no send-level
+control in the UI and no master effects.

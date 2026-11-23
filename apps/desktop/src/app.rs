@@ -871,6 +871,38 @@ impl ShellApp {
             ui.label(egui::RichText::new("No tracks to mix.").color(theme::TEXT_MUTED));
             return;
         }
+        let buses = self.song().buses.clone();
+        for bus in &buses {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("BUS {}", bus.name))
+                        .size(11.0)
+                        .color(theme::ACCENT),
+                );
+                let mut level = i32::from(bus.volume);
+                if ui
+                    .add(egui::Slider::new(&mut level, 0..=127).text("vol"))
+                    .changed()
+                {
+                    let mut updated = buses.clone();
+                    if let Some(target) = updated.iter_mut().find(|entry| entry.id == bus.id) {
+                        target.volume = u8::try_from(level).unwrap_or(bus.volume);
+                    }
+                    let _ = self.editor.set_buses(updated);
+                }
+                let mut position = i32::from(bus.pan);
+                if ui
+                    .add(egui::Slider::new(&mut position, 0..=127).text("pan"))
+                    .changed()
+                {
+                    let mut updated = buses.clone();
+                    if let Some(target) = updated.iter_mut().find(|entry| entry.id == bus.id) {
+                        target.pan = u8::try_from(position).unwrap_or(bus.pan);
+                    }
+                    let _ = self.editor.set_buses(updated);
+                }
+            });
+        }
         for (id, name, volume, pan, muted, soloed) in strips {
             ui.horizontal(|ui| {
                 ui.label(
@@ -900,6 +932,34 @@ impl ShellApp {
                         volume,
                         u8::try_from(position).unwrap_or(pan),
                     );
+                }
+                let routing = self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|track| track.id == id)
+                    .map(|track| (track.bus, track.send, track.send_level))
+                    .unwrap_or((None, None, 100));
+                let mut bus_choice = routing.0;
+                egui::ComboBox::from_id_salt(format!("bus-{id}"))
+                    .selected_text(match bus_choice {
+                        Some(bus) => format!("Bus {bus}"),
+                        None => String::from("Master"),
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut bus_choice, None, "Master");
+                        for bus in &buses {
+                            ui.selectable_value(
+                                &mut bus_choice,
+                                Some(bus.id),
+                                format!("{} ({})", bus.name, bus.id),
+                            );
+                        }
+                    });
+                if bus_choice != routing.0 {
+                    let _ = self
+                        .editor
+                        .set_track_routing(id, bus_choice, routing.1, routing.2);
                 }
                 if ui.selectable_label(muted, "M").clicked() {
                     let _ = self.editor.set_track_flags(id, !muted, soloed, false);

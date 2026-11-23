@@ -83,6 +83,22 @@ pub enum Command {
         /// New arm state.
         armed: bool,
     },
+    /// Replace the mix buses.
+    SetBuses {
+        /// New buses.
+        buses: Vec<project::song::Bus>,
+    },
+    /// Set a track's bus routing and send.
+    SetTrackRouting {
+        /// The track.
+        track: TrackId,
+        /// Destination bus, or the master.
+        bus: Option<u8>,
+        /// Send bus.
+        send: Option<u8>,
+        /// Send level, 0..=127.
+        send_level: u8,
+    },
     /// Replace a track's audio reference.
     SetAudioRef {
         /// The track.
@@ -178,6 +194,8 @@ impl Command {
             Self::SetTrackGain { .. } => "set track gain",
             Self::SetAutomation { .. } => "set automation",
             Self::SetAudioRef { .. } => "set audio reference",
+            Self::SetBuses { .. } => "set buses",
+            Self::SetTrackRouting { .. } => "set track routing",
             Self::SetMarkers { .. } => "set markers",
             Self::SetSceneNames { .. } => "set scene names",
             Self::SetClips { .. } => "set clips",
@@ -665,6 +683,18 @@ impl EditSession {
                     map: self.song().tempo_map.clone(),
                 }
             }
+            Command::SetBuses { .. } => Command::SetBuses {
+                buses: self.song().buses.clone(),
+            },
+            Command::SetTrackRouting { track, .. } => {
+                let found = self.track(*track)?;
+                Command::SetTrackRouting {
+                    track: *track,
+                    bus: found.bus,
+                    send: found.send,
+                    send_level: found.send_level,
+                }
+            }
             Command::SetAudioRef { track, .. } => Command::SetAudioRef {
                 track: *track,
                 reference: self.track(*track)?.audio.clone(),
@@ -812,6 +842,20 @@ impl EditSession {
             Command::SetAudioRef { track, reference } => {
                 self.track_mut(*track)?.audio = reference.clone();
             }
+            Command::SetBuses { buses } => {
+                self.project.song.buses = buses.clone();
+            }
+            Command::SetTrackRouting {
+                track,
+                bus,
+                send,
+                send_level,
+            } => {
+                let target = self.track_mut(*track)?;
+                target.bus = *bus;
+                target.send = *send;
+                target.send_level = (*send_level).min(127);
+            }
             Command::SetTrackGain { track, volume, pan } => {
                 let target = self.track_mut(*track)?;
                 target.volume = (*volume).min(127);
@@ -887,6 +931,13 @@ fn describe(command: &Command) -> String {
         Command::SetAutomation { track, lanes } => {
             format!("track {track}: {} automation lane(s)", lanes.len())
         }
+        Command::SetBuses { buses } => format!("set {} bus(es)", buses.len()),
+        Command::SetTrackRouting {
+            track,
+            bus,
+            send,
+            send_level,
+        } => format!("track {track}: bus {bus:?}, send {send:?} at {send_level}"),
         Command::SetAudioRef { track, reference } => match reference {
             Some(reference) => format!(
                 "track {track}: audio {} from {} to {}",
@@ -1301,6 +1352,30 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn buses_and_routing_can_be_set_and_undone() {
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.apply(Command::SetBuses {
+            buses: vec![project::song::Bus::new(1, "Reverb")],
+        })
+        .expect("buses");
+        edit.apply(Command::SetTrackRouting {
+            track,
+            bus: Some(1),
+            send: Some(1),
+            send_level: 80,
+        })
+        .expect("routing");
+        assert_eq!(edit.song().buses.len(), 1);
+        assert_eq!(edit.song().tracks[0].bus, Some(1));
+        assert_eq!(edit.song().tracks[0].send_level, 80);
+        edit.undo().expect("undo routing");
+        assert_eq!(edit.song().tracks[0].bus, None);
+        edit.undo().expect("undo buses");
+        assert!(edit.song().buses.is_empty());
     }
 
     #[test]

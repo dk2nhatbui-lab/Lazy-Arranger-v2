@@ -113,7 +113,8 @@ the wider ~90-tool MCP surface.
 | Per-track keyboard program (schema v4) | `project`, `app-commands`, `mcp` | verified | migration, command, MCP tool; export honors it |
 | Mute / solo / arm (schema v5) | `project`, `app-commands`, `sequencer`, `audio` | verified | mix rules tested; render/sequencer honor them; M/S in the track list |
 | Track volume and pan (schema v8) | `project`, `audio`, `smf` export | verified | fader/pan render tests; CC 7/10 written; defaults omitted |
-| Mixer panel (per-track fader, pan, mute, solo) | `apps/desktop` | implemented | one undoable command per change; UI manual |
+| Mixer panel (per-track fader, pan, mute, solo, bus routing) | `apps/desktop` | implemented | bus strip and routing tests; UI manual |
+| Buses and sends (schema v13) | `project::song::Bus`, `audio` render, `app-commands` | verified | route/send/pan render tests; command undo; JSON round trip |
 | Volume and pan automation lanes (schema v9) | `project`, `audio`, `app-commands` | verified | interpolation/hold, per-note render, command undo |
 | Automation lane UI (click to add/remove volume points) | `apps/desktop/src/automation_view.rs` | implemented | mapping tests; UI manual |
 | Beat view (4 rows × 16 steps, velocity cycle, apply/undo) | `arranging::beat`, `apps/desktop` | verified core | 4 tests; B opens the grid |

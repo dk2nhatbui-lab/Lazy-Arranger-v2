@@ -567,6 +567,43 @@ impl Editor {
         Ok(copied)
     }
 
+    /// Replaces the mix buses.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the command is rejected.
+    pub fn set_buses(&mut self, buses: Vec<project::song::Bus>) -> Result<(), String> {
+        self.session
+            .apply(Command::SetBuses { buses })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Sets a track's bus routing and send.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the command is rejected.
+    pub fn set_track_routing(
+        &mut self,
+        track: TrackId,
+        bus: Option<u8>,
+        send: Option<u8>,
+        send_level: u8,
+    ) -> Result<(), String> {
+        self.session
+            .apply(Command::SetTrackRouting {
+                track,
+                bus,
+                send,
+                send_level,
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Trims the front of a track's audio reference.
     ///
     /// # Errors

@@ -205,6 +205,34 @@ impl Track {
     }
 }
 
+/// A mix bus.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Bus {
+    /// Identifier, unique in the song and referenced by tracks.
+    pub id: u8,
+    /// Display name.
+    pub name: String,
+    /// Fader level, 0..=127 with 100 as unity.
+    #[serde(default = "default_volume", skip_serializing_if = "is_default_volume")]
+    pub volume: u8,
+    /// Pan, 0 = hard left, 64 = centre, 127 = hard right.
+    #[serde(default = "default_pan", skip_serializing_if = "is_default_pan")]
+    pub pan: u8,
+}
+
+impl Bus {
+    /// Creates a bus at unity, centred.
+    #[must_use]
+    pub fn new(id: u8, name: impl Into<String>) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            volume: 100,
+            pan: 64,
+        }
+    }
+}
+
 /// A reference to an audio file placed on a track.
 ///
 /// The project stores the path and the span; the audio itself never lives in
@@ -286,6 +314,15 @@ pub struct Track {
     /// Pan, 0 = hard left, 64 = centre, 127 = hard right.
     #[serde(default = "default_pan", skip_serializing_if = "is_default_pan")]
     pub pan: u8,
+    /// Bus this track is routed to; none means the master.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bus: Option<u8>,
+    /// Bus that receives a copy of this track, as a send.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send: Option<u8>,
+    /// Send level, 0..=127 with 100 as unity.
+    #[serde(default = "default_volume", skip_serializing_if = "is_default_volume")]
+    pub send_level: u8,
     /// Reference to an audio file, for audio tracks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<AudioRef>,
@@ -352,6 +389,9 @@ impl Track {
             soloed: false,
             armed: false,
             automation: Vec::new(),
+            bus: None,
+            send: None,
+            send_level: 100,
             volume: 100,
             pan: 64,
             audio: None,
@@ -443,6 +483,9 @@ pub struct Song {
     /// Arranger intent, sorted by tick.
     #[serde(default)]
     pub arranger: Vec<ArrangerEvent>,
+    /// Mix buses.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub buses: Vec<Bus>,
     /// Score marks: dynamics and articulations.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub marks: Vec<Mark>,
@@ -678,6 +721,11 @@ impl ProjectFile {
                     // Version 12 adds an in-point to audio references; zero is
                     // the version 11 behaviour.
                     self.version = 12;
+                }
+                12 => {
+                    // Version 13 adds mix buses and track routing; no buses
+                    // means everything goes to the master, as in version 12.
+                    self.version = 13;
                 }
                 from => {
                     return Err(ProjectError::Migration {
@@ -934,6 +982,24 @@ mod tests {
         assert!(track.muted && track.soloed && track.armed);
         let text = project.to_json_pretty().expect("serialize");
         assert!(text.contains("\"muted\": true"));
+    }
+
+    #[test]
+    fn buses_and_routing_round_trip() {
+        let mut song = Song::new("Bus", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Pad");
+        track.bus = Some(1);
+        track.send = Some(1);
+        track.send_level = 40;
+        song.tracks.push(track);
+        song.buses.push(Bus::new(1, "Reverb"));
+        let text = ProjectFile::new(song).to_json_pretty().expect("serialize");
+        let back = ProjectFile::from_json(&text).expect("parse");
+        assert_eq!(back.song.buses[0].name, "Reverb");
+        assert_eq!(back.song.tracks[0].bus, Some(1));
+        assert_eq!(back.song.tracks[0].send_level, 40);
+        let empty = ProjectFile::new(Song::new("Empty", 120.0));
+        assert!(!empty.to_json_pretty().expect("serialize").contains("buses"));
     }
 
     #[test]
