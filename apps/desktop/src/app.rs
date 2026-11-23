@@ -3229,7 +3229,11 @@ impl ShellApp {
                                             egui::Sense::hover(),
                                         );
                                         ui.painter().rect_filled(meter, 1.0, theme::raised());
-                                        let level = track_level(track, self.position);
+                                        let level = if self.playing {
+                                            track_level(track, self.position)
+                                        } else {
+                                            0.0
+                                        };
                                         let fill = egui::Rect::from_min_max(
                                             egui::pos2(
                                                 meter.left(),
@@ -3252,11 +3256,15 @@ impl ShellApp {
                         }
                         let master_level = self.player.as_ref().map_or_else(
                             || {
-                                self.song()
-                                    .tracks
-                                    .iter()
-                                    .map(|track| track_level(track, self.position))
-                                    .fold(0.0_f32, f32::max)
+                                if self.playing {
+                                    self.song()
+                                        .tracks
+                                        .iter()
+                                        .map(|track| track_level(track, self.position))
+                                        .fold(0.0_f32, f32::max)
+                                } else {
+                                    0.0
+                                }
                             },
                             |player| player.meter().peak.clamp(0.0, 1.0),
                         );
@@ -5164,7 +5172,28 @@ impl ShellApp {
                             .size(9.0)
                             .color(theme::text_dim()),
                     );
-                    ui.checkbox(&mut self.settings.metronome, "Click on");
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.settings.metronome, "Click on");
+                        let (dots, _) = ui.allocate_exact_size(
+                            egui::vec2(52.0, 14.0),
+                            egui::Sense::hover(),
+                        );
+                        for beat in 0..4 {
+                            let centre = egui::pos2(
+                                dots.left() + 6.0 + beat as f32 * 13.0,
+                                dots.center().y,
+                            );
+                            ui.painter().circle_filled(
+                                centre,
+                                4.0,
+                                if beat == 0 {
+                                    theme::accent()
+                                } else {
+                                    theme::line_strong()
+                                },
+                            );
+                        }
+                    });
                     ui.add(
                         egui::Slider::new(&mut self.settings.metronome_accent, 0.0..=1.0)
                             .text("Accent"),
@@ -9014,8 +9043,12 @@ impl ShellApp {
                         .filter(|issue| issue.severity == project::Severity::Error)
                         .count();
                     let label = if errors == 0 {
+                        let midi = self.midi_input.as_ref().map_or_else(
+                            || String::from("No MIDI inputs"),
+                            |inputs| format!("{} MIDI input(s)", inputs.count()),
+                        );
                         format!(
-                            "schema v{}  ·  {} track(s)  ·  {notes} note(s)  ·  {}",
+                            "schema v{}  ·  {} track(s)  ·  {notes} note(s)  ·  {}  ·  {midi}",
                             self.editor.project().version,
                             self.song().tracks.len(),
                             audio_engine_label()
