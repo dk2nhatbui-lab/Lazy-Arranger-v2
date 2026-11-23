@@ -16,19 +16,8 @@ const LANE_HEIGHT: f32 = 54.0;
 /// Palette color for a track lane.
 #[must_use]
 pub fn lane_color(index: usize) -> Color32 {
-    LANE_COLORS[index % LANE_COLORS.len()]
+    theme::track_colour(index)
 }
-
-const LANE_COLORS: [Color32; 8] = [
-    Color32::from_rgb(232, 106, 74),
-    Color32::from_rgb(60, 140, 122),
-    Color32::from_rgb(181, 154, 90),
-    Color32::from_rgb(91, 127, 176),
-    Color32::from_rgb(123, 111, 168),
-    Color32::from_rgb(196, 132, 74),
-    Color32::from_rgb(92, 154, 98),
-    Color32::from_rgb(176, 96, 128),
-];
 
 /// Draws the timeline and returns the same outcome shape as the piano roll.
 pub fn show(

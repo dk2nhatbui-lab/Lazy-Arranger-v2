@@ -43,151 +43,151 @@ palette!(
         background,
         "Window background.",
         Color32::from_rgb(0x0b, 0x0d, 0x0f),
-        Color32::from_rgb(0xf2, 0xed, 0xe3)
+        Color32::from_rgb(0xe7, 0xe1, 0xd7)
     ),
     (
         panel,
         "Panels and list boxes.",
         Color32::from_rgb(0x12, 0x15, 0x18),
-        Color32::from_rgb(0xfa, 0xf6, 0xed)
+        Color32::from_rgb(0xf4, 0xef, 0xe7)
     ),
     (
         raised,
         "Raised surfaces: buttons, editors, menus.",
         Color32::from_rgb(0x1a, 0x1e, 0x22),
-        Color32::from_rgb(0xe7, 0xdf, 0xd2)
+        Color32::from_rgb(0xff, 0xfd, 0xf9)
     ),
     (
         line,
         "Separators and scrollbar thumbs.",
         Color32::from_rgb(0x23, 0x28, 0x2d),
-        Color32::from_rgb(0xd8, 0xcf, 0xc0)
+        Color32::from_rgb(0xdb, 0xd3, 0xc6)
     ),
     (
         line_strong,
         "Emphasised outlines.",
         Color32::from_rgb(0x35, 0x3c, 0x44),
-        Color32::from_rgb(0xb7, 0xad, 0x9d)
+        Color32::from_rgb(0xc3, 0xb9, 0xa9)
     ),
     (
         text,
         "Primary text.",
         Color32::from_rgb(0xee, 0xe9, 0xe1),
-        Color32::from_rgb(0x1b, 0x17, 0x13)
+        Color32::from_rgb(0x21, 0x1d, 0x18)
     ),
     (
         text_muted,
         "Secondary text.",
         Color32::from_rgb(0xa6, 0x9e, 0x93),
-        Color32::from_rgb(0x5f, 0x57, 0x4c)
+        Color32::from_rgb(0x6b, 0x62, 0x56)
     ),
     (
         text_dim,
         "Tertiary text.",
         Color32::from_rgb(0x6e, 0x69, 0x61),
-        Color32::from_rgb(0x85, 0x7b, 0x6d)
+        Color32::from_rgb(0x9a, 0x90, 0x81)
     ),
     (
         accent,
         "Selection, focus and caret.",
         Color32::from_rgb(0xfc, 0x72, 0x56),
-        Color32::from_rgb(0xc9, 0x4f, 0x34)
+        Color32::from_rgb(0xc2, 0x69, 0x1e)
     ),
     (
         accent_text,
         "Text on the accent.",
         Color32::from_rgb(0x1b, 0x12, 0x08),
-        Color32::from_rgb(0xff, 0xf8, 0xf2)
+        Color32::from_rgb(0xff, 0xff, 0xff)
     ),
     (
         playing,
         "Transport playing.",
         Color32::from_rgb(0x7e, 0xcb, 0x72),
-        Color32::from_rgb(0x3f, 0x7d, 0x3a)
+        Color32::from_rgb(0x4f, 0x9a, 0x43)
     ),
     (
         recording,
         "Recording.",
         Color32::from_rgb(0xdc, 0x7a, 0x6b),
-        Color32::from_rgb(0xb2, 0x3b, 0x2b)
+        Color32::from_rgb(0xbd, 0x55, 0x44)
     ),
     (
         timeline,
         "Timeline background.",
         Color32::from_rgb(0x0a, 0x0c, 0x0e),
-        Color32::from_rgb(0xea, 0xe3, 0xd7)
+        Color32::from_rgb(0xef, 0xe9, 0xdf)
     ),
     (
         lane,
         "Track lane.",
         Color32::from_rgb(0x10, 0x13, 0x16),
-        Color32::from_rgb(0xf5, 0xef, 0xe5)
+        Color32::from_rgb(0xf5, 0xf0, 0xe7)
     ),
     (
         lane_alt,
         "Alternating track lane.",
         Color32::from_rgb(0x13, 0x17, 0x1a),
-        Color32::from_rgb(0xee, 0xe7, 0xdb)
+        Color32::from_rgb(0xf0, 0xea, 0xe0)
     ),
     (
         lane_selected,
         "Selected track lane.",
         Color32::from_rgb(0x1b, 0x20, 0x25),
-        Color32::from_rgb(0xe1, 0xd7, 0xc7)
+        Color32::from_rgb(0xff, 0xfa, 0xf1)
     ),
     (
         grid_bar,
         "Bar grid line.",
         Color32::from_rgb(0x2b, 0x31, 0x38),
-        Color32::from_rgb(0xc4, 0xb9, 0xa8)
+        Color32::from_rgb(0xd4, 0xca, 0xbb)
     ),
     (
         grid_beat,
         "Beat grid line.",
         Color32::from_rgb(0x1d, 0x22, 0x27),
-        Color32::from_rgb(0xde, 0xd4, 0xc4)
+        Color32::from_rgb(0xe6, 0xde, 0xd2)
     ),
     (
         playhead,
         "Playhead.",
         Color32::from_rgb(0xe7, 0xbd, 0x86),
-        Color32::from_rgb(0xa8, 0x5a, 0x2f)
+        Color32::from_rgb(0xa3, 0x5a, 0x16)
     ),
     (
         lcd,
         "LCD face (the black surround and tab strip).",
         Color32::from_rgb(0x07, 0x09, 0x0a),
-        Color32::from_rgb(0x07, 0x09, 0x0a)
+        Color32::from_rgb(0x28, 0x23, 0x1d)
     ),
     (
         lcd_back,
         "LCD backlit plate, from `lcdBack`.",
         Color32::from_rgb(0xb3, 0xbb, 0xb0),
-        Color32::from_rgb(0xb3, 0xbb, 0xb0)
+        Color32::from_rgb(0xb7, 0xbe, 0xb4)
     ),
     (
         lcd_ink,
         "LCD ink for values, from `lcdInk`.",
         Color32::from_rgb(0x1d, 0x24, 0x1d),
-        Color32::from_rgb(0x1d, 0x24, 0x1d)
+        Color32::from_rgb(0x1f, 0x26, 0x1f)
     ),
     (
         lcd_dim,
         "LCD dim ink for labels and dividers, from `lcdDim`.",
         Color32::from_rgb(0x4d, 0x57, 0x4d),
-        Color32::from_rgb(0x4d, 0x57, 0x4d)
+        Color32::from_rgb(0x50, 0x5a, 0x50)
     ),
     (
         lcd_bezel,
         "LCD bezel, from `lcdBezel`.",
         Color32::from_rgb(0x2a, 0x2e, 0x2b),
-        Color32::from_rgb(0x2a, 0x2e, 0x2b)
+        Color32::from_rgb(0x2c, 0x30, 0x2d)
     ),
     (
         lcd_text,
         "LCD text.",
         Color32::from_rgb(0xf1, 0xec, 0xe4),
-        Color32::from_rgb(0xf1, 0xec, 0xe4)
+        Color32::from_rgb(0xf6, 0xf1, 0xe9)
     ),
 );
 
@@ -202,13 +202,13 @@ const DARK_TRACKS: [Color32; 7] = [
 ];
 
 const LIGHT_TRACKS: [Color32; 7] = [
-    Color32::from_rgb(0xc2, 0x4f, 0x35),
-    Color32::from_rgb(0x8a, 0x6f, 0x3f),
-    Color32::from_rgb(0x3f, 0x7a, 0x70),
-    Color32::from_rgb(0x4a, 0x6f, 0x96),
-    Color32::from_rgb(0x6d, 0x5a, 0x91),
-    Color32::from_rgb(0x5f, 0x7f, 0x4f),
-    Color32::from_rgb(0xc4, 0x6b, 0x68),
+    Color32::from_rgb(0xfc, 0x72, 0x56),
+    Color32::from_rgb(0xd9, 0xc1, 0x95),
+    Color32::from_rgb(0x43, 0x86, 0x78),
+    Color32::from_rgb(0x52, 0x7a, 0xa8),
+    Color32::from_rgb(0x7e, 0x6b, 0xa8),
+    Color32::from_rgb(0x63, 0x8a, 0x55),
+    Color32::from_rgb(0xfb, 0xa6, 0xa3),
 ];
 
 /// Colour for a track index, cycling through the current palette.
@@ -325,7 +325,7 @@ mod tests {
         assert_eq!(accent().to_array(), [0xfc, 0x72, 0x56, 0xff]);
         assert_eq!(playhead().to_array(), [0xe7, 0xbd, 0x86, 0xff]);
         set_light(true);
-        assert_eq!(background().to_array(), [0xf2, 0xed, 0xe3, 0xff]);
+        assert_eq!(background().to_array(), [0xe7, 0xe1, 0xd7, 0xff]);
         assert!(light());
         set_light(false);
         assert!(!light());
@@ -339,7 +339,8 @@ mod tests {
         assert_eq!(track_colour(8).to_array(), DARK_TRACKS[1].to_array());
         set_light(true);
         assert_eq!(track_colour(7), track_colour(0));
-        assert_ne!(track_colour(0).to_array(), [0xfc, 0x72, 0x56, 0xff]);
+        assert_eq!(track_colour(0).to_array(), [0xfc, 0x72, 0x56, 0xff]);
+        assert_eq!(track_colour(2).to_array(), [0x43, 0x86, 0x78, 0xff]);
         set_light(false);
     }
 
