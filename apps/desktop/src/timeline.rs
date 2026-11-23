@@ -189,6 +189,14 @@ fn draw(
         );
         tick += bar;
     }
+    let spelling = {
+        let key = score::spelling::detect_key(song);
+        if key.signature().iter().any(|alter| *alter < 0) {
+            music_core::Spelling::Flat
+        } else {
+            music_core::Spelling::Sharp
+        }
+    };
     for event in &song.chords {
         if event.tick > end {
             continue;
@@ -196,7 +204,7 @@ fn draw(
         painter.text(
             pos2(x_for(event.tick) + 3.0, rect.top() + RULER_HEIGHT + 4.0),
             Align2::LEFT_TOP,
-            event.chord.format(music_core::Spelling::Sharp),
+            event.chord.format(spelling),
             FontId::proportional(11.0),
             theme::text(),
         );

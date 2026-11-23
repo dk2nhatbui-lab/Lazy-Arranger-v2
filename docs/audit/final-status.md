@@ -141,3 +141,4 @@ For the clef layout, choose either four measures per system without clefs
 - Master strip uses the same custom fader height and a live player meter (`docs/audit/ui-master-meter.png`).
 - Status bar reports MIDI inputs; metronome has four beat dots; meters read empty while stopped (`docs/audit/ui-metronome-dots.png`).
 - Inspector edits song meter from a picker (`docs/audit/ui-meter-edit.png`).
+- Timeline chord lane follows the detected key's sharp/flat signature.
