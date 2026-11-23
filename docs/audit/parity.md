@@ -1,5 +1,5 @@
 ## Cross-check: Repeated Windows CI failures (2026-11-23)
-
+(to deepseek: remove this section when you’ve read it)
 **Priority:** High  
 **Status:** Needs investigation; root cause unconfirmed  
 **Scope:** GitHub Actions CI, not a feature implementation
