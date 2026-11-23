@@ -1209,6 +1209,45 @@ mod tests {
         assert!(difference > 0.01, "AU made no audible change");
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "loads the Apple dynamics Audio Unit"]
+    fn an_au_parameter_lane_changes_the_render() {
+        use project::song::{
+            Automation, AutomationPoint, AutomationTarget, PluginFormat, PluginSlot,
+        };
+        let mut song = song_with_note();
+        song.tracks[0].plugins.push(PluginSlot {
+            id: 1,
+            name: String::from("AUDynamicsProcessor"),
+            format: PluginFormat::AudioUnit,
+            path: String::new(),
+            identifier: String::from("appl:dcmp"),
+            bypassed: false,
+            state: String::new(),
+        });
+        song.tracks[0].automation.push(Automation {
+            target: AutomationTarget::PluginParam {
+                slot: 1,
+                parameter: 0,
+            },
+            points: vec![AutomationPoint {
+                tick: 0,
+                value: 0.0,
+            }],
+        });
+        let low = render(&song, SAMPLE_RATE);
+        song.tracks[0].automation[0].points[0].value = 127.0;
+        let high = render(&song, SAMPLE_RATE);
+        let difference: f32 = low
+            .samples
+            .iter()
+            .zip(&high.samples)
+            .map(|(left, right)| (left - right).abs())
+            .sum();
+        assert!(difference > 0.01, "AU parameter lane made no change");
+    }
+
     #[test]
     fn an_audio_reference_extends_the_buffer() {
         let mut song = song_with_note();
