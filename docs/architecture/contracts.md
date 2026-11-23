@@ -811,3 +811,7 @@ The canvas now draws chord symbols and guitar frames (previously PDF only) and
 percussion barlines around the one-line staff. `ARRANGER_VIEW=score` opens the
 Score view at startup for capture checks; `docs/audit/score-canvas.png` is the
 captured result.
+
+The Score canvas also draws the song title inside the page margin; the title is
+passed from the shell. `ARRANGER_VIEW` and the captured canvas are used for
+visual checks.

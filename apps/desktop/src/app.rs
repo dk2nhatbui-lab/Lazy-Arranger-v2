@@ -4160,6 +4160,11 @@ impl eframe::App for ShellApp {
                                 &engraved,
                                 page,
                                 zoom,
+                                if project.song.name.is_empty() {
+                                    "Lazy Arranger score"
+                                } else {
+                                    &project.song.name
+                                },
                                 &mut self.score_state,
                             );
                             if let Some(drag) = outcome.drag {

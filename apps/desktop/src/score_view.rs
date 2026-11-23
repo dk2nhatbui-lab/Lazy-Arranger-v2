@@ -129,6 +129,7 @@ pub fn show(
     engraved: &Engraved,
     page: usize,
     zoom: f32,
+    title: &str,
     state: &mut ScoreState,
 ) -> ScoreOutcome {
     let settings = Settings::default();
@@ -146,6 +147,16 @@ pub fn show(
     );
 
     let origin = page_rect.min;
+    painter.text(
+        Pos2::new(
+            page_rect.left() + settings.margin * zoom,
+            page_rect.top() + 6.0 * zoom,
+        ),
+        egui::Align2::LEFT_TOP,
+        title,
+        egui::FontId::proportional(12.0 * zoom),
+        Color32::from_rgb(0x14, 0x14, 0x14),
+    );
     if let Some(page) = engraved.pages.get(page_index) {
         for system in &page.systems {
             if engraved.percussion {
