@@ -1701,7 +1701,12 @@ impl ShellApp {
             {
                 self.position = region.0;
                 if let Some(buffer) = self.loop_buffer.clone()
-                    && let Ok(restart) = audio::player::Player::new(buffer)
+                    && let Ok(restart) = audio::player::Player::new_on(
+                        buffer,
+                        self.settings.audio_output.as_deref(),
+                        (self.settings.audio_buffer_frames > 0)
+                            .then_some(self.settings.audio_buffer_frames),
+                    )
                 {
                     restart.play();
                     self.player = Some(restart);
@@ -4431,12 +4436,32 @@ impl ShellApp {
                             .size(9.0)
                             .color(theme::text_dim()),
                     );
-                    ui.label(
-                        self.settings
-                            .audio_output
-                            .clone()
-                            .unwrap_or_else(audio_engine_label),
-                    );
+                    if let Some(player) = &self.player {
+                        let buffer = player.buffer_frames().map_or_else(
+                            || String::from("device buffer"),
+                            |frames| {
+                                format!(
+                                    "{frames} frames · {:.1} ms",
+                                    player.buffer_latency_ms().unwrap_or_default()
+                                )
+                            },
+                        );
+                        ui.label(format!(
+                            "{} · {} Hz · {buffer}",
+                            self.settings
+                                .audio_output
+                                .as_deref()
+                                .unwrap_or("Default output"),
+                            player.sample_rate()
+                        ));
+                    } else {
+                        ui.label(
+                            self.settings
+                                .audio_output
+                                .clone()
+                                .unwrap_or_else(audio_engine_label),
+                        );
+                    }
                     if ui.button("Audio and MIDI settings").clicked() {
                         self.settings_open = true;
                     }
@@ -5749,6 +5774,33 @@ impl ShellApp {
                                         }
                                     }
                                 });
+                        }
+                        ui.label("buffer");
+                        let mut frames = self.settings.audio_buffer_frames;
+                        egui::ComboBox::from_id_salt("audio-buffer")
+                            .selected_text(if frames == 0 {
+                                String::from("Default")
+                            } else {
+                                format!("{frames}")
+                            })
+                            .show_ui(ui, |ui| {
+                                for option in [0_u32, 128, 256, 512, 1024] {
+                                    let label = if option == 0 {
+                                        String::from("Default")
+                                    } else {
+                                        format!("{option}")
+                                    };
+                                    if ui
+                                        .selectable_label(frames == option, label)
+                                        .clicked()
+                                    {
+                                        frames = option;
+                                    }
+                                }
+                            });
+                        if frames != self.settings.audio_buffer_frames {
+                            self.settings.audio_buffer_frames = frames;
+                            let _ = self.settings.save(&crate::settings::Settings::path());
                         }
                     });
                     if ui.button("Check for updates").clicked() {
@@ -7144,7 +7196,12 @@ impl ShellApp {
             let to = self.song().tempo_map.seconds_at(end);
             let sliced = audio.slice(from, to);
             self.loop_buffer = Some(sliced.clone());
-            match audio::player::Player::new(sliced) {
+            match audio::player::Player::new_on(
+                sliced,
+                self.settings.audio_output.as_deref(),
+                (self.settings.audio_buffer_frames > 0)
+                    .then_some(self.settings.audio_buffer_frames),
+            ) {
                 Ok(player) => {
                     self.position = start;
                     self.stem_levels.clear();
@@ -7169,7 +7226,11 @@ impl ShellApp {
         } else {
             Vec::new()
         };
-        match audio::player::Player::new_on(audio, self.settings.audio_output.as_deref()) {
+        match audio::player::Player::new_on(
+            audio,
+            self.settings.audio_output.as_deref(),
+            (self.settings.audio_buffer_frames > 0).then_some(self.settings.audio_buffer_frames),
+        ) {
             Ok(player) => {
                 player.play();
                 self.stem_levels = stems;

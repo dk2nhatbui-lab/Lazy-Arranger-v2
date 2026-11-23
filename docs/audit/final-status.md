@@ -124,3 +124,4 @@ For the clef layout, choose either four measures per system without clefs
 - PSR-S970 remote panel sends voice/CC/chord auditions; hardware sends remain unverified (`docs/audit/psr-remote.png`).
 - Light palette and track colours now use the C++ Studio Paper token values (`docs/audit/ui-cpp-theme.png`).
 - Audio output device can be selected and is used by the playback player.
+- Audio settings choose output device and fixed buffer; inspector shows sample rate/frames/latency when playing (`docs/audit/audio-settings.png`).

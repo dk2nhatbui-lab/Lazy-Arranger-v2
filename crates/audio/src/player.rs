@@ -114,6 +114,8 @@ pub fn output_devices() -> Vec<String> {
 pub struct Player {
     stream: cpal::Stream,
     playback: Arc<Mutex<Playback>>,
+    sample_rate: u32,
+    buffer_frames: Option<u32>,
 }
 
 impl std::fmt::Debug for Player {
@@ -129,15 +131,19 @@ impl Player {
     ///
     /// Returns a message when no device or supported configuration exists.
     pub fn new(audio: RenderedAudio) -> Result<Self, String> {
-        Self::new_on(audio, None)
+        Self::new_on(audio, None, None)
     }
 
-    /// Opens a named output device, or the default when `name` is `None`.
+    /// Opens a named output device with an optional fixed buffer size.
     ///
     /// # Errors
     ///
     /// Returns a message when the device is missing or has no configuration.
-    pub fn new_on(audio: RenderedAudio, name: Option<&str>) -> Result<Self, String> {
+    pub fn new_on(
+        audio: RenderedAudio,
+        name: Option<&str>,
+        buffer_frames: Option<u32>,
+    ) -> Result<Self, String> {
         let host = cpal::default_host();
         let device = match name {
             Some(name) => {
@@ -170,9 +176,19 @@ impl Player {
         let playback = Arc::new(Mutex::new(Playback::new(audio)));
         let shared = Arc::clone(&playback);
         let error_callback = |error| eprintln!("audio stream error: {error}");
-        let stream = match config.sample_format() {
+        let sample_format = config.sample_format();
+        let mut stream_config: cpal::StreamConfig = config.into();
+        if let Some(frames) = buffer_frames {
+            stream_config.buffer_size = cpal::BufferSize::Fixed(frames.max(32));
+        }
+        let sample_rate = stream_config.sample_rate.0;
+        let actual_buffer = match stream_config.buffer_size {
+            cpal::BufferSize::Fixed(frames) => Some(frames),
+            cpal::BufferSize::Default => None,
+        };
+        let stream = match sample_format {
             cpal::SampleFormat::F32 => device.build_output_stream(
-                &config.into(),
+                &stream_config,
                 move |output: &mut [f32], _| {
                     if let Ok(mut state) = shared.lock() {
                         state.fill(output);
@@ -184,7 +200,7 @@ impl Player {
                 None,
             ),
             cpal::SampleFormat::I16 => device.build_output_stream(
-                &config.into(),
+                &stream_config,
                 move |output: &mut [i16], _| {
                     let mut scratch = vec![0.0_f32; output.len()];
                     if let Ok(mut state) = shared.lock() {
@@ -203,7 +219,31 @@ impl Player {
         stream
             .play()
             .map_err(|error| format!("could not start the stream: {error}"))?;
-        Ok(Self { stream, playback })
+        Ok(Self {
+            stream,
+            playback,
+            sample_rate,
+            buffer_frames: actual_buffer,
+        })
+    }
+
+    /// Output sample rate.
+    #[must_use]
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    /// Actual fixed output buffer size, when known.
+    #[must_use]
+    pub fn buffer_frames(&self) -> Option<u32> {
+        self.buffer_frames
+    }
+
+    /// Buffer duration in milliseconds, when known.
+    #[must_use]
+    pub fn buffer_latency_ms(&self) -> Option<f64> {
+        self.buffer_frames
+            .map(|frames| f64::from(frames) / f64::from(self.sample_rate.max(1)) * 1000.0)
     }
 
     /// Starts playback from the current position.
@@ -291,6 +331,7 @@ mod tests {
                 sample_rate: 48_000,
             },
             Some("lazy-arranger-no-such-device"),
+            None,
         )
         .expect_err("missing device");
         assert!(error.contains("no output named"), "{error}");

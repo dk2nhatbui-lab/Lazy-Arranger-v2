@@ -181,6 +181,8 @@ pub struct Settings {
     pub audio_input: Option<String>,
     /// Preferred audio output device.
     pub audio_output: Option<String>,
+    /// Fixed output buffer in frames; zero means the device default.
+    pub audio_buffer_frames: u32,
     /// Preferred MIDI output name for the MIDI out window.
     pub midi_output: Option<String>,
     /// Selected device-profile id for keyboard export.
@@ -241,6 +243,7 @@ impl Default for Settings {
             keyboard: None,
             audio_input: None,
             audio_output: None,
+            audio_buffer_frames: 0,
             midi_output: None,
             device_profile: None,
             metronome: false,
@@ -322,6 +325,9 @@ impl Settings {
                         Some(value.to_string())
                     };
                 }
+                "audio_buffer_frames" => {
+                    settings.audio_buffer_frames = value.parse::<u32>().unwrap_or(0).clamp(0, 4096);
+                }
                 "midi_output" => {
                     settings.midi_output = if value.is_empty() {
                         None
@@ -401,6 +407,10 @@ impl Settings {
         if let Some(output) = &self.audio_output {
             text.push_str(&format!("audio_output = {output}\n"));
         }
+        text.push_str(&format!(
+            "audio_buffer_frames = {}\n",
+            self.audio_buffer_frames
+        ));
         if let Some(output) = &self.midi_output {
             text.push_str(&format!("midi_output = {output}\n"));
         }
