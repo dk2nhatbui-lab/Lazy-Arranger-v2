@@ -413,6 +413,12 @@ fn style_preview_song(style: &arranger::style::Style) -> Result<project::Song, S
     Ok(song)
 }
 
+fn next_bar_seconds(now: f64, bar_seconds: f64) -> f64 {
+    (now / bar_seconds.max(0.001))
+        .floor()
+        .mul_add(bar_seconds, bar_seconds)
+}
+
 fn style_section_song(
     imported: &style_formats::ImportedStyle,
     section: usize,
@@ -748,6 +754,8 @@ pub struct ShellApp {
     style_section: usize,
     style_file_loop: bool,
     style_auto_load: bool,
+    style_queued_section: Option<usize>,
+    style_queue_at: f64,
     audio_style_open: bool,
     audio_style_path: String,
     audio_style_bpm: f64,
@@ -1031,6 +1039,8 @@ impl ShellApp {
             style_section: 0,
             style_file_loop: true,
             style_auto_load: std::env::var("ARRANGER_STYLE_FILE").is_ok(),
+            style_queued_section: None,
+            style_queue_at: 0.0,
             audio_style_open: std::env::var("ARRANGER_AUDIO_STYLE").is_ok(),
             audio_style_path: String::new(),
             audio_style_bpm: 120.0,
@@ -4096,6 +4106,43 @@ impl ShellApp {
         self.audio_style_open = open;
     }
 
+    fn audition_style_section(&mut self) {
+        match self.style_file_preview_song().and_then(|song| {
+            audio::player::Player::new(audio::render(&song, audio::SAMPLE_RATE))
+                .map_err(|error| error.to_string())
+        }) {
+            Ok(player) => {
+                player.play();
+                self.style_preview = Some(player);
+                self.status = Some(String::from("auditioning style section"));
+            }
+            Err(error) => self.status = Some(error),
+        }
+    }
+
+    fn queue_style_section(&mut self, index: usize) {
+        let Some(imported) = self.style_import.as_ref() else {
+            return;
+        };
+        let Some(player) = self.style_preview.as_ref() else {
+            self.style_section = index;
+            self.audition_style_section();
+            return;
+        };
+        if !player.is_playing() {
+            self.style_section = index;
+            self.audition_style_section();
+            return;
+        }
+        let bar_ticks = imported.time_signature.bar_ticks().max(1);
+        let seconds = 60.0 / (imported.tempo_bpm.max(30.0) * music_core::PPQ as f64);
+        let bar_seconds = bar_ticks as f64 * seconds;
+        let now = player.frame() as f64 / f64::from(audio::SAMPLE_RATE);
+        self.style_queued_section = Some(index);
+        self.style_queue_at = next_bar_seconds(now, bar_seconds);
+        self.status = Some(String::from("section queued at the next bar"));
+    }
+
     fn load_style_file(&mut self) {
         match std::fs::read(&self.style_file_path)
             .map_err(|error| error.to_string())
@@ -4123,6 +4170,7 @@ impl ShellApp {
             self.load_style_file();
         }
         let mut open = self.style_file_open;
+        let mut queue_choice = None;
         egui::Window::new("Style file player")
             .open(&mut open)
             .resizable(false)
@@ -4156,7 +4204,14 @@ impl ShellApp {
                     .selected_text(names[self.style_section])
                     .show_ui(ui, |ui| {
                         for (index, name) in names.iter().enumerate() {
-                            ui.selectable_value(&mut self.style_section, index, *name);
+                            if ui
+                                .selectable_label(self.style_section == index, *name)
+                                .clicked()
+                                && self.style_section != index
+                            {
+                                self.style_section = index;
+                                queue_choice = Some(index);
+                            }
                         }
                     });
                 ui.horizontal(|ui| {
@@ -4173,21 +4228,8 @@ impl ShellApp {
                 ));
                 ui.horizontal(|ui| {
                     if ui.button("Audition").clicked() {
-                        match self.style_file_preview_song() {
-                            Ok(song) => match audio::player::Player::new(audio::render(
-                                &song,
-                                audio::SAMPLE_RATE,
-                            )) {
-                                Ok(player) => {
-                                    player.play();
-                                    self.style_preview = Some(player);
-                                    self.status =
-                                        Some(String::from("auditioning style section"));
-                                }
-                                Err(error) => self.status = Some(error),
-                            },
-                            Err(error) => self.status = Some(error),
-                        }
+                        self.style_queued_section = None;
+                        self.audition_style_section();
                     }
                     if ui.button("Stop").clicked() {
                         self.style_preview = None;
@@ -4203,6 +4245,9 @@ impl ShellApp {
                 );
             });
         self.style_file_open = open;
+        if let Some(index) = queue_choice {
+            self.queue_style_section(index);
+        }
     }
 
     fn style_file_preview_song(&self) -> Result<project::Song, String> {
@@ -8796,7 +8841,17 @@ impl eframe::App for ShellApp {
             context.set_style(style);
         }
         self.handle_keys(context);
+        if let Some(index) = self.style_queued_section
+            && let Some(player) = &self.style_preview
+            && (!player.is_playing()
+                || player.frame() as f64 / f64::from(audio::SAMPLE_RATE) >= self.style_queue_at)
+        {
+            self.style_queued_section = None;
+            self.style_section = index;
+            self.audition_style_section();
+        }
         if self.style_file_loop
+            && self.style_queued_section.is_none()
             && let Some(player) = &self.style_preview
             && !player.is_playing()
         {
@@ -10827,6 +10882,14 @@ mod tests {
         quantise_recorded(&mut notes, music_core::PPQ / 4);
         assert_eq!(notes[0].start, 0);
         assert_eq!(notes[1].start, 960);
+    }
+
+    #[test]
+    fn style_section_queue_lands_on_the_next_bar() {
+        assert_eq!(next_bar_seconds(0.0, 2.0), 2.0);
+        assert_eq!(next_bar_seconds(1.9, 2.0), 2.0);
+        assert_eq!(next_bar_seconds(2.0, 2.0), 4.0);
+        assert_eq!(next_bar_seconds(5.2, 2.0), 6.0);
     }
 
     #[test]
