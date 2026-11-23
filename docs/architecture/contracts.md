@@ -455,3 +455,9 @@ MIDI uses each track's program and sends drum tracks to channel 10; the WAV mix
 includes audio references and reports problem count; stems write a manifest.
 One test writes all five into a temporary folder and checks non-empty files. The
 registry holds 55 tools.
+
+### Tempo in the Inspector
+
+The Inspector lists the first five tempo-map changes and offers a BPM field, a
+Current button (loads the playhead tempo) and Set at playhead
+(`Editor::set_tempo_at`, one command). The transport has no ruler or record arm.

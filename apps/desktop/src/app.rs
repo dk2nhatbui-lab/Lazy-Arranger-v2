@@ -133,6 +133,7 @@ pub struct ShellApp {
     lyrics_open: bool,
     lyric_text: String,
     lyric_selected: Option<Tick>,
+    tempo_input: f64,
     automation_target: project::song::AutomationTarget,
     l6max_folder: String,
     l6max_plan: Option<audio::l6max::Plan>,
@@ -252,6 +253,7 @@ impl ShellApp {
             lyrics_open: false,
             lyric_text: String::new(),
             lyric_selected: None,
+            tempo_input: 120.0,
             automation_target: project::song::AutomationTarget::Volume,
             l6max_folder: String::new(),
             l6max_plan: None,
@@ -1630,6 +1632,43 @@ impl ShellApp {
                         let value = enabled.then_some(number as u8);
                         if let Err(error) = self.editor.set_track_program(track_id, value) {
                             self.status = Some(error);
+                        }
+                    }
+                });
+                ui.separator();
+                ui.label(
+                    egui::RichText::new("Tempo changes")
+                        .size(10.0)
+                        .color(theme::TEXT_DIM),
+                );
+                for change in self.song().tempo_map.changes().iter().take(5) {
+                    ui.label(
+                        egui::RichText::new(format!("{} bpm at tick {}", change.bpm, change.tick))
+                            .size(10.0)
+                            .color(theme::TEXT_MUTED),
+                    );
+                }
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut self.tempo_input)
+                            .range(20.0..=300.0)
+                            .suffix(" bpm"),
+                    );
+                    if ui.small_button("Current").clicked() {
+                        self.tempo_input = self.song().tempo_map.bpm_at(self.position);
+                    }
+                    if ui.button("Set at playhead").clicked() {
+                        match self
+                            .editor
+                            .set_tempo_at(self.position.max(0), self.tempo_input)
+                        {
+                            Ok(()) => {
+                                self.status = Some(format!(
+                                    "tempo {:.1} bpm at {}",
+                                    self.tempo_input, self.position
+                                ));
+                            }
+                            Err(error) => self.status = Some(error),
                         }
                     }
                 });
