@@ -35,7 +35,7 @@ section below is a row, so nothing is skipped. Status: **verified**,
 | 26 | Zoom L6max mixer page and import | partial | `audio::l6max` scans a folder of takes, reads headers, flags the L6max's 32-bit float recordings, reports problems and imports each take as an audio track at a start tick; `l6max-import` did so for two synthetic takes (3.20 s, one float). No device project-file parsing, mixer page or transport control |
 | 27 | AI chat with subscriptions/keys, one-undo-step changes, proposal cards | partial | A local assistant panel and command layer (`mcp::assistant`) parses help/song/undo and `tool <name> {json}`, runs the existing 22 tools, logs replies and marks the project dirty only for changing calls; each tool call is one undo step. No model, network, subscriptions or keys, no proposal cards |
 | 28 | MCP server, ~90 tools | partial | Stdio JSON-RPC server with 22 tools (song, tracks, notes, chords, undo, doctor, grooves, forms, reharmonise, clip grid, slots, programs, automation, lyrics/marks, style catalog, theory) and save-after-call; `mcp-tools`/`mcp-call`. No socket transport, per-start secret or most of the ~90 target tools |
-| 29 | Speech in/out (Whisper, Kitten, Kokoro) | missing | — |
+| 29 | Speech in/out (Whisper, Kitten, Kokoro) | partial | Assistant replies can be spoken through the macOS `say` command (cleaned, length-bounded, optional voice) behind a settings toggle; other hosts fall back silently. No speech input, Whisper/Kitten/Kokoro models or waveform narration |
 | 30 | AI music tools (humanize, drumify, continue, write part, melody) | partial | Rule-based, seeded generators: humanise, drumify, bass/pad/arp parts, continue the last bars and a chord-following melody, each one undoable edit. Exposed by the `generate` CLI and MCP tool. No learned or model-based generation, UI or chat-driven tool use |
 | 31 | Theory: keys, roman numerals, scales, voice-leading, skill packs | partial | Nine scale modes, roman labels, cadence classification and voice-leading cost, as CLI and MCP tools; key detection in the score. No skill packs, graded lessons or theory panel |
 | 32 | Arranging help | partial | Arrangement Doctor (crowded bars, repeats) and Fit to My Synths (range octaves, polyphony removal, drum-kit warning) with proposal cards and undo. No A/B audition |
@@ -49,13 +49,13 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections at round 69: 0 fully verified beyond their Rust subset, 37 partial, 2 missing.
+39 sections at round 70: 0 fully verified beyond their Rust subset, 38 partial, 1 missing.
 The partials with the most depth are styles (open, import, compile, SFF1/SFF2 write), project files, the score layout/PDF path, audio references, the MIDI map and the MCP surface.
 
 ## State at round 60
 
 `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (438 tests) and
-`cargo doc` pass. The two missing sections are VST3/AU (§19) and speech (§29).
+`cargo doc` pass. The one missing section is VST3/AU (§19).
 Korg import, PSR style import, SoundFont loading, the L6max page (its 32-bit float audio
 recordings already decode), waveform audio editing,
 grand-staff/beam engraving, note entry, socket transport and a 90-tool MCP
@@ -71,6 +71,6 @@ unverified; CI builds and tests are the only continuous evidence.
 2. Waveform audio editing and recording takes (§8), then buses/sends/effects (§17).
 3. Korg import, PSR style import and SoundFont loading (§14, §20, §24).
 4. Grand staff, beams, tuplets and note entry in the score (§16).
-5. Speech and the socket transport (§29, §27).
+5. Speech input and the socket transport (§29, §27).
 6. Plugin hosting (§19), a synth editor UI and sysex (§22), an L6max mixer page
    and project-file parsing (§26).

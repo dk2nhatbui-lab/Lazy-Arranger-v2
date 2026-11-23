@@ -785,14 +785,27 @@ impl ShellApp {
                         }
                         let reply = self.editor.assistant(&input);
                         self.assistant_log.push(format!("> {input}"));
+                        if self.settings.speech
+                            && let Err(error) = crate::speech::speak(&reply.text)
+                        {
+                            self.status = Some(error);
+                        }
                         self.assistant_log.push(reply.text);
                         self.assistant_input.clear();
                     }
                 });
+                let mut speech = self.settings.speech;
+                if ui.checkbox(&mut speech, "Speak replies").changed() {
+                    self.settings.speech = speech;
+                    let _ = self.settings.save(&crate::settings::Settings::path());
+                }
                 ui.label(
-                    egui::RichText::new("Local commands over the same 22 tools; no network or model.")
-                        .size(9.0)
-                        .color(theme::TEXT_DIM),
+                    egui::RichText::new(
+                        "Local commands over the same 22 tools; no network or model.\
+                         Speech out uses the macOS say command; speech input is not implemented.",
+                    )
+                    .size(9.0)
+                    .color(theme::TEXT_DIM),
                 );
             });
         if !open {

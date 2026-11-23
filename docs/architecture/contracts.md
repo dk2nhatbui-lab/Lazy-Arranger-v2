@@ -749,3 +749,11 @@ tool through the same registry the server uses, and returns text, JSON and a
 `changed` flag. The shell's Assistant window logs requests and replies and marks
 the project dirty only when a call changed it. There is no model, network,
 subscription or key handling, and no proposal-card flow.
+
+### Speech output
+
+`apps/desktop/src/speech.rs` cleans reply text (no control characters, 240
+characters) and builds `say` arguments, optionally with a voice. The Assistant
+window has a "Speak replies" toggle stored as `speech` in settings; non-macOS
+hosts no-op. Speech input and any model-based speech (Whisper, Kitten, Kokoro)
+are not implemented, and audible output was not verified in this environment.
