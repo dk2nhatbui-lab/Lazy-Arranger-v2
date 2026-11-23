@@ -7,7 +7,9 @@
 #![allow(unsafe_code)]
 
 mod instance;
+mod vst3_instrument;
 pub use instance::Vst3Effect;
+pub use vst3_instrument::Vst3Instrument;
 
 #[cfg(target_os = "macos")]
 mod au;

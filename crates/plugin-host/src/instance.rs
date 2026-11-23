@@ -345,12 +345,12 @@ impl Drop for Vst3Effect {
     }
 }
 
-struct StreamState {
-    bytes: Vec<u8>,
+pub(crate) struct StreamState {
+    pub(crate) bytes: Vec<u8>,
     position: usize,
 }
 
-struct MemoryStream {
+pub(crate) struct MemoryStream {
     state: std::sync::Arc<std::sync::Mutex<StreamState>>,
 }
 
@@ -477,7 +477,23 @@ impl IBStreamTrait for MemoryStream {
     }
 }
 
-struct HostApplication;
+pub(crate) fn memory_stream_from_bytes(
+    bytes: &[u8],
+) -> (
+    ComWrapper<MemoryStream>,
+    std::sync::Arc<std::sync::Mutex<StreamState>>,
+) {
+    MemoryStream::from_bytes(bytes)
+}
+
+pub(crate) fn memory_stream() -> (
+    ComWrapper<MemoryStream>,
+    std::sync::Arc<std::sync::Mutex<StreamState>>,
+) {
+    MemoryStream::new()
+}
+
+pub(crate) struct HostApplication;
 
 impl Class for HostApplication {
     type Interfaces = (IHostApplication,);
@@ -506,7 +522,10 @@ impl IHostApplicationTrait for HostApplication {
     }
 }
 
-fn create<T: Interface>(factory: &ComPtr<IPluginFactory>, cid: &TUID) -> Result<ComPtr<T>, String> {
+pub(crate) fn create<T: Interface>(
+    factory: &ComPtr<IPluginFactory>,
+    cid: &TUID,
+) -> Result<ComPtr<T>, String> {
     let mut raw: *mut c_void = std::ptr::null_mut();
     let result =
         unsafe { factory.createInstance(cid.as_ptr().cast(), T::IID.as_ptr().cast(), &mut raw) };
@@ -516,7 +535,7 @@ fn create<T: Interface>(factory: &ComPtr<IPluginFactory>, cid: &TUID) -> Result<
     unsafe { ComPtr::from_raw(raw.cast()) }.ok_or_else(|| String::from("created instance was null"))
 }
 
-fn parse_cid(text: &str) -> Option<TUID> {
+pub(crate) fn parse_cid(text: &str) -> Option<TUID> {
     if text.len() != 32 {
         return None;
     }
@@ -527,7 +546,7 @@ fn parse_cid(text: &str) -> Option<TUID> {
     Some(cid)
 }
 
-fn vst3_binary(path: &Path) -> Option<PathBuf> {
+pub(crate) fn vst3_binary(path: &Path) -> Option<PathBuf> {
     let macos = path.join("Contents").join("MacOS");
     let stem = path
         .file_stem()

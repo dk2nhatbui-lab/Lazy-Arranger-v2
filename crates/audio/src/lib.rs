@@ -342,38 +342,77 @@ pub fn render_with_soundfont(
     }
 }
 
-#[cfg(target_os = "macos")]
-fn instrument_for(
-    track: &project::song::Track,
-    sample_rate: u32,
-) -> Option<plugin_host::AuInstrument> {
+enum TrackInstrument {
+    Vst3(plugin_host::Vst3Instrument),
+    #[cfg(target_os = "macos")]
+    Au(plugin_host::AuInstrument),
+}
+
+impl TrackInstrument {
+    fn note_on_at(&mut self, key: u8, velocity: u8, offset: u32) {
+        match self {
+            Self::Vst3(instrument) => instrument.note_on_at(key, velocity, offset),
+            #[cfg(target_os = "macos")]
+            Self::Au(instrument) => instrument.note_on_at(key, velocity, offset),
+        }
+    }
+
+    fn note_off_at(&mut self, key: u8, offset: u32) {
+        match self {
+            Self::Vst3(instrument) => instrument.note_off_at(key, offset),
+            #[cfg(target_os = "macos")]
+            Self::Au(instrument) => instrument.note_off_at(key, offset),
+        }
+    }
+
+    fn process_block(&mut self, left: &mut [f32], right: &mut [f32]) -> Result<(), String> {
+        match self {
+            Self::Vst3(instrument) => instrument.process_block(left, right),
+            #[cfg(target_os = "macos")]
+            Self::Au(instrument) => instrument.process_block(left, right),
+        }
+    }
+}
+
+fn instrument_for(track: &project::song::Track, sample_rate: u32) -> Option<TrackInstrument> {
     for slot in &track.plugins {
-        if slot.bypassed
-            || slot.format != project::song::PluginFormat::AudioUnit
-            || slot.identifier.is_empty()
-        {
+        if slot.bypassed || slot.identifier.is_empty() {
             continue;
         }
-        if let Ok(instrument) =
-            plugin_host::AuInstrument::new(&slot.identifier, f64::from(sample_rate))
-        {
-            instrument.apply_state(&slot.state);
-            return Some(instrument);
+        match slot.format {
+            project::song::PluginFormat::Vst3 => {
+                if let Ok(mut instrument) = plugin_host::Vst3Instrument::new(
+                    std::path::Path::new(&slot.path),
+                    &slot.identifier,
+                    f64::from(sample_rate),
+                    512,
+                ) {
+                    if !slot.state.is_empty() {
+                        let _ = instrument.load_state_base64(&slot.state);
+                    }
+                    return Some(TrackInstrument::Vst3(instrument));
+                }
+            }
+            #[cfg(target_os = "macos")]
+            project::song::PluginFormat::AudioUnit => {
+                if let Ok(instrument) =
+                    plugin_host::AuInstrument::new(&slot.identifier, f64::from(sample_rate))
+                {
+                    instrument.apply_state(&slot.state);
+                    return Some(TrackInstrument::Au(instrument));
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            project::song::PluginFormat::AudioUnit => {}
         }
     }
     None
 }
 
-#[cfg(not(target_os = "macos"))]
-fn instrument_for(_track: &project::song::Track, _sample_rate: u32) -> Option<()> {
-    None
-}
-
-#[cfg(target_os = "macos")]
 fn render_instrument(
     song: &Song,
     track: &project::song::Track,
-    instrument: &mut plugin_host::AuInstrument,
+    instrument: &mut TrackInstrument,
     buffer: &mut [f32],
     frames: usize,
     sample_rate: u32,
@@ -438,7 +477,7 @@ fn render_instrument(
         position += block;
     }
     for note in &track.notes {
-        instrument.note_off(note.pitch.as_u8());
+        instrument.note_off_at(note.pitch.as_u8(), 0);
     }
 }
 
@@ -712,6 +751,36 @@ mod tests {
             .map(|(wet, dry)| (wet - dry).abs())
             .sum();
         assert!(difference > 0.01, "plugin made no audible change");
+    }
+
+    #[test]
+    #[ignore = "loads the installed LABS VST3 instrument"]
+    fn a_vst3_instrument_slot_replaces_the_builtin_synth() {
+        use project::song::{PluginFormat, PluginSlot};
+        let bundle = std::path::Path::new("/Library/Audio/Plug-Ins/VST3/LABS.vst3");
+        let Ok(classes) = plugin_host::scan_vst3(bundle) else {
+            return;
+        };
+        let mut song = song_with_note();
+        song.tracks[0].plugins.push(PluginSlot {
+            id: 1,
+            name: String::from("LABS"),
+            format: PluginFormat::Vst3,
+            path: bundle.display().to_string(),
+            identifier: classes[0].cid.clone(),
+            bypassed: false,
+            state: String::new(),
+        });
+        let instrument = render(&song, SAMPLE_RATE);
+        song.tracks[0].plugins.clear();
+        let builtin = render(&song, SAMPLE_RATE);
+        let difference: f32 = instrument
+            .samples
+            .iter()
+            .zip(&builtin.samples)
+            .map(|(instrument, builtin)| (instrument - builtin).abs())
+            .sum();
+        assert!(difference > 0.01, "VST3 instrument path was not used");
     }
 
     #[cfg(target_os = "macos")]
