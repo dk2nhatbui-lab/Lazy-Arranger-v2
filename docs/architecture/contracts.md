@@ -702,3 +702,10 @@ channel 10 for drums) and writes `smf::keyboard::export`; `export_musicxml_file`
 writes `musicxml::export`. The sidebar Export MIDI / Export XML buttons open the
 file window in export mode. A test writes both, audits the MIDI header and
 re-imports the MusicXML with matching track count.
+
+### WAV export from the shell
+
+`export_wav_file` renders at `SAMPLE_RATE`, mixes audio references and writes a
+24-bit WAV, returning duration and problem count. The sidebar Export WAV button
+opens the file window. A test checks the RIFF/format/bits header and non-empty
+frames.

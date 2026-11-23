@@ -90,6 +90,8 @@ pub enum FileMode {
     ExportMidi,
     /// Export the song as MusicXML.
     ExportMusicXml,
+    /// Export the mixed song as a WAV.
+    ExportWav,
 }
 
 pub struct ShellApp {
@@ -773,6 +775,7 @@ impl ShellApp {
             FileMode::ImportAudio => "Import audio",
             FileMode::ExportMidi => "Export MIDI",
             FileMode::ExportMusicXml => "Export MusicXML",
+            FileMode::ExportWav => "Export WAV",
         })
         .collapsible(false)
         .open(&mut open)
@@ -782,6 +785,7 @@ impl ShellApp {
                 FileMode::ImportAudio => "Path (.wav)",
                 FileMode::ExportMidi => "Path (.mid)",
                 FileMode::ExportMusicXml => "Path (.musicxml)",
+                FileMode::ExportWav => "Path (.wav)",
                 _ => "Path (.arranger JSON, .mid, .midi or .musicxml)",
             });
             ui.add(egui::TextEdit::singleline(&mut self.file_path_input).desired_width(400.0));
@@ -790,7 +794,9 @@ impl ShellApp {
                     FileMode::Open => "Open",
                     FileMode::SaveAs => "Save",
                     FileMode::ImportAudio => "Import",
-                    FileMode::ExportMidi | FileMode::ExportMusicXml => "Export",
+                    FileMode::ExportMidi | FileMode::ExportMusicXml | FileMode::ExportWav => {
+                        "Export"
+                    }
                 };
                 if ui.button(label).clicked() {
                     action = true;
@@ -823,6 +829,18 @@ impl ShellApp {
                     Ok(tracks) => {
                         self.status = Some(format!(
                             "exported {tracks} MIDI track(s) to {}",
+                            path.display()
+                        ));
+                        self.file_mode = None;
+                    }
+                    Err(error) => self.load_error = Some(error),
+                }
+            } else if mode == FileMode::ExportWav {
+                let song = self.song().clone();
+                match export_wav_file(&song, &path) {
+                    Ok((seconds, problems)) => {
+                        self.status = Some(format!(
+                            "exported {seconds:.2} s WAV to {} ({problems} audio problem(s))",
                             path.display()
                         ));
                         self.file_mode = None;
@@ -3402,6 +3420,14 @@ impl ShellApp {
                                     .unwrap_or_else(|| String::from("project.mid"));
                                 self.file_mode = Some(FileMode::ExportMidi);
                             }
+                            if ui.small_button("Export WAV").clicked() {
+                                self.file_path_input = self
+                                    .project_path
+                                    .as_ref()
+                                    .map(|path| path.with_extension("wav").display().to_string())
+                                    .unwrap_or_else(|| String::from("project.wav"));
+                                self.file_mode = Some(FileMode::ExportWav);
+                            }
                             if ui.small_button("Export XML").clicked() {
                                 self.file_path_input = self
                                     .project_path
@@ -4374,6 +4400,22 @@ pub fn export_midi_file(
     Ok(report.tracks)
 }
 
+/// Renders and writes a 24-bit WAV, returning duration and audio-reference problems.
+///
+/// # Errors
+///
+/// Returns a message when the file cannot be written.
+pub fn export_wav_file(
+    song: &project::song::Song,
+    path: &std::path::Path,
+) -> Result<(f64, usize), String> {
+    let mut rendered = audio::render(song, audio::SAMPLE_RATE);
+    let problems = audio::mix::mix_audio_references(&mut rendered, song, 0.9).len();
+    std::fs::write(path, rendered.to_wav24())
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok((rendered.duration_seconds(), problems))
+}
+
 /// Writes a MusicXML export.
 ///
 /// # Errors
@@ -4420,6 +4462,22 @@ pub fn demo_project() -> ProjectFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wav_export_writes_a_24_bit_file() {
+        let song = arranging::demo::demo_song();
+        let path = std::env::temp_dir().join("lazy-arranger-export-shell.wav");
+        let (seconds, problems) = export_wav_file(&song, &path).expect("wav");
+        assert!(seconds > 0.0);
+        assert_eq!(problems, 0);
+        let bytes = std::fs::read(&path).expect("read");
+        assert_eq!(&bytes[0..4], b"RIFF");
+        assert_eq!(u16::from_le_bytes([bytes[20], bytes[21]]), 1);
+        assert_eq!(u16::from_le_bytes([bytes[34], bytes[35]]), 24);
+        let info = audio::wav::info(&bytes).expect("info");
+        assert!(info.frames > 0);
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn midi_and_musicxml_exports_write_reloadable_files() {
