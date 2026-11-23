@@ -117,6 +117,25 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     text = escape(&lyric.text)
                 );
             }
+            for rest in engraved.rests.iter().filter(|rest| rest.page == index) {
+                let (width, height) = match rest.kind {
+                    crate::RestKind::Whole | crate::RestKind::Half => {
+                        (settings.staff_space * 0.9, settings.staff_space * 0.45)
+                    }
+                    crate::RestKind::Quarter => {
+                        (settings.staff_space * 0.45, settings.staff_space * 0.9)
+                    }
+                    crate::RestKind::Eighth => {
+                        (settings.staff_space * 0.35, settings.staff_space * 0.7)
+                    }
+                };
+                let x = rest.x - width / 2.0;
+                let y = settings.page_height - rest.y - height / 2.0;
+                let _ = writeln!(
+                    content,
+                    "0.15 0.15 0.15 rg {x:.1} {y:.1} {width:.1} {height:.1} re f"
+                );
+            }
             for tie in engraved.ties.iter().filter(|tie| tie.page == index) {
                 let x1 = tie.start_x;
                 let x2 = tie.end_x;

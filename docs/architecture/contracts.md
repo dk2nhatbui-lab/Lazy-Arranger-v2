@@ -386,3 +386,11 @@ are inserted by `Editor::insert_recorded` as one `InsertTrack` with reassigned
 note ids, so one undo removes the take. Without a configured keyboard the button
 reports an error. Audio input, record-arm transport and count-in are absent;
 hardware capture is unverified here because no MIDI ports exist.
+
+### Score rests
+
+`placed_rests` merges each measure's note spans and decomposes the gaps into
+whole, half, quarter and eighth rests (in that order), placing each at its
+fractional x on the measure and the staff's middle line. Canvas and PDF draw
+schematic rectangular glyphs sized by kind. A test checks half+quarter rests in
+a partly filled measure and a whole rest in an empty one.

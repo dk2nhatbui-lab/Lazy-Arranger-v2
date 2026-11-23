@@ -91,6 +91,36 @@ pub struct Beam {
     pub sixteenth: bool,
 }
 
+/// A rest glyph kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RestKind {
+    /// Whole rest.
+    Whole,
+    /// Half rest.
+    Half,
+    /// Quarter rest.
+    Quarter,
+    /// Eighth rest.
+    Eighth,
+}
+
+/// One placed rest.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlacedRest {
+    /// Page holding the rest.
+    pub page: usize,
+    /// Horizontal position.
+    pub x: f32,
+    /// Vertical position.
+    pub y: f32,
+    /// Glyph kind.
+    pub kind: RestKind,
+    /// Gap length this glyph covers.
+    pub ticks: Tick,
+    /// Measure index, from zero.
+    pub measure: usize,
+}
+
 /// A tie joining two notes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tie {
@@ -241,6 +271,8 @@ pub struct Engraved {
     pub staves: usize,
     /// Ties joining notes of the same pitch.
     pub ties: Vec<Tie>,
+    /// Rests in gaps and empty measures.
+    pub rests: Vec<PlacedRest>,
 }
 
 impl Engraved {
@@ -255,6 +287,76 @@ impl Engraved {
 #[must_use]
 pub fn engrave(song: &Song, track: TrackId, settings: Settings) -> Engraved {
     engrave_with(song, track, settings, &[])
+}
+
+fn placed_rests(notes: &[PlacedNote], pages: &[Page], settings: Settings) -> Vec<PlacedRest> {
+    let mut rests = Vec::new();
+    for (page_index, page) in pages.iter().enumerate() {
+        for system in &page.systems {
+            for measure in &system.measures {
+                let mut spans: Vec<(Tick, Tick)> = notes
+                    .iter()
+                    .filter(|note| note.measure + 1 == measure.number && note.page == page_index)
+                    .map(|note| {
+                        let end = (note.tick + note.duration).min(measure.start + measure.length);
+                        (note.tick.max(measure.start), end)
+                    })
+                    .filter(|(start, end)| end > start)
+                    .collect();
+                spans.sort_by_key(|(start, _)| *start);
+                let mut merged: Vec<(Tick, Tick)> = Vec::new();
+                for span in spans {
+                    if let Some(last) = merged.last_mut()
+                        && span.0 <= last.1
+                    {
+                        last.1 = last.1.max(span.1);
+                    } else {
+                        merged.push(span);
+                    }
+                }
+                let mut gaps = Vec::new();
+                let mut cursor = measure.start;
+                for (start, end) in merged {
+                    if start > cursor {
+                        gaps.push((cursor, start));
+                    }
+                    cursor = cursor.max(end);
+                }
+                if cursor < measure.start + measure.length {
+                    gaps.push((cursor, measure.start + measure.length));
+                }
+                let units = [
+                    (music_core::PPQ * 4, RestKind::Whole),
+                    (music_core::PPQ * 2, RestKind::Half),
+                    (music_core::PPQ, RestKind::Quarter),
+                    (music_core::PPQ / 2, RestKind::Eighth),
+                ];
+                for (start, end) in gaps {
+                    let mut at = start;
+                    while end - at >= music_core::PPQ / 2 {
+                        let remaining = end - at;
+                        let (length, kind) = units
+                            .iter()
+                            .find(|(length, _)| *length <= remaining)
+                            .copied()
+                            .unwrap_or((music_core::PPQ / 2, RestKind::Eighth));
+                        let offset = (at - measure.start) as f32 / measure.length as f32
+                            * (measure.x_end - measure.x);
+                        rests.push(PlacedRest {
+                            page: page_index,
+                            x: measure.x + offset,
+                            y: system.y - 2.0 * settings.staff_space,
+                            kind,
+                            ticks: length,
+                            measure: measure.number - 1,
+                        });
+                        at += length.max(1);
+                    }
+                }
+            }
+        }
+    }
+    rests
 }
 
 fn tie_pairs(notes: &[PlacedNote]) -> Vec<Tie> {
@@ -548,6 +650,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
     }
     let (beams, tuplets) = beams_and_tuplets(&notes);
     let ties = tie_pairs(&notes);
+    let rests = placed_rests(&notes, &pages, settings);
     Engraved {
         pages,
         notes,
@@ -560,6 +663,7 @@ pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&
         tuplets,
         staves: if settings.grand_staff { 2 } else { 1 },
         ties,
+        rests,
     }
 }
 
@@ -1012,5 +1116,42 @@ mod tie_tests {
         let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
         assert_eq!(engraved.ties.len(), 1);
         assert!(engraved.ties[0].end_x > engraved.ties[0].start_x);
+    }
+}
+
+#[cfg(test)]
+mod rest_tests {
+    use super::*;
+    use music_core::{Channel, PPQ, Pitch, Velocity};
+    use project::TrackId;
+    use project::song::{Note, Song, Track};
+
+    #[test]
+    fn gaps_and_empty_measures_get_rests() {
+        let mut song = Song::new("Rests", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for (index, start) in [(1_u32, 0_i64), (2, 8 * PPQ)] {
+            track.notes.push(Note {
+                id: project::NoteId::new(index).expect("valid"),
+                start,
+                duration: PPQ,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        let measure = |index: usize| -> Vec<RestKind> {
+            engraved
+                .rests
+                .iter()
+                .filter(|rest| rest.measure == index)
+                .map(|rest| rest.kind)
+                .collect()
+        };
+        assert_eq!(measure(0), vec![RestKind::Half, RestKind::Quarter]);
+        assert_eq!(measure(1), vec![RestKind::Whole]);
+        assert!(engraved.rests.iter().all(|rest| rest.x > 0.0));
     }
 }
