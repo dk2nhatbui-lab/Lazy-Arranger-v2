@@ -224,6 +224,46 @@ pub struct LoadedProfile {
     pub drum_kits: Vec<DrumKit>,
 }
 
+/// A malformed profile file and its reason.
+pub type ProfileProblem = (std::path::PathBuf, String);
+
+/// Loads every `.yaml`/`.yml` profile in a folder.
+///
+/// # Errors
+///
+/// Returns a message when the folder cannot be read; malformed profiles are
+/// skipped and reported in the second list.
+pub fn load_directory(
+    folder: &std::path::Path,
+) -> Result<(Vec<LoadedProfile>, Vec<ProfileProblem>), String> {
+    let entries =
+        std::fs::read_dir(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
+    let mut profiles = Vec::new();
+    let mut problems = Vec::new();
+    for entry in entries {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let path = entry.path();
+        if !path.is_file()
+            || !path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    extension.eq_ignore_ascii_case("yaml") || extension.eq_ignore_ascii_case("yml")
+                })
+        {
+            continue;
+        }
+        match load_file(&path) {
+            Ok(profile) => profiles.push(profile),
+            Err(error) => problems.push((path, error)),
+        }
+    }
+    profiles.sort_by(|left, right| left.id.cmp(&right.id));
+    Ok((profiles, problems))
+}
+
 /// Parses the profile subset: scalars, and `- name`/`program` lists under
 /// `voices`, `banks` and `drum_kits`.
 ///
@@ -420,6 +460,24 @@ drum_kits:
             nearest_in_profile(&profile, "Trumpet"),
             program_for_track("Trumpet")
         );
+    }
+
+    #[test]
+    fn a_profile_folder_loads_valid_files() {
+        let folder = std::env::temp_dir().join("lazy-arranger-profiles-folder");
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).expect("folder");
+        std::fs::write(
+            folder.join("xio.yaml"),
+            "id: xio\nname: XioSynth\nvoices:\n  - name: Soft Pad\n    program: 12\n",
+        )
+        .expect("write");
+        std::fs::write(folder.join("bad.yaml"), "name: broken\n").expect("write bad");
+        let (profiles, problems) = load_directory(&folder).expect("load");
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].id, "xio");
+        assert_eq!(problems.len(), 1);
+        let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]

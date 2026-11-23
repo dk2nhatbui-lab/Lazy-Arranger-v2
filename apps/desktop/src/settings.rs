@@ -181,6 +181,8 @@ pub struct Settings {
     pub audio_input: Option<String>,
     /// Preferred MIDI output name for the MIDI out window.
     pub midi_output: Option<String>,
+    /// Selected device-profile id for keyboard export.
+    pub device_profile: Option<String>,
     /// Start the metronome with playback.
     pub metronome: bool,
     /// Avoid animation.
@@ -233,6 +235,7 @@ impl Default for Settings {
             keyboard: None,
             audio_input: None,
             midi_output: None,
+            device_profile: None,
             metronome: false,
             reduced_motion: false,
             kids_mode: false,
@@ -310,6 +313,13 @@ impl Settings {
                         Some(value.to_string())
                     };
                 }
+                "device_profile" => {
+                    settings.device_profile = if value.is_empty() {
+                        None
+                    } else {
+                        Some(value.to_string())
+                    };
+                }
                 "metronome" => settings.metronome = value == "true",
                 "reduced_motion" => settings.reduced_motion = value == "true",
                 "kids_mode" => settings.kids_mode = value == "true",
@@ -367,6 +377,9 @@ impl Settings {
         }
         if let Some(output) = &self.midi_output {
             text.push_str(&format!("midi_output = {output}\n"));
+        }
+        if let Some(profile) = &self.device_profile {
+            text.push_str(&format!("device_profile = {profile}\n"));
         }
         text.push_str(&format!("metronome = {}\n", self.metronome));
         text.push_str(&format!("reduced_motion = {}\n", self.reduced_motion));

@@ -98,6 +98,6 @@ For the clef layout, choose either four measures per system without clefs
 - Audio tags are a model-free heuristic (drums/bass/pad/melodic); 97 MCP tools.
 - Language offers System default, resolved from LC_ALL/LC_MESSAGES/LANG.
 - Track plug-in parameter automation lanes render block-by-block; VST3 test gain verifies 0→127 gain; an ignored Apple dynamics test verifies AU min/max mapping. Bus/master lanes remain absent.
-- About box and device-profiles folder button added; update channel still unconfigured.
+- About box, device-profiles folder and YAML profile picker added; profiles supply keyboard-export programs. Update channel still unconfigured.
 - Groove library window lists/loads/applies `.groove` files with timing and accent sliders (`docs/audit/groove-library.png`).
 - L6max take scan supports per-take selection; no mixer page/transport or project parsing.

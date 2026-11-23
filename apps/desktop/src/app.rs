@@ -244,7 +244,17 @@ fn count_in_audio(bpm: f64, bars: u8) -> audio::RenderedAudio {
     }
 }
 
-pub fn style_preview_song(style: &arranger::style::Style) -> Result<project::Song, String> {
+pub fn load_device_profiles() -> Vec<midi_devices::profiles::LoadedProfile> {
+    let folder = crate::settings::Settings::path()
+        .parent()
+        .map(|path| path.join("profiles"))
+        .unwrap_or_else(|| std::path::PathBuf::from("profiles"));
+    midi_devices::profiles::load_directory(&folder)
+        .map(|(profiles, _)| profiles)
+        .unwrap_or_default()
+}
+
+fn style_preview_song(style: &arranger::style::Style) -> Result<project::Song, String> {
     let mut song = project::Song::new("Style audition", 120.0);
     let mut track = project::song::Track::new(
         project::TrackId::new(1).map_err(|error| error.to_string())?,
@@ -519,6 +529,7 @@ pub struct ShellApp {
     settings_open: bool,
     shortcuts_open: bool,
     about_open: bool,
+    device_profiles: Vec<midi_devices::profiles::LoadedProfile>,
     groove_open: bool,
     groove_entries: Vec<(String, std::path::PathBuf)>,
     groove_selected: usize,
@@ -767,6 +778,7 @@ impl ShellApp {
             settings_open: initial_window == "settings",
             shortcuts_open: initial_window == "shortcuts",
             about_open: initial_window == "about",
+            device_profiles: load_device_profiles(),
             groove_open: initial_window == "groove",
             groove_entries: Vec::new(),
             groove_selected: 0,
@@ -1416,7 +1428,12 @@ impl ShellApp {
                 }
             } else if mode == FileMode::ExportMidi {
                 let song = self.song().clone();
-                match export_midi_file(&song, &path) {
+                let profile = self.settings.device_profile.as_ref().and_then(|id| {
+                    self.device_profiles
+                        .iter()
+                        .find(|profile| &profile.id == id)
+                });
+                match export_midi_file_with_profile(&song, &path, profile) {
                     Ok(tracks) => {
                         self.status = Some(format!(
                             "exported {tracks} MIDI track(s) to {}",
@@ -4924,11 +4941,13 @@ impl ShellApp {
                                 &self.settings.language
                             })
                             .show_ui(ui, |ui| {
-                                for tag in ["en", "da", "fr", "vi", "de", "es", "it", "pt"] {
+                                for tag in [
+                                    "system", "en", "da", "fr", "vi", "de", "es", "it", "pt",
+                                ] {
                                     ui.selectable_value(
                                         &mut self.settings.language,
                                         tag.to_string(),
-                                        tag,
+                                        if tag == "system" { "System default" } else { tag },
                                     );
                                 }
                             });
@@ -4939,6 +4958,49 @@ impl ShellApp {
                             .size(9.0)
                             .color(theme::text_dim()),
                         );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Device profile");
+                        let selected = self
+                            .settings
+                            .device_profile
+                            .as_ref()
+                            .and_then(|id| {
+                                self.device_profiles
+                                    .iter()
+                                    .find(|profile| &profile.id == id)
+                            })
+                            .map(|profile| profile.name.clone())
+                            .unwrap_or_else(|| String::from("Built-in PSR-S970"));
+                        egui::ComboBox::from_id_salt("device-profile")
+                            .selected_text(selected)
+                            .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_label(
+                                        self.settings.device_profile.is_none(),
+                                        "Built-in PSR-S970",
+                                    )
+                                    .clicked()
+                                {
+                                    self.settings.device_profile = None;
+                                }
+                                for profile in &self.device_profiles {
+                                    if ui
+                                        .selectable_label(
+                                            self.settings.device_profile.as_ref()
+                                                == Some(&profile.id),
+                                            &profile.name,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.settings.device_profile =
+                                            Some(profile.id.clone());
+                                    }
+                                }
+                            });
+                        if ui.button("Reload").clicked() {
+                            self.device_profiles = load_device_profiles();
+                        }
                     });
                     ui.add(egui::Slider::new(&mut self.settings.grade, 1..=9).text("chord grade"));
                     let mut keyboard = self.settings.keyboard.clone().unwrap_or_default();
@@ -8060,6 +8122,25 @@ pub fn export_midi_file(
     song: &project::song::Song,
     path: &std::path::Path,
 ) -> Result<usize, String> {
+    export_midi_file_with_profile(song, path, None)
+}
+
+/// Writes a keyboard MIDI export using a loaded device profile.
+///
+/// # Errors
+///
+/// Returns a message when the file cannot be written.
+pub fn export_midi_file_with_profile(
+    song: &project::song::Song,
+    path: &std::path::Path,
+    profile: Option<&midi_devices::profiles::LoadedProfile>,
+) -> Result<usize, String> {
+    let bank = profile.and_then(|profile| {
+        profile
+            .banks
+            .iter()
+            .find_map(|bank| Some((bank.msb?, bank.lsb?)))
+    });
     let voices: Vec<smf::KeyboardVoice> = song
         .tracks
         .iter()
@@ -8075,10 +8156,15 @@ pub fn export_midi_file(
                 } else {
                     u8::try_from(index).unwrap_or(0) & 0x0f
                 },
-                program: track.program.unwrap_or(0),
+                program: track.program.unwrap_or_else(|| match profile {
+                    Some(profile) => {
+                        midi_devices::profiles::nearest_in_profile(profile, &track.name)
+                    }
+                    None => midi_devices::nearest_voice(&midi_devices::PSR_S970, &track.name),
+                }),
                 volume: track.volume.min(127),
                 pan: track.pan.min(127),
-                bank: None,
+                bank,
             }
         })
         .collect();
@@ -8257,6 +8343,35 @@ mod tests {
         assert_eq!(u16::from_le_bytes([bytes[34], bytes[35]]), 24);
         let info = audio::wav::info(&bytes).expect("info");
         assert!(info.frames > 0);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn a_loaded_profile_supplies_the_keyboard_program() {
+        let mut song = project::Song::new("Profile", 120.0);
+        let mut track =
+            project::song::Track::new(project::TrackId::new(1).expect("track"), "Grand Piano");
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("note"),
+            start: 0,
+            duration: music_core::PPQ,
+            pitch: music_core::Pitch::from_name("C4").expect("pitch"),
+            velocity: music_core::Velocity::new(100).expect("velocity"),
+            channel: music_core::Channel::first(),
+        });
+        song.tracks.push(track);
+        let profile = midi_devices::profiles::LoadedProfile {
+            id: String::from("test"),
+            name: String::from("Test"),
+            voices: vec![(String::from("Grand Piano"), 42)],
+            banks: Vec::new(),
+            drum_kits: Vec::new(),
+        };
+        let path = std::env::temp_dir().join("lazy-arranger-profile.mid");
+        export_midi_file_with_profile(&song, &path, Some(&profile)).expect("midi");
+        let bytes = std::fs::read(&path).expect("read");
+        let audit = smf::keyboard::audit(&bytes).expect("audit");
+        assert!(audit.programs.contains(&42), "{:?}", audit.programs);
         let _ = std::fs::remove_file(path);
     }
 
