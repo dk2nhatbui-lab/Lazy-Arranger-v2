@@ -518,6 +518,8 @@ pub struct ShellApp {
     plugin_search: String,
     plugin_filter: Option<plugins::Format>,
     plugin_scan: Option<Vec<plugins::FoundPlugin>>,
+    plugin_scan_rx: Option<std::sync::mpsc::Receiver<Vec<plugins::FoundPlugin>>>,
+    plugin_scanning: bool,
     plugin_error: Option<String>,
     inspector_open: bool,
     inspector_track: Option<TrackId>,
@@ -710,6 +712,8 @@ impl ShellApp {
             plugin_search: String::new(),
             plugin_filter: None,
             plugin_scan: None,
+            plugin_scan_rx: None,
+            plugin_scanning: false,
             plugin_error: None,
             inspector_open: initial_window == "inspector",
             inspector_track: None,
@@ -1337,6 +1341,24 @@ impl ShellApp {
     }
 
     fn advance(&mut self, context: &Context) {
+        if let Some(receiver) = self.plugin_scan_rx.take() {
+            match receiver.try_recv() {
+                Ok(found) => {
+                    let _ =
+                        plugins::save_catalog(std::path::Path::new(plugins::CATALOG_FILE), &found);
+                    self.plugin_error = found.is_empty().then(|| String::from("no bundles found"));
+                    self.plugin_scan = Some(found);
+                    self.plugin_scanning = false;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    self.plugin_scan_rx = Some(receiver);
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.plugin_scanning = false;
+                    self.plugin_error = Some(String::from("plug-in scan thread stopped"));
+                }
+            }
+        }
         if let Some(receiver) = self.audio_recording.take() {
             match receiver.try_recv() {
                 Ok(Ok(path)) => {
@@ -2194,13 +2216,28 @@ impl ShellApp {
         }
     }
 
+    fn start_plugin_scan(&mut self) {
+        if self.plugin_scanning {
+            return;
+        }
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(plugins::scan_installed());
+        });
+        self.plugin_scan_rx = Some(receiver);
+        self.plugin_scanning = true;
+        self.plugin_error = None;
+    }
+
     fn plugins_window(&mut self, context: &egui::Context) {
         if !self.plugins_open {
             return;
         }
         if self.plugin_scan.is_none() {
-            self.plugin_scan = plugins::load_catalog(std::path::Path::new(plugins::CATALOG_FILE))
-                .or_else(|| Some(plugins::scan_installed()));
+            self.plugin_scan = plugins::load_catalog(std::path::Path::new(plugins::CATALOG_FILE));
+            if self.plugin_scan.is_none() {
+                self.start_plugin_scan();
+            }
         }
         let mut open = self.plugins_open;
         let mut add = None;
@@ -2216,13 +2253,18 @@ impl ShellApp {
                             .strong(),
                     );
                     ui.add_space(10.0);
-                    if ui.button("Rescan").clicked() {
-                        let found = plugins::scan_installed();
-                        let _ = plugins::save_catalog(
-                            std::path::Path::new(plugins::CATALOG_FILE),
-                            &found,
+                    if ui
+                        .add_enabled(!self.plugin_scanning, egui::Button::new("Rescan"))
+                        .clicked()
+                    {
+                        self.start_plugin_scan();
+                    }
+                    if self.plugin_scanning {
+                        ui.label(
+                            egui::RichText::new("Scanning…")
+                                .size(10.0)
+                                .color(theme::text_muted()),
                         );
-                        self.plugin_scan = Some(found);
                     }
                 });
                 ui.horizontal(|ui| {
@@ -4119,17 +4161,11 @@ impl ShellApp {
                             .size(10.0)
                             .color(theme::text_dim()),
                     );
-                    if ui.button("Scan installed").clicked() {
-                        match plugins::scan_installed() {
-                            found if found.is_empty() => {
-                                self.plugin_scan = Some(Vec::new());
-                                self.plugin_error = Some(String::from("no bundles found"));
-                            }
-                            found => {
-                                self.plugin_error = None;
-                                self.plugin_scan = Some(found);
-                            }
-                        }
+                    if ui
+                        .add_enabled(!self.plugin_scanning, egui::Button::new("Scan installed"))
+                        .clicked()
+                    {
+                        self.start_plugin_scan();
                     }
                 });
                 if let Some(error) = &self.plugin_error {
