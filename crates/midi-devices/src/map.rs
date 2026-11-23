@@ -101,6 +101,21 @@ impl MidiMap {
             .map(|binding| binding.action)
     }
 
+    /// Controller bindings as `(controller, action)`, sorted by controller.
+    #[must_use]
+    pub fn controller_bindings(&self) -> Vec<(u8, Action)> {
+        let mut out: Vec<(u8, Action)> = self
+            .bindings
+            .iter()
+            .filter_map(|binding| match binding.control {
+                Control::Controller(number) => Some((number, binding.action)),
+                Control::Note(_) => None,
+            })
+            .collect();
+        out.sort_by_key(|(number, _)| *number);
+        out
+    }
+
     /// Serialises the map, one binding per line.
     #[must_use]
     pub fn to_text(&self) -> String {
@@ -367,5 +382,20 @@ mod learn_tests {
             learn.capture(&cc),
             Some((Control::Controller(7), Action::Play))
         );
+    }
+}
+
+#[cfg(test)]
+mod controller_tests {
+    use super::*;
+
+    #[test]
+    fn controller_bindings_are_filtered_and_sorted() {
+        let mut map = MidiMap::default();
+        map.bind(Control::Controller(20), Action::Undo);
+        map.bind(Control::Note(40), Action::Play);
+        map.bind(Control::Controller(7), Action::Play);
+        let found = map.controller_bindings();
+        assert_eq!(found, vec![(7, Action::Play), (20, Action::Undo)]);
     }
 }

@@ -143,6 +143,9 @@ pub struct ShellApp {
     midi_map_open: bool,
     midi_learn: Option<midi_devices::map::Learn>,
     midi_learn_choice: usize,
+    controller_open: bool,
+    midi_cc_values: [u8; 128],
+    controller_action: usize,
     rename_scene: Option<usize>,
     rename_scene_input: String,
     last_bar: i64,
@@ -252,6 +255,9 @@ impl ShellApp {
             midi_map_open: false,
             midi_learn: None,
             midi_learn_choice: 0,
+            controller_open: false,
+            midi_cc_values: [0; 128],
+            controller_action: 0,
             rename_scene: None,
             rename_scene_input: String::new(),
             last_bar: 0,
@@ -892,6 +898,12 @@ impl ShellApp {
         let mut learned = None;
         if let Some(input) = &self.midi_input {
             while let Some(message) = input.next() {
+                if let music_core::MidiMessage::ControlChange {
+                    controller, value, ..
+                } = &message
+                {
+                    self.midi_cc_values[usize::from(controller.as_u8())] = *value;
+                }
                 if let Some(learn) = self.midi_learn {
                     if let Some((control, action)) = learn.capture(&message) {
                         learned = Some((control, action));
@@ -1208,6 +1220,77 @@ impl ShellApp {
     }
 
     /// Settings and shortcut windows.
+    fn controller_window(&mut self, context: &egui::Context) {
+        if !self.controller_open {
+            return;
+        }
+        let tracks: Vec<(TrackId, String)> = self
+            .song()
+            .tracks
+            .iter()
+            .map(|track| (track.id, track.name.clone()))
+            .collect();
+        let actions: Vec<midi_devices::map::Action> = vec![
+            midi_devices::map::Action::Play,
+            midi_devices::map::Action::Stop,
+            midi_devices::map::Action::Undo,
+            midi_devices::map::Action::Scene(0),
+            midi_devices::map::Action::TrackFader(
+                tracks
+                    .first()
+                    .map_or_else(|| TrackId::new(1).expect("valid"), |(id, _)| *id),
+            ),
+            midi_devices::map::Action::Pad(38),
+        ];
+        let mut open = self.controller_open;
+        egui::Window::new("Controllers")
+            .open(&mut open)
+            .default_width(340.0)
+            .show(context, |ui| {
+                let choice = self.controller_action.min(actions.len() - 1);
+                let mut chosen = choice;
+                egui::ComboBox::from_id_salt("controller-action")
+                    .selected_text(actions[choice].label())
+                    .show_ui(ui, |ui| {
+                        for (index, action) in actions.iter().enumerate() {
+                            ui.selectable_value(&mut chosen, index, action.label());
+                        }
+                    });
+                self.controller_action = chosen;
+                if ui.button("Learn a controller").clicked() {
+                    self.midi_learn = Some(midi_devices::map::Learn::begin(actions[chosen]));
+                    self.status = Some(String::from("waiting for a note or CC"));
+                }
+                if self.midi_learn.is_some() {
+                    ui.label(
+                        egui::RichText::new("Waiting for the next note or control change…")
+                            .color(theme::ACCENT),
+                    );
+                }
+                ui.separator();
+                for (number, action) in self.midi_map.controller_bindings() {
+                    let value = self.midi_cc_values[usize::from(number)];
+                    ui.horizontal(|ui| {
+                        ui.label(format!("CC {number}"));
+                        ui.add(
+                            egui::ProgressBar::new(f32::from(value) / 127.0)
+                                .desired_width(120.0)
+                                .text(format!("{value}")),
+                        );
+                        ui.label(action.label());
+                    });
+                }
+                if self.midi_map.controller_bindings().is_empty() {
+                    ui.label(
+                        egui::RichText::new("no controller bindings")
+                            .size(10.0)
+                            .color(theme::TEXT_DIM),
+                    );
+                }
+            });
+        self.controller_open = open;
+    }
+
     fn midi_map_window(&mut self, context: &egui::Context) {
         if !self.midi_map_open {
             return;
@@ -2595,6 +2678,9 @@ impl ShellApp {
                         if ui.small_button("MIDI map").clicked() {
                             self.midi_map_open = true;
                         }
+                        if ui.small_button("Controllers").clicked() {
+                            self.controller_open = true;
+                        }
                     });
                     if !self.recent.is_empty() {
                         ui.label(
@@ -2794,6 +2880,7 @@ impl eframe::App for ShellApp {
         self.top_bar(context);
         self.windows(context);
         self.inspector_window(context);
+        self.controller_window(context);
         self.midi_map_window(context);
         self.assistant_window(context);
         self.pads_window(context);

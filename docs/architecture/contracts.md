@@ -368,3 +368,11 @@ against hardware. Controller pages remain absent.
 `set_audio_ref` edit the same fields as the Inspector. An empty or missing audio
 path clears the reference. The registry holds 48 tools; earlier counts were two
 high because the counter also matched nested `name` keys in input schemas.
+
+### Controller page
+
+`MidiMap::controller_bindings` returns the CC bindings sorted by number. The
+Controllers window lists each with the latest value (the shell records every
+incoming CC in a 128-entry table), offers the same six actions and a learn
+button, and reflects new bindings from the shared map. Live values are untested
+without hardware.
