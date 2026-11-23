@@ -13,6 +13,7 @@ pub mod forms;
 pub mod generate;
 pub mod grid;
 pub mod groove;
+pub mod groove_file;
 
 use std::collections::BTreeMap;
 

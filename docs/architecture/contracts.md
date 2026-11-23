@@ -133,3 +133,11 @@ drop voicings and keyboard-pad audition are not implemented.
 `--no-drum-kit`, prints every fit proposal, and with `--apply --out` applies the
 non-empty ones as undoable edits. On the demo with 40..80 it moved 12 bass notes.
 Before/after audition is not implemented.
+
+### Groove library
+
+A `.groove` file is text: `name`, `grid`, comma-separated `offsets` and `levels`;
+parsing rejects missing keys, unequal lists and bad numbers. `groove-library
+save` extracts one bar at a 1/16 grid from a track, `list` shows names and paths,
+and `apply` loads a groove by name and writes adjusted notes with timing and
+accent amounts. Audio-derived grooves and Play Before/After are not implemented.

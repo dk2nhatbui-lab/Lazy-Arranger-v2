@@ -255,6 +255,32 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         device: u8,
     },
+    /// Save, list or apply groove files.
+    GrooveLibrary {
+        /// `save`, `list` or `apply`.
+        action: String,
+        /// Folder holding `.groove` files.
+        #[arg(long, default_value = "grooves")]
+        dir: PathBuf,
+        /// Project for save/apply.
+        #[arg(long)]
+        project: Option<PathBuf>,
+        /// Track id for save/apply.
+        #[arg(long)]
+        track: Option<u32>,
+        /// Groove name for save/apply.
+        #[arg(long)]
+        name: Option<String>,
+        /// Output project for apply.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Timing amount for apply, 0..=1.
+        #[arg(long, default_value_t = 1.0)]
+        timing: f32,
+        /// Accent amount for apply, 0..=1.
+        #[arg(long, default_value_t = 1.0)]
+        accents: f32,
+    },
     /// Fit tracks to a synth's range and polyphony, optionally applying.
     FitProject {
         /// Project `.json` path.
@@ -943,6 +969,75 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             );
             Ok(())
         }
+        Commands::GrooveLibrary {
+            action,
+            dir,
+            project,
+            track,
+            name,
+            out,
+            timing,
+            accents,
+        } => match action.as_str() {
+            "list" => {
+                for (found, path) in arranging::groove_file::list(&dir)? {
+                    println!("{found}  ({})", path.display());
+                }
+                Ok(())
+            }
+            "save" => {
+                let project = read_project(project.as_ref().ok_or("save needs --project")?)?;
+                let track = TrackId::new(track.ok_or("save needs --track")?)?;
+                let name = name.ok_or("save needs --name")?;
+                let entry = project
+                    .song
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == track)
+                    .ok_or("unknown track")?;
+                let bar = project.song.time_signature.bar_ticks().max(1);
+                let groove = arranging::groove::extract(&entry.notes, bar, music_core::PPQ / 4)
+                    .ok_or("track has no notes to extract a groove from")?;
+                let path = arranging::groove_file::save(&dir, &name, &groove)?;
+                println!("saved {name} -> {}", path.display());
+                Ok(())
+            }
+            "apply" => {
+                let project = read_project(project.as_ref().ok_or("apply needs --project")?)?;
+                let track = TrackId::new(track.ok_or("apply needs --track")?)?;
+                let name = name.ok_or("apply needs --name")?;
+                let out = out.ok_or("apply needs --out")?;
+                let (_, path) = arranging::groove_file::list(&dir)?
+                    .into_iter()
+                    .find(|(found, _)| found == &name)
+                    .ok_or_else(|| format!("no groove named {name:?} in {}", dir.display()))?;
+                let (_, groove) = arranging::groove_file::load(&path)?;
+                let mut session = EditSession::new(project)?;
+                let notes = session
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == track)
+                    .ok_or("unknown track")?
+                    .notes
+                    .clone();
+                let applied = arranging::groove::apply(
+                    &notes,
+                    &groove,
+                    arranging::groove::Amounts { timing, accents },
+                );
+                session.apply(Command::ReplaceTrackNotes {
+                    track,
+                    notes: applied,
+                })?;
+                let json = session.project().to_json_pretty()?;
+                fs::write(&out, json)
+                    .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+                println!("applied {name} to {}", out.display());
+                Ok(())
+            }
+            other => Err(format!("unknown groove action {other}").into()),
+        },
         Commands::FitProject {
             project,
             low,
