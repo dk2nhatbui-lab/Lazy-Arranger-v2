@@ -179,6 +179,8 @@ pub struct Settings {
     pub keyboard: Option<String>,
     /// Preferred audio input name, when set.
     pub audio_input: Option<String>,
+    /// Preferred audio output device.
+    pub audio_output: Option<String>,
     /// Preferred MIDI output name for the MIDI out window.
     pub midi_output: Option<String>,
     /// Selected device-profile id for keyboard export.
@@ -238,6 +240,7 @@ impl Default for Settings {
             grade: 5,
             keyboard: None,
             audio_input: None,
+            audio_output: None,
             midi_output: None,
             device_profile: None,
             metronome: false,
@@ -307,6 +310,13 @@ impl Settings {
                 }
                 "audio_input" => {
                     settings.audio_input = if value.is_empty() {
+                        None
+                    } else {
+                        Some(value.to_string())
+                    };
+                }
+                "audio_output" => {
+                    settings.audio_output = if value.is_empty() {
                         None
                     } else {
                         Some(value.to_string())
@@ -388,6 +398,9 @@ impl Settings {
         if let Some(input) = &self.audio_input {
             text.push_str(&format!("audio_input = {input}\n"));
         }
+        if let Some(output) = &self.audio_output {
+            text.push_str(&format!("audio_output = {output}\n"));
+        }
         if let Some(output) = &self.midi_output {
             text.push_str(&format!("midi_output = {output}\n"));
         }
@@ -467,6 +480,7 @@ mod tests {
             grade: 3,
             keyboard: Some(String::from("PSR-S970")),
             audio_input: Some(String::from("Camo Microphone")),
+            audio_output: Some(String::from("Built-in Output")),
             midi_output: Some(String::from("PSR-S970")),
             ..Settings::default()
         };

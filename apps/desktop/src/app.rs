@@ -554,6 +554,7 @@ pub struct ShellApp {
     waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
     audio_inputs: Option<Vec<String>>,
+    audio_outputs: Option<Vec<String>>,
     settings: crate::settings::Settings,
     settings_open: bool,
     shortcuts_open: bool,
@@ -822,6 +823,7 @@ impl ShellApp {
             waveform: None,
             midi_ports: None,
             audio_inputs: None,
+            audio_outputs: None,
             midi_map: std::fs::read_to_string("lazy-arranger-midi-map.txt")
                 .ok()
                 .and_then(|text| midi_devices::map::MidiMap::from_text(&text).ok())
@@ -4429,7 +4431,12 @@ impl ShellApp {
                             .size(9.0)
                             .color(theme::text_dim()),
                     );
-                    ui.label(audio_engine_label());
+                    ui.label(
+                        self.settings
+                            .audio_output
+                            .clone()
+                            .unwrap_or_else(audio_engine_label),
+                    );
                     if ui.button("Audio and MIDI settings").clicked() {
                         self.settings_open = true;
                     }
@@ -5697,6 +5704,51 @@ impl ShellApp {
                                     self.status = Some(format!("audio input: {name}"));
                                 }
                             }
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        if ui.button("Find audio outputs").clicked() {
+                            let outputs = audio::player::output_devices();
+                            self.status = Some(format!("{} audio output(s)", outputs.len()));
+                            self.audio_outputs = Some(outputs);
+                        }
+                        if ui
+                            .selectable_label(
+                                self.settings.audio_output.is_none(),
+                                "Default output",
+                            )
+                            .clicked()
+                        {
+                            self.settings.audio_output = None;
+                            let _ = self.settings.save(&crate::settings::Settings::path());
+                        }
+                        if let Some(outputs) = &self.audio_outputs {
+                            egui::ComboBox::from_id_salt("audio-output")
+                                .selected_text(
+                                    self.settings
+                                        .audio_output
+                                        .as_deref()
+                                        .unwrap_or("Choose output"),
+                                )
+                                .show_ui(ui, |ui| {
+                                    for name in outputs {
+                                        if ui
+                                            .selectable_label(
+                                                self.settings.audio_output.as_deref()
+                                                    == Some(name.as_str()),
+                                                name,
+                                            )
+                                            .clicked()
+                                        {
+                                            self.settings.audio_output = Some(name.clone());
+                                            let _ = self.settings.save(
+                                                &crate::settings::Settings::path(),
+                                            );
+                                            self.status =
+                                                Some(format!("audio output: {name}"));
+                                        }
+                                    }
+                                });
                         }
                     });
                     if ui.button("Check for updates").clicked() {
@@ -7117,7 +7169,7 @@ impl ShellApp {
         } else {
             Vec::new()
         };
-        match audio::player::Player::new(audio) {
+        match audio::player::Player::new_on(audio, self.settings.audio_output.as_deref()) {
             Ok(player) => {
                 player.play();
                 self.stem_levels = stems;

@@ -97,6 +97,19 @@ impl Playback {
     }
 }
 
+/// Names of available output devices.
+#[must_use]
+pub fn output_devices() -> Vec<String> {
+    let host = cpal::default_host();
+    host.output_devices()
+        .map(|devices| {
+            devices
+                .filter_map(|device| device.name().ok())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
 /// A live output stream.
 pub struct Player {
     stream: cpal::Stream,
@@ -116,10 +129,41 @@ impl Player {
     ///
     /// Returns a message when no device or supported configuration exists.
     pub fn new(audio: RenderedAudio) -> Result<Self, String> {
+        Self::new_on(audio, None)
+    }
+
+    /// Opens a named output device, or the default when `name` is `None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the device is missing or has no configuration.
+    pub fn new_on(audio: RenderedAudio, name: Option<&str>) -> Result<Self, String> {
         let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or_else(|| String::from("no default output device"))?;
+        let device = match name {
+            Some(name) => {
+                let mut available = Vec::new();
+                let mut found = None;
+                if let Ok(devices) = host.output_devices() {
+                    for device in devices {
+                        let label = device.name().unwrap_or_else(|_| String::from("unknown"));
+                        if label == name {
+                            found = Some(device);
+                            break;
+                        }
+                        available.push(label);
+                    }
+                }
+                found.ok_or_else(|| {
+                    format!(
+                        "no output named {name:?}; available: {}",
+                        available.join(", ")
+                    )
+                })?
+            }
+            None => host
+                .default_output_device()
+                .ok_or_else(|| String::from("no default output device"))?,
+        };
         let config = device
             .default_output_config()
             .map_err(|error| format!("no output configuration: {error}"))?;
@@ -237,6 +281,19 @@ mod tests {
             samples,
             sample_rate: 48_000,
         })
+    }
+
+    #[test]
+    fn a_missing_output_device_is_reported() {
+        let error = Player::new_on(
+            RenderedAudio {
+                samples: vec![0.0; 2],
+                sample_rate: 48_000,
+            },
+            Some("lazy-arranger-no-such-device"),
+        )
+        .expect_err("missing device");
+        assert!(error.contains("no output named"), "{error}");
     }
 
     #[test]
