@@ -165,6 +165,8 @@ pub struct PlacedRest {
     pub kind: RestKind,
     /// Gap length this glyph covers.
     pub ticks: Tick,
+    /// Augmentation dots: 0 or 1.
+    pub dots: u8,
     /// Measure index, from zero.
     pub measure: usize,
 }
@@ -563,20 +565,23 @@ fn placed_rests(notes: &[PlacedNote], pages: &[Page], settings: Settings) -> Vec
                     gaps.push((cursor, measure.start + measure.length));
                 }
                 let units = [
-                    (music_core::PPQ * 4, RestKind::Whole),
-                    (music_core::PPQ * 2, RestKind::Half),
-                    (music_core::PPQ, RestKind::Quarter),
-                    (music_core::PPQ / 2, RestKind::Eighth),
+                    (music_core::PPQ * 4, RestKind::Whole, 0),
+                    (music_core::PPQ * 3, RestKind::Half, 1),
+                    (music_core::PPQ * 2, RestKind::Half, 0),
+                    (music_core::PPQ * 3 / 2, RestKind::Quarter, 1),
+                    (music_core::PPQ, RestKind::Quarter, 0),
+                    (music_core::PPQ * 3 / 4, RestKind::Eighth, 1),
+                    (music_core::PPQ / 2, RestKind::Eighth, 0),
                 ];
                 for (start, end) in gaps {
                     let mut at = start;
                     while end - at >= music_core::PPQ / 2 {
                         let remaining = end - at;
-                        let (length, kind) = units
+                        let (length, kind, dots) = units
                             .iter()
-                            .find(|(length, _)| *length <= remaining)
+                            .find(|(length, _, _)| *length <= remaining)
                             .copied()
-                            .unwrap_or((music_core::PPQ / 2, RestKind::Eighth));
+                            .unwrap_or((music_core::PPQ / 2, RestKind::Eighth, 0));
                         let offset = (at - measure.start) as f32 / measure.length as f32
                             * (measure.x_end - measure.x);
                         rests.push(PlacedRest {
@@ -585,6 +590,7 @@ fn placed_rests(notes: &[PlacedNote], pages: &[Page], settings: Settings) -> Vec
                             y: system.y - 2.0 * settings.staff_space,
                             kind,
                             ticks: length,
+                            dots,
                             measure: measure.number - 1,
                         });
                         at += length.max(1);
@@ -1428,6 +1434,31 @@ mod rest_tests {
     use project::song::{Note, Song, Track};
 
     #[test]
+    fn dotted_rests_cover_dotted_gaps() {
+        let mut song = Song::new("Rests", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for (index, start) in [(1_u32, 0_i64), (2, 2400)] {
+            track.notes.push(Note {
+                id: project::NoteId::new(index).expect("valid"),
+                start,
+                duration: 960,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        let engraved = engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        let dotted = engraved
+            .rests
+            .iter()
+            .find(|rest| rest.dots == 1)
+            .expect("a dotted rest");
+        assert_eq!(dotted.kind, RestKind::Quarter);
+        assert_eq!(dotted.ticks, 1440);
+    }
+
+    #[test]
     fn gaps_and_empty_measures_get_rests() {
         let mut song = Song::new("Rests", 120.0);
         let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
@@ -1451,7 +1482,17 @@ mod rest_tests {
                 .map(|rest| rest.kind)
                 .collect()
         };
-        assert_eq!(measure(0), vec![RestKind::Half, RestKind::Quarter]);
+        assert_eq!(
+            measure(0),
+            vec![RestKind::Half],
+            "2880 ticks is a dotted half"
+        );
+        assert!(
+            engraved
+                .rests
+                .iter()
+                .any(|rest| rest.measure == 0 && rest.dots == 1)
+        );
         assert_eq!(measure(1), vec![RestKind::Whole]);
         assert!(engraved.rests.iter().all(|rest| rest.x > 0.0));
     }

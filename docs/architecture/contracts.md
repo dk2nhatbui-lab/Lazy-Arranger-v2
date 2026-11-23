@@ -788,3 +788,10 @@ test covers set, rejection of zero and undo.
 whole through 64th values; `PlacedNote.dots` carries the count. Canvas and PDF
 draw 0.34-radius dots to the right of the notehead. Tests cover plain, dotted,
 double-dotted and a non-matching duration.
+
+### Dotted rests
+
+Gap decomposition prefers whole, dotted half, half, dotted quarter, quarter,
+dotted eighth and eighth; `PlacedRest.dots` carries one dot. Canvas now draws
+rest glyphs (it previously drew none) and both canvas/PDF add the dot. Tests
+cover a 2880-tick gap (dotted half) and a 1440-tick gap (dotted quarter).

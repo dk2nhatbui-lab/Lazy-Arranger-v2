@@ -214,6 +214,29 @@ pub fn show(
                 );
             }
         }
+        for rest in engraved.rests.iter().filter(|rest| rest.page == page_index) {
+            let x = origin.x + rest.x * zoom;
+            let y = origin.y + rest.y * zoom;
+            let space = settings.staff_space * zoom;
+            let (width, height) = match rest.kind {
+                score::RestKind::Whole | score::RestKind::Half => (space * 0.9, space * 0.45),
+                score::RestKind::Quarter => (space * 0.45, space * 0.9),
+                score::RestKind::Eighth => (space * 0.35, space * 0.7),
+            };
+            let colour = Color32::from_rgb(0x14, 0x14, 0x14);
+            painter.rect_filled(
+                Rect::from_center_size(Pos2::new(x, y), Vec2::new(width, height)),
+                0.0,
+                colour,
+            );
+            for dot in 0..rest.dots {
+                painter.circle_filled(
+                    Pos2::new(x + width / 2.0 + space * (0.35 + f32::from(dot) * 0.45), y),
+                    space * 0.1,
+                    colour,
+                );
+            }
+        }
         for note in engraved.notes.iter().filter(|note| note.page == page_index) {
             let x = origin.x + note.x * zoom;
             let y = origin.y + note.y * zoom;

@@ -215,6 +215,14 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     content,
                     "0.15 0.15 0.15 rg {x:.1} {y:.1} {width:.1} {height:.1} re f"
                 );
+                for dot in 0..rest.dots {
+                    circle(
+                        &mut content,
+                        x + width + 1.2 + f32::from(dot) * 2.2,
+                        y + height / 2.0,
+                        1.0,
+                    );
+                }
             }
             for tie in engraved.ties.iter().filter(|tie| tie.page == index) {
                 let x1 = tie.start_x;
