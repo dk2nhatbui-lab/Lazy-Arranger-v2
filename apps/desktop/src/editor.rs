@@ -655,6 +655,44 @@ impl Editor {
         Ok(())
     }
 
+    /// Resizes a note to a new duration.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn resize_note(
+        &mut self,
+        track: TrackId,
+        note: project::NoteId,
+        duration: Tick,
+    ) -> Result<(), String> {
+        self.edit_note(track, note, |target| {
+            target.duration = duration.max(1);
+        })
+    }
+
+    fn edit_note(
+        &mut self,
+        track: TrackId,
+        note: project::NoteId,
+        change: impl FnOnce(&mut project::song::Note),
+    ) -> Result<(), String> {
+        let Some(entry) = self.song().tracks.iter().find(|entry| entry.id == track) else {
+            return Err(String::from("unknown track"));
+        };
+        let mut notes = entry.notes.clone();
+        let Some(target) = notes.iter_mut().find(|candidate| candidate.id == note) else {
+            return Err(String::from("unknown note"));
+        };
+        change(target);
+        notes.sort_by_key(|note| note.start);
+        self.session
+            .apply(app_commands::Command::ReplaceTrackNotes { track, notes })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Snaps every note start in every track to a grid.
     ///
     /// # Errors
@@ -1230,6 +1268,27 @@ mod tests {
         assert_eq!(grid.rows[0].scene.name, "Verse");
         assert!(editor.undo());
         assert!(editor.song().scene_names.is_empty());
+    }
+
+    #[test]
+    fn notes_move_and_resize_through_commands() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let note = editor.song().tracks[0].notes[0].id;
+        editor
+            .move_note(
+                track,
+                note,
+                1920,
+                music_core::Pitch::new(67).expect("valid"),
+            )
+            .expect("move");
+        let moved = &editor.song().tracks[0].notes[0];
+        assert_eq!((moved.start, moved.pitch.as_u8()), (1920, 67));
+        editor.resize_note(track, note, 480).expect("resize");
+        assert_eq!(editor.song().tracks[0].notes[0].duration, 480);
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].notes[0].duration, music_core::PPQ);
     }
 
     #[test]

@@ -2107,6 +2107,7 @@ impl eframe::App for ShellApp {
                 let mut lesson_next = false;
                 let mut lesson_reset = false;
                 let mut kids_load = false;
+                let mut scroll_edit: Option<crate::piano_roll::RollEdit> = None;
                 let Self { editor, roll, .. } = self;
                 let selected_clip = self.selected_clip;
                 let project = editor.project();
@@ -2133,14 +2134,16 @@ impl eframe::App for ShellApp {
                             });
                             Self::draw_waveform(ui, peaks);
                         }
-                        if let Some(click) = piano_roll::show(
+                        let outcome = piano_roll::show(
                             ui,
                             &project.song,
                             roll,
                             position,
                             selected_clip.map(|(_, clip)| clip),
-                        ) {
-                            clicked = Some(click);
+                        );
+                        clicked = outcome.click;
+                        if let Some(edit) = outcome.edit {
+                            scroll_edit = Some(edit);
                         }
                         if let Some(track_id) = roll.selected
                             && let Some(track) = project
@@ -2303,6 +2306,7 @@ impl eframe::App for ShellApp {
                     lesson_next,
                     lesson_reset,
                     kids_load,
+                    scroll_edit,
                 )
             });
         let (
@@ -2314,9 +2318,28 @@ impl eframe::App for ShellApp {
             lesson_next,
             lesson_reset,
             kids_load,
+            scroll_edit,
         ) = panel.inner;
         if let Some(click) = clicked {
             self.edit_click(click);
+        }
+        if let Some(edit) = scroll_edit {
+            let result = match edit.mode {
+                crate::piano_roll::DragMode::Resize => {
+                    self.editor
+                        .resize_note(edit.track, edit.note, edit.duration)
+                }
+                crate::piano_roll::DragMode::Move => match music_core::Pitch::new(edit.pitch) {
+                    Ok(pitch) => self
+                        .editor
+                        .move_note(edit.track, edit.note, edit.start, pitch)
+                        .map_err(|error| error.to_string()),
+                    Err(error) => Err(error.to_string()),
+                },
+            };
+            if let Err(error) = result {
+                self.status = Some(error);
+            }
         }
         if lesson_next {
             self.lesson.advance();

@@ -76,6 +76,19 @@ impl RollGeometry {
     }
 }
 
+fn geometry_hint(state: &RollState, song: &Song, rect: Rect) -> RollGeometry {
+    RollGeometry {
+        origin: Pos2::new(
+            rect.left() + 48.0,
+            rect.top() + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT + 6.0,
+        ),
+        ticks_per_point: state.ticks_per_point,
+        row_height: 10.0,
+        top_pitch: state.top_pitch,
+        meter: song.time_signature,
+    }
+}
+
 /// View state that survives frames.
 #[derive(Clone, Copy, Debug)]
 pub struct RollState {
@@ -85,6 +98,7 @@ pub struct RollState {
     pub top_pitch: u8,
     /// Selected track, if any.
     pub selected: Option<TrackId>,
+    drag: Option<NoteDrag>,
 }
 
 impl Default for RollState {
@@ -93,6 +107,7 @@ impl Default for RollState {
             ticks_per_point: 12.0,
             top_pitch: 96,
             selected: None,
+            drag: None,
         }
     }
 }
@@ -120,19 +135,148 @@ pub struct RollClick {
     pub clip: Option<(TrackId, project::ClipId)>,
 }
 
-/// Draws the roll and handles zoom and scroll; returns a primary click.
+/// What a drag on a note does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DragMode {
+    /// Moves start and pitch.
+    Move,
+    /// Changes duration.
+    Resize,
+}
+
+/// A note change produced by a drag.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RollEdit {
+    /// Track holding the note.
+    pub track: TrackId,
+    /// Note being changed.
+    pub note: project::NoteId,
+    /// New start.
+    pub start: Tick,
+    /// New pitch.
+    pub pitch: u8,
+    /// New duration.
+    pub duration: Tick,
+    /// What the drag did.
+    pub mode: DragMode,
+}
+
+/// What the roll produced this frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RollOutcome {
+    /// Primary click, when one happened.
+    pub click: Option<RollClick>,
+    /// Note change from a finished drag.
+    pub edit: Option<RollEdit>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct NoteDrag {
+    track: TrackId,
+    note: project::NoteId,
+    mode: DragMode,
+    anchor: Pos2,
+    start: Tick,
+    pitch: u8,
+    duration: Tick,
+}
+
+/// The note under a pointer on the selected track, with its drag mode.
+#[must_use]
+pub fn hit_note(
+    geometry: &RollGeometry,
+    track: &Track,
+    pointer: Pos2,
+) -> Option<(project::NoteId, DragMode)> {
+    for note in track.notes.iter().rev() {
+        let rect = geometry.note_rect(note.start, note.duration, note.pitch.as_u8());
+        if rect.contains(pointer) {
+            let mode = if pointer.x > rect.right() - 6.0 {
+                DragMode::Resize
+            } else {
+                DragMode::Move
+            };
+            return Some((note.id, mode));
+        }
+    }
+    None
+}
+
+/// The note values a drag starts from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DragOrigin {
+    /// Original start.
+    pub start: Tick,
+    /// Original pitch.
+    pub pitch: u8,
+    /// Original duration.
+    pub duration: Tick,
+}
+
+/// Applies a pointer delta to a note, snapping starts to a 1/16 grid.
+#[must_use]
+pub fn drag_result(
+    mode: DragMode,
+    anchor: Pos2,
+    pointer: Pos2,
+    ticks_per_point: f64,
+    row_height: f32,
+    origin: DragOrigin,
+) -> (Tick, u8, Tick) {
+    let delta_ticks = f64::from(pointer.x - anchor.x) * ticks_per_point;
+    let quantise = |value: f64| -> Tick {
+        let grid = (music_core::PPQ / 4).max(1);
+        let snapped = (value / grid as f64).round() as Tick * grid;
+        snapped.max(0)
+    };
+    match mode {
+        DragMode::Move => {
+            let rows = ((anchor.y - pointer.y) / row_height.max(1.0)).round() as i32;
+            let new_pitch = (i32::from(origin.pitch) + rows).clamp(0, 127) as u8;
+            (
+                quantise(origin.start as f64 + delta_ticks),
+                new_pitch,
+                origin.duration,
+            )
+        }
+        DragMode::Resize => (
+            origin.start,
+            origin.pitch,
+            quantise(origin.duration as f64 + delta_ticks).max(music_core::PPQ / 8),
+        ),
+    }
+}
+
+/// Draws the roll and handles zoom, scroll and note drags.
 pub fn show(
     ui: &mut Ui,
     song: &Song,
     state: &mut RollState,
     playhead: Tick,
     selected_clip: Option<project::ClipId>,
-) -> Option<RollClick> {
+) -> RollOutcome {
     let available = ui.available_size();
     let (response, painter) = ui.allocate_painter(available, egui::Sense::click_and_drag());
     let rect = response.rect;
 
-    if response.dragged() {
+    if response.drag_started()
+        && let Some(pointer) = response.interact_pointer_pos()
+        && let Some(track_id) = state.selected
+        && let Some(track) = song.tracks.iter().find(|track| track.id == track_id)
+        && let Some((note, mode)) = hit_note(&geometry_hint(state, song, rect), track, pointer)
+        && let Some(found) = track.notes.iter().find(|entry| entry.id == note)
+    {
+        state.drag = Some(NoteDrag {
+            track: track_id,
+            note,
+            mode,
+            anchor: pointer,
+            start: found.start,
+            pitch: found.pitch.as_u8(),
+            duration: found.duration,
+        });
+    }
+    if response.dragged() && state.drag.is_none() {
         state.ticks_per_point *= 1.0 + response.drag_delta().x * 0.001;
         let scroll = response.drag_delta().y / theme::GRID;
         state.top_pitch = u8::try_from((i32::from(state.top_pitch) + scroll as i32).clamp(12, 127))
@@ -188,23 +332,62 @@ pub fn show(
     draw_playhead(&painter, rect, &geometry, playhead);
     draw_pitch_guide(&painter, rect, &geometry);
 
-    let pointer = response.interact_pointer_pos()?;
+    if response.drag_stopped()
+        && let Some(drag) = state.drag.take()
+        && let Some(pointer) = response.interact_pointer_pos()
+    {
+        let (start, pitch, duration) = drag_result(
+            drag.mode,
+            drag.anchor,
+            pointer,
+            f64::from(state.ticks_per_point),
+            10.0,
+            DragOrigin {
+                start: drag.start,
+                pitch: drag.pitch,
+                duration: drag.duration,
+            },
+        );
+        return RollOutcome {
+            edit: Some(RollEdit {
+                track: drag.track,
+                note: drag.note,
+                start,
+                pitch,
+                duration,
+                mode: drag.mode,
+            }),
+            ..RollOutcome::default()
+        };
+    }
+    let Some(pointer) = response.interact_pointer_pos() else {
+        return RollOutcome::default();
+    };
     if !response.clicked() {
-        return None;
+        return RollOutcome::default();
     }
     let tick = geometry.tick_at(pointer.x).max(0);
     let pitch = geometry.pitch_at(pointer.y);
+    let mut click = RollClick {
+        tick,
+        pitch,
+        note: None,
+        clip: None,
+    };
     if let Some(track_id) = state.selected
         && let Some(track) = song.tracks.iter().find(|track| track.id == track_id)
     {
         for clip in &track.clips {
             if clip_rect(rect, &geometry, clip).contains(pointer) {
-                return Some(RollClick {
-                    tick,
-                    pitch,
-                    note: None,
-                    clip: Some((track.id, clip.id)),
-                });
+                return RollOutcome {
+                    click: Some(RollClick {
+                        tick,
+                        pitch,
+                        note: None,
+                        clip: Some((track.id, clip.id)),
+                    }),
+                    edit: None,
+                };
             }
         }
     }
@@ -222,21 +405,24 @@ pub fn show(
         for note in &track.notes {
             let note_rect = geometry.note_rect(note.start, note.duration, note.pitch.as_u8());
             if note_rect.contains(pointer) {
-                return Some(RollClick {
-                    tick,
-                    pitch: note.pitch.as_u8(),
-                    note: Some((track.id, note.id)),
-                    clip: None,
-                });
+                return RollOutcome {
+                    click: Some(RollClick {
+                        tick,
+                        pitch: note.pitch.as_u8(),
+                        note: Some((track.id, note.id)),
+                        clip: None,
+                    }),
+                    edit: None,
+                };
             }
         }
     }
-    Some(RollClick {
-        tick,
-        pitch,
-        note: None,
-        clip: None,
-    })
+    click.note = None;
+    click.clip = None;
+    RollOutcome {
+        click: Some(click),
+        edit: None,
+    }
 }
 
 fn draw_grid(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song: &Song) {
@@ -514,5 +700,104 @@ mod tests {
         };
         too_far_out.clamp();
         assert_eq!(too_far_out.ticks_per_point, MAX_TICKS_PER_POINT);
+    }
+}
+
+#[cfg(test)]
+mod drag_tests {
+    use super::*;
+    use music_core::{Channel, Pitch, Velocity};
+    use project::song::{Note, Track};
+    use project::{NoteId, TrackId};
+
+    fn geometry() -> RollGeometry {
+        RollGeometry {
+            origin: Pos2::new(100.0, 50.0),
+            ticks_per_point: 10.0,
+            row_height: 10.0,
+            top_pitch: 96,
+            meter: music_core::TimeSignature::new(4, 4).expect("valid"),
+        }
+    }
+
+    fn track() -> Track {
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 200,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        track
+    }
+
+    #[test]
+    fn the_right_edge_resizes_and_the_body_moves() {
+        let geometry = geometry();
+        let track = track();
+        let rect = geometry.note_rect(0, 200, 60);
+        assert_eq!(
+            hit_note(
+                &geometry,
+                &track,
+                Pos2::new(rect.left() + 2.0, rect.center().y)
+            ),
+            Some((NoteId::new(1).expect("valid"), DragMode::Move))
+        );
+        assert_eq!(
+            hit_note(
+                &geometry,
+                &track,
+                Pos2::new(rect.right() - 2.0, rect.center().y)
+            ),
+            Some((NoteId::new(1).expect("valid"), DragMode::Resize))
+        );
+        assert_eq!(
+            hit_note(
+                &geometry,
+                &track,
+                Pos2::new(rect.right() + 50.0, rect.center().y)
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn drag_math_snaps_and_clamps() {
+        let origin = DragOrigin {
+            start: 0,
+            pitch: 60,
+            duration: 200,
+        };
+        let anchor = Pos2::new(0.0, 0.0);
+        let moved = drag_result(
+            DragMode::Move,
+            anchor,
+            Pos2::new(24.0, -20.0),
+            10.0,
+            10.0,
+            origin,
+        );
+        assert_eq!(moved, (240, 62, 200));
+        let resized = drag_result(
+            DragMode::Resize,
+            anchor,
+            Pos2::new(28.0, 0.0),
+            10.0,
+            10.0,
+            origin,
+        );
+        assert_eq!(resized, (0, 60, 480));
+        let tiny = drag_result(
+            DragMode::Resize,
+            anchor,
+            Pos2::new(-1000.0, 0.0),
+            10.0,
+            10.0,
+            origin,
+        );
+        assert_eq!(tiny.2, music_core::PPQ / 8);
     }
 }

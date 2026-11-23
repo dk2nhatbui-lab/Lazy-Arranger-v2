@@ -82,6 +82,7 @@ the wider ~90-tool MCP surface.
 | Clip join command | `app-commands::join_clips` | verified | spans both, one undo step |
 | Note clipboard (copy, cut, paste at playhead; chord range copy/paste) | `app-commands::clipboard` | verified | 3 clipboard tests + editor test; Cmd/Ctrl+C/X/V |
 | Quantise all starts and set velocity | `Editor::quantize`, `set_velocity`, Arrange buttons | verified | off-grid insert test; UI manual |
+| Drag notes to move or resize (snapped, one command) | `piano_roll::hit_note`/`drag_result`, Editor | verified mapping | hit-zone and drag-math tests; drag UX manual |
 | Drum onset detection, slicing, GM mapping, pad window and MIDI-triggered pads | `audio::drums`, `pads`, `midi_devices::map`, shell | verified core | click-loop and map tests; pad audio playback needs hardware |
 | Seeded generators: humanise, drumify, bass/pad/arp, continue, melody | `arranging::generate`, CLI and MCP `generate` | verified | 5 generator tests + tool test; CLI wrote a melody and a continuation |
 | Chord progression text parser (`\|` bar, `%` repeat, `/` hold) | `music-core::progression` | verified | 6 parser tests |

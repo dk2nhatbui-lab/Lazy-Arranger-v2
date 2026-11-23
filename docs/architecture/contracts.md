@@ -169,3 +169,12 @@ absent.
 half-step rounding, one ReplaceTrackNotes edit per changed track; Arrange has
 1/16 and 1/8 buttons. `Editor::set_velocity` sets one note's velocity but has no
 lane UI yet. Drag-move, resize, piano keys and select-all are still absent.
+
+### Note dragging
+
+`piano_roll::hit_note` classifies a pointer over a note as Move (body) or
+Resize (right 6 px), and `drag_result` converts the pointer delta into a 1/16
+snapped start plus row pitch, or a snapped duration with an eighth-note floor.
+The roll returns a `RollEdit` on drag release and the shell applies it through
+`Editor::move_note`/`resize_note` (one command each). A drag preview is not
+drawn and panning is suppressed while a note drag is active.
