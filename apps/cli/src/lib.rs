@@ -2633,6 +2633,19 @@ fn mcp_call(
     Ok(())
 }
 
+fn auto_style_chord(samples: &[f32], sample_rate: u32, bpm: f64) -> Option<Chord> {
+    let segment = (4.0 * 60.0 / bpm.max(1.0)).max(0.5);
+    let chords = audio::chords::recognize(samples, sample_rate, segment);
+    let mut best: Option<(Chord, f64)> = None;
+    for entry in chords {
+        let weight = entry.duration * entry.score;
+        if best.as_ref().is_none_or(|(_, score)| weight > *score) {
+            best = Some((entry.chord, weight));
+        }
+    }
+    best.map(|(chord, _)| chord)
+}
+
 fn style_from_audio(
     audio_path: &PathBuf,
     out: &PathBuf,
@@ -2662,7 +2675,18 @@ fn style_from_audio(
             velocity: (note.level * 127.0).clamp(1.0, 127.0) as u8,
         });
     }
-    let source_chord = Chord::parse(chord)?;
+    let detected_chord = if chord.eq_ignore_ascii_case("auto") {
+        auto_style_chord(&decoded.samples, decoded.sample_rate, bpm)
+    } else {
+        None
+    };
+    let source_chord = match detected_chord {
+        Some(found) => found,
+        None if chord.eq_ignore_ascii_case("auto") => {
+            Chord::parse("C").map_err(|error| error.to_string())?
+        }
+        None => Chord::parse(chord)?,
+    };
     let source = arranger::chord_type::ArrangerChord::try_from(&source_chord)
         .map_err(|error| format!("unsupported style chord {chord:?}: {error:?}"))?;
     let mut style = arranger::style::from_notes(
@@ -2687,8 +2711,9 @@ fn style_from_audio(
         .map_err(|error| format!("could not write {}: {error}", out.display()))?;
     let check = style_formats::import_style(&bytes)?;
     println!(
-        "wrote {}: {} detected note(s), {} section(s), {} byte(s); re-read {:?}",
+        "wrote {}: source {}, {} detected note(s), {} section(s), {} byte(s); re-read {:?}",
         out.display(),
+        source_chord.format(music_core::Spelling::Sharp),
         style.sections.first().map_or(0, |section| section
             .parts
             .first()
@@ -3014,9 +3039,10 @@ fn style_command(
         fs::read(path).map_err(|error| format!("could not read {}: {error}", path.display()))?;
     let imported = style_formats::import_style(&bytes)?;
     println!(
-        "{}: {} section(s), source ppq {}, {:.3} bpm, {}/{}",
+        "{}: {} section(s), source {}, source ppq {}, {:.3} bpm, {}/{}",
         path.display(),
         imported.sections.len(),
+        imported.native.source_chord.name(),
         imported.source_ppq,
         imported.tempo_bpm,
         imported.time_signature.numerator,

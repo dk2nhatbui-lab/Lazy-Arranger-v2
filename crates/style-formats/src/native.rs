@@ -141,18 +141,15 @@ mod tests {
             channel: Channel::from_one_based(11).expect("channel"),
         });
         song.tracks.push(track);
-        let style = arranger::style::from_song(
-            &song,
-            "Clips",
-            arranger::chord_type::ArrangerChord::new(
-                PitchClass::new(0),
-                arranger::chord_type::ChordType::Major,
-            ),
-            music_core::PPQ * 4,
+        let source = arranger::chord_type::ArrangerChord::new(
+            PitchClass::new(2),
+            arranger::chord_type::ChordType::Minor,
         );
+        let style = arranger::style::from_song(&song, "Clips", source, music_core::PPQ * 4);
         let bytes = write_native_style(&style, SffVersion::Sff1).expect("write");
         let imported = import_style(&bytes).expect("import");
         assert!(imported.section_names().contains(&"Main A"));
+        assert_eq!(imported.native.source_chord, source);
         assert_eq!(imported.native.sections[0].parts.len(), 1);
         assert_eq!(imported.native.sections[0].parts[0].notes.len(), 1);
     }

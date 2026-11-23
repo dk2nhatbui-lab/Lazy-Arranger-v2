@@ -126,6 +126,7 @@ pub fn from_song(
     if let Some(section) = section_from_range(song, "Main A", 0, length) {
         style.sections.push(section);
     }
+    apply_source_chord(&mut style);
     style
 }
 
@@ -143,6 +144,7 @@ pub fn from_song_sections(song: &Song, name: &str, source_chord: ArrangerChord) 
         if let Some(section) = section_from_range(song, "Main A", 0, end) {
             style.sections.push(section);
         }
+        apply_source_chord(&mut style);
         return style;
     }
     for (index, marker) in markers.iter().enumerate() {
@@ -163,6 +165,7 @@ pub fn from_song_sections(song: &Song, name: &str, source_chord: ArrangerChord) 
             style.sections.push(section);
         }
     }
+    apply_source_chord(&mut style);
     style
 }
 
@@ -208,6 +211,17 @@ fn section_from_range(song: &Song, name: &str, start: Tick, end: Tick) -> Option
     (!section.parts.is_empty()).then_some(section)
 }
 
+fn apply_source_chord(style: &mut Style) {
+    let root = style.source_chord.root.as_u8();
+    let chord_type = style.source_chord.chord_type;
+    for section in &mut style.sections {
+        for part in &mut section.parts {
+            part.rule.source_root = root;
+            part.rule.source_chord_type = chord_type;
+        }
+    }
+}
+
 /// Builds a one-section style from already-timed notes.
 #[must_use]
 pub fn from_notes(
@@ -224,6 +238,7 @@ pub fn from_notes(
         section.parts.push(part);
     }
     style.sections.push(section);
+    apply_source_chord(&mut style);
     style
 }
 
