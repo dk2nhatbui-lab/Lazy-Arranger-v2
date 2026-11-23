@@ -3998,12 +3998,18 @@ impl ShellApp {
             self.takes_open = false;
             return;
         };
-        let (active, takes) = self
+        let (active, takes, comps) = self
             .song()
             .tracks
             .iter()
             .find(|track| track.id == track_id)
-            .map(|track| (track.audio.clone(), track.takes.clone()))
+            .map(|track| {
+                (
+                    track.audio.clone(),
+                    track.takes.clone(),
+                    track.comps.clone(),
+                )
+            })
             .unwrap_or_default();
         let mut open = self.takes_open;
         let mut action = None;
@@ -4056,8 +4062,31 @@ impl ShellApp {
                         if ui.small_button("Use").clicked() {
                             action = Some((index, 1));
                         }
+                        if ui.small_button("Comp here").clicked() {
+                            action = Some((index, 3));
+                        }
                         if ui.small_button("Remove").clicked() {
                             action = Some((index, 2));
+                        }
+                    });
+                }
+                ui.separator();
+                ui.label(egui::RichText::new("Comps").strong());
+                if comps.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No comp spans; the active reference plays.")
+                            .size(10.0)
+                            .color(theme::text_dim()),
+                    );
+                }
+                for (index, comp) in comps.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!(
+                            "{index}: take {} · {} + {}",
+                            comp.take, comp.start, comp.length
+                        ));
+                        if ui.small_button("Remove").clicked() {
+                            action = Some((index, 4));
                         }
                     });
                 }
@@ -4066,7 +4095,13 @@ impl ShellApp {
             let result = match kind {
                 0 => self.editor.store_audio_take(track_id).map(|_| ()),
                 1 => self.editor.use_audio_take(track_id, index),
-                _ => self.editor.remove_audio_take(track_id, index),
+                2 => self.editor.remove_audio_take(track_id, index),
+                3 => {
+                    let length = takes.get(index).map_or(0, |take| take.length.max(1));
+                    self.editor
+                        .add_audio_comp(track_id, index, self.position, length)
+                }
+                _ => self.editor.remove_audio_comp(track_id, index),
             };
             match result {
                 Ok(()) => self.status = Some(String::from("audio takes updated")),

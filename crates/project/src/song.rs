@@ -488,6 +488,17 @@ pub struct BankSelect {
     pub lsb: u8,
 }
 
+/// A comped span that plays a stored take over part of the track.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AudioComp {
+    /// Index into [`Track::takes`].
+    pub take: usize,
+    /// First tick.
+    pub start: Tick,
+    /// Length in ticks.
+    pub length: Tick,
+}
+
 /// A track: an ordered list of notes with a name.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Track {
@@ -535,6 +546,9 @@ pub struct Track {
     /// Stored alternate audio takes for this track.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub takes: Vec<AudioRef>,
+    /// Comped spans that replace parts of the active reference.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comps: Vec<AudioComp>,
     /// SoundFont preset used instead of the built-in timbre.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub soundfont: Option<SoundFontRef>,
@@ -622,6 +636,7 @@ impl Track {
             pan: 64,
             audio: None,
             takes: Vec::new(),
+            comps: Vec::new(),
             soundfont: None,
             slurs: Vec::new(),
             program: None,
@@ -1623,17 +1638,28 @@ mod tests {
             fade_out: 0,
             stretch: false,
         });
+        track.comps.push(AudioComp {
+            take: 0,
+            start: 0,
+            length: 480,
+        });
         song.tracks.push(track);
         let json = serde_json::to_value(&song).expect("serialize");
         let back: Song = serde_json::from_value(json.clone()).expect("deserialize");
         assert_eq!(back.tracks[0].takes, song.tracks[0].takes);
+        assert_eq!(back.tracks[0].comps, song.tracks[0].comps);
         let mut older = json;
         older["tracks"][0]
             .as_object_mut()
             .expect("track")
             .remove("takes");
+        older["tracks"][0]
+            .as_object_mut()
+            .expect("track")
+            .remove("comps");
         let older: Song = serde_json::from_value(older).expect("older project");
         assert!(older.tracks[0].takes.is_empty());
+        assert!(older.tracks[0].comps.is_empty());
     }
 
     #[test]

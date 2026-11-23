@@ -1418,6 +1418,73 @@ impl Editor {
         Ok(out)
     }
 
+    /// Adds a comp span that plays a stored take.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the take or track is unknown.
+    pub fn add_audio_comp(
+        &mut self,
+        track: TrackId,
+        take: usize,
+        start: Tick,
+        length: Tick,
+    ) -> Result<(), String> {
+        let mut comps = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map(|entry| entry.comps.clone())
+            .ok_or_else(|| String::from("unknown track"))?;
+        if self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .is_none_or(|entry| take >= entry.takes.len())
+        {
+            return Err(String::from("unknown audio take"));
+        }
+        if length <= 0 {
+            return Err(String::from("comp length must be positive"));
+        }
+        comps.push(project::song::AudioComp {
+            take,
+            start: start.max(0),
+            length,
+        });
+        self.session
+            .apply(app_commands::Command::SetAudioComps { track, comps })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Removes one comp span.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track or index is unknown.
+    pub fn remove_audio_comp(&mut self, track: TrackId, index: usize) -> Result<(), String> {
+        let mut comps = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map(|entry| entry.comps.clone())
+            .ok_or_else(|| String::from("unknown track"))?;
+        if index >= comps.len() {
+            return Err(String::from("unknown comp span"));
+        }
+        comps.remove(index);
+        self.session
+            .apply(app_commands::Command::SetAudioComps { track, comps })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Stores the active audio reference as an alternate take.
     ///
     /// # Errors
@@ -2412,6 +2479,31 @@ mod tests {
             .find(|note| note.id == id)
             .expect("note");
         assert_eq!(note.duration, music_core::PPQ / 2);
+    }
+
+    #[test]
+    fn audio_comps_add_and_remove() {
+        let mut song = Song::new("Comps", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Audio");
+        track.takes.push(project::song::AudioRef {
+            path: String::from("take.wav"),
+            start: 0,
+            length: music_core::PPQ,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
+        editor
+            .add_audio_comp(TrackId::new(1).expect("track"), 0, 0, music_core::PPQ)
+            .expect("add");
+        assert_eq!(editor.song().tracks[0].comps.len(), 1);
+        editor
+            .remove_audio_comp(TrackId::new(1).expect("track"), 0)
+            .expect("remove");
+        assert!(editor.song().tracks[0].comps.is_empty());
     }
 
     #[test]

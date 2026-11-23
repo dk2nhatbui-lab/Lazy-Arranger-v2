@@ -171,6 +171,13 @@ pub enum Command {
         /// Stored takes.
         takes: Vec<project::song::AudioRef>,
     },
+    /// Replace a track's comped audio spans.
+    SetAudioComps {
+        /// The track.
+        track: TrackId,
+        /// Comped spans.
+        comps: Vec<project::song::AudioComp>,
+    },
     /// Replace a track's stored audio takes.
     SetAudioTakes {
         /// The track.
@@ -304,6 +311,7 @@ impl Command {
             Self::SetAutomation { .. } => "set automation",
             Self::SetAudioRef { .. } => "set audio reference",
             Self::SetAudioState { .. } => "set audio state",
+            Self::SetAudioComps { .. } => "set audio comps",
             Self::SetAudioTakes { .. } => "set audio takes",
             Self::FreezeTrack { .. } => "freeze track",
             Self::RestoreTrack { .. } => "restore track",
@@ -900,6 +908,10 @@ impl EditSession {
                 reference: self.track(*track)?.audio.clone(),
                 takes: self.track(*track)?.takes.clone(),
             },
+            Command::SetAudioComps { track, .. } => Command::SetAudioComps {
+                track: *track,
+                comps: self.track(*track)?.comps.clone(),
+            },
             Command::SetAudioTakes { track, .. } => Command::SetAudioTakes {
                 track: *track,
                 takes: self.track(*track)?.takes.clone(),
@@ -1121,6 +1133,9 @@ impl EditSession {
                 track.audio = reference.clone();
                 track.takes = takes.clone();
             }
+            Command::SetAudioComps { track, comps } => {
+                self.track_mut(*track)?.comps = comps.clone();
+            }
             Command::SetAudioTakes { track, takes } => {
                 self.track_mut(*track)?.takes = takes.clone();
             }
@@ -1307,6 +1322,9 @@ fn describe(command: &Command) -> String {
         Command::RestoreTrack { track, .. } => format!("restore track {track}"),
         Command::SetAudioState { track, takes, .. } => {
             format!("track {track}: audio state with {} take(s)", takes.len())
+        }
+        Command::SetAudioComps { track, comps } => {
+            format!("track {track}: {} comp span(s)", comps.len())
         }
         Command::SetAudioTakes { track, takes } => {
             format!("track {track}: {} audio take(s)", takes.len())
