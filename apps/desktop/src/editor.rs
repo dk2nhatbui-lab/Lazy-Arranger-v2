@@ -1449,6 +1449,13 @@ impl Editor {
         if length <= 0 {
             return Err(String::from("comp length must be positive"));
         }
+        let end = start.max(0).saturating_add(length);
+        if comps
+            .iter()
+            .any(|comp| start.max(0) < comp.start.saturating_add(comp.length) && comp.start < end)
+        {
+            return Err(String::from("comp span overlaps another span"));
+        }
         comps.push(project::song::AudioComp {
             take,
             start: start.max(0),
@@ -2500,6 +2507,17 @@ mod tests {
             .add_audio_comp(TrackId::new(1).expect("track"), 0, 0, music_core::PPQ)
             .expect("add");
         assert_eq!(editor.song().tracks[0].comps.len(), 1);
+        assert!(
+            editor
+                .add_audio_comp(
+                    TrackId::new(1).expect("track"),
+                    0,
+                    music_core::PPQ / 2,
+                    music_core::PPQ
+                )
+                .is_err(),
+            "overlapping comps are rejected"
+        );
         editor
             .remove_audio_comp(TrackId::new(1).expect("track"), 0)
             .expect("remove");

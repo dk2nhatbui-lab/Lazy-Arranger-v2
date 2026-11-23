@@ -327,11 +327,45 @@ pub fn render_with_soundfont(
                 mix_audio_reference(song, track, &mut track_buffer, reference, sample_rate);
             }
         } else {
-            for comp in &track.comps {
+            let mut comps: Vec<&project::song::AudioComp> = track.comps.iter().collect();
+            comps.sort_by_key(|comp| comp.start);
+            if let Some(active) = &track.audio {
+                let active_end = active.start.saturating_add(active.length);
+                let mut cursor = active.start;
+                let mut gaps = Vec::new();
+                for comp in &comps {
+                    if comp.start > cursor {
+                        gaps.push((cursor, comp.start.min(active_end)));
+                    }
+                    cursor = cursor.max(comp.start.saturating_add(comp.length));
+                }
+                if cursor < active_end {
+                    gaps.push((cursor, active_end));
+                }
+                for (start, end) in gaps {
+                    if end <= start {
+                        continue;
+                    }
+                    let cross = chords::to_ticks(0.005, song.tempo_map.bpm_at(start)).max(1);
+                    let mut placed = active.clone();
+                    placed.offset = active
+                        .offset
+                        .saturating_add(start.saturating_sub(active.start));
+                    placed.start = start;
+                    placed.length = end.saturating_sub(start);
+                    placed.fade_in = placed.fade_in.max(cross);
+                    placed.fade_out = placed.fade_out.max(cross);
+                    mix_audio_reference(song, track, &mut track_buffer, &placed, sample_rate);
+                }
+            }
+            for comp in &comps {
                 if let Some(take) = track.takes.get(comp.take) {
+                    let cross = chords::to_ticks(0.005, song.tempo_map.bpm_at(comp.start)).max(1);
                     let mut placed = take.clone();
                     placed.start = comp.start;
                     placed.length = comp.length;
+                    placed.fade_in = placed.fade_in.max(cross);
+                    placed.fade_out = placed.fade_out.max(cross);
                     mix_audio_reference(song, track, &mut track_buffer, &placed, sample_rate);
                 }
             }
@@ -1693,11 +1727,15 @@ mod tests {
         song.tracks.push(track);
         let rendered = render(&song, SAMPLE_RATE);
         let _ = std::fs::remove_file(&path);
-        assert!(rendered.samples[0] > 0.3, "comp starts with the take");
+        let inside = (SAMPLE_RATE as f64 * 0.02).round() as usize;
+        assert!(
+            rendered.samples[inside * 2] > 0.3,
+            "comp starts with the take"
+        );
         let after = (SAMPLE_RATE as f64 * 0.6).round() as usize;
         assert!(
-            rendered.samples[after * 2].abs() < 1.0e-6,
-            "the active reference is replaced outside the comp"
+            rendered.samples[after * 2].abs() > 0.3,
+            "the active reference fills the gap outside the comp"
         );
     }
 
