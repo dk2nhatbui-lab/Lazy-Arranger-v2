@@ -149,6 +149,10 @@ pub enum AutomationTarget {
     Volume,
     /// Pan.
     Pan,
+    /// Send level.
+    Send,
+    /// Patch brightness.
+    Brightness,
 }
 
 /// One automation point.
@@ -202,6 +206,26 @@ impl Track {
             .find(|lane| lane.target == AutomationTarget::Pan)
             .and_then(|lane| lane.value_at(tick))
             .unwrap_or(f32::from(self.pan))
+    }
+
+    /// Send level in force at a tick, from automation or the static level.
+    #[must_use]
+    pub fn send_at(&self, tick: Tick) -> f32 {
+        self.automation
+            .iter()
+            .find(|lane| lane.target == AutomationTarget::Send)
+            .and_then(|lane| lane.value_at(tick))
+            .unwrap_or(f32::from(self.send_level))
+    }
+
+    /// Patch brightness in force at a tick, when a lane exists.
+    #[must_use]
+    pub fn brightness_at(&self, tick: Tick) -> Option<f32> {
+        self.automation
+            .iter()
+            .find(|lane| lane.target == AutomationTarget::Brightness)
+            .and_then(|lane| lane.value_at(tick))
+            .map(|value| (value / 127.0).clamp(0.0, 1.0))
     }
 }
 
@@ -425,7 +449,7 @@ pub struct Track {
     /// Record arm. No recording path uses it yet.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub armed: bool,
-    /// Automation lanes for volume and pan.
+    /// Automation lanes for volume, pan, send level and brightness.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub automation: Vec<Automation>,
     /// Fader level, 0..=127 with 100 as unity.

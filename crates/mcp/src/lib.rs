@@ -600,6 +600,8 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     "target": match lane.target {
                         project::song::AutomationTarget::Volume => "volume",
                         project::song::AutomationTarget::Pan => "pan",
+                        project::song::AutomationTarget::Send => "send",
+                        project::song::AutomationTarget::Brightness => "brightness",
                     },
                     "points": lane.points.iter().map(|point| json!({"tick": point.tick, "value": point.value})).collect::<Vec<_>>()
                 })).collect::<Vec<_>>()
@@ -617,6 +619,8 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 let target = match lane.get("target").and_then(Value::as_str) {
                     Some("volume") => AutomationTarget::Volume,
                     Some("pan") => AutomationTarget::Pan,
+                    Some("send") => AutomationTarget::Send,
+                    Some("brightness") => AutomationTarget::Brightness,
                     _ => {
                         return Err(ToolError::Arguments(String::from(
                             "lane target must be volume or pan",

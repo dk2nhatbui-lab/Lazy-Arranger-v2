@@ -135,9 +135,15 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
 
     for track in song.tracks.iter().filter(|track| song.is_audible(track)) {
         let timbre = timbre_for(track);
-        let patch = track.patch;
         for note in &track.notes {
             let (left_gain, right_gain) = gains_at(track, note.start);
+            let patch = track.patch.map(|mut patch| {
+                if let Some(brightness) = track.brightness_at(note.start) {
+                    patch.brightness = brightness;
+                }
+                patch
+            });
+            let send_level = track.send_at(note.start).min(127.0) / 100.0;
             let start_seconds = song.tempo_map.seconds_at(note.start);
             let end_seconds = song
                 .tempo_map
@@ -177,9 +183,8 @@ pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
                     .send
                     .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
                 {
-                    let level = f32::from(track.send_level.min(127)) / 100.0;
-                    bus_buffers[index][frame * 2] += left * level;
-                    bus_buffers[index][frame * 2 + 1] += right * level;
+                    bus_buffers[index][frame * 2] += left * send_level;
+                    bus_buffers[index][frame * 2 + 1] += right * send_level;
                 }
             }
         }
@@ -454,6 +459,50 @@ mod tests {
         song.tracks[1].muted = true;
         let silent = render(&song, SAMPLE_RATE);
         assert!(silent.samples.iter().all(|sample| sample.abs() < 1.0e-6));
+    }
+
+    #[test]
+    fn send_and_brightness_lanes_change_the_render() {
+        use project::song::{Automation, AutomationPoint, AutomationTarget};
+        let mut song = song_with_note();
+        song.buses.push(project::song::Bus {
+            id: 1,
+            name: String::from("Reverb"),
+            volume: 100,
+            pan: 64,
+        });
+        song.tracks[0].send = Some(1);
+        song.tracks[0].send_level = 0;
+        let quiet = render(&song, SAMPLE_RATE);
+        song.tracks[0].automation.push(Automation {
+            target: AutomationTarget::Send,
+            points: vec![AutomationPoint {
+                tick: 0,
+                value: 127.0,
+            }],
+        });
+        let loud = render(&song, SAMPLE_RATE);
+        assert_ne!(quiet.samples, loud.samples, "send lane is followed");
+
+        song.tracks[0].automation.clear();
+        song.tracks[0].patch = Some(project::song::Patch {
+            waveform: project::song::Waveform::Sine,
+            attack: 0.01,
+            decay: 0.1,
+            sustain: 0.8,
+            release: 0.1,
+            brightness: 0.0,
+        });
+        let dark = render(&song, SAMPLE_RATE);
+        song.tracks[0].automation.push(Automation {
+            target: AutomationTarget::Brightness,
+            points: vec![AutomationPoint {
+                tick: 0,
+                value: 127.0,
+            }],
+        });
+        let bright = render(&song, SAMPLE_RATE);
+        assert_ne!(dark.samples, bright.samples, "brightness lane is followed");
     }
 
     #[test]
