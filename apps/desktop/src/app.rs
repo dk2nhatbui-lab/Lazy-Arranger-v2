@@ -4056,6 +4056,11 @@ impl eframe::App for ShellApp {
                             {
                                 print_pdf = true;
                             }
+                            ui.label(
+                                egui::RichText::new("Shift-drag to resize")
+                                    .size(10.0)
+                                    .color(theme::text_dim()),
+                            );
                         });
                         if let Some(track) = roll
                             .selected
@@ -4154,27 +4159,43 @@ impl eframe::App for ShellApp {
                                     })
                                     .map(|note| note.id)
                                 {
-                                    match music_core::Pitch::new(drag.to_pitch) {
-                                        Ok(pitch) => {
-                                            match editor.move_note(
-                                                track,
-                                                found,
-                                                drag.to_tick,
-                                                pitch,
-                                            ) {
-                                                Ok(()) => {
-                                                    score_status = Some(format!(
-                                                        "moved to tick {} pitch {}",
-                                                        drag.to_tick, drag.to_pitch
-                                                    ));
-                                                }
-                                                Err(error) => {
-                                                    score_status = Some(error.to_string());
+                                    if drag.resize {
+                                        match self.editor.set_note_duration(
+                                            track,
+                                            found,
+                                            drag.duration,
+                                        ) {
+                                            Ok(()) => {
+                                                score_status = Some(format!(
+                                                    "duration set to {} ticks",
+                                                    drag.duration
+                                                ));
+                                            }
+                                            Err(error) => score_status = Some(error),
+                                        }
+                                    } else {
+                                        match music_core::Pitch::new(drag.to_pitch) {
+                                            Ok(pitch) => {
+                                                match editor.move_note(
+                                                    track,
+                                                    found,
+                                                    drag.to_tick,
+                                                    pitch,
+                                                ) {
+                                                    Ok(()) => {
+                                                        score_status = Some(format!(
+                                                            "moved to tick {} pitch {}",
+                                                            drag.to_tick, drag.to_pitch
+                                                        ));
+                                                    }
+                                                    Err(error) => {
+                                                        score_status = Some(error.to_string());
+                                                    }
                                                 }
                                             }
-                                        }
-                                        Err(error) => {
-                                            score_status = Some(error.to_string());
+                                            Err(error) => {
+                                                score_status = Some(error.to_string());
+                                            }
                                         }
                                     }
                                 }

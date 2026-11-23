@@ -773,3 +773,11 @@ a measure and widens that measure to at least `staff_space * 1.15` per slot
 (never below the base quarter width). Systems pack measures by their actual
 widths. A sixteenth-note bar is wider than a quarter-note bar in the test; other
 layout tests are unchanged. Vertical rest/dot collisions are still not resolved.
+
+### Score drag-resize
+
+Shift is captured at drag start; on release the horizontal destination sets a
+new duration (minimum one sixteenth) and the shell applies one
+`SetNoteDuration`, with the old duration as the inverse. Without Shift the drag
+still moves start/pitch. The Score toolbar notes the gesture. A command/editor
+test covers set, rejection of zero and undo.

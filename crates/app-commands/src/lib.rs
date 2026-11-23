@@ -40,6 +40,15 @@ pub enum Command {
         /// The note to remove.
         note: NoteId,
     },
+    /// Change one note's duration.
+    SetNoteDuration {
+        /// Owning track.
+        track: TrackId,
+        /// The note.
+        note: NoteId,
+        /// New duration in ticks.
+        duration: Tick,
+    },
     /// Place or replace the chord at a tick.
     SetChord {
         /// Position in ticks.
@@ -250,6 +259,7 @@ impl Command {
         match self {
             Self::InsertNote { .. } => "insert note",
             Self::RemoveNote { .. } => "remove note",
+            Self::SetNoteDuration { .. } => "set note duration",
             Self::SetChord { .. } => "set chord",
             Self::RemoveChord { .. } => "remove chord",
             Self::SetTempo { .. } => "set tempo",
@@ -721,6 +731,20 @@ impl EditSession {
                     note: note.id,
                 }
             }
+            Command::SetNoteDuration { track, note, .. } => Command::SetNoteDuration {
+                track: *track,
+                note: *note,
+                duration: self
+                    .track(*track)?
+                    .notes
+                    .iter()
+                    .find(|entry| entry.id == *note)
+                    .ok_or(CommandError::UnknownNote {
+                        track: *track,
+                        note: *note,
+                    })?
+                    .duration,
+            },
             Command::RemoveNote { track, note } => {
                 let target = self.track(*track)?;
                 let found = target
@@ -937,6 +961,27 @@ impl EditSession {
                     .unwrap_or(target.notes.len());
                 target.notes.insert(position, note.clone());
             }
+            Command::SetNoteDuration {
+                track,
+                note,
+                duration,
+            } => {
+                if *duration <= 0 {
+                    return Err(CommandError::Validation(String::from(
+                        "note duration must be positive",
+                    )));
+                }
+                let entry = self
+                    .track_mut(*track)?
+                    .notes
+                    .iter_mut()
+                    .find(|entry| entry.id == *note)
+                    .ok_or(CommandError::UnknownNote {
+                        track: *track,
+                        note: *note,
+                    })?;
+                entry.duration = *duration;
+            }
             Command::RemoveNote { track, note } => {
                 let target = self.track_mut(*track)?;
                 target.notes.retain(|existing| existing.id != *note);
@@ -1143,6 +1188,11 @@ fn describe(command: &Command) -> String {
             format!("insert {} on track {track} at {}", note.pitch, note.start)
         }
         Command::RemoveNote { track, note } => format!("remove note {note} from track {track}"),
+        Command::SetNoteDuration {
+            track,
+            note,
+            duration,
+        } => format!("set note {note} on track {track} to {duration} ticks"),
         Command::SetChord { tick, chord } => format!("set chord {chord} at tick {tick}"),
         Command::RemoveChord { tick } => format!("remove chord at tick {tick}"),
         Command::SetTempo { tick, bpm } => format!("set tempo {bpm} bpm at tick {tick}"),

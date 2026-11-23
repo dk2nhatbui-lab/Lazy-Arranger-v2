@@ -52,12 +52,16 @@ pub struct ScoreDrag {
     pub to_tick: Tick,
     /// Destination pitch.
     pub to_pitch: u8,
+    /// True when Shift held at drag start: resize instead of move.
+    pub resize: bool,
+    /// New duration when resizing; zero otherwise.
+    pub duration: Tick,
 }
 
 /// Persistent score canvas state.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ScoreState {
-    drag: Option<(Tick, u8)>,
+    drag: Option<(Tick, u8, Tick, bool)>,
 }
 
 /// Tick and pitch under a page position.
@@ -308,20 +312,33 @@ pub fn show(
             && let Some(position) = response.interact_pointer_pos()
             && let Some((tick, pitch)) = hit_note(engraved, page_index, zoom, origin, position)
         {
-            state.drag = Some((tick, pitch));
+            let duration = engraved
+                .notes
+                .iter()
+                .find(|note| note.tick == tick && note.pitch.as_u8() == pitch)
+                .map_or(music_core::PPQ, |note| note.duration);
+            let resize = ui.input(|input| input.modifiers.shift);
+            state.drag = Some((tick, pitch, duration, resize));
         }
         if response.drag_stopped()
-            && let Some((from_tick, from_pitch)) = state.drag.take()
+            && let Some((from_tick, from_pitch, duration, resize)) = state.drag.take()
             && let Some(position) = response.interact_pointer_pos()
             && let Some((to_tick, to_pitch)) =
                 drag_target(engraved, page_index, settings, zoom, origin, position)
         {
+            let new_duration = if resize {
+                (to_tick - from_tick).max(music_core::PPQ / 4)
+            } else {
+                duration
+            };
             return ScoreOutcome {
                 drag: Some(ScoreDrag {
                     from_tick,
                     from_pitch,
                     to_tick,
                     to_pitch,
+                    resize,
+                    duration: new_duration,
                 }),
                 ..ScoreOutcome::default()
             };

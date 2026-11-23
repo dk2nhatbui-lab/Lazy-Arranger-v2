@@ -814,6 +814,28 @@ impl Editor {
         Ok(())
     }
 
+    /// Sets one note's duration.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the note or edit is rejected.
+    pub fn set_note_duration(
+        &mut self,
+        track: TrackId,
+        note: project::NoteId,
+        duration: Tick,
+    ) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::SetNoteDuration {
+                track,
+                note,
+                duration,
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Renames the song.
     ///
     /// # Errors
@@ -1906,6 +1928,20 @@ mod tests {
         assert!(pasted >= 1);
         assert!(editor.song().chords.iter().any(|event| event.tick == 15360));
         assert!(editor.undo());
+    }
+
+    #[test]
+    fn note_duration_change_is_undoable() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let note = editor.song().tracks[0].notes[0].id;
+        editor
+            .set_note_duration(track, note, 1920)
+            .expect("duration");
+        assert_eq!(editor.song().tracks[0].notes[0].duration, 1920);
+        assert!(editor.set_note_duration(track, note, 0).is_err());
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].notes[0].duration, PPQ);
     }
 
     #[test]
