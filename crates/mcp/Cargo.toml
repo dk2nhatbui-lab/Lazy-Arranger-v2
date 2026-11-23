@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 app-commands = { path = "../app-commands" }
+audio = { path = "../audio" }
 arranging = { path = "../arranging" }
 music-core = { path = "../music-core" }
 project = { path = "../project" }

@@ -126,6 +126,36 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "get_plugins",
+            description: "Read a track's plugin slots (state only, not hosted).",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}},
+                "required": ["track"]
+            }),
+        },
+        Tool {
+            name: "set_plugins",
+            description: "Replace a track's plugin slots.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "plugins": {"type": "array"}
+                },
+                "required": ["track", "plugins"]
+            }),
+        },
+        Tool {
+            name: "l6max_scan",
+            description: "Scan a folder of L6max WAV takes and report the import plan.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"folder": {"type": "string"}},
+                "required": ["folder"]
+            }),
+        },
+        Tool {
             name: "generate",
             description: "Rule-based generation: humanize, drumify, bass, pad, arp, continue, melody.",
             input_schema: json!({
@@ -370,6 +400,104 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             Ok(json!({
                 "tracks": grid.tracks.iter().map(|track| track.get()).collect::<Vec<_>>(),
                 "scenes": scenes,
+            }))
+        }
+        "get_plugins" => {
+            let track = track_argument(arguments)?;
+            let found = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
+            Ok(json!({
+                "plugins": found.plugins.iter().map(|plugin| json!({
+                    "id": plugin.id,
+                    "name": plugin.name,
+                    "format": match plugin.format {
+                        project::song::PluginFormat::Vst3 => "vst3",
+                        project::song::PluginFormat::AudioUnit => "audio_unit",
+                    },
+                    "path": plugin.path,
+                    "bypassed": plugin.bypassed,
+                    "state": plugin.state
+                })).collect::<Vec<_>>()
+            }))
+        }
+        "set_plugins" => {
+            use project::song::{PluginFormat, PluginSlot};
+            let track = track_argument(arguments)?;
+            let plugins = arguments
+                .get("plugins")
+                .and_then(Value::as_array)
+                .ok_or_else(|| ToolError::Arguments(String::from("plugins must be an array")))?;
+            let mut slots = Vec::new();
+            for plugin in plugins {
+                let name = plugin
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| ToolError::Arguments(String::from("plugin needs a name")))?;
+                let format = match plugin.get("format").and_then(Value::as_str) {
+                    Some("audio_unit") | Some("au") => PluginFormat::AudioUnit,
+                    Some("vst3") | None => PluginFormat::Vst3,
+                    Some(other) => {
+                        return Err(ToolError::Arguments(format!(
+                            "unknown plugin format {other}"
+                        )));
+                    }
+                };
+                let id = plugin
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .unwrap_or((slots.len() as u64) + 1) as u32;
+                slots.push(PluginSlot {
+                    id,
+                    name: name.to_string(),
+                    format,
+                    path: plugin
+                        .get("path")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    bypassed: plugin
+                        .get("bypassed")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    state: plugin
+                        .get("state")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                });
+            }
+            session.apply(Command::SetPlugins {
+                track,
+                plugins: slots.clone(),
+            })?;
+            Ok(json!({"plugins": slots.len()}))
+        }
+        "l6max_scan" => {
+            let folder = arguments
+                .get("folder")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("folder is required")))?;
+            let plan =
+                audio::l6max::scan(std::path::Path::new(folder)).map_err(ToolError::Arguments)?;
+            Ok(json!({
+                "takes": plan.takes.iter().map(|take| json!({
+                    "name": take.name,
+                    "seconds": take.seconds,
+                    "channels": take.channels,
+                    "sample_rate": take.sample_rate,
+                    "bits": take.bits,
+                    "float32": take.is_float32()
+                })).collect::<Vec<_>>(),
+                "total_seconds": plan.seconds(),
+                "float32": plan.float32(),
+                "problems": plan.problems.iter().map(|(path, reason)| json!({
+                    "path": path.display().to_string(),
+                    "reason": reason
+                })).collect::<Vec<_>>()
             }))
         }
         "generate" => {
@@ -918,6 +1046,47 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn plugin_and_l6max_tools_work() {
+        let mut session = session_with_track();
+        let written = call(
+            &mut session,
+            "set_plugins",
+            &json!({"track": 1, "plugins": [{"id": 1, "name": "Limiter", "format": "vst3"}]}),
+        )
+        .expect("set plugins");
+        assert_eq!(written["plugins"], 1);
+        let read = call(&mut session, "get_plugins", &json!({"track": 1})).expect("get plugins");
+        assert_eq!(read["plugins"][0]["name"], "Limiter");
+        assert_eq!(read["plugins"][0]["format"], "vst3");
+        assert!(
+            call(
+                &mut session,
+                "set_plugins",
+                &json!({"track": 1, "plugins": [{"id": 1, "name": "X", "format": "clap"}]})
+            )
+            .is_err()
+        );
+
+        let folder = std::env::temp_dir().join("lazy-arranger-mcp-l6max");
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).expect("dir");
+        let wav = audio::RenderedAudio {
+            samples: vec![0.0; 48_000],
+            sample_rate: 48_000,
+        };
+        std::fs::write(folder.join("take.wav"), wav.to_wav()).expect("write");
+        let scan = call(
+            &mut session,
+            "l6max_scan",
+            &json!({"folder": folder.display().to_string()}),
+        )
+        .expect("scan");
+        assert_eq!(scan["takes"][0]["name"], "take");
+        assert_eq!(scan["takes"][0]["float32"], false);
+        let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]
