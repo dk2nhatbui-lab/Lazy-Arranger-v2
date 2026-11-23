@@ -49,6 +49,18 @@ pub struct InstrumentZone {
     pub fine_tune: i16,
     /// 1 means loop continuously.
     pub sample_modes: u16,
+    /// Volume-envelope delay in timecents.
+    pub delay: i16,
+    /// Volume-envelope attack in timecents.
+    pub attack: i16,
+    /// Volume-envelope hold in timecents.
+    pub hold: i16,
+    /// Volume-envelope decay in timecents.
+    pub decay: i16,
+    /// Volume-envelope sustain attenuation in centibels.
+    pub sustain: u16,
+    /// Volume-envelope release in timecents.
+    pub release: i16,
 }
 
 /// One instrument.
@@ -201,6 +213,12 @@ fn preset_zone(gens: &[(u16, u16)]) -> PresetZone {
     }
 }
 
+fn timecents(gens: &[(u16, u16)], op: u16) -> i16 {
+    gens.iter()
+        .find(|(kind, _)| *kind == op)
+        .map_or(-12_000, |(_, amount)| *amount as i16)
+}
+
 fn instrument_zone(gens: &[(u16, u16)]) -> InstrumentZone {
     let (key_low, key_high) = key_range(gens, 43);
     let (vel_low, vel_high) = key_range(gens, 44);
@@ -229,6 +247,15 @@ fn instrument_zone(gens: &[(u16, u16)]) -> InstrumentZone {
             .iter()
             .find(|(op, _)| *op == 54)
             .map_or(0, |(_, amount)| *amount),
+        delay: timecents(gens, 33),
+        attack: timecents(gens, 34),
+        hold: timecents(gens, 35),
+        decay: timecents(gens, 36),
+        sustain: gens
+            .iter()
+            .find(|(op, _)| *op == 37)
+            .map_or(0, |(_, amount)| *amount),
+        release: timecents(gens, 38),
     }
 }
 
@@ -367,6 +394,12 @@ pub fn parse(bytes: &[u8]) -> Result<SoundFont, String> {
                 coarse_tune: 0,
                 fine_tune: 0,
                 sample_modes: 0,
+                delay: -12_000,
+                attack: -12_000,
+                hold: -12_000,
+                decay: -12_000,
+                sustain: 0,
+                release: -12_000,
             }
         });
         let zones: Vec<PresetZone> = decoded
@@ -406,6 +439,38 @@ pub fn parse(bytes: &[u8]) -> Result<SoundFont, String> {
         samples,
         pcm,
     })
+}
+
+fn timecents_to_seconds(value: i16) -> f32 {
+    (2.0_f32.powf(f32::from(value) / 1200.0)).clamp(0.0, 30.0)
+}
+
+fn envelope(zone: &InstrumentZone, seconds: f32, held: f32) -> f32 {
+    let delay = timecents_to_seconds(zone.delay);
+    let attack = timecents_to_seconds(zone.attack);
+    let hold = timecents_to_seconds(zone.hold);
+    let decay = timecents_to_seconds(zone.decay);
+    let release = timecents_to_seconds(zone.release);
+    let sustain = 10.0_f32.powf(-f32::from(zone.sustain) / 200.0);
+    let level = if seconds < delay {
+        0.0
+    } else if attack > 0.0 && seconds < delay + attack {
+        (seconds - delay) / attack
+    } else {
+        let decay_start = delay + attack + hold;
+        if seconds < decay_start {
+            1.0
+        } else if decay > 0.0 && seconds < decay_start + decay {
+            1.0 - (1.0 - sustain) * ((seconds - decay_start) / decay)
+        } else {
+            sustain
+        }
+    };
+    if release > 0.0 && seconds > held - release {
+        level * ((held - seconds) / release).clamp(0.0, 1.0)
+    } else {
+        level
+    }
 }
 
 /// Renders one note from a preset zone.
@@ -479,7 +544,8 @@ pub fn render_note(
             base + 1
         };
         let next = font.pcm.get(next_index).copied().unwrap_or(0) as f32 / 32_768.0;
-        out.push(((first + (next - first) * fraction) * gain).clamp(-1.0, 1.0));
+        let level = envelope(zone, out.len() as f32 / ratio, seconds);
+        out.push(((first + (next - first) * fraction) * gain * level).clamp(-1.0, 1.0));
         position += f64::from(step);
     }
     Some(out)
@@ -568,12 +634,22 @@ mod tests {
         inst.extend_from_slice(&term);
 
         let mut ibag = Vec::new();
-        for index in [0_u16, 1] {
+        for index in [0_u16, 7] {
             ibag.extend_from_slice(&index.to_le_bytes());
             ibag.extend_from_slice(&0_u16.to_le_bytes());
         }
         let mut igen = Vec::new();
-        for (op, amount) in [(53_u16, 0_u16), (0, 0)] {
+        let immediate = (-24_000_i16) as u16;
+        for (op, amount) in [
+            (53_u16, 0_u16),
+            (33, immediate),
+            (34, immediate),
+            (35, immediate),
+            (36, immediate),
+            (37, 0),
+            (38, immediate),
+            (0, 0),
+        ] {
             igen.extend_from_slice(&op.to_le_bytes());
             igen.extend_from_slice(&amount.to_le_bytes());
         }
@@ -668,6 +744,41 @@ mod tests {
         assert!(
             short_high.len() < 40,
             "twelve semitones consume the sample sooner"
+        );
+    }
+
+    #[test]
+    fn the_volume_envelope_attacks_and_sustains() {
+        let mut font = parse(&build()).expect("parse");
+        font.pcm.fill(12_000);
+        font.instruments[0].zones[0].sample_modes = 1;
+        font.instruments[0].zones[0].attack = -1200; // 0.5 s
+        let slow = render_note(&font, 0, 0, 60, 127, 1.0, 44_100).expect("attack");
+        let early = slow[(44_100.0 * 0.1) as usize].abs();
+        let later = slow[(44_100.0 * 0.7) as usize].abs();
+        assert!(early < later * 0.6, "attack rises: {early} vs {later}");
+        font.instruments[0].zones[0].attack = -12_000;
+        font.instruments[0].zones[0].decay = -12_000; // 1 ms
+        font.instruments[0].zones[0].sustain = 60; // about -6 dB
+        let sustained = render_note(&font, 0, 0, 60, 127, 1.0, 44_100).expect("sustain");
+        let full = render_note(
+            &{
+                let mut flat = font.clone();
+                flat.instruments[0].zones[0].sustain = 0;
+                flat
+            },
+            0,
+            0,
+            60,
+            127,
+            1.0,
+            44_100,
+        )
+        .expect("flat");
+        assert!(
+            sustained[(44_100.0 * 0.5) as usize].abs()
+                < full[(44_100.0 * 0.5) as usize].abs() * 0.7,
+            "sustain attenuates"
         );
     }
 

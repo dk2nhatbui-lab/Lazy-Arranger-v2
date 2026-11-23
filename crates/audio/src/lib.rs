@@ -581,6 +581,12 @@ mod tests {
                     coarse_tune: 0,
                     fine_tune: 0,
                     sample_modes: 0,
+                    delay: -12_000,
+                    attack: -12_000,
+                    hold: -12_000,
+                    decay: -12_000,
+                    sustain: 0,
+                    release: -12_000,
                 }],
             }],
             samples: vec![soundfont::Sample {

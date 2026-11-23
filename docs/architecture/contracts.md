@@ -290,5 +290,8 @@ notes through `soundfont::render_note`, applying the track's fader, pan, buses
 and send. A missing or malformed file falls back to the built-in timbre with no
 error surfaced; `sf2-use` validates the bank and assigns it. The Mixer's SoundFont panel edits
 path, bank and program, validates the bank, applies one `SetSoundFont`, loads the
-current values and clears the preset. Envelope/filter handling and SF3 remain
-absent.
+current values and clears the preset. Instrument zones carry the six volume-
+envelope generators; `render_note` converts timecents to seconds and sustain
+centibels to a linear level, then applies delay, attack, hold, decay, sustain
+and a release ending at the note boundary. Filters, modulators, stereo samples
+and SF3 remain absent.
