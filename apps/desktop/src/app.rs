@@ -311,6 +311,7 @@ pub struct ShellApp {
     settings: crate::settings::Settings,
     settings_open: bool,
     shortcuts_open: bool,
+    help_open: bool,
     score_entry: bool,
     score_page: usize,
     score_zoom: f32,
@@ -473,6 +474,7 @@ impl ShellApp {
             settings,
             settings_open: initial_window == "settings",
             shortcuts_open: initial_window == "shortcuts",
+            help_open: initial_window == "help",
             score_entry: false,
             score_page: 0,
             score_zoom: 1.0,
@@ -1744,6 +1746,28 @@ impl ShellApp {
             }
             Err(error) => self.load_error = Some(error.to_string()),
         }
+    }
+
+    fn help_window(&mut self, context: &egui::Context) {
+        if !self.help_open {
+            return;
+        }
+        let mut open = self.help_open;
+        let language = crate::strings::Language::parse(&self.settings.language);
+        let sections = crate::help::sections(language);
+        egui::Window::new("Help")
+            .open(&mut open)
+            .default_width(460.0)
+            .show(context, |ui| {
+                for section in sections {
+                    ui.heading(section.title);
+                    for line in section.lines {
+                        ui.label(format!("• {line}"));
+                    }
+                    ui.add_space(6.0);
+                }
+            });
+        self.help_open = open;
     }
 
     fn songs_window(&mut self, context: &egui::Context) {
@@ -4130,6 +4154,10 @@ impl ShellApp {
                                 self.songs_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Help").clicked() {
+                                self.help_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Shortcuts").clicked() {
                                 self.shortcuts_open = true;
                                 ui.close_menu();
@@ -4434,6 +4462,7 @@ impl eframe::App for ShellApp {
         self.theory_window(context);
         self.lessons_window(context);
         self.songs_window(context);
+        self.help_window(context);
         self.file_window(context);
         self.midi_map_window(context);
         self.assistant_window(context);

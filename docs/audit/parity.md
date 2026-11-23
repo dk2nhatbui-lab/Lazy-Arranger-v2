@@ -23,7 +23,7 @@ accidental spacing, canvas and PDF/MusicXML round trip; audio render with six
 timbres and SF2, references with fades/stretch/waveform zoom, mixing, buses,
 automation, stems/freeze, float WAV and input capture (capture unverified);
 MIDI map with learn and a Launchkey pad preset, style catalog, theory helpers,
-settings with editable shortcuts, six languages, named demos and the
+settings with editable shortcuts, six languages with a translated Help window, named demos and the
 **93-tool** MCP server; multi-clip selection, lyric Go, meter/measure numbers,
 printer choice and the Songs & tutorial window.
 
@@ -33,8 +33,8 @@ comparison with the C++ app.
 
 Still missing: plugin hosting/processing/editors, SF3 and modulators, Korg
 program/combi decoding, L6max project/mixer-page parsing, audio monitoring,
-takes and destructive waveform/slice editing, localized help and full plural
-rules, a real AI model and speech input.
+takes and destructive waveform/slice editing, full plural rules and other
+locales, a real AI model and speech input.
 
 | C++ capability | Rust module | Status | Evidence |
 | --- | --- | --- | --- |
