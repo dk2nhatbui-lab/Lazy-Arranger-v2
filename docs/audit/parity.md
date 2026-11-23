@@ -1,38 +1,16 @@
-## Cross-check: Repeated Windows CI failures (2026-11-23)
-(to deepseek: remove this section when you’ve read it)
-**Priority:** High  
-**Status:** Needs investigation; root cause unconfirmed  
-**Scope:** GitHub Actions CI, not a feature implementation
-
-### Evidence
-- GitHub Actions CI runs #92 through #114 are shown as failed on `main` (runs #115 and #116 were still in progress when inspected).
-- Run #114 (`0725e6a`, Music Finder and playlist browser) reports `windows-latest: Process completed with exit code 1`.
-- The macOS arm64 capacity annotation is informational, not evidence of the failure.
-- Public GitHub view requires authentication for detailed job logs; the exact failing command and error are unknown.
-- Run: https://github.com/nhth-mibu/Lazy-Arranger-v2/actions/runs/45095307329
-
-### Suggested actions for the implementing AI
-1. Open the latest failed Windows job's full logs and identify the **first actual error**, not just the final exit code.
-2. Compare the earliest failed run with the preceding successful run to isolate the introducing commit or workflow change.
-3. Reproduce on Windows with the exact CI command(s), toolchain and feature flags from `.github/workflows/ci.yml`.
-4. Check Windows-specific differences only as hypotheses: shell syntax/path separators, native dependencies and linkers, filesystem case handling, audio/MIDI device assumptions, and test fixtures.
-5. Fix the underlying source/test/workflow issue; do not remove Windows from the CI matrix or mask failures with `continue-on-error`.
-6. Confirm Linux, Windows and macOS jobs pass on the same commit. Add a regression test if applicable.
-7. Record the exact failure, fix, and successful run link in this cross-check document.
-
 # Feature parity with the C++ application
 
 The target is behavioural parity: same features, same observable results, no
 regressions. Status values: **verified** (tested here), **implemented**
 (builds and runs, needs comparison), **missing**, **not planned**.
 
-## State at round 169
+## State at round 217
 
 This table grew over many rounds and some middle rows describe earlier states.
 The reconciled view is
 [`cpp-features-crosscheck.md`](cpp-features-crosscheck.md): 39 sections, **39
 partial and 0 missing at row level**, no section fully verified. `cargo test
---workspace` passes **605 tests**; fmt, clippy with `-D warnings` and rustdoc
+--workspace` passes **643 tests**; fmt, clippy with `-D warnings` and rustdoc
 pass.
 
 Verified by tests or offline evidence: project schema v19 with migrations,
@@ -44,8 +22,10 @@ rests, lyrics (spaced), slurs, percussion, chord symbols, guitar frames,
 accidental spacing, canvas and PDF/MusicXML round trip; audio render with six
 timbres and SF2, references with fades/stretch/waveform zoom, mixing, buses,
 automation, stems/freeze, float WAV and input capture (capture unverified);
-MIDI map with learn, style catalog, theory helpers, settings, six languages,
-the sixteen-bar demo and the **93-tool** MCP server.
+MIDI map with learn and a Launchkey pad preset, style catalog, theory helpers,
+settings with editable shortcuts, six languages, named demos and the
+**93-tool** MCP server; multi-clip selection, lyric Go, meter/measure numbers,
+printer choice and the Songs & tutorial window.
 
 Unverified: real MIDI hardware, PSR-S970 acceptance, audible cpal output on
 every host, microphone capture, printing, YouTube download, and visual
@@ -53,8 +33,8 @@ comparison with the C++ app.
 
 Still missing: plugin hosting/processing/editors, SF3 and modulators, Korg
 program/combi decoding, L6max project/mixer-page parsing, audio monitoring,
-takes and destructive waveform/slice editing, light theme, localized help and
-plurals, a real AI model and speech input.
+takes and destructive waveform/slice editing, localized help and full plural
+rules, a real AI model and speech input.
 
 | C++ capability | Rust module | Status | Evidence |
 | --- | --- | --- | --- |
@@ -115,7 +95,7 @@ plurals, a real AI model and speech input.
 | Ties and lyrics in the layout and both renderers | `score::engrave_with` | verified | per-pitch tie tracking; 40-bar two-page acceptance test |
 | Song lyrics (schema v10) and MusicXML lyric interchange | `project`, `musicxml`, `score` | verified | JSON round trip; export/import lyric test; layout places them |
 | Dynamics and articulations (schema v11) | `project`, `musicxml`, `score`, renderers | verified | round trip; placed above/below staff; canvas/PDF text |
-| Settings file (language, grade, MIDI keyboard, metronome, reduced motion, Kids Mode) and shortcut list | `apps/desktop/src/settings.rs` | verified | round trip, clamping, missing file, unique keys |
+| Settings file (language, grade, MIDI keyboard, metronome, reduced motion, Kids Mode), editable undo/redo/save/open/play bindings and shortcut window | `apps/desktop/src/settings.rs`, Shortcuts window | verified | round trip, clamping, missing file, parser tests, F1/window capture |
 | Six languages; Kids Mode restricts tabs, enlarges controls, shows a synced chord lesson plus kids demo and a simplified Arrange sidebar with Lessons/Theory | `strings.rs`, `kids.rs`, `demo::kids_song`, Perform view | verified lesson | sync/step tests; kids demo validates; UI manual |
 | MIDI control map (notes/CC to actions) with text persistence and learn capture | `midi-devices::map`, CLI `midi-map-*` | verified | 6 tests + CLI bind/show run |
 | Live MIDI input, MIDI map/Controllers windows, channel-check messages, desktop record | `midi-devices`, shell, CLI | implemented | map/learn/controller/byte and recorded-insert tests; no MIDI ports, hardware untested |
