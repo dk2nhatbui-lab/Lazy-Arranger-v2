@@ -9301,28 +9301,29 @@ fn draw_transport_icon(painter: &egui::Painter, rect: Rect, glyph: &str, color: 
         }
         "\u{21B6}" => {
             let stroke = egui::Stroke::new((s * 0.09).max(1.2), color);
-            let tip = egui::pos2(c.x - s * 0.30, c.y + s * 0.02);
-            let control = egui::pos2(c.x + s * 0.05, c.y - s * 0.40);
-            let end = egui::pos2(c.x + s * 0.30, c.y + s * 0.12);
+            let tip = egui::pos2(c.x - s * 0.34, c.y + s * 0.02);
+            painter.line_segment(
+                [tip, egui::pos2(tip.x + s * 0.20, tip.y - s * 0.15)],
+                stroke,
+            );
+            painter.line_segment(
+                [tip, egui::pos2(tip.x + s * 0.20, tip.y + s * 0.15)],
+                stroke,
+            );
+            let start = egui::pos2(tip.x + s * 0.18, tip.y);
+            let control = egui::pos2(c.x + s * 0.16, c.y - s * 0.34);
+            let end = egui::pos2(c.x + s * 0.32, c.y + s * 0.18);
             let points: Vec<egui::Pos2> = (0..=16)
                 .map(|index| {
                     let t = index as f32 / 16.0;
                     let one = 1.0 - t;
                     egui::pos2(
-                        one * one * tip.x + 2.0 * one * t * control.x + t * t * end.x,
-                        one * one * tip.y + 2.0 * one * t * control.y + t * t * end.y,
+                        one * one * start.x + 2.0 * one * t * control.x + t * t * end.x,
+                        one * one * start.y + 2.0 * one * t * control.y + t * t * end.y,
                     )
                 })
                 .collect();
             painter.add(egui::Shape::line(points, stroke));
-            painter.line_segment(
-                [tip, egui::pos2(tip.x + s * 0.18, tip.y - s * 0.05)],
-                stroke,
-            );
-            painter.line_segment(
-                [tip, egui::pos2(tip.x + s * 0.02, tip.y + s * 0.17)],
-                stroke,
-            );
         }
         _ => {
             painter.text(
