@@ -100,6 +100,10 @@ pub struct ShellApp {
     recent_file: std::path::PathBuf,
     midi_input: Option<midi_devices::devices::LiveInput>,
     midi_map: midi_devices::map::MidiMap,
+    library_open: bool,
+    library_path: String,
+    library_query: String,
+    library: Option<crate::library_view::Browser>,
     pads_open: bool,
     pad_state: Option<crate::pads::Pads>,
     pad_path: String,
@@ -177,6 +181,10 @@ impl ShellApp {
             recent_file: std::path::PathBuf::from("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
             midi_input: None,
+            library_open: false,
+            library_path: String::new(),
+            library_query: String::new(),
+            library: None,
             pads_open: false,
             pad_state: None,
             pad_path: String::new(),
@@ -749,6 +757,60 @@ impl ShellApp {
                     self.status = Some(error);
                 }
             }
+        }
+    }
+
+    /// The Music Finder and playlist browser.
+    fn library_window(&mut self, context: &egui::Context) {
+        if !self.library_open {
+            return;
+        }
+        let mut open = self.library_open;
+        egui::Window::new("Library")
+            .open(&mut open)
+            .default_width(520.0)
+            .show(context, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.library_path)
+                            .hint_text("Music Finder .json/.csv/.mfd or playlist .tsv")
+                            .desired_width(320.0),
+                    );
+                    if ui.button("Load").clicked() {
+                        match crate::library_view::load(std::path::Path::new(&self.library_path)) {
+                            Ok(browser) => {
+                                self.status = Some(format!("{} row(s) loaded", browser.rows.len()));
+                                self.library = Some(browser);
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                });
+                if let Some(browser) = &self.library {
+                    if let Some(index) =
+                        crate::library_view::show(ui, browser, &mut self.library_query)
+                    {
+                        let row = &browser.rows[index];
+                        match row.tempo {
+                            Some(bpm) => match self.editor.set_tempo(bpm) {
+                                Ok(()) => {
+                                    self.status = Some(format!("{}: tempo {bpm} bpm", row.title))
+                                }
+                                Err(error) => self.status = Some(error),
+                            },
+                            None => self.status = Some(format!("{}: playlist entry", row.title)),
+                        }
+                    }
+                } else {
+                    ui.label(
+                        egui::RichText::new("Load a book to browse it.")
+                            .size(10.0)
+                            .color(theme::TEXT_DIM),
+                    );
+                }
+            });
+        if !open {
+            self.library_open = false;
         }
     }
 
@@ -1834,6 +1896,7 @@ impl eframe::App for ShellApp {
         self.windows(context);
         self.assistant_window(context);
         self.pads_window(context);
+        self.library_window(context);
         self.status_bar(context);
         self.sidebar(context);
         let waveform = self.waveform.clone();

@@ -797,3 +797,10 @@ references, writes a 16-bit WAV and inserts it as an audio track whose span is
 derived at the tempo. The insert is one undo step; re-bouncing without muting
 the bounce track doubles the mix. There is no input recording, monitoring or
 take comping.
+
+### Library browser
+
+The L-key Library window loads a Music Finder book (JSON/CSV/MFD) or a playlist
+TSV, searches title and detail case-insensitively, and applies a Music Finder
+entry's tempo with `SetTempo` at tick zero (one undo step). Playlist rows are
+displayed but not opened, and there is no play/edit of the stored style.

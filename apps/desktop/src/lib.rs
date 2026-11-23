@@ -7,6 +7,7 @@
 pub mod app;
 pub mod automation_view;
 pub mod editor;
+pub mod library_view;
 pub mod pads;
 pub mod persistence;
 pub mod piano_roll;

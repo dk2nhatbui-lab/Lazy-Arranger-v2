@@ -567,6 +567,19 @@ impl Editor {
         Ok(copied)
     }
 
+    /// Sets the tempo at tick zero.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the command is rejected.
+    pub fn set_tempo(&mut self, bpm: f64) -> Result<(), String> {
+        self.session
+            .apply(Command::SetTempo { tick: 0, bpm })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Runs one assistant command against the session.
     pub fn assistant(&mut self, input: &str) -> mcp::assistant::Reply {
         let reply = mcp::assistant::respond(&mut self.session, input);
