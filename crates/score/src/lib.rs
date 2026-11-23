@@ -189,8 +189,8 @@ pub fn pitch_at_y_staff(system_y: f32, y: f32, settings: Settings, staves: usize
 }
 
 pub fn pitch_at_y(system_y: f32, y: f32, settings: Settings) -> u8 {
-    let step = ((system_y - y) / settings.staff_space.max(1.0)).round();
-    (60.0 + 2.0 * step).clamp(0.0, 127.0) as u8
+    let steps = (system_y - y) / settings.staff_space.max(1.0);
+    (60.0 + 2.0 * steps).round().clamp(0.0, 127.0) as u8
 }
 
 /// The tick a click at `x` means inside a measure, quantised.
