@@ -878,6 +878,24 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "style_from_audio",
+            description: "Write a Yamaha SFF style from monophonic audio analysis.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "audio": {"type": "string"},
+                    "out": {"type": "string"},
+                    "bpm": {"type": "number"},
+                    "section": {"type": "string"},
+                    "chord": {"type": "string"},
+                    "split_parts": {"type": "boolean"},
+                    "section_bars": {"type": "integer"},
+                    "version": {"type": "string"}
+                },
+                "required": ["audio", "out"]
+            }),
+        },
+        Tool {
             name: "theory",
             description: "Scale names, roman labels, cadence or voice-leading cost.",
             input_schema: json!({
@@ -2725,6 +2743,92 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "parts": style.sections.first().map_or(0, |entry| entry.parts.len())
             }))
         }
+        "style_from_audio" => {
+            let audio_path = arguments
+                .get("audio")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("audio is required")))?;
+            let out = arguments
+                .get("out")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("out is required")))?;
+            let bpm = arguments
+                .get("bpm")
+                .and_then(Value::as_f64)
+                .unwrap_or(120.0);
+            let section = arguments
+                .get("section")
+                .and_then(Value::as_str)
+                .unwrap_or("Main A");
+            let chord = arguments
+                .get("chord")
+                .and_then(Value::as_str)
+                .unwrap_or("auto");
+            let split_parts = arguments
+                .get("split_parts")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let section_bars = arguments
+                .get("section_bars")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32;
+            let version = match arguments
+                .get("version")
+                .and_then(Value::as_str)
+                .unwrap_or("sff2")
+            {
+                "sff1" => style_formats::casm::SffVersion::Sff1,
+                "sff2" => style_formats::casm::SffVersion::Sff2,
+                other => {
+                    return Err(ToolError::Arguments(format!(
+                        "version must be sff1 or sff2, found {other:?}"
+                    )));
+                }
+            };
+            let path = std::path::Path::new(audio_path);
+            let decoded = match audio::decode::decode_mono(path) {
+                Ok(decoded) => decoded,
+                Err(_) => {
+                    let bytes = std::fs::read(path).map_err(|error| {
+                        ToolError::Arguments(format!("{}: {error}", path.display()))
+                    })?;
+                    audio::wav::decode_mono(&bytes).map_err(ToolError::Arguments)?
+                }
+            };
+            let source = if chord.eq_ignore_ascii_case("auto") {
+                None
+            } else {
+                let parsed =
+                    Chord::parse(chord).map_err(|error| ToolError::Arguments(error.to_string()))?;
+                Some(
+                    arranger::chord_type::ArrangerChord::try_from(&parsed).map_err(|_| {
+                        ToolError::Arguments(format!("unsupported chord {chord:?}"))
+                    })?,
+                )
+            };
+            let built = style_formats::style_from_audio(
+                &decoded,
+                style_formats::AudioStyleOptions {
+                    bpm,
+                    section,
+                    source_chord: source,
+                    split_parts,
+                    section_bars,
+                },
+            )
+            .map_err(ToolError::Arguments)?;
+            let bytes = style_formats::write_native_style(&built.style, version)
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            std::fs::write(out, &bytes)
+                .map_err(|error| ToolError::Arguments(format!("{out}: {error}")))?;
+            Ok(json!({
+                "out": out,
+                "source": built.source_chord.name(),
+                "notes": built.notes,
+                "sections": built.style.sections.iter().map(|entry| entry.name.clone()).collect::<Vec<_>>(),
+                "bytes": bytes.len()
+            }))
+        }
         "theory" => {
             let op = arguments
                 .get("op")
@@ -3304,7 +3408,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 94);
+        assert_eq!(tools().len(), 95);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));

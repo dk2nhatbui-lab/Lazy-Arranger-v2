@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 arranger = { path = "../arranger" }
+audio = { path = "../audio" }
 music-core = { path = "../music-core" }
 smf = { path = "../smf" }
 project = { path = "../project" }

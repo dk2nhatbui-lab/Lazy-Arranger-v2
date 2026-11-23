@@ -1,0 +1,182 @@
+//! Builds a native style from monophonic audio analysis.
+
+use arranger::chord_type::ArrangerChord;
+use arranger::style::{Style, StyleNote};
+use audio::RenderedAudio;
+
+/// Options for turning analysed audio into a style.
+#[derive(Clone, Copy, Debug)]
+pub struct AudioStyleOptions<'a> {
+    /// Tempo used to convert seconds to ticks.
+    pub bpm: f64,
+    /// Single-section name when `section_bars` is zero.
+    pub section: &'a str,
+    /// Source chord, or `None` to detect one from chroma.
+    pub source_chord: Option<ArrangerChord>,
+    /// Split notes below C3 into Bass and the rest into Chord 1.
+    pub split_parts: bool,
+    /// Uniform section length in 4/4 bars; zero means one section.
+    pub section_bars: u32,
+}
+
+/// A built audio style and what was detected.
+#[derive(Clone, Debug)]
+pub struct BuiltAudioStyle {
+    /// The style.
+    pub style: Style,
+    /// Source chord used.
+    pub source_chord: ArrangerChord,
+    /// Number of detected notes placed in the style.
+    pub notes: usize,
+}
+
+/// Builds a style from monophonic notes in `audio`.
+///
+/// # Errors
+///
+/// Returns a message when chord detection or section compilation fails.
+pub fn style_from_audio(
+    audio: &RenderedAudio,
+    options: AudioStyleOptions<'_>,
+) -> Result<BuiltAudioStyle, String> {
+    let bpm = options.bpm.max(1.0);
+    let detected = audio::analysis::to_midi(&audio.samples, audio.sample_rate);
+    let seconds = audio.samples.len() as f64 / f64::from(audio.sample_rate);
+    let length = audio::chords::to_ticks(seconds, bpm);
+    let source = options
+        .source_chord
+        .or_else(|| auto_chord(&audio.samples, audio.sample_rate, bpm))
+        .unwrap_or_else(|| {
+            ArrangerChord::new(
+                music_core::PitchClass::new(0),
+                arranger::chord_type::ChordType::Major,
+            )
+        });
+    let mut notes = Vec::new();
+    for note in &detected {
+        let (tick, duration) = audio::analysis::as_ticks(note, bpm);
+        if duration <= 0 {
+            continue;
+        }
+        notes.push(StyleNote {
+            tick,
+            duration,
+            pitch: note.pitch,
+            velocity: (note.level * 127.0).clamp(1.0, 127.0) as u8,
+        });
+    }
+    let name = "Audio style";
+    let style = if options.section_bars == 0 {
+        let mut style = if options.split_parts {
+            arranger::style::from_notes_split(name, source, length, notes)
+        } else {
+            arranger::style::from_notes(name, source, length, notes)
+        };
+        if let Some(first) = style.sections.first_mut() {
+            first.name = options.section.to_string();
+        }
+        style
+    } else {
+        uniform_sections(
+            name,
+            source,
+            length,
+            notes,
+            options.split_parts,
+            options.section_bars,
+        )
+    };
+    let notes = style
+        .sections
+        .iter()
+        .flat_map(|section| &section.parts)
+        .map(|part| part.notes.len())
+        .sum();
+    Ok(BuiltAudioStyle {
+        style,
+        source_chord: source,
+        notes,
+    })
+}
+
+fn auto_chord(samples: &[f32], sample_rate: u32, bpm: f64) -> Option<ArrangerChord> {
+    let segment = (4.0 * 60.0 / bpm.max(1.0)).max(0.5);
+    let chords = audio::chords::recognize(samples, sample_rate, segment);
+    let mut best: Option<(music_core::Chord, f64)> = None;
+    for entry in chords {
+        let weight = entry.duration * entry.score;
+        if best.as_ref().is_none_or(|(_, score)| weight > *score) {
+            best = Some((entry.chord, weight));
+        }
+    }
+    best.and_then(|(chord, _)| ArrangerChord::try_from(&chord).ok())
+}
+
+fn uniform_sections(
+    name: &str,
+    source: ArrangerChord,
+    length: i64,
+    notes: Vec<StyleNote>,
+    split_parts: bool,
+    section_bars: u32,
+) -> Style {
+    let section_length = i64::from(section_bars) * 4 * music_core::PPQ;
+    let names = ["Main A", "Main B", "Main C", "Main D"];
+    let mut merged = Style::new(name, source);
+    let count = ((length + section_length - 1) / section_length).max(1);
+    for index in 0..count {
+        let start = index * section_length;
+        let stop = (start + section_length).min(length);
+        let local: Vec<StyleNote> = notes
+            .iter()
+            .filter(|note| note.tick >= start && note.tick < stop)
+            .map(|note| StyleNote {
+                tick: note.tick - start,
+                duration: note.duration.min(stop - note.tick),
+                ..*note
+            })
+            .collect();
+        if local.is_empty() {
+            continue;
+        }
+        let mut part_style = if split_parts {
+            arranger::style::from_notes_split(name, source, stop - start, local)
+        } else {
+            arranger::style::from_notes(name, source, stop - start, local)
+        };
+        if let Some(section) = part_style.sections.first_mut() {
+            section.name = names
+                .get(index as usize)
+                .copied()
+                .unwrap_or("Section")
+                .to_string();
+            merged.sections.push(section.clone());
+        }
+    }
+    merged
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn a_tone_becomes_a_one_part_style() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../audio/tests/fixtures/tone.flac");
+        let decoded = audio::decode::decode_mono(&path).expect("decode");
+        let built = style_from_audio(
+            &decoded,
+            AudioStyleOptions {
+                bpm: 120.0,
+                section: "Main A",
+                source_chord: None,
+                split_parts: false,
+                section_bars: 0,
+            },
+        )
+        .expect("style");
+        assert_eq!(built.style.sections.len(), 1);
+        assert_eq!(built.notes, 1);
+    }
+}

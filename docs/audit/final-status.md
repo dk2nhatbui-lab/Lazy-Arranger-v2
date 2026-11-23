@@ -93,3 +93,4 @@ For the clef layout, choose either four measures per system without clefs
 - Style from clips has Audition/Stop, compiling the section(s) to a temporary song and playing it.
 - Beat view offers 1/2/4-bar patterns in a horizontal scroller.
 - `style-from-audio` writes a one-part style from monophonic detected notes; `--chord auto` picks the strongest chroma chord, and the source chord is persisted in the written rules. `--split-parts` produces Bass and Chord 1 parts; `--section-bars` splits into uniform sections with clipped notes. No analysis-driven sections, stems or match scoring.
+- Style from audio is shared by CLI, MCP and a desktop dialog (`docs/audit/style-from-audio.png`); 95 MCP tools.

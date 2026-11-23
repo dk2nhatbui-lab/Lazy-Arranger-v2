@@ -537,6 +537,15 @@ pub struct ShellApp {
     style_draft: Option<arranger::style::Style>,
     style_rules_open: bool,
     style_preview: Option<audio::player::Player>,
+    audio_style_open: bool,
+    audio_style_path: String,
+    audio_style_bpm: f64,
+    audio_style_chord: String,
+    audio_style_section: String,
+    audio_style_split: bool,
+    audio_style_section_bars: u32,
+    audio_style_out: String,
+    audio_style_sff1: bool,
     master_fx_open: bool,
     master_fx_choice: usize,
     bus_fx_open: bool,
@@ -764,6 +773,15 @@ impl ShellApp {
             style_draft: None,
             style_rules_open: false,
             style_preview: None,
+            audio_style_open: std::env::var("ARRANGER_AUDIO_STYLE").is_ok(),
+            audio_style_path: String::new(),
+            audio_style_bpm: 120.0,
+            audio_style_chord: String::from("auto"),
+            audio_style_section: String::from("Main A"),
+            audio_style_split: false,
+            audio_style_section_bars: 0,
+            audio_style_out: String::from("audio-style.sty"),
+            audio_style_sff1: false,
             master_fx_open: std::env::var("ARRANGER_MASTER_FX").is_ok(),
             master_fx_choice: 0,
             bus_fx_open: std::env::var("ARRANGER_BUS_FX").is_ok(),
@@ -3182,6 +3200,129 @@ impl ShellApp {
                 }
             });
         self.style_rules_open = open;
+    }
+
+    fn build_audio_style(&self) -> Result<style_formats::BuiltAudioStyle, String> {
+        let path = std::path::Path::new(&self.audio_style_path);
+        let decoded = audio::decode::decode_mono(path).or_else(|_| {
+            let bytes =
+                std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+            audio::wav::decode_mono(&bytes)
+        })?;
+        let source = if self.audio_style_chord.eq_ignore_ascii_case("auto") {
+            None
+        } else {
+            let chord = music_core::Chord::parse(&self.audio_style_chord)
+                .map_err(|error| error.to_string())?;
+            Some(
+                arranger::chord_type::ArrangerChord::try_from(&chord)
+                    .map_err(|_| format!("unsupported chord {:?}", self.audio_style_chord))?,
+            )
+        };
+        style_formats::style_from_audio(
+            &decoded,
+            style_formats::AudioStyleOptions {
+                bpm: self.audio_style_bpm,
+                section: &self.audio_style_section,
+                source_chord: source,
+                split_parts: self.audio_style_split,
+                section_bars: self.audio_style_section_bars,
+            },
+        )
+    }
+
+    fn audio_style_window(&mut self, context: &Context) {
+        if !self.audio_style_open {
+            return;
+        }
+        let mut open = self.audio_style_open;
+        egui::Window::new("Style from audio")
+            .open(&mut open)
+            .resizable(false)
+            .show(context, |ui| {
+                ui.label("Audio file");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.audio_style_path)
+                        .hint_text("WAV, FLAC, MP3, M4A")
+                        .desired_width(320.0),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("BPM");
+                    ui.add(egui::DragValue::new(&mut self.audio_style_bpm).range(20.0..=300.0));
+                    ui.label("chord");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.audio_style_chord).desired_width(60.0),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("section");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.audio_style_section)
+                            .desired_width(100.0),
+                    );
+                    ui.checkbox(&mut self.audio_style_split, "split bass/melody");
+                });
+                ui.horizontal(|ui| {
+                    ui.label("section bars");
+                    ui.add(egui::DragValue::new(&mut self.audio_style_section_bars).range(0..=16));
+                    ui.label("output");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.audio_style_out).desired_width(150.0),
+                    );
+                });
+                ui.checkbox(&mut self.audio_style_sff1, "SFF1 instead of SFF2");
+                ui.horizontal(|ui| {
+                    if ui.button("Export style").clicked() {
+                        match self.build_audio_style() {
+                            Ok(built) => {
+                                let version = if self.audio_style_sff1 {
+                                    style_formats::casm::SffVersion::Sff1
+                                } else {
+                                    style_formats::casm::SffVersion::Sff2
+                                };
+                                match style_formats::write_native_style(&built.style, version)
+                                    .map_err(|error| error.to_string())
+                                    .and_then(|bytes| {
+                                        std::fs::write(&self.audio_style_out, &bytes)
+                                            .map(|()| bytes.len())
+                                            .map_err(|error| error.to_string())
+                                    }) {
+                                    Ok(bytes) => {
+                                        self.status = Some(format!(
+                                            "wrote {}: source {}, {} note(s), {} bytes",
+                                            self.audio_style_out,
+                                            built.source_chord.name(),
+                                            built.notes,
+                                            bytes
+                                        ));
+                                    }
+                                    Err(error) => self.status = Some(error),
+                                }
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                    if ui.button("Audition").clicked() {
+                        match self
+                            .build_audio_style()
+                            .and_then(|built| style_preview_song(&built.style))
+                            .and_then(|song| {
+                                audio::player::Player::new(audio::render(&song, audio::SAMPLE_RATE))
+                            }) {
+                            Ok(player) => {
+                                player.play();
+                                self.style_preview = Some(player);
+                                self.status = Some(String::from("auditioning audio style"));
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
+                    if ui.button("Stop").clicked() {
+                        self.style_preview = None;
+                    }
+                });
+            });
+        self.audio_style_open = open;
     }
 
     fn style_clips_window(&mut self, context: &Context) {
@@ -6482,6 +6623,10 @@ impl ShellApp {
                                 self.style_clips_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Style from audio").clicked() {
+                                self.audio_style_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Master effects").clicked() {
                                 self.master_fx_open = true;
                                 ui.close_menu();
@@ -6812,6 +6957,7 @@ impl eframe::App for ShellApp {
         self.plugins_window(context);
         self.patch_window(context);
         self.style_clips_window(context);
+        self.audio_style_window(context);
         self.style_rules_window(context);
         self.master_fx_window(context);
         self.bus_fx_window(context);

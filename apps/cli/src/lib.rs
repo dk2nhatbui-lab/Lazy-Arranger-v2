@@ -2650,19 +2650,6 @@ fn mcp_call(
     Ok(())
 }
 
-fn auto_style_chord(samples: &[f32], sample_rate: u32, bpm: f64) -> Option<Chord> {
-    let segment = (4.0 * 60.0 / bpm.max(1.0)).max(0.5);
-    let chords = audio::chords::recognize(samples, sample_rate, segment);
-    let mut best: Option<(Chord, f64)> = None;
-    for entry in chords {
-        let weight = entry.duration * entry.score;
-        if best.as_ref().is_none_or(|(_, score)| weight > *score) {
-            best = Some((entry.chord, weight));
-        }
-    }
-    best.map(|(chord, _)| chord)
-}
-
 #[allow(clippy::too_many_arguments)]
 fn style_from_audio(
     audio_path: &PathBuf,
@@ -2679,86 +2666,26 @@ fn style_from_audio(
             fs::read(audio_path).map_err(|error| format!("{}: {error}", audio_path.display()))?;
         audio::wav::decode_mono(&bytes)
     })?;
-    let detected = audio::analysis::to_midi(&decoded.samples, decoded.sample_rate);
-    let seconds = decoded.samples.len() as f64 / f64::from(decoded.sample_rate);
-    let length = audio::chords::to_ticks(seconds, bpm);
-    let mut notes = Vec::new();
-    for note in &detected {
-        let (tick, duration) = audio::analysis::as_ticks(note, bpm);
-        if duration <= 0 {
-            continue;
-        }
-        notes.push(arranger::style::StyleNote {
-            tick,
-            duration,
-            pitch: note.pitch,
-            velocity: (note.level * 127.0).clamp(1.0, 127.0) as u8,
-        });
-    }
-    let detected_chord = if chord.eq_ignore_ascii_case("auto") {
-        auto_style_chord(&decoded.samples, decoded.sample_rate, bpm)
-    } else {
+    let source = if chord.eq_ignore_ascii_case("auto") {
         None
-    };
-    let source_chord = match detected_chord {
-        Some(found) => found,
-        None if chord.eq_ignore_ascii_case("auto") => {
-            Chord::parse("C").map_err(|error| error.to_string())?
-        }
-        None => Chord::parse(chord)?,
-    };
-    let source = arranger::chord_type::ArrangerChord::try_from(&source_chord)
-        .map_err(|error| format!("unsupported style chord {chord:?}: {error:?}"))?;
-    let name = audio_path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("Audio style");
-    let style = if section_bars == 0 {
-        let mut style = if split_parts {
-            arranger::style::from_notes_split(name, source, length, notes)
-        } else {
-            arranger::style::from_notes(name, source, length, notes)
-        };
-        if let Some(first) = style.sections.first_mut() {
-            first.name = section.to_string();
-        }
-        style
     } else {
-        let section_length = i64::from(section_bars) * 4 * music_core::PPQ;
-        let names = ["Main A", "Main B", "Main C", "Main D"];
-        let mut merged = arranger::style::Style::new(name, source);
-        let count = ((length + section_length - 1) / section_length).max(1);
-        for index in 0..count {
-            let start = index * section_length;
-            let stop = (start + section_length).min(length);
-            let local: Vec<arranger::style::StyleNote> = notes
-                .iter()
-                .filter(|note| note.tick >= start && note.tick < stop)
-                .map(|note| arranger::style::StyleNote {
-                    tick: note.tick - start,
-                    duration: note.duration.min(stop - note.tick),
-                    ..*note
-                })
-                .collect();
-            if local.is_empty() {
-                continue;
-            }
-            let mut part_style = if split_parts {
-                arranger::style::from_notes_split(name, source, stop - start, local)
-            } else {
-                arranger::style::from_notes(name, source, stop - start, local)
-            };
-            if let Some(part_section) = part_style.sections.first_mut() {
-                part_section.name = names
-                    .get(index as usize)
-                    .copied()
-                    .unwrap_or("Section")
-                    .to_string();
-                merged.sections.push(part_section.clone());
-            }
-        }
-        merged
+        let parsed = Chord::parse(chord)?;
+        Some(
+            arranger::chord_type::ArrangerChord::try_from(&parsed)
+                .map_err(|error| format!("unsupported style chord {chord:?}: {error:?}"))?,
+        )
     };
+    let built = style_formats::style_from_audio(
+        &decoded,
+        style_formats::AudioStyleOptions {
+            bpm,
+            section,
+            source_chord: source,
+            split_parts,
+            section_bars,
+        },
+    )?;
+    let style = built.style;
     let version = match version {
         "sff1" => style_formats::casm::SffVersion::Sff1,
         "sff2" => style_formats::casm::SffVersion::Sff2,
@@ -2771,13 +2698,8 @@ fn style_from_audio(
     println!(
         "wrote {}: source {}, {} detected note(s), {} section(s), {} byte(s); re-read {:?}",
         out.display(),
-        source_chord.format(music_core::Spelling::Sharp),
-        style
-            .sections
-            .iter()
-            .flat_map(|section| &section.parts)
-            .map(|part| part.notes.len())
-            .sum::<usize>(),
+        built.source_chord.name(),
+        built.notes,
         style.sections.len(),
         bytes.len(),
         check.section_names()
