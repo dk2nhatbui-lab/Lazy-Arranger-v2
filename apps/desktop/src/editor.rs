@@ -567,6 +567,21 @@ impl Editor {
         Ok(())
     }
 
+    /// Copies several notes of one track into the clipboard.
+    pub fn copy_notes(&mut self, track: TrackId, notes: &[NoteId]) {
+        self.clipboard = app_commands::clipboard::Clipboard::from_notes(self.song(), track, notes);
+    }
+
+    /// Copies then deletes several notes; returns how many were removed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the delete is rejected.
+    pub fn cut_notes(&mut self, track: TrackId, notes: &[NoteId]) -> Result<usize, String> {
+        self.copy_notes(track, notes);
+        self.delete_notes(track, notes)
+    }
+
     /// Copies one note into the clipboard.
     pub fn copy_note(&mut self, track: TrackId, note: NoteId) {
         self.clipboard =
@@ -1298,6 +1313,33 @@ mod tests {
         assert_eq!(grid.rows[0].scene.name, "Verse");
         assert!(editor.undo());
         assert!(editor.song().scene_names.is_empty());
+    }
+
+    #[test]
+    fn several_notes_copy_and_cut() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        editor
+            .insert(
+                track,
+                960,
+                music_core::Pitch::from_name("E4").expect("valid"),
+            )
+            .expect("insert");
+        let ids: Vec<project::NoteId> = editor.song().tracks[0]
+            .notes
+            .iter()
+            .map(|note| note.id)
+            .collect();
+        editor.copy_notes(track, &ids);
+        let pasted = editor.paste_notes(track, 3840).expect("paste");
+        assert_eq!(pasted, 2);
+        assert_eq!(editor.song().tracks[0].notes.len(), 4);
+        let removed = editor.cut_notes(track, &ids).expect("cut");
+        assert_eq!(removed, 2);
+        assert_eq!(editor.song().tracks[0].notes.len(), 2);
+        assert!(editor.undo());
+        assert_eq!(editor.song().tracks[0].notes.len(), 4);
     }
 
     #[test]

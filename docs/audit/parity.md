@@ -80,7 +80,7 @@ the wider ~90-tool MCP surface.
 | Clip edit commands (insert, move, resize, split, remove) | `app-commands::EditSession` | verified | one undo step each; overlap rejected |
 | Clip lane: draw, select, arrow-move, shift+arrow resize, J join, N add, Delete remove | `apps/desktop` | implemented | geometry test; UI manual |
 | Clip join command | `app-commands::join_clips` | verified | spans both, one undo step |
-| Note clipboard (copy, cut, paste at playhead; chord range copy/paste) | `app-commands::clipboard` | verified | 3 clipboard tests + editor test; Cmd/Ctrl+C/X/V |
+| Note clipboard including multi-selection (copy, cut, paste) and chord range copy | `app-commands::clipboard`, Editor | verified | clipboard tests, multi copy/cut test; Cmd/Ctrl+C/X/V |
 | Quantise all starts and set velocity | `Editor::quantize`, `set_velocity`, Arrange buttons | verified | off-grid insert test; UI manual |
 | Drag notes, velocity lane, piano keys and select-all delete | `piano_roll`, Editor `delete_notes` | verified mapping | hit/drag/lane tests; multi-delete undo test; audition manual |
 | Drum onset detection, slicing, GM mapping, pad window and MIDI-triggered pads | `audio::drums`, `pads`, `midi_devices::map`, shell | verified core | click-loop and map tests; pad audio playback needs hardware |

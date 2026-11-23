@@ -310,7 +310,28 @@ impl ShellApp {
                 .unwrap_or_default();
             self.status = Some(format!("selected {} note(s)", self.selected_notes.len()));
         }
-        if let Some((track, note)) = self.selected_note {
+        if !self.selected_notes.is_empty() && (copy || cut) {
+            let track = self.selected_notes[0].0;
+            let ids: Vec<project::NoteId> = self
+                .selected_notes
+                .iter()
+                .filter(|(entry, _)| *entry == track)
+                .map(|(_, note)| *note)
+                .collect();
+            if copy {
+                self.editor.copy_notes(track, &ids);
+                self.status = Some(format!("copied {} note(s)", ids.len()));
+            }
+            if cut {
+                match self.editor.cut_notes(track, &ids) {
+                    Ok(removed) => {
+                        self.status = Some(format!("cut {removed} note(s)"));
+                        self.selected_notes.clear();
+                    }
+                    Err(error) => self.status = Some(error),
+                }
+            }
+        } else if let Some((track, note)) = self.selected_note {
             if copy {
                 self.editor.copy_note(track, note);
                 self.status = Some(String::from("note copied"));
