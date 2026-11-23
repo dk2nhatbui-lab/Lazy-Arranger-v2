@@ -128,32 +128,76 @@ fn bundle_extension(format: Format) -> &'static str {
     }
 }
 
+/// Result of a scan, including bundles that crashed or timed out.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ScanReport {
+    /// Successfully scanned plug-ins.
+    pub plugins: Vec<FoundPlugin>,
+    /// VST3 bundles the isolated scanner could not read.
+    pub failed: Vec<PathBuf>,
+}
+
+/// Default blocklist file.
+pub const BLOCKLIST_FILE: &str = "lazy-arranger-plugin-blocklist.json";
+
+/// Reads a blocklist; missing or malformed files are empty.
+#[must_use]
+pub fn load_blocklist(path: &Path) -> Vec<PathBuf> {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Writes a blocklist.
+///
+/// # Errors
+///
+/// Returns a message when the file cannot be written.
+pub fn save_blocklist(path: &Path, blocked: &[PathBuf]) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(blocked).map_err(|error| error.to_string())?;
+    std::fs::write(path, json).map_err(|error| format!("{}: {error}", path.display()))
+}
+
 /// Scans roots for bundles of the expected extension, sorted by path.
 ///
 /// Missing roots are skipped. A directory counts as a bundle only when it has
 /// the expected extension; this does not prove that the plug-in loads.
 #[must_use]
 pub fn scan_roots(roots: &[ScanRoot]) -> Vec<FoundPlugin> {
-    let mut found = Vec::new();
+    scan_roots_filtered(roots, &[]).plugins
+}
+
+/// Scans roots, skipping blocked bundle paths and recording VST3 failures.
+#[must_use]
+pub fn scan_roots_filtered(roots: &[ScanRoot], blocked: &[PathBuf]) -> ScanReport {
+    let mut report = ScanReport::default();
     for root in roots {
         let Ok(entries) = std::fs::read_dir(&root.path) else {
             continue;
         };
         for entry in entries.flatten() {
             let path = entry.path();
+            if blocked.iter().any(|entry| entry == &path) {
+                continue;
+            }
             let extension = path.extension().and_then(|value| value.to_str());
             if extension
                 .is_some_and(|value| value.eq_ignore_ascii_case(bundle_extension(root.format)))
             {
                 match root.format {
-                    Format::AudioUnit => found.extend(au_plugins(&path)),
-                    Format::Vst3 => found.extend(vst3_plugins(&path)),
+                    Format::AudioUnit => report.plugins.extend(au_plugins(&path)),
+                    Format::Vst3 => report
+                        .plugins
+                        .extend(vst3_plugins(&path, &mut report.failed)),
                 }
             }
         }
     }
-    found.sort_by(|left, right| left.path.cmp(&right.path));
-    found
+    report
+        .plugins
+        .sort_by(|left, right| left.path.cmp(&right.path));
+    report
 }
 
 fn fallback(path: &Path, format: Format) -> FoundPlugin {
@@ -285,16 +329,16 @@ fn scanner_path() -> Option<PathBuf> {
     None
 }
 
-fn scan_vst3_isolated(path: &Path) -> Option<Vec<ScannedClass>> {
+fn scan_vst3_isolated(path: &Path) -> Result<Vec<ScannedClass>, ()> {
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
-    let helper = scanner_path()?;
+    let helper = scanner_path().ok_or(())?;
     let mut child = Command::new(helper)
         .arg(path)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .ok()?;
+        .map_err(|_| ())?;
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         match child.try_wait() {
@@ -303,41 +347,52 @@ fn scan_vst3_isolated(path: &Path) -> Option<Vec<ScannedClass>> {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return None;
+                    return Err(());
                 }
                 std::thread::sleep(Duration::from_millis(10));
             }
             Err(_) => {
                 let _ = child.kill();
-                return None;
+                return Err(());
             }
         }
     }
-    let output = child.wait_with_output().ok()?;
+    let output = child.wait_with_output().map_err(|_| ())?;
     if !output.status.success() {
-        return None;
+        return Err(());
     }
-    serde_json::from_slice(&output.stdout).ok()
+    serde_json::from_slice(&output.stdout).map_err(|_| ())
 }
 
-fn vst3_plugins(path: &Path) -> Vec<FoundPlugin> {
-    if let Some(classes) = scan_vst3_isolated(path)
-        && !classes.is_empty()
-    {
-        return classes
-            .into_iter()
-            .map(|class| FoundPlugin {
-                name: class.name,
-                vendor: class.vendor,
-                version: class.version,
-                identifier: class.cid,
-                role: role_from_text(&class.subcategories),
-                path: path.to_path_buf(),
-                format: Format::Vst3,
-            })
-            .collect();
-    }
-    if let Ok(classes) = plugin_host::scan_vst3(path)
+fn found_from_classes(path: &Path, classes: Vec<ScannedClass>) -> Vec<FoundPlugin> {
+    classes
+        .into_iter()
+        .map(|class| FoundPlugin {
+            name: class.name,
+            vendor: class.vendor,
+            version: class.version,
+            identifier: class.cid,
+            role: role_from_text(&class.subcategories),
+            path: path.to_path_buf(),
+            format: Format::Vst3,
+        })
+        .collect()
+}
+
+fn vst3_plugins(path: &Path, failed: &mut Vec<PathBuf>) -> Vec<FoundPlugin> {
+    let helper = scanner_path();
+    if helper.is_some() {
+        match scan_vst3_isolated(path) {
+            Ok(classes) if !classes.is_empty() => {
+                return found_from_classes(path, classes);
+            }
+            Ok(_) => {}
+            Err(()) => {
+                failed.push(path.to_path_buf());
+                return Vec::new();
+            }
+        }
+    } else if let Ok(classes) = plugin_host::scan_vst3(path)
         && !classes.is_empty()
     {
         return classes
@@ -422,7 +477,13 @@ fn vst3_plugins(path: &Path) -> Vec<FoundPlugin> {
 /// Convenience over [`default_roots`].
 #[must_use]
 pub fn scan_installed() -> Vec<FoundPlugin> {
-    scan_roots(&default_roots())
+    scan_installed_report(&[]).plugins
+}
+
+/// Scans installed plug-ins, skipping blocked paths and reporting failures.
+#[must_use]
+pub fn scan_installed_report(blocked: &[PathBuf]) -> ScanReport {
+    scan_roots_filtered(&default_roots(), blocked)
 }
 
 /// Default cache file for the plugin manager.
@@ -505,6 +566,22 @@ mod tests {
         assert_eq!(found[1].name, "Test Synth");
         assert_eq!(found[1].vendor, "Example");
         assert_eq!(found[1].role, Role::Instrument);
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn blocked_paths_are_skipped_and_blocklist_round_trips() {
+        let directory = std::env::temp_dir().join("lazy-arranger-plugin-block");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(directory.join("Keep.component")).expect("keep");
+        std::fs::create_dir_all(directory.join("Skip.component")).expect("skip");
+        let blocked = vec![directory.join("Skip.component")];
+        let file = directory.join("blocklist.json");
+        save_blocklist(&file, &blocked).expect("save");
+        assert_eq!(load_blocklist(&file), blocked);
+        let report = scan_roots_filtered(&[root(Format::AudioUnit, &directory)], &blocked);
+        assert_eq!(report.plugins.len(), 1);
+        assert_eq!(report.plugins[0].name, "Keep");
         let _ = std::fs::remove_dir_all(&directory);
     }
 

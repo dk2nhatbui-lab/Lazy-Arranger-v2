@@ -545,7 +545,7 @@ pub struct ShellApp {
     plugin_search: String,
     plugin_filter: Option<plugins::Format>,
     plugin_scan: Option<Vec<plugins::FoundPlugin>>,
-    plugin_scan_rx: Option<std::sync::mpsc::Receiver<Vec<plugins::FoundPlugin>>>,
+    plugin_scan_rx: Option<std::sync::mpsc::Receiver<(Vec<plugins::FoundPlugin>, usize)>>,
     plugin_scanning: bool,
     plugin_error: Option<String>,
     inspector_open: bool,
@@ -1405,10 +1405,18 @@ impl ShellApp {
     fn advance(&mut self, context: &Context) {
         if let Some(receiver) = self.plugin_scan_rx.take() {
             match receiver.try_recv() {
-                Ok(found) => {
+                Ok((found, failed)) => {
                     let _ =
                         plugins::save_catalog(std::path::Path::new(plugins::CATALOG_FILE), &found);
-                    self.plugin_error = found.is_empty().then(|| String::from("no bundles found"));
+                    self.plugin_error = if found.is_empty() {
+                        Some(String::from("no bundles found"))
+                    } else if failed > 0 {
+                        Some(format!(
+                            "{failed} plug-in bundle(s) blocked after scan failure"
+                        ))
+                    } else {
+                        None
+                    };
                     self.plugin_scan = Some(found);
                     self.plugin_scanning = false;
                 }
@@ -2284,7 +2292,19 @@ impl ShellApp {
         }
         let (sender, receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let _ = sender.send(plugins::scan_installed());
+            let blocklist_path = std::path::Path::new(plugins::BLOCKLIST_FILE);
+            let mut blocked = plugins::load_blocklist(blocklist_path);
+            let before = blocked.len();
+            let report = plugins::scan_installed_report(&blocked);
+            for path in &report.failed {
+                if !blocked.contains(path) {
+                    blocked.push(path.clone());
+                }
+            }
+            if blocked.len() > before {
+                let _ = plugins::save_blocklist(blocklist_path, &blocked);
+            }
+            let _ = sender.send((report.plugins, blocked.len().saturating_sub(before)));
         });
         self.plugin_scan_rx = Some(receiver);
         self.plugin_scanning = true;
@@ -2327,6 +2347,20 @@ impl ShellApp {
                                 .size(10.0)
                                 .color(theme::text_muted()),
                         );
+                    }
+                    let blocked = plugins::load_blocklist(std::path::Path::new(
+                        plugins::BLOCKLIST_FILE,
+                    ));
+                    if !blocked.is_empty() {
+                        ui.label(
+                            egui::RichText::new(format!("{} blocked", blocked.len()))
+                                .size(10.0)
+                                .color(theme::text_dim()),
+                        );
+                        if ui.small_button("Clear blocklist").clicked() {
+                            let _ = std::fs::remove_file(plugins::BLOCKLIST_FILE);
+                            self.plugin_error = None;
+                        }
                     }
                 });
                 ui.horizontal(|ui| {
