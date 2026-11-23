@@ -858,7 +858,7 @@ impl ShellApp {
                 }
                 ui.label(
                     egui::RichText::new(
-                        "Local commands over the same 22 tools; no network or model.\
+                        "Local commands over the same 26 tools; no network or model.\
                          Speech out uses the macOS say command; speech input is not implemented.",
                     )
                     .size(9.0)
