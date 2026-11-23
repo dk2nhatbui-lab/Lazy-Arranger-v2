@@ -831,5 +831,6 @@ drum notes. Acceptance by a real PSR-S970 remains unverified.
 `musicxml::audit` compares a song with its re-imported copy: track, note, chord,
 lyric and mark counts, naming every loss and classifying note reductions that
 tie merging explains. `music-xml-audit` prints it. The demo round trip keeps
-chords (16), lyrics (2) and marks (2), with 16 of 22 expected tie merges; drum
-pitch and velocity are still lost by export.
+chords (16), lyrics (2) and marks (2), with 16 of 22 expected tie merges. Drum notes keep their pitch through an
+`<instrument id="P..-I.."/>` reference and their velocity through
+`<sound dynamics>`, verified by a round-trip test.

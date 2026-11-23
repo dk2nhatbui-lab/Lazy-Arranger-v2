@@ -62,6 +62,27 @@ mod tests {
     }
 
     #[test]
+    fn drum_pitch_and_velocity_survive_an_export_import_round_trip() {
+        let mut song = Song::new("Drums", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Drums");
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 240,
+            pitch: music_core::Pitch::new(42).expect("valid"),
+            velocity: music_core::Velocity::new(73).expect("valid"),
+            channel: music_core::Channel::drums(),
+        });
+        song.tracks.push(track);
+        let xml = export(&song, "Drums");
+        let imported = import(&xml).expect("import");
+        let note = &imported.tracks[0].notes[0];
+        assert_eq!(note.pitch.as_u8(), 42);
+        assert_eq!(note.velocity.as_u8(), 73);
+        assert_eq!(note.channel.zero_based(), 9);
+    }
+
+    #[test]
     fn tied_notes_survive_an_export_import_round_trip() {
         let mut song = Song::new("Ties", 120.0);
         let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");

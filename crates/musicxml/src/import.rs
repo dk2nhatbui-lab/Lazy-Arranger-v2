@@ -219,6 +219,18 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                     continue;
                 }
                 next_note += 1;
+                let velocity = note
+                    .children()
+                    .find(|child| child.has_tag_name("sound"))
+                    .and_then(|sound| sound.attribute("dynamics"))
+                    .and_then(|value| value.parse::<u8>().ok())
+                    .map_or(100, |value| value.clamp(1, 127));
+                let drum_pitch = note
+                    .children()
+                    .find(|child| child.has_tag_name("instrument"))
+                    .and_then(|instrument| instrument.attribute("id"))
+                    .and_then(|id| id.rsplit_once("-I"))
+                    .and_then(|(_, pitch)| pitch.parse::<u8>().ok());
                 let (pitch, channel) = if let Some(pitch_node) =
                     note.children().find(|child| child.has_tag_name("pitch"))
                 {
@@ -242,8 +254,9 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                         Channel::first(),
                     )
                 } else {
+                    let pitch = drum_pitch.unwrap_or(38);
                     (
-                        Pitch::new(38).expect("valid snare"),
+                        Pitch::new(pitch).unwrap_or_else(|_| Pitch::new(38).expect("valid snare")),
                         Channel::new(9).expect("valid drum channel"),
                     )
                 };
@@ -278,7 +291,7 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                     start,
                     duration: duration.max(1),
                     pitch,
-                    velocity: Velocity::new(100).expect("valid"),
+                    velocity: Velocity::new(velocity).expect("valid"),
                     channel,
                 });
                 if !is_chord {

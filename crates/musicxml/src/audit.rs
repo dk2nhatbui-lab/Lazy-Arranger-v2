@@ -3,6 +3,9 @@
 use music_core::Tick;
 use project::song::Song;
 
+/// Sorted drum (pitch, velocity) pairs.
+pub type DrumPairs = Vec<(u8, u8)>;
+
 /// Counts on both sides of a round trip, with the differences named.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Delta {
@@ -18,6 +21,8 @@ pub struct Delta {
     pub marks: (usize, usize),
     /// Notes the import is expected to merge through ties.
     pub ties_merged: usize,
+    /// Drum (pitch, velocity) pairs before and after.
+    pub drums: (DrumPairs, DrumPairs),
     /// Human-readable differences that are losses.
     pub changes: Vec<String>,
     /// Differences explained by tie merging.
@@ -42,6 +47,7 @@ pub fn audit(original: &Song, imported: &Song) -> Delta {
         lyrics: (original.lyrics.len(), imported.lyrics.len()),
         marks: (original.marks.len(), imported.marks.len()),
         ties_merged: tie_merges(original),
+        drums: (drum_notes(original), drum_notes(imported)),
         changes: Vec::new(),
         info: Vec::new(),
     };
@@ -56,6 +62,13 @@ pub fn audit(original: &Song, imported: &Song) -> Delta {
                 .changes
                 .push(format!("{name}: {} -> {}", pair.0, pair.1));
         }
+    }
+    if delta.drums.0 != delta.drums.1 {
+        delta.changes.push(format!(
+            "drum pitches/velocities: {} -> {} pairs",
+            delta.drums.0.len(),
+            delta.drums.1.len()
+        ));
     }
     let merged = delta.notes.0.saturating_sub(delta.notes.1);
     if delta.notes.1 < delta.notes.0.saturating_sub(delta.ties_merged) {
@@ -109,6 +122,18 @@ fn track_tie_merges(track: &project::song::Track) -> usize {
     merges
 }
 
+fn drum_notes(song: &Song) -> Vec<(u8, u8)> {
+    let mut pairs: Vec<(u8, u8)> = song
+        .tracks
+        .iter()
+        .flat_map(|track| &track.notes)
+        .filter(|note| note.channel.zero_based() == 9)
+        .map(|note| (note.pitch.as_u8(), note.velocity.as_u8()))
+        .collect();
+    pairs.sort_unstable();
+    pairs
+}
+
 fn count_notes(song: &Song) -> usize {
     song.tracks.iter().map(|track| track.notes.len()).sum()
 }
@@ -149,6 +174,22 @@ mod tests {
         let delta = audit(&song, &song);
         assert!(delta.is_clean());
         assert_eq!(delta.notes, (1, 1));
+    }
+
+    #[test]
+    fn drum_changes_are_named() {
+        let original = song();
+        let mut changed = song();
+        changed.tracks[0].notes.push(Note {
+            id: NoteId::new(2).expect("valid"),
+            start: PPQ,
+            duration: PPQ,
+            pitch: Pitch::new(38).expect("valid"),
+            velocity: Velocity::new(90).expect("valid"),
+            channel: Channel::drums(),
+        });
+        let delta = audit(&original, &changed);
+        assert!(delta.changes.iter().any(|change| change.contains("drum")));
     }
 
     #[test]
