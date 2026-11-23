@@ -12,7 +12,7 @@ fn main() -> eframe::Result<()> {
     };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Lazy Arranger")
+            .with_title("Lazy Arranger Midi DAW")
             .with_inner_size([1500.0, 900.0])
             .with_min_inner_size([960.0, 600.0])
             // ADR-011: start hidden; the shell shows it after the first frame.
@@ -21,7 +21,7 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     eframe::run_native(
-        "Lazy Arranger",
+        "Lazy Arranger Midi DAW",
         options,
         Box::new(move |cc| {
             Ok(Box::new(lazy_arranger_desktop::ShellApp::new(

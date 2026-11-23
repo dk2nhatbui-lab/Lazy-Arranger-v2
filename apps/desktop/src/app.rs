@@ -6062,12 +6062,12 @@ impl ShellApp {
             return;
         }
         let mut open = self.about_open;
-        egui::Window::new("About Lazy Arranger")
+        egui::Window::new("About Lazy Arranger Midi DAW")
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .show(context, |ui| {
-                ui.heading("Lazy Arranger");
+                ui.heading("Lazy Arranger Midi DAW");
                 ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
                 ui.label("Project schema v20 · 960 PPQ");
                 ui.label("Rust · egui/eframe · Cecilia 0.51 engraving");
@@ -8366,9 +8366,9 @@ impl ShellApp {
                     self.assistant_open = true;
                 }
                 let title = if self.song().name.is_empty() {
-                    String::from("Lazy Arranger")
+                    String::from("Lazy Arranger Midi DAW")
                 } else {
-                    format!("{} — Lazy Arranger", self.song().name)
+                    format!("{} — Lazy Arranger Midi DAW", self.song().name)
                 };
                 context.send_viewport_cmd(egui::ViewportCommand::Title(title));
             });
@@ -8694,7 +8694,7 @@ impl ShellApp {
                                 self.groove_open = true;
                                 ui.close_menu();
                             }
-                            if ui.button("About Lazy Arranger").clicked() {
+                            if ui.button("About Lazy Arranger Midi DAW").clicked() {
                                 self.about_open = true;
                                 ui.close_menu();
                             }
