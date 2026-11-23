@@ -109,6 +109,8 @@ pub struct RollState {
     pub selected: Option<TrackId>,
     /// Tick under the pointer last frame, when it was over the roll.
     pub hover: Option<Tick>,
+    /// Snap drags and insertions to a sixteenth.
+    pub snap: bool,
     drag: Option<NoteDrag>,
 }
 
@@ -119,6 +121,7 @@ impl Default for RollState {
             top_pitch: 96,
             selected: None,
             hover: None,
+            snap: true,
             drag: None,
         }
     }
@@ -270,9 +273,13 @@ pub fn drag_result(
     ticks_per_point: f64,
     row_height: f32,
     origin: DragOrigin,
+    snap: bool,
 ) -> (Tick, u8, Tick) {
     let delta_ticks = f64::from(pointer.x - anchor.x) * ticks_per_point;
     let quantise = |value: f64| -> Tick {
+        if !snap {
+            return value.round().max(0.0) as Tick;
+        }
         let grid = (music_core::PPQ / 4).max(1);
         let snapped = (value / grid as f64).round() as Tick * grid;
         snapped.max(0)
@@ -450,6 +457,7 @@ pub fn show(
                 pitch: drag.pitch,
                 duration: drag.duration,
             },
+            state.snap,
         );
         return RollOutcome {
             edit: Some(RollEdit {
@@ -1036,6 +1044,7 @@ mod drag_tests {
             10.0,
             10.0,
             origin,
+            true,
         );
         assert_eq!(moved, (240, 62, 200));
         let resized = drag_result(
@@ -1045,6 +1054,7 @@ mod drag_tests {
             10.0,
             10.0,
             origin,
+            true,
         );
         assert_eq!(resized, (0, 60, 480));
         let tiny = drag_result(
@@ -1054,8 +1064,19 @@ mod drag_tests {
             10.0,
             10.0,
             origin,
+            true,
         );
         assert_eq!(tiny.2, music_core::PPQ / 8);
+        let free = drag_result(
+            DragMode::Move,
+            anchor,
+            Pos2::new(1.3, 0.0),
+            10.0,
+            10.0,
+            origin,
+            false,
+        );
+        assert_eq!(free.0, 13);
     }
 }
 

@@ -149,6 +149,7 @@ plurals, a real AI model and speech input.
 | Mixer panel (per-track fader, pan, mute, solo, bus routing) | `apps/desktop` | implemented | bus strip and routing tests; UI manual |
 | Song rename and meter edit (undoable) | `SetSongName`/`SetTimeSignature`, sidebar/Inspector | verified | rename/meter/undo and MCP tests |
 | Theory window and graded lessons | `theory_summary`, `music_core::lesson`, Windows menu | verified model | summary and lesson tests; UI manual |
+| Snap toggle (drags and insertions) | `RollState.snap`, `drag_result`, Arrange | verified | snapped/free drag test; UI manual |
 | Marker editor (add/edit/remove/Go, ruler lines) | `SetMarkers`, Markers window, ruler | verified model | add/replace/remove/undo tests; UI manual |
 | Track Inspector, live ruler seek and window openers | `apps/desktop`, `audio::player` | implemented | seek unit test; tempo tests; UI manual |
 | Buses and sends (schema v13) | `project::song::Bus`, `audio` render, `app-commands` | verified | route/send/pan render tests; command undo; JSON round trip |

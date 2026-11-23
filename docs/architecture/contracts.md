@@ -847,3 +847,10 @@ question, answer buttons and an in-memory score. Tests cover every kind across
 
 Kids Mode's simplified sidebar now has Settings, Lessons and Theory buttons along
 with the large transport controls, so the graded exercises remain reachable.
+
+### Snap toggle
+
+`RollState.snap` (default true) is passed into `drag_result`; when off, move and
+resize use the raw rounded tick instead of the sixteenth grid. Arrange shows a
+Snap 1/16 checkbox; insertion uses the same flag and now snaps to a sixteenth
+instead of a quarter. The drag test checks a free 13-tick move.

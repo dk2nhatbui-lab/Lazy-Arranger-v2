@@ -456,7 +456,11 @@ impl ShellApp {
         let Ok(pitch) = music_core::Pitch::new(click.pitch) else {
             return;
         };
-        let start = snap(click.tick, PPQ);
+        let start = if self.roll.snap {
+            snap(click.tick, PPQ / 4)
+        } else {
+            click.tick.max(0)
+        };
         let _ = self.editor.insert(track, start, pitch);
         self.selected_note = None;
     }
@@ -3995,6 +3999,10 @@ impl eframe::App for ShellApp {
                 let project = editor.project();
                 match view {
                     View::Arrange => {
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut roll.snap, "Snap 1/16")
+                                .on_hover_text("Snap note drags and insertions to a sixteenth");
+                        });
                         if let Some((track_id, path, peaks)) = &waveform
                             && roll.selected == Some(*track_id)
                         {
