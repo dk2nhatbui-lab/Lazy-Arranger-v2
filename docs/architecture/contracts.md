@@ -468,3 +468,10 @@ Current button (loads the playhead tempo) and Set at playhead
 key has an entry for each, and a missing one still falls back to English. The
 Settings language list offers all six tags. Help text and plural rules remain
 English-only.
+
+### Ruler seek
+
+The piano roll reserves an 18 px ruler above the clip lane, draws bar numbers at
+the current zoom and returns a tick when the ruler is clicked. The shell stops
+playback if needed and moves `position` to that tick; seeking during playback
+therefore restarts from a stopped state rather than resuming audio at the tick.

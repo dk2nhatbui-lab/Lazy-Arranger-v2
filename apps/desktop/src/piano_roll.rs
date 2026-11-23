@@ -16,6 +16,8 @@ use crate::theme;
 pub const CLIP_LANE_HEIGHT: f32 = 18.0;
 /// Height of the chord lane under the clip lane.
 pub const CHORD_LANE_HEIGHT: f32 = 16.0;
+/// Height of the ruler above the lanes.
+pub const RULER_HEIGHT: f32 = 18.0;
 
 /// Horizontal zoom: ticks per screen point.
 const MIN_TICKS_PER_POINT: f32 = 2.0;
@@ -80,7 +82,7 @@ fn geometry_hint(state: &RollState, song: &Song, rect: Rect) -> RollGeometry {
     RollGeometry {
         origin: Pos2::new(
             rect.left() + 48.0,
-            rect.top() + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT + 6.0,
+            rect.top() + RULER_HEIGHT + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT + 6.0,
         ),
         ticks_per_point: state.ticks_per_point,
         row_height: 10.0,
@@ -177,6 +179,8 @@ pub struct RollOutcome {
     pub velocity: Option<(TrackId, project::NoteId, u8)>,
     /// Chord tick clicked in the chord lane.
     pub chord: Option<Tick>,
+    /// Tick clicked on the ruler, for seeking.
+    pub seek: Option<Tick>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -386,7 +390,7 @@ pub fn show(
     let geometry = RollGeometry {
         origin: Pos2::new(
             rect.left() + 48.0,
-            rect.top() + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT + 6.0,
+            rect.top() + RULER_HEIGHT + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT + 6.0,
         ),
         ticks_per_point: state.ticks_per_point,
         row_height: 10.0,
@@ -395,24 +399,26 @@ pub fn show(
     };
 
     painter.rect_filled(rect, 0.0, theme::TIMELINE);
+    draw_ruler(&painter, rect, &geometry, song);
+    let content = Rect::from_min_max(Pos2::new(rect.left(), rect.top() + RULER_HEIGHT), rect.max);
     draw_clip_lane(
         &painter,
-        rect,
+        content,
         &geometry,
         song,
         state.selected,
         selected_clip,
     );
-    draw_chord_lane(&painter, rect, &geometry, song);
-    draw_grid(&painter, rect, &geometry, song);
+    draw_chord_lane(&painter, content, &geometry, song);
+    draw_grid(&painter, content, &geometry, song);
     for (index, track) in song.tracks.iter().enumerate() {
         let colour = theme::track_colour(index);
         let selected = state.selected == Some(track.id);
-        draw_track(&painter, rect, &geometry, track, colour, selected);
+        draw_track(&painter, content, &geometry, track, colour, selected);
     }
-    draw_playhead(&painter, rect, &geometry, playhead);
-    draw_keys(&painter, rect, &geometry);
-    draw_pitch_guide(&painter, rect, &geometry);
+    draw_playhead(&painter, content, &geometry, playhead);
+    draw_keys(&painter, content, &geometry);
+    draw_pitch_guide(&painter, content, &geometry);
 
     if response.drag_stopped()
         && let Some(drag) = state.drag.take()
@@ -445,6 +451,12 @@ pub fn show(
     let Some(pointer) = response.interact_pointer_pos() else {
         return RollOutcome::default();
     };
+    if response.clicked() && pointer.y < rect.top() + RULER_HEIGHT {
+        return RollOutcome {
+            seek: Some(geometry.tick_at(pointer.x).max(0)),
+            ..RollOutcome::default()
+        };
+    }
     if response.clicked() && pointer.x < geometry.origin.x {
         return RollOutcome {
             preview: Some(geometry.pitch_at(pointer.y)),
@@ -452,8 +464,8 @@ pub fn show(
         };
     }
     if response.clicked()
-        && pointer.y >= rect.top() + CLIP_LANE_HEIGHT
-        && pointer.y < rect.top() + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT
+        && pointer.y >= content.top() + CLIP_LANE_HEIGHT
+        && pointer.y < content.top() + CLIP_LANE_HEIGHT + CHORD_LANE_HEIGHT
     {
         let tick = geometry.tick_at(pointer.x).max(0);
         let nearest = song
@@ -493,6 +505,7 @@ pub fn show(
                     velocity: None,
                     preview: None,
                     chord: None,
+                    seek: None,
                 };
             }
         }
@@ -522,6 +535,7 @@ pub fn show(
                     velocity: None,
                     preview: None,
                     chord: None,
+                    seek: None,
                 };
             }
         }
@@ -534,6 +548,35 @@ pub fn show(
         velocity,
         preview: None,
         chord: None,
+        seek: None,
+    }
+}
+
+fn draw_ruler(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song: &Song) {
+    let ruler = Rect::from_min_size(rect.min, Vec2::new(rect.width(), RULER_HEIGHT));
+    painter.rect_filled(ruler, 0.0, theme::PANEL);
+    let bar = song.time_signature.bar_ticks().max(1);
+    let first = geometry.tick_at(rect.left()).div_euclid(bar);
+    let last = geometry.tick_at(rect.right()).div_euclid(bar);
+    for index in first..=last {
+        let x = geometry.x_at(index * bar);
+        if x < rect.left() || x > rect.right() {
+            continue;
+        }
+        painter.line_segment(
+            [
+                Pos2::new(x, ruler.bottom() - 5.0),
+                Pos2::new(x, ruler.bottom()),
+            ],
+            egui::Stroke::new(0.8_f32, theme::GRID_BAR),
+        );
+        painter.text(
+            Pos2::new(x + 3.0, ruler.top() + 2.0),
+            egui::Align2::LEFT_TOP,
+            format!("{}", index + 1),
+            egui::FontId::proportional(9.0),
+            theme::TEXT_DIM,
+        );
     }
 }
 

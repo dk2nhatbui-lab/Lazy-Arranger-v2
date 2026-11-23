@@ -143,7 +143,7 @@ the wider ~90-tool MCP surface.
 | Mute / solo / arm (schema v5) | `project`, `app-commands`, `sequencer`, `audio` | verified | mix rules tested; render/sequencer honor them; M/S in the track list |
 | Track volume and pan (schema v8) | `project`, `audio`, `smf` export | verified | fader/pan render tests; CC 7/10 written; defaults omitted |
 | Mixer panel (per-track fader, pan, mute, solo, bus routing) | `apps/desktop` | implemented | bus strip and routing tests; UI manual |
-| Track Inspector (incl. tempo changes) and sidebar window openers | `apps/desktop` | implemented | rename/program/tempo tests; UI manual |
+| Track Inspector (incl. tempo changes), ruler seek and window openers | `apps/desktop` | implemented | rename/program/tempo tests; ruler UI manual |
 | Buses and sends (schema v13) | `project::song::Bus`, `audio` render, `app-commands` | verified | route/send/pan render tests; command undo; JSON round trip |
 | Audio-reference fades (schema v17) | `project::song::AudioRef`, `audio::mix`, Editor, trim row | verified | fade ramp test; set/undo test; UI manual |
 | Lyric syllable editor (schema v10) | `Editor::add_lyric/remove_lyric/set_lyrics`, Lyrics window | verified model | add/replace/remove/undo tests; UI manual |

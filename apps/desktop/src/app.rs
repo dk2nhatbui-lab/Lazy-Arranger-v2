@@ -3107,6 +3107,7 @@ impl eframe::App for ShellApp {
                 let mut velocity_edit: Option<(TrackId, project::NoteId, u8)> = None;
                 let mut preview_note: Option<u8> = None;
                 let mut chord_click: Option<Tick> = None;
+                let mut seek: Option<Tick> = None;
                 let Self { editor, roll, .. } = self;
                 let selected_clip = self.selected_clip;
                 let project = editor.project();
@@ -3171,6 +3172,9 @@ impl eframe::App for ShellApp {
                         }
                         if let Some(tick) = outcome.chord {
                             chord_click = Some(tick);
+                        }
+                        if let Some(tick) = outcome.seek {
+                            seek = Some(tick);
                         }
                         if let Some(track_id) = roll.selected
                             && let Some(track) = project
@@ -3451,6 +3455,7 @@ impl eframe::App for ShellApp {
                     velocity_edit,
                     preview_note,
                     chord_click,
+                    seek,
                 )
             });
         let (
@@ -3467,7 +3472,14 @@ impl eframe::App for ShellApp {
             velocity_edit,
             preview_note,
             chord_click,
+            seek,
         ) = panel.inner;
+        if let Some(tick) = seek {
+            if self.playing {
+                self.stop_playback();
+            }
+            self.position = tick.max(0);
+        }
         if let Some(tick) = chord_click {
             self.selected_chord = Some(tick);
             self.status = Some(format!("selected chord at tick {tick}"));
