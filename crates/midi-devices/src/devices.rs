@@ -214,6 +214,32 @@ pub fn channel_check(
     Ok(messages)
 }
 
+/// Control-change 123 on every channel, in channel order.
+#[must_use]
+pub fn panic_messages() -> [[u8; 3]; 16] {
+    let mut messages = [[0_u8; 3]; 16];
+    for (channel, message) in messages.iter_mut().enumerate() {
+        *message = [0xb0 | u8::try_from(channel).unwrap_or(0), 123, 0];
+    }
+    messages
+}
+
+/// Sends all-notes-off on every channel to one output.
+///
+/// # Errors
+///
+/// Returns [`DeviceError`] when the output port is missing or a send fails.
+pub fn panic(output_name: &str) -> Result<usize, DeviceError> {
+    let mut output = open_output(output_name)?;
+    let messages = panic_messages();
+    for message in messages {
+        output
+            .send(&message)
+            .map_err(|error| DeviceError::Connect(error.to_string()))?;
+    }
+    Ok(messages.len())
+}
+
 /// Opens a named output port.
 ///
 /// # Errors
@@ -443,5 +469,22 @@ mod channel_check_tests {
         assert_eq!(messages[1], vec![0x83, 60, 0]);
         assert!(channel_check_messages(16, 60).is_err());
         assert!(channel_check_messages(0, 200).is_err());
+    }
+}
+
+#[cfg(test)]
+mod panic_tests {
+    use super::*;
+
+    #[test]
+    fn panic_covers_every_channel_with_cc_123() {
+        let messages = panic_messages();
+        assert_eq!(messages.len(), 16);
+        for (channel, message) in messages.iter().enumerate() {
+            assert_eq!(message[0] & 0xf0, 0xb0);
+            assert_eq!(usize::from(message[0] & 0x0f), channel);
+            assert_eq!(message[1], 123);
+            assert_eq!(message[2], 0);
+        }
     }
 }

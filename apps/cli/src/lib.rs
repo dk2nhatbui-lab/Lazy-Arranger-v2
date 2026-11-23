@@ -163,6 +163,12 @@ enum Commands {
         #[arg(long, default_value_t = 0.9)]
         peak: f32,
     },
+    /// Send all-notes-off on every channel to a MIDI output.
+    MidiPanic {
+        /// Output port name exactly as listed by `midi-ports`.
+        #[arg(long)]
+        output: String,
+    },
     /// Import a Standard MIDI File as a project.
     MidiImport {
         /// Input `.mid` file.
@@ -1855,6 +1861,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
         Commands::DemoProject { out } => demo_project(&out),
         Commands::MidiImport { midi, out } => midi_import(&midi, &out),
+        Commands::MidiPanic { output } => {
+            let sent = midi_devices::devices::panic(&output)?;
+            println!("sent {sent} all-notes-off message(s) to {output}");
+            Ok(())
+        }
         Commands::WavGain { wav, out, db } => wav_edit(&wav, &out, Some(db), 0.0),
         Commands::WavNormalize { wav, out, peak } => wav_edit(&wav, &out, None, peak),
         Commands::ScoreLayout { project, track } => {

@@ -744,3 +744,10 @@ only; edits still go through the Lyrics window.
 The piano-roll ruler draws each marker as an accent line with its name. The
 Markers window adds a Go button per row that seeks the live player through the
 tempo map, like a ruler click.
+
+### MIDI panic
+
+`panic_messages` builds CC 123 / 0 on all 16 channels; `panic(output)` opens the
+named port and sends them in channel order. CLI `midi-panic --output NAME`
+reports the count. No MIDI ports are attached here, so only the builder is
+verified; a missing port reports the available list.
