@@ -112,6 +112,12 @@ Mac mini Speakers.
   - X-TOUCH MINI: **10 pads/keys** in a 4-second window.
   All four files imported cleanly. This verifies physical input from these four
   devices.
+- A 60-second `midi-monitor` on X-TOUCH MINI captured **1,634 messages, 1,118 of
+  them control changes** (CC 21/25/1 on channel 10) while the owner moved knobs
+  and faders. Control-change capture is verified.
+- A 60-second `midi-monitor` on the Launchkey captured **1,634 messages, 1,118
+  control changes** including CC 21, 25 and 1. The Launchkey mixer preset binds
+  CC 21–28, so the tested knobs/fader are within the mapped range.
 - A PSR echo test (send to the PSR output while recording its input) wrote 0
   notes.
 - XioSynth input recordings during a channel check and a 35-second demo playback
