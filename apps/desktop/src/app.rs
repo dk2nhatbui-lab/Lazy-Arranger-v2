@@ -951,6 +951,7 @@ pub struct ShellApp {
     assistant_input: String,
     assistant_log: Vec<String>,
     ai_pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
+    assistant_tool_rounds: usize,
     assistant_proposal: Option<AssistantProposal>,
     available_update: Option<crate::update::Release>,
     update_download: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>>,
@@ -1321,6 +1322,7 @@ impl ShellApp {
             assistant_input: String::new(),
             assistant_log: Vec::new(),
             ai_pending: None,
+            assistant_tool_rounds: 0,
             assistant_proposal: None,
             available_update: None,
             update_download: None,
@@ -3211,6 +3213,7 @@ impl ShellApp {
     fn finish_ai_reply(&mut self, reply: String) {
         let mut text = reply.clone();
         let commands = crate::ai::tool_commands(&reply);
+        let mut follow_up = false;
         if let Some(command) = commands
             .iter()
             .find(|command| crate::ai::changes_project(command))
@@ -3230,13 +3233,26 @@ impl ShellApp {
                 text.push('\n');
                 text.push_str(&result.text);
             }
+            let ready = crate::ai::Config {
+                url: self.settings.ai_url.clone(),
+                model: self.settings.ai_model.clone(),
+                api_key: self.settings.ai_api_key.clone(),
+            }
+            .is_ready();
+            follow_up = ready && !commands.is_empty() && self.assistant_tool_rounds < 3;
         }
         if self.settings.speech
             && let Err(error) = crate::speech::speak_with(&text, &self.settings.speak_command)
         {
             self.status = Some(error);
         }
-        self.assistant_log.push(text);
+        self.assistant_log.push(text.clone());
+        if follow_up {
+            self.assistant_tool_rounds += 1;
+            self.request_assistant(format!(
+                "Tool results:\n{text}\nContinue if you need another tool, otherwise answer."
+            ));
+        }
     }
 
     /// The local assistant panel.
@@ -3305,6 +3321,7 @@ impl ShellApp {
                     if (ui.button("Send").clicked() || enter) && !self.assistant_input.is_empty() {
                         let input = self.assistant_input.trim().to_string();
                         self.assistant_log.push(format!("> {input}"));
+                        self.assistant_tool_rounds = 0;
                         self.assistant_input.clear();
                         let config = crate::ai::Config {
                             url: self.settings.ai_url.clone(),
