@@ -320,6 +320,43 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     b = mid + (x2 - x1) / 6.0,
                 );
             }
+            for beam in engraved.beams.iter().filter(|beam| beam.page == index) {
+                let y = settings.page_height - beam.y;
+                let _ = writeln!(
+                    content,
+                    "{:.1} {y:.1} m {:.1} {y:.1} l S",
+                    beam.start_x, beam.end_x
+                );
+                if beam.sixteenth {
+                    let second = y - 2.4 * settings.staff_space;
+                    let _ = writeln!(
+                        content,
+                        "{:.1} {second:.1} m {:.1} {second:.1} l S",
+                        beam.start_x, beam.end_x
+                    );
+                }
+            }
+            for tuplet in engraved
+                .tuplets
+                .iter()
+                .filter(|tuplet| tuplet.page == index)
+            {
+                let y = settings.page_height - tuplet.y;
+                let _ = writeln!(
+                    content,
+                    "{x1:.1} {y:.1} m {x2:.1} {y:.1} l {x1:.1} {y2:.1} l S",
+                    x1 = tuplet.start_x,
+                    x2 = tuplet.end_x,
+                    y2 = y + 2.0
+                );
+                let mid = (tuplet.start_x + tuplet.end_x) / 2.0;
+                let _ = writeln!(
+                    content,
+                    "BT /F1 8 Tf {mid:.1} {text_y:.1} Td ({count}) Tj ET",
+                    text_y = y + 3.0,
+                    count = tuplet.count
+                );
+            }
             for note in engraved
                 .notes
                 .iter()
