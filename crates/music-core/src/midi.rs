@@ -302,7 +302,7 @@ impl MidiMessage {
     /// Returns true when this message starts a note after normalisation.
     #[must_use]
     pub const fn is_note_on(self) -> bool {
-        matches!(self, Self::NoteOn { .. })
+        matches!(self, Self::NoteOn { velocity, .. } if velocity.as_u8() > 0)
     }
 
     /// Sorting rank for simultaneous messages.
@@ -390,15 +390,18 @@ impl MidiMessage {
             0xB0 => Some(Self::ControlChange {
                 channel,
                 controller: ControlNumber::new(*data.first()?).ok()?,
-                value: *data.get(1)?,
+                value: (*data.get(1)? <= 127).then_some(*data.get(1)?)?,
             }),
             0xC0 => Some(Self::ProgramChange {
                 channel,
-                program: *data.first()?,
+                program: (*data.first()? <= 127).then_some(*data.first()?)?,
             }),
             0xE0 => {
                 let lsb = u16::from(*data.first()?);
                 let msb = u16::from(*data.get(1)?);
+                if lsb > 127 || msb > 127 {
+                    return None;
+                }
                 let raw = i32::from((msb << 7) | lsb) - 8192;
                 Some(Self::PitchBend {
                     channel,
@@ -543,6 +546,10 @@ mod tests {
         let message = MidiMessage::note_on(ch, pitch("A4"), velocity(0)).normalized();
         assert!(matches!(message, MidiMessage::NoteOff { .. }));
         assert!(!message.is_note_on());
+        assert!(!MidiMessage::note_on(ch, pitch("C4"), velocity(0)).is_note_on());
+        assert!(MidiMessage::from_bytes(&[0x90, 60, 200]).is_none());
+        assert!(MidiMessage::from_bytes(&[0xC0, 200]).is_none());
+        assert!(MidiMessage::from_bytes(&[0xB0, 1, 200]).is_none());
         assert_eq!(
             MidiMessage::note_on(ch, pitch("A4"), velocity(1)).normalized(),
             MidiMessage::note_on(ch, pitch("A4"), velocity(1))

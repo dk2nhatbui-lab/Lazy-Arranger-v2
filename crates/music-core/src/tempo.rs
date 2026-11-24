@@ -125,7 +125,7 @@ impl TempoMap {
             .changes
             .partition_point(|change| change.tick <= tick)
             .saturating_sub(1);
-        self.changes[index].bpm
+        self.changes.get(index).map_or(120.0, |change| change.bpm)
     }
 
     /// Seconds from tick 0 to `tick`.
@@ -237,6 +237,15 @@ mod tests {
 
     fn approx(left: f64, right: f64, tolerance: f64) -> bool {
         (left - right).abs() <= tolerance
+    }
+
+    #[test]
+    fn an_empty_deserialized_map_has_a_safe_tempo() {
+        let map = TempoMap {
+            changes: Vec::new(),
+        };
+        assert_eq!(map.bpm_at(0), 120.0);
+        assert_eq!(map.tick_at_seconds(1.0), 0);
     }
 
     #[test]

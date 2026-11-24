@@ -98,8 +98,8 @@ pub fn program_for_track(name: &str) -> u8 {
     }
     const TABLE: &[(&[&str], u8)] = &[
         (&["drum", "percussion", "kit"], 0),
-        (&["piano", "keys", "rhodes"], 0),
         (&["e.piano", "electric piano"], 4),
+        (&["piano", "keys", "rhodes"], 0),
         (&["organ"], 16),
         (&["nylon", "classical guitar"], 24),
         (&["guitar"], 25),
@@ -508,6 +508,8 @@ drum_kits:
             nearest_in_profile(&profile, "Trumpet"),
             program_for_track("Trumpet")
         );
+        assert_eq!(program_for_track("Electric Piano"), 4);
+        assert_eq!(program_for_track("Grand Piano"), 0);
     }
 
     #[test]
