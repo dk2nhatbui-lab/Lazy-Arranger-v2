@@ -72,19 +72,25 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
         if let Some(page) = engraved.pages.get(index) {
             for system in &page.systems {
                 let top = system.y;
-                let staff_lines = if engraved.percussion {
-                    1
-                } else if engraved.staves == 2 {
-                    9
+                let grand = engraved.staves == 2;
+                let staff_lines = if engraved.percussion { 1 } else { 5 };
+                let bottom = if grand {
+                    top + 10.0 * settings.staff_space
                 } else {
-                    5
+                    top + (staff_lines - 1) as f32 * settings.staff_space
                 };
-                let bottom = top + (staff_lines - 1) as f32 * settings.staff_space;
-                for line in 0..staff_lines {
+                let mut line_offsets = Vec::new();
+                if grand {
+                    line_offsets.extend((0..5).map(|line| line as f32));
+                    line_offsets.extend((6..11).map(|line| line as f32));
+                } else {
+                    line_offsets.extend((0..staff_lines).map(|line| line as f32));
+                }
+                for line in line_offsets {
                     let line_y = if engraved.percussion {
                         top - 2.0 * settings.staff_space
                     } else {
-                        top + (line as f32) * settings.staff_space
+                        top + line * settings.staff_space
                     };
                     let y = settings.page_height - line_y;
                     let _ = writeln!(
@@ -745,11 +751,18 @@ mod tests {
         let engraved = engraved(1, settings);
         let pdf = String::from_utf8_lossy(&to_pdf(&engraved, settings, "Grand")).to_string();
         let top = 20.0 + 4.0 * 6.0;
-        let bottom = top + 8.0 * 6.0;
+        let bottom = top + 10.0 * 6.0;
         let low = 200.0 - bottom;
         assert!(
             pdf.contains(&format!("20.0 {low:.1} m 300.0 {low:.1} l S")),
-            "the lowest second-staff line is stroked"
+            "the lowest bass-staff line is stroked"
+        );
+        assert!(
+            pdf.contains(&format!(
+                "20.0 {y:.1} m 300.0 {y:.1} l S",
+                y = 200.0 - (top + 6.0 * 6.0)
+            )),
+            "the highest bass-staff line is stroked"
         );
         assert!(
             pdf.contains(&format!("10.0 {:.1} m 10.0 {:.1} l S", 200.0 - top, low)),
