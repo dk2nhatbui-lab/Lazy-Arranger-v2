@@ -387,7 +387,7 @@ pub fn show_full(
         ),
         egui::Align2::LEFT_TOP,
         title,
-        egui::FontId::proportional(12.0 * scale),
+        egui::FontId::proportional((12.0 * scale).max(9.0)),
         Color32::from_rgb(0x14, 0x14, 0x14),
     );
     if let Some((_, engraved)) = tracks.first() {
@@ -404,7 +404,7 @@ pub fn show_full(
                 engraved.time_signature.numerator,
                 engraved.time_signature.denominator
             ),
-            egui::FontId::proportional(8.0 * scale),
+            egui::FontId::proportional((8.0 * scale).max(7.0)),
             Color32::from_rgb(0x50, 0x50, 0x50),
         );
     }
@@ -444,7 +444,7 @@ pub fn show_full(
             Pos2::new(page_rect.left() + 4.0, top + 2.0 * line_gap * scale),
             egui::Align2::LEFT_CENTER,
             short_track_name(name),
-            egui::FontId::proportional(7.0 * scale),
+            egui::FontId::proportional((7.0 * scale).max(6.0)),
             Color32::from_rgb(0x40, 0x40, 0x40),
         );
         let average = if engraved.notes.is_empty() {
@@ -497,63 +497,6 @@ pub fn show_full(
             );
         }
         if index == 0 {
-            for frame in engraved
-                .frames
-                .iter()
-                .filter(|frame| frame.page == source_page)
-            {
-                let left = page_rect.left()
-                    + first_system.map_or(frame.x, |sys| score::full_score_x(system, sys, frame.x))
-                        * scale;
-                let width = 3.0 * line_gap * scale;
-                let height = 3.0 * line_gap * scale;
-                let bottom = top + (frame.y - system.y) * (line_gap / settings.staff_space) * scale;
-                let top_edge = bottom - height;
-                for string in 0..6 {
-                    let x = left + width * string as f32 / 5.0;
-                    painter.line_segment(
-                        [Pos2::new(x, bottom), Pos2::new(x, top_edge)],
-                        Stroke::new(0.5_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
-                    );
-                }
-                for fret in 0..=5 {
-                    let y = top_edge + height * fret as f32 / 5.0;
-                    painter.line_segment(
-                        [Pos2::new(left, y), Pos2::new(left + width, y)],
-                        Stroke::new(0.5_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
-                    );
-                }
-                painter.text(
-                    Pos2::new(left, top_edge - 2.0 * scale),
-                    egui::Align2::LEFT_BOTTOM,
-                    &frame.name,
-                    egui::FontId::proportional(7.0 * scale),
-                    Color32::from_rgb(0x10, 0x10, 0x10),
-                );
-                for (string, fret) in frame.frets.iter().enumerate() {
-                    let x = left + width * string as f32 / 5.0;
-                    match fret {
-                        None | Some(0) => {
-                            painter.text(
-                                Pos2::new(x, top_edge - 1.0 * scale),
-                                egui::Align2::CENTER_BOTTOM,
-                                if fret.is_none() { "x" } else { "o" },
-                                egui::FontId::proportional(6.0 * scale),
-                                Color32::from_rgb(0x10, 0x10, 0x10),
-                            );
-                        }
-                        Some(value) if *value >= frame.base_fret => {
-                            let row = (*value - frame.base_fret) as f32 + 0.5;
-                            painter.circle_filled(
-                                Pos2::new(x, top_edge + height * row / 5.0),
-                                line_gap * 0.28 * scale,
-                                Color32::from_rgb(0x10, 0x10, 0x10),
-                            );
-                        }
-                        Some(_) => {}
-                    }
-                }
-            }
             for chord in engraved
                 .chord_symbols
                 .iter()
@@ -567,7 +510,7 @@ pub fn show_full(
                     Pos2::new(x, y),
                     egui::Align2::LEFT_CENTER,
                     &chord.name,
-                    egui::FontId::proportional(8.0 * scale),
+                    egui::FontId::proportional((8.0 * scale).max(7.0)),
                     Color32::from_rgb(0x10, 0x10, 0x10),
                 );
             }
@@ -586,7 +529,7 @@ pub fn show_full(
                     Pos2::new(x, y),
                     egui::Align2::LEFT_CENTER,
                     &lyric.text,
-                    egui::FontId::proportional(7.0 * scale),
+                    egui::FontId::proportional((7.0 * scale).max(6.0)),
                     Color32::from_rgb(0x20, 0x20, 0x20),
                 );
             }
@@ -611,7 +554,7 @@ pub fn show_full(
                     Pos2::new(x, y),
                     egui::Align2::LEFT_CENTER,
                     text,
-                    egui::FontId::proportional(7.0 * scale),
+                    egui::FontId::proportional((7.0 * scale).max(6.0)),
                     Color32::from_rgb(0x20, 0x20, 0x20),
                 );
             }
@@ -657,7 +600,7 @@ pub fn show_full(
                         Pos2::new(x - 4.0 * scale, y - 1.0 * scale),
                         egui::Align2::RIGHT_CENTER,
                         accidental,
-                        egui::FontId::proportional(7.0 * scale),
+                        egui::FontId::proportional((7.0 * scale).max(6.0)),
                         Color32::from_rgb(0x10, 0x10, 0x10),
                     );
                 }
@@ -752,7 +695,7 @@ pub fn show_full(
                 Pos2::new((start + end) / 2.0, y - 1.0 * scale),
                 egui::Align2::CENTER_BOTTOM,
                 format!("{}", tuplet.count),
-                egui::FontId::proportional(6.0 * scale),
+                egui::FontId::proportional((6.0 * scale).max(5.0)),
                 Color32::from_rgb(0x10, 0x10, 0x10),
             );
         }
@@ -774,7 +717,7 @@ pub fn show_full(
                 ),
                 egui::Align2::LEFT_BOTTOM,
                 format!("{}", measure.number),
-                egui::FontId::proportional(6.0 * scale),
+                egui::FontId::proportional((6.0 * scale).max(5.0)),
                 Color32::from_rgb(0x50, 0x50, 0x50),
             );
             for x in [measure.x, measure.x_end] {
@@ -790,7 +733,7 @@ pub fn show_full(
         Pos2::new(page_rect.center().x, page_rect.bottom() - 8.0 * scale),
         egui::Align2::CENTER_BOTTOM,
         format!("{} / {page_count}", page_index + 1),
-        egui::FontId::proportional(8.0 * scale),
+        egui::FontId::proportional((8.0 * scale).max(7.0)),
         Color32::from_rgb(0x50, 0x50, 0x50),
     );
     let _ = position;
