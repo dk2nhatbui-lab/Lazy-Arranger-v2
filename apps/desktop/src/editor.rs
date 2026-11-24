@@ -197,6 +197,37 @@ impl Editor {
         Ok(())
     }
 
+    /// Adds a named clip at `start` with `length`, choosing the next id.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the clips overlap.
+    pub fn add_clip(&mut self, track: TrackId, start: Tick, length: Tick) -> Result<(), String> {
+        let entry = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .ok_or_else(|| String::from("unknown track"))?;
+        let id = entry
+            .clips
+            .iter()
+            .map(|clip| clip.id.get())
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        self.insert_clip(
+            track,
+            project::song::Clip {
+                id: project::ClipId::new(id).map_err(|error| error.to_string())?,
+                name: String::from("Clip"),
+                start,
+                length,
+            },
+        )
+        .map_err(|error| error.to_string())
+    }
+
     /// Moves a clip region.
     ///
     /// # Errors
@@ -3329,6 +3360,17 @@ mod tests {
         assert!(copy.name.ends_with("copy"));
         assert!(editor.undo());
         assert!(editor.song().tracks.iter().all(|entry| entry.id != id));
+    }
+
+    #[test]
+    fn a_clip_can_be_added_at_the_playhead() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        editor.add_clip(track, 960, 960).expect("clip");
+        let clip = &editor.song().tracks[0].clips[0];
+        assert_eq!((clip.start, clip.length), (960, 960));
+        assert!(editor.undo());
+        assert!(editor.song().tracks[0].clips.is_empty());
     }
 
     #[test]
