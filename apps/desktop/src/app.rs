@@ -1151,6 +1151,10 @@ impl ShellApp {
     #[must_use]
     pub fn new(context: &Context, project: ProjectFile, project_path: Option<PathBuf>) -> Self {
         let settings = crate::settings::Settings::load(&crate::settings::Settings::path());
+        let initial_lesson_kind = music_core::lesson::LessonKind::ALL
+            .get(settings.lesson_kind)
+            .copied()
+            .unwrap_or(music_core::lesson::LessonKind::ChordQuality);
         let midi_output_pref = settings.midi_output.clone();
         let initial_window = std::env::var("ARRANGER_WINDOW")
             .unwrap_or_default()
@@ -1234,7 +1238,7 @@ impl ShellApp {
             theory_minor: initial_minor,
             songs_open: initial_window == "songs",
             lessons_open: initial_window == "lessons",
-            lesson_kind: music_core::lesson::LessonKind::ChordQuality,
+            lesson_kind: initial_lesson_kind,
             lesson_pack: settings
                 .lesson_pack
                 .filter(|index| *index < music_core::lesson::PACKS.len()),
@@ -7501,6 +7505,10 @@ impl ShellApp {
                                 self.lesson_kind = kind;
                                 self.lesson_pack = None;
                                 self.settings.lesson_pack = None;
+                                self.settings.lesson_kind = music_core::lesson::LessonKind::ALL
+                                    .iter()
+                                    .position(|entry| *entry == kind)
+                                    .unwrap_or(0);
                                 let _ = self.settings.save(&crate::settings::Settings::path());
                                 self.lesson_question = None;
                                 self.lesson_feedback = None;
