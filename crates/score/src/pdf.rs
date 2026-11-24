@@ -526,6 +526,10 @@ pub fn to_full_pdf(
         .max()
         .unwrap_or(0)
         .max(1);
+    let treble_id = 4 + page_count * 2;
+    let treble_mask = treble_id + 1;
+    let bass_id = treble_id + 2;
+    let bass_mask = bass_id + 1;
     let mut objects: Vec<Vec<u8>> = Vec::new();
     objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
     let kids: Vec<String> = (0..page_count)
@@ -583,6 +587,36 @@ pub fn to_full_pdf(
                     settings.page_width - settings.margin
                 );
             }
+            let average = staff
+                .notes
+                .iter()
+                .filter(|note| note.page == *page)
+                .map(|note| f32::from(note.pitch.as_u8()))
+                .sum::<f32>()
+                / staff
+                    .notes
+                    .iter()
+                    .filter(|note| note.page == *page)
+                    .count()
+                    .max(1) as f32;
+            let image = if average < 52.0 {
+                clef::bass()
+            } else {
+                clef::treble()
+            };
+            draw_image(
+                &mut content,
+                if average < 52.0 {
+                    "ClefBass"
+                } else {
+                    "ClefTreble"
+                },
+                settings.margin - 20.0,
+                top - 2.0 * settings.staff_space,
+                7.0 * settings.staff_space,
+                image,
+                settings.page_height,
+            );
             let _ = writeln!(
                 content,
                 "BT /F1 7 Tf 4 {y:.1} Td ({}) Tj ET",
@@ -643,7 +677,7 @@ pub fn to_full_pdf(
         let contents = 5 + page_index * 2;
         objects.push(
             format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Resources << /Font << /F1 3 0 R >> >> /Contents {contents} 0 R >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Resources << /Font << /F1 3 0 R >> /XObject << /ClefTreble {treble_id} 0 R /ClefBass {bass_id} 0 R >> >> /Contents {contents} 0 R >>",
                 w = settings.page_width,
                 h = settings.page_height
             )
@@ -656,6 +690,12 @@ pub fn to_full_pdf(
         stream.extend_from_slice(b"endstream");
         objects.push(stream);
     }
+    let treble = clef::treble();
+    objects.push(image_stream(treble, treble_mask));
+    objects.push(alpha_stream(treble));
+    let bass = clef::bass();
+    objects.push(image_stream(bass, bass_mask));
+    objects.push(alpha_stream(bass));
     finish_pdf(objects)
 }
 
@@ -957,6 +997,7 @@ mod tests {
         let text = String::from_utf8_lossy(&pdf);
         assert!(text.contains("(Piano) Tj"));
         assert!(text.contains("(Bass) Tj"));
+        assert!(text.contains("/ClefTreble"), "clef image resource");
         assert!(page_count(&pdf).is_some_and(|count| count >= 1));
     }
 
