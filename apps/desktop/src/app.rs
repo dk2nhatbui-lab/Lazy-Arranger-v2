@@ -10744,7 +10744,7 @@ impl ShellApp {
                                         seconds,
                                     )
                                     .and_then(|rendered| {
-                                        std::fs::write(&path, rendered.to_wav())
+                                        std::fs::write(&path, rendered.to_wav24())
                                             .map_err(|error| format!("{}: {error}", path.display()))
                                     })
                                     .map(|()| path);
