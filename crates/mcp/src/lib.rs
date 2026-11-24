@@ -2156,26 +2156,44 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
         }
         "set_audio_ref" => {
             let track = track_argument(arguments)?;
+            let current = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
             let reference = arguments
                 .get("path")
                 .and_then(Value::as_str)
                 .filter(|path| !path.is_empty())
                 .map(|_| audio_ref_from_value(arguments))
                 .unwrap_or(None);
-            session.apply(Command::SetAudioRef {
+            let takes = arguments
+                .get("takes")
+                .and_then(Value::as_array)
+                .map(|takes| {
+                    takes
+                        .iter()
+                        .filter_map(audio_ref_from_value)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_else(|| current.takes.clone());
+            let comps = arguments
+                .get("comps")
+                .and_then(Value::as_array)
+                .map(|comps| {
+                    comps
+                        .iter()
+                        .filter_map(audio_comp_from_value)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_else(|| current.comps.clone());
+            session.apply(Command::SetAudioStateFull {
                 track,
                 reference: reference.clone(),
+                takes,
+                comps,
             })?;
-            if let Some(takes) = arguments.get("takes").and_then(Value::as_array) {
-                let takes: Vec<project::song::AudioRef> =
-                    takes.iter().filter_map(audio_ref_from_value).collect();
-                session.apply(Command::SetAudioTakes { track, takes })?;
-            }
-            if let Some(comps) = arguments.get("comps").and_then(Value::as_array) {
-                let comps: Vec<project::song::AudioComp> =
-                    comps.iter().filter_map(audio_comp_from_value).collect();
-                session.apply(Command::SetAudioComps { track, comps })?;
-            }
             Ok(json!({"audio": reference.map(|reference| audio_ref_json(&reference))}))
         }
         "get_audio_ref" => {

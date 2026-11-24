@@ -178,6 +178,17 @@ pub enum Command {
         /// Stored takes.
         takes: Vec<project::song::AudioRef>,
     },
+    /// Replace a track's reference, takes and comped spans atomically.
+    SetAudioStateFull {
+        /// The track.
+        track: TrackId,
+        /// Active reference, or none.
+        reference: Option<project::song::AudioRef>,
+        /// Stored takes.
+        takes: Vec<project::song::AudioRef>,
+        /// Comped spans.
+        comps: Vec<project::song::AudioComp>,
+    },
     /// Replace a track's comped audio spans.
     SetAudioComps {
         /// The track.
@@ -318,6 +329,7 @@ impl Command {
             Self::SetAutomation { .. } => "set automation",
             Self::SetAudioRef { .. } => "set audio reference",
             Self::SetAudioState { .. } => "set audio state",
+            Self::SetAudioStateFull { .. } => "set audio state",
             Self::SetAudioComps { .. } => "set audio comps",
             Self::SetAudioTakes { .. } => "set audio takes",
             Self::FreezeTrack { .. } => "freeze track",
@@ -916,6 +928,15 @@ impl EditSession {
                 reference: self.track(*track)?.audio.clone(),
                 takes: self.track(*track)?.takes.clone(),
             },
+            Command::SetAudioStateFull { track, .. } => {
+                let current = self.track(*track)?;
+                Command::SetAudioStateFull {
+                    track: *track,
+                    reference: current.audio.clone(),
+                    takes: current.takes.clone(),
+                    comps: current.comps.clone(),
+                }
+            }
             Command::SetAudioComps { track, .. } => Command::SetAudioComps {
                 track: *track,
                 comps: self.track(*track)?.comps.clone(),
@@ -1147,6 +1168,17 @@ impl EditSession {
                 track.audio = reference.clone();
                 track.takes = takes.clone();
             }
+            Command::SetAudioStateFull {
+                track,
+                reference,
+                takes,
+                comps,
+            } => {
+                let track = self.track_mut(*track)?;
+                track.audio = reference.clone();
+                track.takes = takes.clone();
+                track.comps = comps.clone();
+            }
             Command::SetAudioComps { track, comps } => {
                 self.track_mut(*track)?.comps = comps.clone();
             }
@@ -1328,6 +1360,16 @@ fn describe(command: &Command) -> String {
         Command::SetAudioState { track, takes, .. } => {
             format!("track {track}: audio state with {} take(s)", takes.len())
         }
+        Command::SetAudioStateFull {
+            track,
+            takes,
+            comps,
+            ..
+        } => format!(
+            "track {track}: audio state with {} take(s), {} comp(s)",
+            takes.len(),
+            comps.len()
+        ),
         Command::SetAudioComps { track, comps } => {
             format!("track {track}: {} comp span(s)", comps.len())
         }
