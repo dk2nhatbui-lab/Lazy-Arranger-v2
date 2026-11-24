@@ -795,6 +795,13 @@ pub fn available_printers() -> Vec<String> {
     printers_from_lpstat(&String::from_utf8_lossy(&output.stdout))
 }
 
+struct RenderedSong {
+    audio: audio::RenderedAudio,
+    stems: Vec<(TrackId, Vec<f32>)>,
+    problems: Vec<audio::mix::AudioProblem>,
+    loop_start: Option<music_core::Tick>,
+}
+
 pub struct ShellApp {
     editor: Editor,
     selected_note: Option<(TrackId, NoteId)>,
@@ -1072,6 +1079,10 @@ pub struct ShellApp {
     position: Tick,
     icon: egui::TextureHandle,
     player: Option<audio::player::Player>,
+    render_pending: Option<(
+        std::sync::mpsc::Receiver<Result<RenderedSong, String>>,
+        music_core::Tick,
+    )>,
     autosave: Autosave,
     recovery: Option<std::path::PathBuf>,
     shown: bool,
@@ -1127,6 +1138,7 @@ impl ShellApp {
             editor,
             icon,
             player: None,
+            render_pending: None,
             autosave: Autosave::new(std::time::Duration::from_secs(10)),
             recovery: project_path
                 .as_ref()
@@ -10013,90 +10025,115 @@ impl ShellApp {
             // it and resume at the same musical position.
             self.player = None;
         }
+        if self.render_pending.is_some() {
+            self.status = Some(String::from("still rendering audio"));
+            return;
+        }
         let resume = if self.position >= self.song().end_tick() {
             0
         } else {
             self.position.max(0)
         };
-        let mut audio = audio::render(self.song(), audio::SAMPLE_RATE);
-        let problems = audio::mix::check_audio_references(self.song());
-        if self.settings.metronome {
-            audio::metronome::mix_accent(
-                &mut audio,
-                self.song(),
-                1.0,
-                self.settings.metronome_accent,
-            );
-        }
-        audio::master::apply(
-            &mut audio,
-            audio::master::Master {
-                gain_db: self.settings.master_gain_db,
-                limiter: self.settings.master_limiter,
-                reverb: self.settings.master_reverb,
-                chorus: self.settings.master_chorus,
-            },
-        );
-        if let Some(problem) = problems.first() {
-            self.status = Some(format!("audio {}: {}", problem.path, problem.reason));
-        }
-        if self.loop_enabled
-            && let Some((start, end)) = self.loop_region
-        {
-            let from = self.song().tempo_map.seconds_at(start);
-            let to = self.song().tempo_map.seconds_at(end);
-            let sliced = audio.slice(from, to);
-            self.loop_buffer = Some(sliced.clone());
-            match audio::player::Player::new_on(
-                sliced,
-                self.settings.audio_output.as_deref(),
-                (self.settings.audio_buffer_frames > 0)
-                    .then_some(self.settings.audio_buffer_frames),
-            ) {
-                Ok(player) => {
-                    self.position = start;
-                    self.stem_levels.clear();
-                    self.player = Some(player);
-                    self.playing = true;
-                    if let Some(player) = &self.player {
-                        player.play();
-                    }
-                    return;
-                }
-                Err(error) => {
-                    self.status = Some(error);
-                    return;
-                }
-            }
-        }
-        let stems = if self.view == View::Mix {
-            audio::render_stems(self.song(), audio::SAMPLE_RATE)
-                .into_iter()
-                .map(|stem| (stem.track, stem.audio.samples))
-                .collect()
-        } else {
-            Vec::new()
+        let song = self.song().clone();
+        let metronome = self.settings.metronome;
+        let accent = self.settings.metronome_accent;
+        let master = audio::master::Master {
+            gain_db: self.settings.master_gain_db,
+            limiter: self.settings.master_limiter,
+            reverb: self.settings.master_reverb,
+            chorus: self.settings.master_chorus,
         };
-        match audio::player::Player::new_on(
-            audio,
-            self.settings.audio_output.as_deref(),
-            (self.settings.audio_buffer_frames > 0).then_some(self.settings.audio_buffer_frames),
-        ) {
-            Ok(player) => {
-                player.play();
-                if resume > 0 {
-                    let _ = player.seek_seconds(self.song().tempo_map.seconds_at(resume));
+        let loop_region = if self.loop_enabled {
+            self.loop_region
+        } else {
+            None
+        };
+        let stems_wanted = self.view == View::Mix && loop_region.is_none();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.render_pending = Some((receiver, resume));
+        self.status = Some(String::from("rendering audio"));
+        std::thread::spawn(move || {
+            let mut audio = audio::render(&song, audio::SAMPLE_RATE);
+            let problems = audio::mix::check_audio_references(&song);
+            if metronome {
+                audio::metronome::mix_accent(&mut audio, &song, 1.0, accent);
+            }
+            audio::master::apply(&mut audio, master);
+            let (audio, loop_start) = match loop_region {
+                Some((start, end)) => {
+                    let from = song.tempo_map.seconds_at(start);
+                    let to = song.tempo_map.seconds_at(end);
+                    (audio.slice(from, to), Some(start))
                 }
-                self.stem_levels = stems;
-                self.player = Some(player);
-                self.playing = true;
+                None => (audio, None),
+            };
+            let stems = if stems_wanted {
+                audio::render_stems(&song, audio::SAMPLE_RATE)
+                    .into_iter()
+                    .map(|stem| (stem.track, stem.audio.samples))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let _ = sender.send(Ok(RenderedSong {
+                audio,
+                stems,
+                problems,
+                loop_start,
+            }));
+        });
+    }
+
+    fn poll_render(&mut self, context: &Context) {
+        let Some((receiver, resume)) = &self.render_pending else {
+            return;
+        };
+        let result = match receiver.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                context.request_repaint_after(std::time::Duration::from_millis(100));
+                return;
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err(String::from("audio renderer stopped"))
+            }
+        };
+        let resume = *resume;
+        self.render_pending = None;
+        match result {
+            Ok(rendered) => {
+                if let Some(problem) = rendered.problems.first() {
+                    self.status = Some(format!("audio {}: {}", problem.path, problem.reason));
+                }
+                let loop_buffer = rendered.loop_start.map(|_| rendered.audio.clone());
+                match audio::player::Player::new_on(
+                    rendered.audio,
+                    self.settings.audio_output.as_deref(),
+                    (self.settings.audio_buffer_frames > 0)
+                        .then_some(self.settings.audio_buffer_frames),
+                ) {
+                    Ok(player) => {
+                        player.play();
+                        if let Some(start) = rendered.loop_start {
+                            self.loop_buffer = loop_buffer;
+                            self.position = start;
+                        } else if resume > 0 {
+                            let _ = player.seek_seconds(self.song().tempo_map.seconds_at(resume));
+                        }
+                        self.stem_levels = rendered.stems;
+                        self.player = Some(player);
+                        self.playing = true;
+                        self.status = Some(String::from("playing"));
+                    }
+                    Err(error) => self.load_error = Some(format!("audio: {error}")),
+                }
             }
             Err(error) => self.load_error = Some(format!("audio: {error}")),
         }
     }
 
-    /// Stops playback and releases the device.
     fn stop_playback(&mut self) {
+        self.render_pending = None;
         if let Some(player) = self.player.take() {
             player.stop();
             player.release();
@@ -11179,6 +11216,7 @@ impl std::fmt::Debug for ShellApp {
 impl eframe::App for ShellApp {
     fn update(&mut self, context: &Context, frame: &mut eframe::Frame) {
         self.sync_monitor();
+        self.poll_render(context);
         let _ = frame;
         // ADR-011: paint the first themed frame before the window becomes visible.
         let mut style = (*context.style()).clone();
