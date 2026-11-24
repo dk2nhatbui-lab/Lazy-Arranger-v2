@@ -311,12 +311,17 @@ pub fn needs_grand_staff(track: &project::song::Track) -> bool {
 }
 
 /// Builds a short stereo metronome count-in at 48 kHz.
+fn count_in_seconds(bpm: f64, bars: u8, meter: music_core::TimeSignature) -> f64 {
+    let bar_seconds = meter.bar_ticks() as f64 / music_core::PPQ as f64 * 60.0 / bpm.max(1.0);
+    f64::from(bars) * bar_seconds
+}
+
 fn count_in_audio(bpm: f64, bars: u8, meter: music_core::TimeSignature) -> audio::RenderedAudio {
     let sample_rate = 48_000_u32;
     let beats_per_bar = usize::from(meter.numerator.max(1));
     let bar_seconds = meter.bar_ticks() as f64 / music_core::PPQ as f64 * 60.0 / bpm.max(1.0);
     let beats = usize::from(bars) * beats_per_bar;
-    let seconds = bars as f64 * bar_seconds;
+    let seconds = count_in_seconds(bpm, bars, meter);
     let frames = (seconds * f64::from(sample_rate)).round() as usize;
     let mut samples = vec![0.0_f32; frames * 2];
     let click_frames = (0.035 * f64::from(sample_rate)) as usize;
@@ -10744,10 +10749,7 @@ impl ShellApp {
                                 let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
                                 let meter = self.song().time_signature;
                                 let count_in = self.settings.record_count_in;
-                                let delay = f64::from(count_in) * meter.bar_ticks() as f64
-                                    / music_core::PPQ as f64
-                                    * 60.0
-                                    / bpm;
+                                let delay = count_in_seconds(bpm, count_in, meter);
                                 let (sender, receiver) = std::sync::mpsc::channel();
                                 std::thread::spawn(move || {
                                     if delay > 0.0 {
@@ -13879,6 +13881,15 @@ mod tests {
             .collect();
         assert!(!peaks.is_empty());
         assert!(peaks[0] < 480, "the first click starts the count-in");
+    }
+
+    #[test]
+    fn count_in_seconds_follow_the_meter() {
+        assert!(
+            (count_in_seconds(120.0, 1, music_core::TimeSignature::default()) - 2.0).abs() < 1e-9
+        );
+        let six_eight = music_core::TimeSignature::new(6, 8).expect("meter");
+        assert!((count_in_seconds(120.0, 1, six_eight) - 1.5).abs() < 1e-9);
     }
 
     #[test]
