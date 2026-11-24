@@ -590,10 +590,29 @@ pub fn show_full(
                     + first_system.map_or(rest.x, |sys| score::full_score_x(system, sys, rest.x))
                         * scale;
                 let y = top + (rest.y - system.y) * (line_gap / settings.staff_space) * scale;
-                painter.line_segment(
-                    [Pos2::new(x - 3.0 * scale, y), Pos2::new(x + 3.0 * scale, y)],
-                    Stroke::new(0.8_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+                let (width, height) = match rest.kind {
+                    score::RestKind::Whole | score::RestKind::Half => {
+                        (line_gap * 0.9 * scale, line_gap * 0.45 * scale)
+                    }
+                    score::RestKind::Quarter => (line_gap * 0.45 * scale, line_gap * 0.9 * scale),
+                    score::RestKind::Eighth => (line_gap * 0.35 * scale, line_gap * 0.7 * scale),
+                };
+                let colour = Color32::from_rgb(0x10, 0x10, 0x10);
+                painter.rect_filled(
+                    Rect::from_center_size(Pos2::new(x, y), Vec2::new(width, height)),
+                    0.0,
+                    colour,
                 );
+                for dot in 0..rest.dots {
+                    painter.circle_filled(
+                        Pos2::new(
+                            x + width / 2.0 + line_gap * (0.35 + f32::from(dot) * 0.45) * scale,
+                            y,
+                        ),
+                        line_gap * 0.1 * scale,
+                        colour,
+                    );
+                }
             }
             if index == 0 {
                 for chord in engraved.chord_symbols.iter().filter(|chord| {

@@ -717,14 +717,27 @@ pub fn to_full_pdf_with_frames(
                     let x =
                         first_system.map_or(rest.x, |sys| crate::full_score_x(system, sys, rest.x));
                     let y = top + (rest.y - system.y) * (line_gap / settings.staff_space);
+                    let (width, height) = match rest.kind {
+                        crate::RestKind::Whole | crate::RestKind::Half => {
+                            (line_gap * 0.9, line_gap * 0.45)
+                        }
+                        crate::RestKind::Quarter => (line_gap * 0.45, line_gap * 0.9),
+                        crate::RestKind::Eighth => (line_gap * 0.35, line_gap * 0.7),
+                    };
+                    let left = x - width / 2.0;
+                    let lower = settings.page_height - y - height / 2.0;
                     let _ = writeln!(
                         content,
-                        "{:.1} {:.1} m {:.1} {:.1} l S",
-                        x - 3.0,
-                        settings.page_height - y,
-                        x + 3.0,
-                        settings.page_height - y
+                        "0.15 0.15 0.15 rg {left:.1} {lower:.1} {width:.1} {height:.1} re f"
                     );
+                    for dot in 0..rest.dots {
+                        circle(
+                            &mut content,
+                            left + width + 1.2 + f32::from(dot) * 2.2,
+                            settings.page_height - y,
+                            1.0,
+                        );
+                    }
                 }
                 if staff_index == 0 && frames {
                     for frame in staff.frames.iter().filter(|frame| {
