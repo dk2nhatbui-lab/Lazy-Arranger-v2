@@ -333,6 +333,21 @@ fn write_harmony(out: &mut String, chord: music_core::Chord, offset: Tick) {
     if offset != 0 {
         out.push_str(&format!("<offset>{offset}</offset>"));
     }
+    if let Some(frame) = score::guitar::shape(&chord) {
+        out.push_str("<frame><frame-strings>6</frame-strings><frame-frets>5</frame-frets>");
+        if frame.base_fret > 1 {
+            out.push_str(&format!("<first-fret>{}</first-fret>", frame.base_fret));
+        }
+        for (index, fret) in frame.frets.iter().enumerate() {
+            if let Some(fret) = fret {
+                out.push_str(&format!(
+                    "<frame-note><string>{}</string><fret>{fret}</fret></frame-note>",
+                    6 - index
+                ));
+            }
+        }
+        out.push_str("</frame>");
+    }
     out.push_str("</harmony>\n");
 }
 
@@ -529,6 +544,19 @@ mod tests {
         let xml = export(&song, "Drums");
         assert!(xml.contains("<sign>percussion</sign>"));
         assert!(xml.contains("<unpitched>"));
+    }
+
+    #[test]
+    fn harmony_can_carry_a_guitar_frame() {
+        use music_core::Chord;
+        let mut song = song();
+        song.chords.push(project::song::ChordEvent {
+            tick: 0,
+            chord: Chord::parse("C").expect("chord"),
+        });
+        let xml = export(&song, "Frame");
+        assert!(xml.contains("<frame-strings>6</frame-strings>"));
+        assert!(xml.contains("<frame-note>"));
     }
 
     #[test]
