@@ -12859,6 +12859,18 @@ impl eframe::App for ShellApp {
                             } else {
                                 Vec::new()
                             };
+                            if self.score_all_tracks
+                                && self
+                                    .player
+                                    .as_ref()
+                                    .is_some_and(audio::player::Player::is_playing)
+                                && let Some(page) = crate::score_view::full_score_page_for_tick(
+                                    &full_tracks,
+                                    position,
+                                )
+                            {
+                                self.score_page = page;
+                            }
                             let outcome = if self.score_all_tracks {
                                 let (count, seek) = crate::score_view::show_full(
                                     ui,

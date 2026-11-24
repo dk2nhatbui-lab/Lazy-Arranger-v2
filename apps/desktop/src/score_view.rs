@@ -808,6 +808,28 @@ pub fn show_full(
     (page_count, seek)
 }
 
+/// The full-score page holding a tick, when a system contains it.
+#[must_use]
+pub fn full_score_page_for_tick(
+    tracks: &[(String, Engraved)],
+    tick: music_core::Tick,
+) -> Option<usize> {
+    let (_, engraved) = tracks.first()?;
+    for (index, system) in engraved
+        .pages
+        .iter()
+        .flat_map(|page| page.systems.iter())
+        .enumerate()
+    {
+        if system.measures.iter().any(|measure| {
+            tick >= measure.start && tick < measure.start.saturating_add(measure.length)
+        }) {
+            return Some(index / 2);
+        }
+    }
+    None
+}
+
 fn tick_at_system_x(system: &score::System, x: f32) -> Option<music_core::Tick> {
     for measure in &system.measures {
         if x >= measure.x && x <= measure.x_end {
@@ -1641,6 +1663,8 @@ mod tests {
             Settings::default(),
         );
         let tracks = vec![(String::from("Piano"), engraved)];
+        assert_eq!(full_score_page_for_tick(&tracks, 0), Some(0));
+        assert_eq!(full_score_page_for_tick(&tracks, 8 * bar), Some(1));
         let context = egui::Context::default();
         let mut state = ScoreState::default();
         let output = context.run(
