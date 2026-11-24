@@ -41,8 +41,8 @@ and tutorial; background rendering for Cecilia previews, waveforms and playback.
    device page sends the documented CC map and transport bytes; project readback
    and device feedback remain unverified.
 3. **Full score** — a read-only all-track canvas and printable review PDF exist.
-   They stack every track on a system per page and omit beaming, ties and tuplets
-   on the canvas; the editable Score view still engraves one track.
+   They stack every track on a system per page with clefs, stems, accidentals,
+   beams, ties and tuplets; the editable Score view still engraves one track.
 4. **SF3** — SF2 is supported; SF3 compressed samples are out of scope by request.
 5. **PDF CJK text** — WinAnsi covers Latin-1; unsupported scripts render as `?`.
 6. **AI/speech input** — the assistant is a local rule engine with an optional
