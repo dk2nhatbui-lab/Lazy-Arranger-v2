@@ -983,6 +983,8 @@ pub struct ShellApp {
     midi_out_note: u8,
     midi_out_velocity: u8,
     midi_out_cc: u8,
+    l6max_device_open: bool,
+    l6max_device: crate::l6max_device::DeviceState,
     takes_open: bool,
     xg_open: bool,
     xg_parts: [[u8; 4]; 16],
@@ -1308,6 +1310,8 @@ impl ShellApp {
             midi_out_note: 60,
             midi_out_velocity: 100,
             midi_out_cc: 7,
+            l6max_device_open: std::env::var("ARRANGER_L6DEVICE").is_ok(),
+            l6max_device: crate::l6max_device::DeviceState::default(),
             takes_open: std::env::var("ARRANGER_TAKES").is_ok(),
             xg_open: std::env::var("ARRANGER_XG").is_ok(),
             xg_parts: [[100, 64, 40, 0]; 16],
@@ -5309,6 +5313,242 @@ impl ShellApp {
                 });
             let _ = sender.send(result);
         });
+    }
+
+    fn l6max_control_port(&mut self) -> Option<String> {
+        if let Some(port) = &self.midi_out_port
+            && port.contains("L6max Mixer Control")
+        {
+            return Some(port.clone());
+        }
+        if self.midi_ports.is_none()
+            && let Ok(ports) = midi_devices::devices::list_ports()
+        {
+            self.midi_ports = Some((ports.inputs, ports.outputs));
+        }
+        if let Some((_, outputs)) = &self.midi_ports
+            && let Some(found) = outputs
+                .iter()
+                .find(|name| name.contains("L6max Mixer Control"))
+                .cloned()
+        {
+            self.midi_out_port = Some(found.clone());
+            return Some(found);
+        }
+        self.midi_out_port.clone()
+    }
+
+    fn send_l6max_changes(&mut self, changes: &[(u8, u8)], scene: Option<u8>) {
+        if changes.is_empty() && scene.is_none() {
+            return;
+        }
+        let Some(port) = self.l6max_control_port() else {
+            self.status = Some(String::from("connect the L6max Mixer Control port"));
+            return;
+        };
+        let channel = self.l6max_device.channel.clamp(1, 16) - 1;
+        let Ok(mut connection) = midi_devices::devices::open_output(&port) else {
+            self.status = Some(format!("could not open {port}"));
+            return;
+        };
+        for (cc, value) in changes {
+            let bytes = [0xB0 | channel, *cc & 0x7F, *value & 0x7F];
+            let _ = connection.send(&bytes);
+        }
+        if let Some(scene) = scene {
+            let _ = connection.send(&[0xC0 | channel, scene & 0x7F]);
+        }
+        self.status = Some(format!(
+            "L6max: {} change(s){}",
+            changes.len(),
+            scene.map_or(String::new(), |scene| format!(", scene {}", scene + 1))
+        ));
+    }
+
+    fn l6max_device_window(&mut self, context: &Context) {
+        if !self.l6max_device_open {
+            return;
+        }
+        let port = self.l6max_control_port();
+        let mut open = self.l6max_device_open;
+        let mut state = self.l6max_device.clone();
+        let mut changes: Vec<(u8, u8)> = Vec::new();
+        let mut scene = None;
+        let mut reset = false;
+        egui::Window::new("L6max device mixer")
+            .open(&mut open)
+            .resizable(true)
+            .default_width(1200.0)
+            .show(context, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Zoom LiveTrak L6max").strong());
+                    ui.label(
+                        egui::RichText::new(port.as_deref().unwrap_or("not connected"))
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                    );
+                    ui.label("channel");
+                    ui.add(egui::DragValue::new(&mut state.channel).range(1..=16));
+                    if ui.button("Reset all").clicked() {
+                        reset = true;
+                    }
+                });
+                ui.separator();
+                egui::ScrollArea::horizontal().show(ui, |ui| {
+                    egui::Grid::new("l6max-device-grid")
+                        .spacing([6.0, 4.0])
+                        .show(ui, |ui| {
+                            ui.label("");
+                            for channel in 0..8 {
+                                ui.label(
+                                    egui::RichText::new(format!("CH{}", channel + 1)).strong(),
+                                );
+                            }
+                            ui.end_row();
+                            for (row, label) in crate::l6max_device::PARAMETERS.iter().enumerate() {
+                                ui.label(
+                                    egui::RichText::new(*label)
+                                        .size(9.0)
+                                        .color(theme::text_muted()),
+                                );
+                                for (channel, values) in state.values.iter_mut().enumerate() {
+                                    let mut value = values[row];
+                                    if ui
+                                        .add_sized(
+                                            [62.0, 18.0],
+                                            egui::Slider::new(&mut value, 0..=127),
+                                        )
+                                        .changed()
+                                    {
+                                        values[row] = value;
+                                        if let Some(cc) =
+                                            crate::l6max_device::parameter_cc(row, channel)
+                                        {
+                                            changes.push((cc, value));
+                                        }
+                                    }
+                                }
+                                ui.end_row();
+                            }
+                            ui.label(
+                                egui::RichText::new("MUTE")
+                                    .size(9.0)
+                                    .color(theme::text_muted()),
+                            );
+                            for (channel, muted) in state.mutes.iter_mut().enumerate() {
+                                if ui.checkbox(muted, "").changed() {
+                                    changes.push((
+                                        crate::l6max_device::MUTES[channel],
+                                        if *muted { 127 } else { 0 },
+                                    ));
+                                }
+                            }
+                            ui.end_row();
+                            ui.label(
+                                egui::RichText::new("MONO")
+                                    .size(9.0)
+                                    .color(theme::text_muted()),
+                            );
+                            for (channel, on) in state.modes.iter_mut().enumerate() {
+                                if let Some((_, cc)) = crate::l6max_device::MONO
+                                    .iter()
+                                    .find(|(index, _)| *index == channel)
+                                {
+                                    if ui.checkbox(on, "").changed() {
+                                        changes.push((*cc, if *on { 127 } else { 0 }));
+                                    }
+                                } else {
+                                    ui.label("");
+                                }
+                            }
+                            ui.end_row();
+                            ui.label(
+                                egui::RichText::new("USB")
+                                    .size(9.0)
+                                    .color(theme::text_muted()),
+                            );
+                            for (channel, on) in state.modes.iter_mut().enumerate() {
+                                if let Some((_, cc)) = crate::l6max_device::USB
+                                    .iter()
+                                    .find(|(index, _)| *index == channel)
+                                {
+                                    if ui.checkbox(on, "").changed() {
+                                        changes.push((*cc, if *on { 127 } else { 0 }));
+                                    }
+                                } else {
+                                    ui.label("");
+                                }
+                            }
+                            ui.end_row();
+                        });
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("Effect");
+                    egui::ComboBox::from_id_salt("l6max-efx")
+                        .selected_text(crate::l6max_device::EFX_NAMES[state.efx.min(5)])
+                        .show_ui(ui, |ui| {
+                            for (index, name) in crate::l6max_device::EFX_NAMES.iter().enumerate() {
+                                if ui.selectable_value(&mut state.efx, index, *name).clicked()
+                                    && state.efx == index
+                                {
+                                    changes.push((
+                                        crate::l6max_device::EFX_TYPE,
+                                        crate::l6max_device::EFX_VALUES[index],
+                                    ));
+                                }
+                            }
+                        });
+                    let mut compressor = state.compressor;
+                    if ui.checkbox(&mut compressor, "Compressor").changed() {
+                        state.compressor = compressor;
+                        changes.push((
+                            crate::l6max_device::COMPRESSOR,
+                            if compressor { 127 } else { 0 },
+                        ));
+                    }
+                    for (index, label) in ["A", "B", "C", "D"].iter().enumerate() {
+                        if ui.small_button(format!("Scene {label}")).clicked() {
+                            scene = Some(u8::try_from(index).unwrap_or(0));
+                        }
+                    }
+                });
+            });
+        if reset {
+            state = crate::l6max_device::DeviceState {
+                channel: state.channel,
+                ..crate::l6max_device::DeviceState::default()
+            };
+            changes.clear();
+            for (channel, values) in state.values.iter().enumerate() {
+                for (row, value) in values.iter().enumerate() {
+                    if let Some(cc) = crate::l6max_device::parameter_cc(row, channel) {
+                        changes.push((cc, *value));
+                    }
+                }
+                changes.push((
+                    crate::l6max_device::MUTES[channel],
+                    if state.mutes[channel] { 127 } else { 0 },
+                ));
+                if let Some((_, cc)) = crate::l6max_device::MONO
+                    .iter()
+                    .find(|(index, _)| *index == channel)
+                {
+                    changes.push((*cc, if state.modes[channel] { 127 } else { 0 }));
+                }
+                if let Some((_, cc)) = crate::l6max_device::USB
+                    .iter()
+                    .find(|(index, _)| *index == channel)
+                {
+                    changes.push((*cc, if state.modes[channel] { 127 } else { 0 }));
+                }
+            }
+            changes.push((crate::l6max_device::EFX_TYPE, 0));
+            changes.push((crate::l6max_device::COMPRESSOR, 0));
+        }
+        self.l6max_device = state;
+        self.l6max_device_open = open;
+        self.send_l6max_changes(&changes, scene);
     }
 
     fn l6max_mixer_window(&mut self, context: &Context) {
@@ -10354,6 +10594,10 @@ impl ShellApp {
                                 self.xg_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("L6max device mixer").clicked() {
+                                self.l6max_device_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("L6max mixer").clicked() {
                                 self.l6max_mixer_open = true;
                                 ui.close_menu();
@@ -10947,6 +11191,7 @@ impl eframe::App for ShellApp {
         self.audio_chords_window(context);
         self.generate_window(context);
         self.l6max_mixer_window(context);
+        self.l6max_device_window(context);
         self.audio_style_window(context);
         self.style_rules_window(context);
         self.master_fx_window(context);
@@ -13440,6 +13685,7 @@ mod tests {
         app.style_clips_open = true;
         app.style_file_open = true;
         app.style_link_open = true;
+        app.l6max_device_open = true;
         app.takes_open = true;
         app.xg_open = true;
         let _ = context.run(egui::RawInput::default(), |context| {
@@ -13473,6 +13719,7 @@ mod tests {
             app.style_clips_window(context);
             app.style_file_window(context);
             app.style_link_window(context);
+            app.l6max_device_window(context);
             app.takes_window(context);
             app.xg_window(context);
         });

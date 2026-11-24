@@ -97,6 +97,7 @@ Mac mini Speakers.
 - `midi-panic` sent 16 all-notes-off messages to each of those outputs.
 - `record-audio --device XioSynth` and the default/Camo inputs opened and wrote
   WAV files; the input stream and file writer work.
+- L6max Mixer Control accepted CC 93 = 127 on channel 1; the owner saw CH1 mute on the mixer, and CC 93 = 0 cleared it. The L6max CC map is hardware-verified for mute.
 - `lpstat -p` reported the Brother, Canon and DYMO queues idle.
 - `plugin-scan` still lists 21 bundles.
 

@@ -892,6 +892,21 @@ enum Commands {
         #[arg(long)]
         wait: bool,
     },
+    /// Send one MIDI control change.
+    MidiCc {
+        /// Output port name, exactly as `ports` prints it.
+        #[arg(long)]
+        output: String,
+        /// MIDI channel, 0..=15.
+        #[arg(long, default_value_t = 0)]
+        channel: u8,
+        /// Controller number, 0..=127.
+        #[arg(long)]
+        controller: u8,
+        /// Controller value, 0..=127.
+        #[arg(long)]
+        value: u8,
+    },
     /// Print incoming MIDI messages for a few seconds.
     MidiMonitor {
         /// Input port name, exactly as `ports` prints it.
@@ -2252,6 +2267,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             tempo,
             wait,
         } => record(&input, &out, seconds, tempo, wait),
+        Commands::MidiCc {
+            output,
+            channel,
+            controller,
+            value,
+        } => midi_cc(&output, channel, controller, value),
         Commands::MidiMonitor { input, seconds } => midi_monitor(&input, seconds),
         Commands::Echo {
             input,
@@ -3349,6 +3370,22 @@ fn record(
         );
     }
     write_midi(out, &song)?;
+    Ok(())
+}
+
+fn midi_cc(output: &str, channel: u8, controller: u8, value: u8) -> Result<(), Box<dyn Error>> {
+    if channel > 15 || controller > 127 || value > 127 {
+        return Err("channel must be 0..=15 and controller/value 0..=127".into());
+    }
+    let mut connection = midi_devices::devices::open_output(output).map_err(map_device_error)?;
+    let bytes = [0xB0 | channel, controller, value];
+    connection
+        .send(&bytes)
+        .map_err(|error| format!("{output}: {error}"))?;
+    println!(
+        "sent CC {controller} = {value} on channel {} to {output}",
+        channel + 1
+    );
     Ok(())
 }
 
