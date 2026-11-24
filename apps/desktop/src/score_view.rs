@@ -1902,6 +1902,46 @@ mod tests {
     }
 
     #[test]
+    fn the_full_score_canvas_draws_track_names() {
+        let song = score_song();
+        let engraved = score::engrave(
+            &song,
+            project::TrackId::new(1).expect("valid"),
+            Settings::default(),
+        );
+        let tracks = vec![(String::from("Piano"), engraved)];
+        let context = egui::Context::default();
+        let mut state = ScoreState::default();
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0))),
+                ..egui::RawInput::default()
+            },
+            |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    let _ = show_full(
+                        ui,
+                        &tracks,
+                        0,
+                        1.0,
+                        "Names",
+                        &mut state,
+                        0,
+                        false,
+                        120.0,
+                        &[],
+                    );
+                });
+            },
+        );
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            collect_text(&clipped.shape, &mut texts);
+        }
+        assert!(texts.iter().any(|text| text == "Piano"));
+    }
+
+    #[test]
     fn the_full_score_canvas_draws_section_markers() {
         let song = score_song();
         let engraved = score::engrave(
