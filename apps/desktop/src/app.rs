@@ -12164,6 +12164,9 @@ impl eframe::App for ShellApp {
                                     &mut self.score_state,
                                     self.score_page,
                                     zoom,
+                                    &engraved,
+                                    position,
+                                    self.score_entry.then_some(self.score_cursor),
                                 );
                                 crate::score_view::ScoreOutcome::default()
                             } else {

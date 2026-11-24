@@ -175,8 +175,42 @@ impl ScoreState {
     }
 }
 
+/// Maps a tick on one preview page to its horizontal screen position.
+#[must_use]
+pub fn preview_cursor_x(
+    engraved: &Engraved,
+    page_index: usize,
+    tick: Tick,
+    page_rect: egui::Rect,
+    settings: Settings,
+) -> Option<f32> {
+    let page = engraved.pages.get(page_index)?;
+    for system in &page.systems {
+        for measure in &system.measures {
+            if tick >= measure.start && tick <= measure.start.saturating_add(measure.length) {
+                let ratio = if measure.length > 0 {
+                    (tick - measure.start) as f32 / measure.length as f32
+                } else {
+                    0.0
+                };
+                let x = measure.x + (measure.x_end - measure.x) * ratio.clamp(0.0, 1.0);
+                return Some(page_rect.left() + x / settings.page_width * page_rect.width());
+            }
+        }
+    }
+    None
+}
+
 /// Draws a Cecilia preview page, scaled to the score viewport.
-pub fn show_preview(ui: &mut Ui, state: &mut ScoreState, page: usize, zoom: f32) {
+pub fn show_preview(
+    ui: &mut Ui,
+    state: &mut ScoreState,
+    page: usize,
+    zoom: f32,
+    engraved: &Engraved,
+    position: Tick,
+    entry_cursor: Option<Tick>,
+) {
     let settings = Settings::default();
     let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
     let available = response.rect.size();
@@ -200,6 +234,22 @@ pub fn show_preview(ui: &mut Ui, state: &mut ScoreState, page: usize, zoom: f32)
             egui::FontId::proportional(14.0),
             Color32::from_rgb(0x80, 0x40, 0x40),
         );
+    }
+    let settings = Settings::default();
+    for (tick, color) in [
+        (Some(position), Color32::from_rgb(0xc0, 0x30, 0x30)),
+        (entry_cursor, Color32::from_rgb(0x30, 0x60, 0xd0)),
+    ] {
+        let Some(tick) = tick else { continue };
+        if let Some(x) = preview_cursor_x(engraved, page, tick, page_rect, settings) {
+            painter.line_segment(
+                [
+                    egui::pos2(x, page_rect.top()),
+                    egui::pos2(x, page_rect.bottom()),
+                ],
+                egui::Stroke::new(1.5_f32, color),
+            );
+        }
     }
 }
 
@@ -885,6 +935,18 @@ mod tests {
         song.tracks[0].notes[0].pitch = Pitch::from_name("D4").expect("valid");
         let after = cecilia_cache_key(&song, 0, "Score", false);
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn a_tick_maps_into_the_preview_page() {
+        let song = score_song();
+        let settings = Settings::default();
+        let engraved = score::engrave(&song, TrackId::new(1).expect("valid"), settings);
+        let rect = page_rect(Pos2::new(300.0, 400.0), settings, 1.0);
+        let first = preview_cursor_x(&engraved, 0, 0, rect, settings).expect("first tick");
+        let later = preview_cursor_x(&engraved, 0, PPQ, rect, settings).expect("later tick");
+        assert!(later > first);
+        assert!(first >= rect.left() && later <= rect.right());
     }
 
     #[test]
