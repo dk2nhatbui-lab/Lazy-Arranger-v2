@@ -9878,6 +9878,9 @@ impl ShellApp {
                 if ui.small_button("Dup").clicked() {
                     let _ = self.editor.duplicate_track(id);
                 }
+                if ui.small_button("Del").clicked() {
+                    let _ = self.editor.remove_track(id);
+                }
                 ui.label(
                     egui::RichText::new(if name.is_empty() { "untitled" } else { &name })
                         .size(11.0),

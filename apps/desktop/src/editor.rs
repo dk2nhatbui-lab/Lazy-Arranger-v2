@@ -1143,6 +1143,19 @@ impl Editor {
         Ok(())
     }
 
+    /// Removes a track and every note on it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the edit is rejected.
+    pub fn remove_track(&mut self, track: TrackId) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::RemoveTrack { track })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Duplicates a track, with fresh note and clip identifiers.
     ///
     /// # Errors
@@ -3262,6 +3275,16 @@ mod tests {
         assert_eq!(editor.song().lyrics.len(), 1);
         assert!(editor.undo());
         assert_eq!(editor.song().lyrics.len(), 2);
+    }
+
+    #[test]
+    fn removing_a_track_is_undoable() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        editor.remove_track(track).expect("remove");
+        assert!(editor.song().tracks.iter().all(|entry| entry.id != track));
+        assert!(editor.undo());
+        assert!(editor.song().tracks.iter().any(|entry| entry.id == track));
     }
 
     #[test]
