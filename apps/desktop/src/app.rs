@@ -955,6 +955,7 @@ pub struct ShellApp {
     device_editor_open: bool,
     device_editor_profile: usize,
     device_editor_values: Vec<u8>,
+    device_editor_voice: usize,
     device_sysex: String,
     device_dump_path: String,
     groove_open: bool,
@@ -1301,6 +1302,7 @@ impl ShellApp {
             device_editor_open: initial_window == "device",
             device_editor_profile: 0,
             device_editor_values: Vec::new(),
+            device_editor_voice: 0,
             device_sysex: String::new(),
             device_dump_path: String::from("dump.syx"),
             groove_open: initial_window == "groove",
@@ -8332,6 +8334,7 @@ impl ShellApp {
                                 .clicked()
                             {
                                 self.device_editor_values.clear();
+                                self.device_editor_voice = 0;
                             }
                         }
                     });
@@ -8343,6 +8346,54 @@ impl ShellApp {
                 if self.device_editor_values.len() != controls.len() {
                     self.device_editor_values =
                         controls.iter().map(|control| control.min).collect();
+                }
+                let profile = self.device_profiles.get(self.device_editor_profile);
+                let voices = profile
+                    .map(|profile| profile.voices.clone())
+                    .unwrap_or_default();
+                let bank = profile.and_then(|profile| profile.banks.first().cloned());
+                if !voices.is_empty() {
+                    let mut voice = self.device_editor_voice.min(voices.len() - 1);
+                    ui.horizontal(|ui| {
+                        ui.label("Voice");
+                        egui::ComboBox::from_id_salt("device-editor-voice")
+                            .selected_text(&voices[voice].0)
+                            .show_ui(ui, |ui| {
+                                for (index, (name, _)) in voices.iter().enumerate() {
+                                    ui.selectable_value(&mut voice, index, name);
+                                }
+                            });
+                        if ui.button("Send voice").clicked() {
+                            let (_, program) = voices[voice];
+
+                            if let Some(bank) = bank {
+                                if let Some(msb) = bank.msb
+                                    && let Ok(controller) = music_core::ControlNumber::new(0)
+                                {
+                                    self.send_midi(music_core::MidiMessage::ControlChange {
+                                        channel: music_core::Channel::first(),
+                                        controller,
+                                        value: msb,
+                                    });
+                                }
+                                if let Some(lsb) = bank.lsb
+                                    && let Ok(controller) = music_core::ControlNumber::new(32)
+                                {
+                                    self.send_midi(music_core::MidiMessage::ControlChange {
+                                        channel: music_core::Channel::first(),
+                                        controller,
+                                        value: lsb,
+                                    });
+                                }
+                            }
+                            self.send_midi(music_core::MidiMessage::ProgramChange {
+                                channel: music_core::Channel::first(),
+                                program,
+                            });
+                            self.status = Some(format!("sent voice {program}"));
+                        }
+                    });
+                    self.device_editor_voice = voice;
                 }
                 for (index, control) in controls.iter().enumerate() {
                     let name = control.name.clone();
