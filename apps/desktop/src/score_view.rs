@@ -84,6 +84,53 @@ impl std::fmt::Debug for ScoreState {
     }
 }
 
+fn cecilia_cache_key(
+    song: &project::Song,
+    track_index: usize,
+    title: &str,
+    grand_staff: bool,
+) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    track_index.hash(&mut hasher);
+    title.hash(&mut hasher);
+    grand_staff.hash(&mut hasher);
+    song.end_tick().hash(&mut hasher);
+    for change in song.tempo_map.changes() {
+        change.tick.hash(&mut hasher);
+        change.bpm.to_bits().hash(&mut hasher);
+    }
+    song.time_signature.numerator.hash(&mut hasher);
+    song.time_signature.denominator.hash(&mut hasher);
+    if let Some(track) = song.tracks.get(track_index) {
+        for note in &track.notes {
+            note.start.hash(&mut hasher);
+            note.duration.hash(&mut hasher);
+            note.pitch.as_u8().hash(&mut hasher);
+            note.velocity.as_u8().hash(&mut hasher);
+            note.channel.zero_based().hash(&mut hasher);
+        }
+        for slur in &track.slurs {
+            slur.start.hash(&mut hasher);
+            slur.end.hash(&mut hasher);
+        }
+    }
+    for event in &song.chords {
+        event.tick.hash(&mut hasher);
+        event.chord.root.as_u8().hash(&mut hasher);
+        format!("{:?}", event.chord.quality).hash(&mut hasher);
+    }
+    for lyric in &song.lyrics {
+        lyric.tick.hash(&mut hasher);
+        lyric.text.hash(&mut hasher);
+    }
+    for mark in &song.marks {
+        mark.tick.hash(&mut hasher);
+        format!("{:?}", mark.kind).hash(&mut hasher);
+    }
+    format!("{track_index}:{title}:{grand_staff}:{:x}", hasher.finish())
+}
+
 impl ScoreState {
     /// Rebuilds the Cecilia preview when the track, title or note count changes.
     pub fn ensure_cecilia(
@@ -94,16 +141,7 @@ impl ScoreState {
         title: &str,
         grand_staff: bool,
     ) {
-        let key = format!(
-            "{track_index}:{}:{}:{}:{}:{}",
-            song.end_tick(),
-            u8::from(grand_staff),
-            song.tracks
-                .get(track_index)
-                .map_or(0, |track| track.notes.len()),
-            song.chords.len(),
-            title
-        );
+        let key = cecilia_cache_key(song, track_index, title, grand_staff);
         if self.cecilia_key.as_deref() == Some(key.as_str()) {
             return;
         }
@@ -838,6 +876,15 @@ mod tests {
         });
         song.tracks.push(track);
         song
+    }
+
+    #[test]
+    fn the_cecilia_key_changes_when_note_content_changes() {
+        let mut song = score_song();
+        let before = cecilia_cache_key(&song, 0, "Score", false);
+        song.tracks[0].notes[0].pitch = Pitch::from_name("D4").expect("valid");
+        let after = cecilia_cache_key(&song, 0, "Score", false);
+        assert_ne!(before, after);
     }
 
     #[test]
