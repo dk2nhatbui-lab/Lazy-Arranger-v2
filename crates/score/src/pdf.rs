@@ -643,17 +643,29 @@ fn circle(content: &mut String, x: f32, y: f32, radius: f32) {
 }
 
 fn escape(text: &str) -> String {
-    // The PDF uses Helvetica with WinAnsiEncoding. Non-ASCII text would be
-    // written as UTF-8 bytes and read as mojibake, so mark it as unsupported
-    // instead of emitting corrupt characters.
-    let ascii: String = text
-        .chars()
-        .map(|character| if character.is_ascii() { character } else { '?' })
-        .collect();
-    ascii
-        .replace('\\', "\\\\")
-        .replace('(', "\\(")
-        .replace(')', "\\)")
+    // The PDF uses Helvetica with WinAnsiEncoding. Encode representable
+    // characters as octal bytes and replace the rest rather than emitting
+    // corrupt UTF-8.
+    let mut out = String::new();
+    for character in text.chars() {
+        match character {
+            '\\' => out.push_str("\\\\"),
+            '(' => out.push_str("\\("),
+            ')' => out.push_str("\\)"),
+            '\n' | '\r' | '\t' => out.push(' '),
+            '\u{2013}' => out.push_str("\\226"),
+            '\u{2014}' => out.push_str("\\227"),
+            '\u{2018}' | '\u{2019}' => out.push_str("\\221"),
+            '\u{201c}' | '\u{201d}' => out.push_str("\\222"),
+            '\u{2026}' => out.push_str("\\205"),
+            character if character.is_ascii() => out.push(character),
+            character if u32::from(character) <= 0xFF => {
+                out.push_str(&format!("\\{:03o}", u32::from(character)));
+            }
+            _ => out.push('?'),
+        }
+    }
+    out
 }
 
 /// Reads the declared page count back out of the bytes, for tests.
@@ -709,6 +721,14 @@ mod tests {
             grand_staff: false,
             measure_gap: 8.0,
         }
+    }
+
+    #[test]
+    fn text_is_encoded_for_win_ansi() {
+        assert_eq!(escape("café"), "caf\\351");
+        assert_eq!(escape("a–b"), "a\\226b");
+        assert_eq!(escape("日本"), "??");
+        assert_eq!(escape("a(b)"), "a\\(b\\)");
     }
 
     #[test]
