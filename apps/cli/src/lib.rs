@@ -3688,6 +3688,35 @@ mod tests {
     }
 
     #[test]
+    fn score_pdf_accepts_full_score_frames() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                use clap::Parser;
+                let cli = Cli::try_parse_from([
+                    "lazy-arranger",
+                    "score-pdf",
+                    "song.arranger",
+                    "--out",
+                    "score.pdf",
+                    "--all",
+                    "--frames",
+                ])
+                .expect("parse");
+                match cli.command {
+                    Commands::ScorePdf { all, frames, .. } => {
+                        assert!(all);
+                        assert!(frames);
+                    }
+                    _ => panic!("score-pdf"),
+                }
+            })
+            .expect("thread")
+            .join()
+            .expect("join");
+    }
+
+    #[test]
     fn audio_midi_song_can_transcribe_drums() {
         let rate = 48_000_u32;
         let mut samples = vec![0.0_f32; rate as usize];
