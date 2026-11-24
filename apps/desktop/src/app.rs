@@ -9667,6 +9667,22 @@ impl ShellApp {
                 {
                     buses_edited = true;
                 }
+                if ui
+                    .small_button(if bus.muted { "M●" } else { "M" })
+                    .on_hover_text("Mute bus")
+                    .clicked()
+                {
+                    bus.muted = !bus.muted;
+                    buses_edited = true;
+                }
+                if ui
+                    .small_button(if bus.soloed { "S●" } else { "S" })
+                    .on_hover_text("Solo bus")
+                    .clicked()
+                {
+                    bus.soloed = !bus.soloed;
+                    buses_edited = true;
+                }
                 if ui.small_button("Remove").clicked() {
                     remove_bus = Some(bus.id);
                 }
