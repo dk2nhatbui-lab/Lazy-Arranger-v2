@@ -2569,7 +2569,7 @@ impl ShellApp {
     ) -> Option<f32> {
         let (response, painter) = ui.allocate_painter(
             egui::Vec2::new(ui.available_width(), 44.0),
-            egui::Sense::click(),
+            egui::Sense::click_and_drag(),
         );
         let rect = response.rect;
         painter.rect_filled(rect, 0.0, theme::lane());
