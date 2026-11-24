@@ -1313,6 +1313,12 @@ mod tests {
         let pdf = to_full_pdf(&song, settings, "Long", &[TrackId::new(1).expect("valid")]);
         assert_eq!(page_count(&pdf), Some(systems.div_ceil(2)));
         assert!(systems >= 2, "test song needs more than one system");
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(
+            text.matches("(Piano) Tj").count(),
+            systems,
+            "one label per system"
+        );
     }
 
     #[test]
