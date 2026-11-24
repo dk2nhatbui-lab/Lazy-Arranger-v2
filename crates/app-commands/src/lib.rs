@@ -90,6 +90,13 @@ pub enum Command {
         /// The complete track.
         track: Track,
     },
+    /// Insert a track at a specific index (used to invert a removal).
+    InsertTrackAt {
+        /// Position in the track list.
+        index: usize,
+        /// The complete track.
+        track: Track,
+    },
     /// Remove a track and every note on it.
     RemoveTrack {
         /// The track.
@@ -301,7 +308,7 @@ impl Command {
             Self::RenameTrack { .. } => "rename track",
             Self::SetSongName { .. } => "set song name",
             Self::SetTimeSignature { .. } => "set time signature",
-            Self::InsertTrack { .. } => "insert track",
+            Self::InsertTrack { .. } | Self::InsertTrackAt { .. } => "insert track",
             Self::RemoveTrack { .. } => "remove track",
             Self::SetChords { .. } => "set chords",
             Self::SetTrackProgram { .. } => "set track program",
@@ -997,9 +1004,29 @@ impl EditSession {
                 }
                 Command::RemoveTrack { track: track.id }
             }
-            Command::RemoveTrack { track } => Command::InsertTrack {
-                track: self.track(*track)?.clone(),
-            },
+            Command::InsertTrackAt { track, .. } => {
+                if self
+                    .song()
+                    .tracks
+                    .iter()
+                    .any(|existing| existing.id == track.id)
+                {
+                    return Err(CommandError::DuplicateTrack(track.id));
+                }
+                Command::RemoveTrack { track: track.id }
+            }
+            Command::RemoveTrack { track } => {
+                let index = self
+                    .song()
+                    .tracks
+                    .iter()
+                    .position(|entry| entry.id == *track)
+                    .ok_or(CommandError::UnknownTrack(*track))?;
+                Command::InsertTrackAt {
+                    index,
+                    track: self.track(*track)?.clone(),
+                }
+            }
         })
     }
 
@@ -1223,6 +1250,10 @@ impl EditSession {
             Command::InsertTrack { track } => {
                 self.project.song.tracks.push(track.clone());
             }
+            Command::InsertTrackAt { index, track } => {
+                let index = (*index).min(self.project.song.tracks.len());
+                self.project.song.tracks.insert(index, track.clone());
+            }
             Command::RemoveTrack { track } => {
                 self.project
                     .song
@@ -1255,6 +1286,9 @@ fn describe(command: &Command) -> String {
             time_signature.numerator, time_signature.denominator
         ),
         Command::InsertTrack { track } => format!("insert track {} ({})", track.id, track.name),
+        Command::InsertTrackAt { index, track } => {
+            format!("insert track {} at {index}", track.id)
+        }
         Command::RemoveTrack { track } => format!("remove track {track}"),
         Command::SetChords { chords } => format!("set {} chord(s)", chords.len()),
         Command::SetAutomation { track, lanes } => {
@@ -1695,6 +1729,22 @@ mod tests {
             edit.undo().expect("undo");
         }
         assert!(edit.song().tracks[0].clips.is_empty());
+    }
+
+    #[test]
+    fn removing_a_track_restores_its_original_index() {
+        let mut edit = session();
+        let second = TrackId::new(2).expect("valid");
+        let third = TrackId::new(3).expect("valid");
+        edit.add_track("Second").expect("second");
+        edit.add_track("Third").expect("third");
+        assert_eq!(edit.song().tracks[1].id, second);
+        edit.apply(Command::RemoveTrack { track: second })
+            .expect("remove");
+        assert_eq!(edit.song().tracks[1].id, third);
+        edit.undo().expect("undo");
+        assert_eq!(edit.song().tracks[1].id, second);
+        assert_eq!(edit.song().tracks[2].id, third);
     }
 
     #[test]
