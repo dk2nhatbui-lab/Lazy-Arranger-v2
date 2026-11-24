@@ -10729,6 +10729,8 @@ impl ShellApp {
                                 let seconds = self.audio_record_seconds;
                                 let start = self.position.max(0);
                                 let input = self.settings.audio_input.clone();
+                                let input_channel = (self.settings.audio_input_channel > 0)
+                                    .then_some(usize::from(self.settings.audio_input_channel - 1));
                                 let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
                                 let count_in = self.settings.record_count_in;
                                 let delay = f64::from(count_in) * 4.0 * 60.0 / bpm;
@@ -10749,8 +10751,9 @@ impl ShellApp {
                                             ));
                                         }
                                     }
-                                    let result = audio::record::record_seconds_from(
+                                    let result = audio::record::record_seconds_from_channel(
                                         input.as_deref(),
+                                        input_channel,
                                         seconds,
                                     )
                                     .and_then(|rendered| {
