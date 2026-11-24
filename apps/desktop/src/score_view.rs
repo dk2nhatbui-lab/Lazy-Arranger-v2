@@ -978,6 +978,42 @@ mod tests {
     }
 
     #[test]
+    fn a_multi_page_canvas_shows_page_numbers() {
+        let mut song = score_song();
+        let bar = song.time_signature.bar_ticks();
+        for index in 1..40 {
+            let mut note = song.tracks[0].notes[0].clone();
+            note.id = project::NoteId::new(index as u32 + 1).expect("valid");
+            note.start = index * bar;
+            song.tracks[0].notes.push(note);
+        }
+        let engraved = score::engrave(
+            &song,
+            project::TrackId::new(1).expect("valid"),
+            Settings::default(),
+        );
+        assert!(engraved.pages.len() > 1);
+        let context = egui::Context::default();
+        let mut state = ScoreState::default();
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0))),
+                ..egui::RawInput::default()
+            },
+            |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    let _ = show(ui, &engraved, 1, 1.0, "Pages", &mut state, 0, None);
+                });
+            },
+        );
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            collect_text(&clipped.shape, &mut texts);
+        }
+        assert!(texts.iter().any(|text| text == "2"), "{texts:?}");
+    }
+
+    #[test]
     fn a_tick_maps_into_the_preview_page() {
         let song = score_song();
         let settings = Settings::default();
