@@ -1569,6 +1569,43 @@ mod tests {
     }
 
     #[test]
+    fn a_long_full_score_canvas_shows_two_systems_per_page() {
+        let mut song = score_song();
+        let bar = song.time_signature.bar_ticks();
+        for index in 1..16 {
+            let mut note = song.tracks[0].notes[0].clone();
+            note.id = project::NoteId::new(index as u32 + 1).expect("valid");
+            note.start = index * bar;
+            song.tracks[0].notes.push(note);
+        }
+        let engraved = score::engrave(
+            &song,
+            project::TrackId::new(1).expect("valid"),
+            Settings::default(),
+        );
+        let tracks = vec![(String::from("Piano"), engraved)];
+        let context = egui::Context::default();
+        let mut state = ScoreState::default();
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0))),
+                ..egui::RawInput::default()
+            },
+            |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    let _ = show_full(ui, &tracks, 0, 1.0, "Long", &mut state, 0);
+                });
+            },
+        );
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            collect_text(&clipped.shape, &mut texts);
+        }
+        assert!(texts.iter().any(|text| text == "1 / 2"), "{texts:?}");
+        assert!(texts.iter().any(|text| text == "Piano"));
+    }
+
+    #[test]
     fn a_multi_page_canvas_shows_page_numbers() {
         let mut song = score_song();
         let bar = song.time_signature.bar_ticks();
