@@ -911,6 +911,15 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "reverse_audio",
+            description: "Write a reversed copy of a track's audio and use it.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}},
+                "required": ["track"]
+            }),
+        },
+        Tool {
             name: "audio_to_chords",
             description: "Recognize chords from local audio and optionally write them.",
             input_schema: json!({
@@ -2709,6 +2718,50 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 })).collect::<Vec<_>>()
             }))
         }
+        "reverse_audio" => {
+            let track = track_argument(arguments)?;
+            let reference = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .and_then(|entry| entry.audio.clone())
+                .ok_or_else(|| {
+                    ToolError::Arguments(String::from("track has no audio reference"))
+                })?;
+            let source = std::path::PathBuf::from(&reference.path);
+            let bytes = std::fs::read(&source)
+                .map_err(|error| ToolError::Arguments(format!("{}: {error}", source.display())))?;
+            let audio = audio::wav::decode_stereo(&bytes)
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            let frames = audio.samples.len() / 2;
+            let mut samples = vec![0.0_f32; audio.samples.len()];
+            for frame in 0..frames {
+                samples[frame * 2] = audio.samples[(frames - 1 - frame) * 2];
+                samples[frame * 2 + 1] = audio.samples[(frames - 1 - frame) * 2 + 1];
+            }
+            let reversed = audio::RenderedAudio {
+                samples,
+                sample_rate: audio.sample_rate,
+            };
+            let stem = source
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("audio");
+            let out = source.with_file_name(format!("{stem}-reversed.wav"));
+            std::fs::write(&out, reversed.to_wav32f())
+                .map_err(|error| ToolError::Arguments(format!("{}: {error}", out.display())))?;
+            let mut updated = reference;
+            updated.path = out.display().to_string();
+            updated.offset = 0;
+            session
+                .apply(Command::SetAudioRef {
+                    track,
+                    reference: Some(updated),
+                })
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            Ok(json!({"path": out.display().to_string()}))
+        }
         "get_tracks" => Ok(json!({
             "tracks": session.song().tracks.iter().map(|track| json!({
                 "id": track.id.get(),
@@ -4304,7 +4357,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 111);
+        assert_eq!(tools().len(), 112);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
@@ -4880,6 +4933,33 @@ mod tests {
         call(&mut session, "set_audio_ref", &json!({"track": 1})).expect("clear");
         assert!(session.song().tracks[0].audio.is_none());
         let _ = track;
+    }
+
+    #[test]
+    fn reverse_audio_writes_a_reversed_source() {
+        let mut session = session_with_track();
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-mcp-reverse-{}.wav",
+            std::process::id()
+        ));
+        let audio = audio::RenderedAudio {
+            samples: vec![0.1, 0.1, 0.4, 0.4],
+            sample_rate: 48_000,
+        };
+        std::fs::write(&path, audio.to_wav32f()).expect("wav");
+        call(
+            &mut session,
+            "set_audio_ref",
+            &json!({"track": 1, "path": path.display().to_string(), "length": 960}),
+        )
+        .expect("audio");
+        let reversed = call(&mut session, "reverse_audio", &json!({"track": 1})).expect("reverse");
+        let out = std::path::PathBuf::from(reversed["path"].as_str().expect("path"));
+        let bytes = std::fs::read(&out).expect("read");
+        let decoded = audio::wav::decode_stereo(&bytes).expect("decode");
+        assert!((decoded.samples[0] - 0.4).abs() < 1.0e-4);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&out);
     }
 
     #[test]
