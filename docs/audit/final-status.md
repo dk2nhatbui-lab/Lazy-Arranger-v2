@@ -7,7 +7,7 @@ plug-in editor support or model services).
 
 ## Gate and CI
 
-- `cargo test --workspace`: **893 passed, 0 failed**.
+- `cargo test --workspace`: **894 passed, 0 failed**.
 - `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all`
   and rustdoc (warnings denied): clean.
 - Release bundle builds; the app launches; the bundled scanner returns R0Verb
@@ -27,7 +27,7 @@ percussion, lyrics, chords, guitar frames, spacing, meter, measure numbers,
 PDF/canvas/print dialog, Latin-1 PDF text); audio render, SF2 with presets,
 mixer buses/sends/master reverb/chorus/meters, stems and freeze; MIDI maps,
 learn, Launchkey preset and panic builders; arrangements, grooves, forms,
-theory and lessons; MCP server with **111 tools**, token socket and project-root
+theory and lessons; MCP server with **112 tools**, token socket and project-root
 write sandbox; five-view egui shell with eight languages, Kids Mode, named songs
 and tutorial; background rendering for Cecilia previews, waveforms and playback.
 
