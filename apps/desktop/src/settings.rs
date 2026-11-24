@@ -346,6 +346,10 @@ fn save_ai_key(settings_path: &Path, key: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn clean_line(value: &str) -> String {
+    value.replace(['\r', '\n'], " ")
+}
+
 impl Settings {
     /// Per-user directory for settings, keys, profiles and recent projects.
     #[must_use]
@@ -521,34 +525,46 @@ impl Settings {
         text.push_str(&format!("language = {}\n", self.language));
         text.push_str(&format!("grade = {}\n", self.grade));
         if let Some(keyboard) = &self.keyboard {
-            text.push_str(&format!("keyboard = {keyboard}\n"));
+            text.push_str(&format!("keyboard = {}\n", clean_line(keyboard)));
         }
         text.push_str(&format!("auto_inputs = {}\n", self.auto_inputs));
         if let Some(input) = &self.audio_input {
-            text.push_str(&format!("audio_input = {input}\n"));
+            text.push_str(&format!("audio_input = {}\n", clean_line(input)));
         }
         text.push_str(&format!(
             "audio_input_channel = {}\n",
             self.audio_input_channel
         ));
         if let Some(output) = &self.audio_output {
-            text.push_str(&format!("audio_output = {output}\n"));
+            text.push_str(&format!("audio_output = {}\n", clean_line(output)));
         }
         text.push_str(&format!(
             "audio_buffer_frames = {}\n",
             self.audio_buffer_frames
         ));
         if let Some(output) = &self.midi_output {
-            text.push_str(&format!("midi_output = {output}\n"));
+            text.push_str(&format!("midi_output = {}\n", clean_line(output)));
         }
-        text.push_str(&format!("ai_url = {}\n", self.ai_url));
-        text.push_str(&format!("ai_model = {}\n", self.ai_model));
-        text.push_str(&format!("skipped_update = {}\n", self.skipped_update));
-        text.push_str(&format!("speech_command = {}\n", self.speech_command));
-        text.push_str(&format!("speak_command = {}\n", self.speak_command));
-        text.push_str(&format!("assistant_command = {}\n", self.assistant_command));
+        text.push_str(&format!("ai_url = {}\n", clean_line(&self.ai_url)));
+        text.push_str(&format!("ai_model = {}\n", clean_line(&self.ai_model)));
+        text.push_str(&format!(
+            "skipped_update = {}\n",
+            clean_line(&self.skipped_update)
+        ));
+        text.push_str(&format!(
+            "speech_command = {}\n",
+            clean_line(&self.speech_command)
+        ));
+        text.push_str(&format!(
+            "speak_command = {}\n",
+            clean_line(&self.speak_command)
+        ));
+        text.push_str(&format!(
+            "assistant_command = {}\n",
+            clean_line(&self.assistant_command)
+        ));
         if let Some(profile) = &self.device_profile {
-            text.push_str(&format!("device_profile = {profile}\n"));
+            text.push_str(&format!("device_profile = {}\n", clean_line(profile)));
         }
         text.push_str(&format!("metronome = {}\n", self.metronome));
         text.push_str(&format!(
@@ -569,7 +585,10 @@ impl Settings {
         text.push_str(&format!("record_quantise = {}\n", self.record_quantise));
         text.push_str(&format!("record_count_in = {}\n", self.record_count_in));
         if !self.style_library.is_empty() {
-            text.push_str(&format!("style_library = {}\n", self.style_library));
+            text.push_str(&format!(
+                "style_library = {}\n",
+                clean_line(&self.style_library)
+            ));
         }
         text.push_str(&format!("master_gain_db = {}\n", self.master_gain_db));
         text.push_str(&format!("master_limiter = {}\n", self.master_limiter));
@@ -582,7 +601,7 @@ impl Settings {
         text.push_str(&format!("shortcut.open = {}\n", self.open_keys));
         text.push_str(&format!("shortcut.play = {}\n", self.play_keys));
         for (key, value) in &self.extra {
-            text.push_str(&format!("{key} = {value}\n"));
+            text.push_str(&format!("{} = {}\n", clean_line(key), clean_line(value)));
         }
         std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))?;
         save_ai_key(path, &self.ai_api_key)
@@ -607,6 +626,20 @@ mod tests {
 
     fn temp(name: &str) -> PathBuf {
         std::env::temp_dir().join(name)
+    }
+
+    #[test]
+    fn newlines_in_values_cannot_inject_settings() {
+        let path = temp("lazy-arranger-settings-injection.txt");
+        let settings = Settings {
+            ai_url: String::from("https://example.test\nmetronome = true"),
+            ..Settings::default()
+        };
+        settings.save(&path).expect("save");
+        let loaded = Settings::load(&path);
+        assert!(!loaded.metronome);
+        assert!(loaded.ai_url.contains("metronome = true"));
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
