@@ -1,6 +1,6 @@
 # Final status (2026-11-24)
 
-Commit basis: audit-remediation work at round 500. Goal: C++ v1.0.0-beta.1 feature parity.
+Commit basis: audit-remediation work at round 593. Goal: C++ v1.0.0-beta.1 feature parity.
 **Parity is not claimed.** All 39 crosscheck rows remain `partial`; several need
 material this environment does not have (hardware, proprietary formats, native
 plug-in editor support or model services).
@@ -41,8 +41,8 @@ and tutorial; background rendering for Cecilia previews, waveforms and playback.
    device page sends the documented CC map and transport bytes; project readback
    and device feedback remain unverified.
 3. **Full score** — a read-only all-track canvas and printable review PDF exist.
-   They stack every track on a system per page with clefs, stems, accidentals,
-   beams, ties and tuplets, and a Tracks menu hides chosen tracks; the editable
+   They put two systems on each page with clefs, stems, accidentals,
+   beams, ties, tuplets, rests, chords, lyrics, marks and measure numbers, and a Tracks menu hides chosen tracks; the editable
    Score view still engraves one track.
 4. **SF3** — SF2 is supported; SF3 compressed samples are out of scope by request.
 5. **PDF CJK text** — WinAnsi covers Latin-1; unsupported scripts render as `?`.
@@ -56,7 +56,7 @@ and tutorial; background rendering for Cecilia previews, waveforms and playback.
 
 ## Scoped limitations that remain implementable
 
-Native plug-in editors, full multi-track scoring, destructive waveform editing,
+Native plug-in editors, editable multi-track scoring, destructive waveform editing,
 broader vertical rest collision avoidance and CJK font embedding are
 implementable with more rounds, but none removes the blockers above without the
 missing fixtures or product decisions.
