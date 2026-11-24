@@ -241,6 +241,9 @@ enum Commands {
         /// Write every track as a review full score instead of one track.
         #[arg(long)]
         all: bool,
+        /// Include guitar chord frames in the full score.
+        #[arg(long)]
+        frames: bool,
     },
     /// Lay out a track as score pages and report the geometry.
     ScoreLayout {
@@ -1231,6 +1234,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             track,
             title,
             all,
+            frames,
         } => {
             let project = read_project(&project)?;
             let settings = score::Settings::default();
@@ -1238,7 +1242,13 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             if all {
                 let tracks: Vec<project::TrackId> =
                     project.song.tracks.iter().map(|entry| entry.id).collect();
-                let pdf = score::pdf::to_full_pdf(&project.song, settings, &score_title, &tracks);
+                let pdf = score::pdf::to_full_pdf_with_frames(
+                    &project.song,
+                    settings,
+                    &score_title,
+                    &tracks,
+                    frames,
+                );
                 fs::write(&out, &pdf)
                     .map_err(|error| format!("could not write {}: {error}", out.display()))?;
                 println!(
