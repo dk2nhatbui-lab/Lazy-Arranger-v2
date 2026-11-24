@@ -920,9 +920,9 @@ pub fn show_preview(
     engraved: &Engraved,
     position: Tick,
     entry_cursor: Option<Tick>,
-) {
+) -> Option<Tick> {
     let settings = Settings::default();
-    let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
+    let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::click());
     let available = response.rect.size();
     let fit = ((available.x - 24.0).max(120.0) / settings.page_width)
         .min((available.y - 24.0).max(120.0) / settings.page_height)
@@ -967,6 +967,21 @@ pub fn show_preview(
             );
         }
     }
+    let click = response
+        .interact_pointer_pos()
+        .filter(|_| response.clicked())?;
+    if !image_rect.contains(click) {
+        return None;
+    }
+    let x = (click.x - image_rect.left()) / image_rect.width() * settings.page_width;
+    let y = (click.y - image_rect.top()) / image_rect.height() * settings.page_height;
+    let page_data = engraved.pages.get(page)?;
+    let system = page_data.systems.iter().find(|system| {
+        let height = if engraved.staves == 2 { 8.0 } else { 4.0 } * settings.staff_space;
+        y >= system.y - 2.5 * settings.staff_space
+            && y <= system.y + height + 2.5 * settings.staff_space
+    })?;
+    tick_at_system_x(system, x)
 }
 
 /// Tick and pitch under a page position.

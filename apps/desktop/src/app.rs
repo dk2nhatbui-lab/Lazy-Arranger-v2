@@ -13243,7 +13243,7 @@ impl eframe::App for ShellApp {
                                 }
                                 let pages = self.score_state.cecilia_page_count.max(1);
                                 self.score_page = self.score_page.min(pages - 1);
-                                crate::score_view::show_preview(
+                                if let Some(tick) = crate::score_view::show_preview(
                                     ui,
                                     &mut self.score_state,
                                     self.score_page,
@@ -13251,7 +13251,9 @@ impl eframe::App for ShellApp {
                                     &engraved,
                                     position,
                                     self.score_entry.then_some(self.score_cursor),
-                                );
+                                ) {
+                                    seek = Some(tick);
+                                }
                                 crate::score_view::ScoreOutcome::default()
                             } else {
                                 crate::score_view::show(
