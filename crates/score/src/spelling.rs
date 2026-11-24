@@ -31,12 +31,13 @@ impl Key {
         let scale = if self.minor { MINOR } else { MAJOR };
         // Letters ascend with the scale degrees, so the signature follows the
         // letters of the key: F major puts a flat on B, not on E.
-        let tonic_letter = letter_of(self.tonic);
+        let (tonic_letter, tonic_alter) = tonic_spelling(self);
+        let tonic_sounding = (NATURAL[tonic_letter] + tonic_alter).rem_euclid(12);
         let mut signature = [0_i8; 7];
         for (degree, step) in scale.iter().enumerate() {
             let letter = (tonic_letter + degree) % 7;
             let natural = NATURAL[letter];
-            let sounding = (i8::try_from(self.tonic.as_u8()).unwrap_or(0) + step).rem_euclid(12);
+            let sounding = (tonic_sounding + step).rem_euclid(12);
             let mut diff = (sounding - natural).rem_euclid(12);
             if diff > 6 {
                 diff -= 12;
@@ -47,16 +48,39 @@ impl Key {
     }
 }
 
-/// Letter index of a pitch class, using the sharp spelling when ambiguous.
-fn letter_of(pitch: PitchClass) -> usize {
-    match pitch.as_u8() {
-        0 => 0,
-        1 | 2 => 1,
-        3 | 4 => 2,
-        5 => 3,
-        6 | 7 => 4,
-        8 | 9 => 5,
-        _ => 6,
+/// Conventional letter and alteration for a key tonic.
+fn tonic_spelling(key: Key) -> (usize, i8) {
+    let pc = key.tonic.as_u8();
+    if key.minor {
+        match pc {
+            0 => (5, 0),   // A
+            1 => (0, 1),   // C#
+            2 => (1, 0),   // D
+            3 => (2, -1),  // Eb
+            4 => (2, 0),   // E
+            5 => (3, 0),   // F
+            6 => (3, 1),   // F#
+            7 => (4, 0),   // G
+            8 => (4, 1),   // G#
+            9 => (5, 0),   // A
+            10 => (6, -1), // Bb
+            _ => (6, 0),   // B
+        }
+    } else {
+        match pc {
+            0 => (0, 0),   // C
+            1 => (1, -1),  // Db
+            2 => (1, 0),   // D
+            3 => (2, -1),  // Eb
+            4 => (2, 0),   // E
+            5 => (3, 0),   // F
+            6 => (3, 1),   // F#
+            7 => (4, 0),   // G
+            8 => (5, -1),  // Ab
+            9 => (5, 0),   // A
+            10 => (6, -1), // Bb
+            _ => (6, 0),   // B
+        }
     }
 }
 
@@ -132,12 +156,13 @@ pub fn spell(pitch: Pitch, key: Key, state: &mut [i8; 7]) -> Spelled {
     let octave = i32::from(pitch.as_u8() / 12) - 1;
     let signature = key.signature();
     let scale = if key.minor { MINOR } else { MAJOR };
-    let tonic_letter = letter_of(key.tonic);
+    let (tonic_letter, tonic_alter) = tonic_spelling(key);
+    let tonic_sounding = (NATURAL[tonic_letter] + tonic_alter).rem_euclid(12);
 
     // Diatonic notes use the key's own letters.
     let mut spelled = None;
     for (degree, step) in scale.iter().enumerate() {
-        let sounding = (i8::try_from(key.tonic.as_u8()).unwrap_or(0) + step).rem_euclid(12);
+        let sounding = (tonic_sounding + step).rem_euclid(12);
         if sounding == pc {
             let letter = (tonic_letter + degree) % 7;
             spelled = Some((letter, signature[letter]));
@@ -170,7 +195,7 @@ pub fn spell(pitch: Pitch, key: Key, state: &mut [i8; 7]) -> Spelled {
     }
     let (step, alter) = spelled.unwrap_or((0, 0));
     let mut sounding_octave = octave;
-    if NATURAL[step] + alter >= 12 {
+    if !(0..12).contains(&(NATURAL[step] + alter)) {
         sounding_octave -= 1;
     }
     let accidental = if state[step] != alter {
@@ -294,6 +319,18 @@ mod tests {
         let b_flat = spell(Pitch::from_name("A#4").expect("valid"), f_major, &mut state);
         assert_eq!((b_flat.step, b_flat.alter), (6, -1));
         assert_eq!(b_flat.accidental, None);
+    }
+
+    #[test]
+    fn c_sharp_minor_uses_its_own_letters() {
+        let key = Key {
+            tonic: PitchClass::new(1),
+            minor: true,
+        };
+        assert_eq!(key.signature(), [1, 1, 0, 1, 1, 0, 0]);
+        let mut state = key.signature();
+        let a = spell(Pitch::from_name("A4").expect("valid"), key, &mut state);
+        assert_eq!((a.step, a.alter, a.accidental), (5, 0, None));
     }
 
     #[test]
