@@ -61,6 +61,9 @@ pub fn export(song: &Song, title: &str) -> String {
         escape(title)
     ));
     out.push_str("  <part-list>\n");
+    if song.tracks.len() > 1 {
+        out.push_str("    <part-group type=\"start\" number=\"1\"><group-symbol>bracket</group-symbol><group-barline>yes</group-barline></part-group>\n");
+    }
     for (index, track) in song.tracks.iter().enumerate() {
         out.push_str(&format!(
             "    <score-part id=\"P{}\"><part-name>{}</part-name>",
@@ -93,6 +96,9 @@ pub fn export(song: &Song, title: &str) -> String {
             }
         }
         out.push_str("</score-part>\n");
+    }
+    if song.tracks.len() > 1 {
+        out.push_str("    <part-group type=\"stop\" number=\"1\"/>\n");
     }
     out.push_str("  </part-list>\n");
     for (index, track) in song.tracks.iter().enumerate() {
@@ -511,6 +517,16 @@ mod tests {
         let xml = export(&song, "Drums");
         assert!(xml.contains("<sign>percussion</sign>"));
         assert!(xml.contains("<unpitched>"));
+    }
+
+    #[test]
+    fn multiple_tracks_get_a_bracket_group() {
+        let mut song = song();
+        song.tracks
+            .push(Track::new(project::TrackId::new(2).expect("valid"), "Bass"));
+        let xml = export(&song, "Bracket");
+        assert_eq!(xml.matches("<part-group").count(), 2);
+        assert!(xml.contains("<group-symbol>bracket</group-symbol>"));
     }
 
     #[test]
