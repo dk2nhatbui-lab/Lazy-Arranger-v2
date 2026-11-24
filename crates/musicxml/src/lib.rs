@@ -136,14 +136,14 @@ pub fn export(song: &Song, title: &str) -> String {
                     .iter()
                     .filter(|mark| mark.tick >= start && mark.tick < stop)
                 {
-                    write_direction(&mut out, mark.kind);
+                    write_direction(&mut out, mark.kind, mark.tick - start);
                 }
                 for chord in song
                     .chords
                     .iter()
                     .filter(|event| event.tick >= start && event.tick < stop)
                 {
-                    write_harmony(&mut out, chord.chord);
+                    write_harmony(&mut out, chord.chord, chord.tick - start);
                 }
             }
             let ties = tie_flags(track);
@@ -247,7 +247,7 @@ fn slur_flags(track: &project::song::Track) -> std::collections::BTreeMap<u32, (
     flags
 }
 
-fn write_harmony(out: &mut String, chord: music_core::Chord) {
+fn write_harmony(out: &mut String, chord: music_core::Chord, offset: Tick) {
     let pc = chord.root.as_u8();
     let letter = match pc {
         0 | 1 => "C",
@@ -275,20 +275,24 @@ fn write_harmony(out: &mut String, chord: music_core::Chord) {
         _ => "major",
     };
     out.push_str(&format!(
-        "      <harmony><root><root-step>{letter}</root-step>{alter_xml}</root><kind>{kind}</kind></harmony>\n",
+        "      <harmony><root><root-step>{letter}</root-step>{alter_xml}</root><kind>{kind}</kind>",
         alter_xml = if alter == 1 {
             "<root-alter>1</root-alter>"
         } else {
             ""
         }
     ));
+    if offset != 0 {
+        out.push_str(&format!("<offset>{offset}</offset>"));
+    }
+    out.push_str("</harmony>\n");
 }
 
-fn write_direction(out: &mut String, kind: project::song::MarkKind) {
+fn write_direction(out: &mut String, kind: project::song::MarkKind, offset: Tick) {
     use project::song::{Articulation, MarkKind};
     let text = match kind {
         MarkKind::Dynamic(dynamic) => format!(
-            "<direction><direction-type><dynamics><{} /></dynamics></direction-type></direction>",
+            "<direction-type><dynamics><{} /></dynamics></direction-type>",
             dynamic.text()
         ),
         MarkKind::Articulation(articulation) => {
@@ -299,14 +303,15 @@ fn write_direction(out: &mut String, kind: project::song::MarkKind) {
                 Articulation::Marcato => "marc.",
                 Articulation::Fermata => "ferm.",
             };
-            format!(
-                "<direction><direction-type><words>{words}</words></direction-type></direction>"
-            )
+            format!("<direction-type><words>{words}</words></direction-type>")
         }
     };
-    out.push_str("      ");
+    out.push_str("      <direction>");
     out.push_str(&text);
-    out.push('\n');
+    if offset != 0 {
+        out.push_str(&format!("<offset>{offset}</offset>"));
+    }
+    out.push_str("</direction>\n");
 }
 
 fn write_rest(out: &mut String, duration: Tick) {
@@ -476,6 +481,23 @@ mod tests {
         let xml = export(&song, "Drums");
         assert!(xml.contains("<sign>percussion</sign>"));
         assert!(xml.contains("<unpitched>"));
+    }
+
+    #[test]
+    fn chords_and_marks_keep_their_offsets() {
+        use music_core::Chord;
+        use project::song::{Dynamic, Mark, MarkKind};
+        let mut song = song();
+        song.chords.push(project::song::ChordEvent {
+            tick: PPQ / 2,
+            chord: Chord::parse("C").expect("chord"),
+        });
+        song.marks.push(Mark {
+            tick: PPQ / 2,
+            kind: MarkKind::Dynamic(Dynamic::F),
+        });
+        let xml = export(&song, "Offsets");
+        assert_eq!(xml.matches("<offset>480</offset>").count(), 2);
     }
 
     #[test]
