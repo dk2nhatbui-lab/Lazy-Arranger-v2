@@ -320,12 +320,17 @@ pub fn parse_yaml(text: &str) -> Result<LoadedProfile, String> {
                 .ok_or_else(|| String::from("list item needs a name"))?;
             if matches!(section, Section::Controls) {
                 let cc = item.cc.ok_or_else(|| format!("{name}: missing cc"))?;
+                let min = item.min.unwrap_or(0);
+                let max = item.max.unwrap_or(127);
+                if min > max {
+                    return Err(format!("{name}: min {min} is above max {max}"));
+                }
                 profile.controls.push(DeviceControl {
                     name,
                     cc,
                     channel: item.channel.unwrap_or(1).clamp(1, 16),
-                    min: item.min.unwrap_or(0),
-                    max: item.max.unwrap_or(127),
+                    min,
+                    max,
                 });
                 return Ok(());
             }
@@ -458,9 +463,13 @@ pub fn nearest_in_profile(profile: &LoadedProfile, track_name: &str) -> u8 {
     let mut best_score = 0;
     for (name, program) in &profile.voices {
         let voice = name.to_ascii_lowercase();
+        let voice_words: Vec<&str> = voice
+            .split(|character: char| !character.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .collect();
         let score = words
             .iter()
-            .filter(|word| voice.contains(word.as_str()))
+            .filter(|word| voice_words.iter().any(|voice| voice == word))
             .count();
         if score > best_score {
             best_score = score;
@@ -547,6 +556,7 @@ drum_kits:
         assert!(parse_yaml("id: x\nname: X\n").is_err(), "no voices");
         assert!(parse_yaml("id: x\nname: X\nvoices:\n  - name: A\n").is_err());
         assert!(parse_yaml("id: x\nname: X\nvoices:\n  - name: A\n    program: 200\n").is_err());
+        assert!(parse_yaml("id: x\nname: X\nvoices:\n  - name: A\n    program: 1\ncontrols:\n  - name: Bad\n    cc: 1\n    min: 90\n    max: 10\n").is_err());
         assert!(parse_yaml("id: x\nname: X\nvoices:\n  - program: 1\n").is_err());
         assert!(
             parse_yaml("id: x\nname: X\nvoices:\n  - name: A\n    program: 1\ncolor: red\n")
