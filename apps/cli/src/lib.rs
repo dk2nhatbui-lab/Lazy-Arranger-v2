@@ -2752,6 +2752,14 @@ fn mcp_socket(
     token_file: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
     let project = read_project(project_path)?;
+    let output_root = project_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map_or_else(
+            || std::path::PathBuf::from("."),
+            std::path::Path::to_path_buf,
+        );
+    mcp::set_output_root(&output_root)?;
     let mut session = mcp::session(project)?;
     let listener = mcp::socket::bind(port)?;
     let address = listener.local_addr()?;

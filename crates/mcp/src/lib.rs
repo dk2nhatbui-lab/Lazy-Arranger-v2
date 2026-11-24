@@ -1065,6 +1065,38 @@ pub fn tools() -> Vec<Tool> {
     ]
 }
 
+static OUTPUT_ROOT: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+
+/// Restricts MCP export/save tools to one directory tree.
+///
+/// # Errors
+///
+/// Returns a message when the root cannot be canonicalized or was already set.
+pub fn set_output_root(root: &std::path::Path) -> Result<(), String> {
+    let root = std::fs::canonicalize(root)
+        .map_err(|error| format!("output root {}: {error}", root.display()))?;
+    OUTPUT_ROOT
+        .set(Some(root))
+        .map_err(|_| String::from("MCP output root is already set"))
+}
+
+fn checked_output(path: &std::path::Path) -> Result<std::path::PathBuf, ToolError> {
+    let Some(Some(root)) = OUTPUT_ROOT.get() else {
+        return Ok(path.to_path_buf());
+    };
+    let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let parent = std::fs::canonicalize(parent).map_err(|error| {
+        ToolError::Arguments(format!("output directory {}: {error}", parent.display()))
+    })?;
+    if !parent.starts_with(root) {
+        return Err(ToolError::Arguments(format!(
+            "output path must be under {}",
+            root.display()
+        )));
+    }
+    Ok(parent.join(path.file_name().unwrap_or_default()))
+}
+
 /// The tool list as a JSON array of `{name, description, inputSchema}`.
 #[must_use]
 pub fn tool_list_json() -> Value {
@@ -1652,10 +1684,11 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             Ok(json!({"patch": parsed}))
         }
         "export_pdf" => {
-            let path = arguments
+            let raw = arguments
                 .get("path")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ToolError::Arguments(String::from("path is required")))?;
+            let path = checked_output(std::path::Path::new(raw))?;
             let title = arguments
                 .get("title")
                 .and_then(Value::as_str)
@@ -1673,9 +1706,11 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             };
             let engraved = score::engrave(session.song(), track, score::Settings::default());
             let pdf = score::pdf::to_pdf(&engraved, score::Settings::default(), title);
-            std::fs::write(path, &pdf)
-                .map_err(|error| ToolError::Arguments(format!("{path}: {error}")))?;
-            Ok(json!({"path": path, "bytes": pdf.len(), "pages": engraved.pages.len()}))
+            std::fs::write(&path, &pdf)
+                .map_err(|error| ToolError::Arguments(format!("{}: {error}", path.display())))?;
+            Ok(
+                json!({"path": path.display().to_string(), "bytes": pdf.len(), "pages": engraved.pages.len()}),
+            )
         }
         "get_clip" => {
             let track = track_argument(arguments)?;
@@ -1936,24 +1971,26 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             Ok(json!({"marker": marker}))
         }
         "save_project" => {
-            let path = arguments
+            let raw = arguments
                 .get("path")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ToolError::Arguments(String::from("path is required")))?;
+            let path = checked_output(std::path::Path::new(raw))?;
             let json = session
                 .project()
                 .to_json_pretty()
                 .map_err(|error| ToolError::Arguments(error.to_string()))?;
-            std::fs::write(path, json)
-                .map_err(|error| ToolError::Arguments(format!("{path}: {error}")))?;
-            Ok(json!({"path": path}))
+            std::fs::write(&path, json)
+                .map_err(|error| ToolError::Arguments(format!("{}: {error}", path.display())))?;
+            Ok(json!({"path": path.display().to_string()}))
         }
         "export_midi" => {
             use smf::keyboard::Voice;
-            let path = arguments
+            let raw = arguments
                 .get("path")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ToolError::Arguments(String::from("path is required")))?;
+            let path = checked_output(std::path::Path::new(raw))?;
             let voices: Vec<Voice> = session
                 .song()
                 .tracks
@@ -1978,29 +2015,33 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 })
                 .collect();
             let (bytes, report) = smf::keyboard::export(session.song(), &voices, &[]);
-            std::fs::write(path, &bytes)
-                .map_err(|error| ToolError::Arguments(format!("{path}: {error}")))?;
-            Ok(json!({"path": path, "bytes": bytes.len(), "tracks": report.tracks}))
+            std::fs::write(&path, &bytes)
+                .map_err(|error| ToolError::Arguments(format!("{}: {error}", path.display())))?;
+            Ok(
+                json!({"path": path.display().to_string(), "bytes": bytes.len(), "tracks": report.tracks}),
+            )
         }
         "export_musicxml" => {
-            let path = arguments
+            let raw = arguments
                 .get("path")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ToolError::Arguments(String::from("path is required")))?;
+            let path = checked_output(std::path::Path::new(raw))?;
             let title = arguments
                 .get("title")
                 .and_then(Value::as_str)
                 .unwrap_or("Lazy Arranger score");
             let xml = musicxml::export(session.song(), title);
-            std::fs::write(path, xml.as_bytes())
-                .map_err(|error| ToolError::Arguments(format!("{path}: {error}")))?;
-            Ok(json!({"path": path, "bytes": xml.len()}))
+            std::fs::write(&path, xml.as_bytes())
+                .map_err(|error| ToolError::Arguments(format!("{}: {error}", path.display())))?;
+            Ok(json!({"path": path.display().to_string(), "bytes": xml.len()}))
         }
         "render_wav" => {
-            let path = arguments
+            let raw = arguments
                 .get("path")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ToolError::Arguments(String::from("path is required")))?;
+            let path = checked_output(std::path::Path::new(raw))?;
             let sample_rate = arguments
                 .get("sample_rate")
                 .and_then(Value::as_u64)
@@ -2019,28 +2060,30 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     )));
                 }
             };
-            std::fs::write(path, wav)
-                .map_err(|error| ToolError::Arguments(format!("{path}: {error}")))?;
+            std::fs::write(&path, wav)
+                .map_err(|error| ToolError::Arguments(format!("{}: {error}", path.display())))?;
             Ok(json!({
-                "path": path,
+                "path": path.display().to_string(),
                 "seconds": rendered.duration_seconds(),
                 "problems": problems.len(),
                 "bits": bits
             }))
         }
         "export_stems" => {
-            let directory = arguments
+            let raw = arguments
                 .get("directory")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ToolError::Arguments(String::from("directory is required")))?;
+            let directory = checked_output(std::path::Path::new(raw))?;
             let sample_rate = arguments
                 .get("sample_rate")
                 .and_then(Value::as_u64)
                 .unwrap_or(48_000)
                 .clamp(8_000, 192_000) as u32;
             let stems = audio::render_stems(session.song(), sample_rate);
-            std::fs::create_dir_all(directory)
-                .map_err(|error| ToolError::Arguments(format!("{directory}: {error}")))?;
+            std::fs::create_dir_all(&directory).map_err(|error| {
+                ToolError::Arguments(format!("{}: {error}", directory.display()))
+            })?;
             let mut manifest = String::new();
             for stem in &stems {
                 let slug: String = stem
@@ -2055,20 +2098,19 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     })
                     .collect();
                 let file = format!("{}-{slug}.wav", stem.track.get());
-                std::fs::write(
-                    std::path::Path::new(directory).join(&file),
-                    stem.audio.to_wav(),
-                )
-                .map_err(|error| ToolError::Arguments(format!("{directory}: {error}")))?;
+                std::fs::write(directory.join(&file), stem.audio.to_wav()).map_err(|error| {
+                    ToolError::Arguments(format!("{}: {error}", directory.display()))
+                })?;
                 manifest.push_str(&format!(
                     "{}\t{file}\t{:.2}s\n",
                     stem.name,
                     stem.audio.duration_seconds()
                 ));
             }
-            std::fs::write(std::path::Path::new(directory).join("stems.txt"), manifest)
-                .map_err(|error| ToolError::Arguments(format!("{directory}: {error}")))?;
-            Ok(json!({"directory": directory, "stems": stems.len()}))
+            std::fs::write(directory.join("stems.txt"), manifest).map_err(|error| {
+                ToolError::Arguments(format!("{}: {error}", directory.display()))
+            })?;
+            Ok(json!({"directory": directory.display().to_string(), "stems": stems.len()}))
         }
         "get_slurs" => {
             let track = track_argument(arguments)?;
@@ -3262,7 +3304,8 @@ fn list_grooves(arguments: &Value) -> Result<Value, ToolError> {
         .get("directory")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::Arguments(String::from("directory is required")))?;
-    let entries = arranging::groove_file::list(std::path::Path::new(directory))
+    let directory = checked_output(std::path::Path::new(&directory))?;
+    let entries = arranging::groove_file::list(std::path::Path::new(&directory))
         .map_err(ToolError::Arguments)?;
     Ok(json!({
         "grooves": entries.iter().map(|(name, path)| json!({
@@ -3282,6 +3325,7 @@ fn save_groove(session: &mut EditSession, arguments: &Value) -> Result<Value, To
         .get("directory")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::Arguments(String::from("directory is required")))?;
+    let directory = checked_output(std::path::Path::new(&directory))?;
     let entry = session
         .song()
         .tracks
@@ -3291,7 +3335,7 @@ fn save_groove(session: &mut EditSession, arguments: &Value) -> Result<Value, To
     let bar = session.song().time_signature.bar_ticks().max(1);
     let groove = arranging::groove::extract(&entry.notes, bar, music_core::PPQ / 4)
         .ok_or_else(|| ToolError::Arguments(String::from("track has no notes")))?;
-    let path = arranging::groove_file::save(std::path::Path::new(directory), name, &groove)
+    let path = arranging::groove_file::save(std::path::Path::new(&directory), name, &groove)
         .map_err(ToolError::Arguments)?;
     Ok(json!({"path": path.display().to_string()}))
 }
@@ -3306,6 +3350,7 @@ fn apply_groove_file(session: &mut EditSession, arguments: &Value) -> Result<Val
         .get("directory")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::Arguments(String::from("directory is required")))?;
+    let directory = checked_output(std::path::Path::new(&directory))?;
     let timing = arguments
         .get("timing")
         .and_then(Value::as_f64)
@@ -3314,12 +3359,17 @@ fn apply_groove_file(session: &mut EditSession, arguments: &Value) -> Result<Val
         .get("accents")
         .and_then(Value::as_f64)
         .unwrap_or(1.0) as f32;
-    let entries = arranging::groove_file::list(std::path::Path::new(directory))
+    let entries = arranging::groove_file::list(std::path::Path::new(&directory))
         .map_err(ToolError::Arguments)?;
     let (_, path) = entries
         .into_iter()
         .find(|(found, _)| found == name)
-        .ok_or_else(|| ToolError::Arguments(format!("no groove named {name:?} in {directory}")))?;
+        .ok_or_else(|| {
+            ToolError::Arguments(format!(
+                "no groove named {name:?} in {}",
+                directory.display()
+            ))
+        })?;
     let (_, groove) = arranging::groove_file::load(&path).map_err(ToolError::Arguments)?;
     let notes = session
         .song()
