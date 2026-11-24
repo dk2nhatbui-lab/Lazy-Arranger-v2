@@ -1304,6 +1304,8 @@ mod tests {
         assert!(text.contains("(C) Tj"));
         assert!(text.contains("(la) Tj"));
         assert!(text.contains("(f) Tj"));
+        assert!(text.contains("(x) Tj"), "muted string in the frame");
+        assert!(text.contains("(o) Tj"), "open string in the frame");
         assert!(text.contains("/ClefTreble"), "clef image resource");
         assert!(
             text.contains("(#) Tj") || text.contains("(b) Tj"),
