@@ -1051,11 +1051,12 @@ impl Editor {
                 .max()
                 .unwrap_or(start);
             let start = start.div_euclid(bar) * bar;
+            let length = ((end.saturating_sub(start).max(1) + bar - 1) / bar) * bar;
             track.clips.push(project::song::Clip {
                 id: project::ClipId::new(1).expect("valid"),
                 name: String::from("Recorded"),
                 start,
-                length: end.saturating_sub(start).max(1),
+                length,
             });
         }
         self.session
@@ -1109,11 +1110,12 @@ impl Editor {
                     .max()
                     .unwrap_or(0)
                     .saturating_add(1);
+                let length = ((end.saturating_sub(clip_start).max(1) + bar - 1) / bar) * bar;
                 clips.push(project::song::Clip {
                     id: project::ClipId::new(id).map_err(|error| error.to_string())?,
                     name: String::from("Recorded"),
                     start: clip_start,
-                    length: end.saturating_sub(clip_start).max(1),
+                    length,
                 });
             }
         }
@@ -2328,6 +2330,10 @@ mod tests {
         };
         editor.insert_clip(track, clip).expect("insert");
         assert_eq!(editor.song().tracks[0].clips.len(), 1);
+        let bar = music_core::TimeSignature::new(4, 4)
+            .expect("meter")
+            .bar_ticks();
+        assert_eq!(editor.song().tracks[0].clips[0].length % bar, 0);
         editor
             .move_clip(track, project::ClipId::new(1).expect("valid"), 960)
             .expect("move");
@@ -2339,6 +2345,10 @@ mod tests {
         assert_eq!(editor.song().tracks[0].notes.len(), 1, "notes stay");
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].clips.len(), 1);
+        let bar = music_core::TimeSignature::new(4, 4)
+            .expect("meter")
+            .bar_ticks();
+        assert_eq!(editor.song().tracks[0].clips[0].length % bar, 0);
         assert!(editor.dirty());
     }
 
@@ -3535,6 +3545,10 @@ mod tests {
         assert!(editor.song().tracks[0].clips.is_empty());
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].clips.len(), 1);
+        let bar = music_core::TimeSignature::new(4, 4)
+            .expect("meter")
+            .bar_ticks();
+        assert_eq!(editor.song().tracks[0].clips[0].length % bar, 0);
     }
 
     #[test]
