@@ -3266,7 +3266,8 @@ impl ShellApp {
         if follow_up {
             self.assistant_tool_rounds += 1;
             self.request_assistant(format!(
-                "Tool results:\n{text}\nContinue if you need another tool, otherwise answer."
+                "Tool results:\n{}\nContinue if you need another tool, otherwise answer.",
+                crate::ai::trim_tool_result(&text)
             ));
         }
     }

@@ -194,6 +194,18 @@ pub fn tool_commands(reply: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Caps a tool result before it is sent back to the model.
+#[must_use]
+pub fn trim_tool_result(text: &str) -> String {
+    const LIMIT: usize = 8_000;
+    if text.chars().count() <= LIMIT {
+        return text.to_string();
+    }
+    let mut trimmed = text.chars().take(LIMIT).collect::<String>();
+    trimmed.push_str("\n…");
+    trimmed
+}
+
 /// True when a read-only tool reply may start another model round.
 #[must_use]
 pub fn can_follow_up(ready: bool, tool_count: usize, rounds: usize) -> bool {
@@ -272,6 +284,15 @@ mod tests {
         assert_eq!(commands.len(), 2);
         assert_eq!(tool_name(commands[0]), Some("get_song"));
         assert_eq!(tool_name(commands[1]), Some("get_tracks"));
+    }
+
+    #[test]
+    fn tool_results_are_trimmed_for_follow_up() {
+        assert_eq!(trim_tool_result("short"), "short");
+        let long = "é".repeat(8_001);
+        let trimmed = trim_tool_result(&long);
+        assert_eq!(trimmed.chars().count(), 8_002);
+        assert!(trimmed.ends_with('…'));
     }
 
     #[test]
