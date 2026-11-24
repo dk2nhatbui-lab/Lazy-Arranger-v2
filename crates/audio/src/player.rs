@@ -97,6 +97,68 @@ impl Playback {
     }
 }
 
+/// Picks a supported stereo output configuration at the nearest rate.
+fn stereo_config(
+    device: &cpal::Device,
+    source_rate: u32,
+) -> Result<cpal::SupportedStreamConfig, String> {
+    let configs = device
+        .supported_output_configs()
+        .map_err(|error| format!("no output configurations: {error}"))?;
+    let mut best: Option<cpal::SupportedStreamConfig> = None;
+    let mut best_distance = u32::MAX;
+    for range in configs {
+        if range.channels() != 2
+            || !matches!(
+                range.sample_format(),
+                cpal::SampleFormat::F32 | cpal::SampleFormat::I16
+            )
+        {
+            continue;
+        }
+        let min = range.min_sample_rate().0;
+        let max = range.max_sample_rate().0;
+        let rate = source_rate.clamp(min, max);
+        let distance = source_rate.abs_diff(rate);
+        if distance < best_distance {
+            best_distance = distance;
+            best = Some(range.with_sample_rate(cpal::SampleRate(rate)));
+        }
+    }
+    best.ok_or_else(|| String::from("the output device has no stereo F32/I16 configuration"))
+}
+
+/// Resamples interleaved stereo audio with linear interpolation.
+#[must_use]
+fn resample_stereo(audio: RenderedAudio, target_rate: u32) -> RenderedAudio {
+    if audio.sample_rate == target_rate || audio.sample_rate == 0 || target_rate == 0 {
+        return audio;
+    }
+    let source_frames = audio.samples.len() / 2;
+    let ratio = f64::from(target_rate) / f64::from(audio.sample_rate);
+    let target_frames = ((source_frames as f64) * ratio).ceil() as usize;
+    let mut samples = Vec::with_capacity(target_frames.saturating_mul(2));
+    for frame in 0..target_frames {
+        let source = frame as f64 / ratio;
+        let index = source.floor() as usize;
+        let fraction = (source - index as f64) as f32;
+        let next = (index + 1).min(source_frames.saturating_sub(1));
+        for channel in 0..2 {
+            let a = audio
+                .samples
+                .get(index * 2 + channel)
+                .copied()
+                .unwrap_or(0.0);
+            let b = audio.samples.get(next * 2 + channel).copied().unwrap_or(a);
+            samples.push(a + (b - a) * fraction);
+        }
+    }
+    RenderedAudio {
+        samples,
+        sample_rate: target_rate,
+    }
+}
+
 /// Names of available output devices.
 #[must_use]
 pub fn output_devices() -> Vec<String> {
@@ -170,18 +232,17 @@ impl Player {
                 .default_output_device()
                 .ok_or_else(|| String::from("no default output device"))?,
         };
-        let config = device
-            .default_output_config()
-            .map_err(|error| format!("no output configuration: {error}"))?;
-        let playback = Arc::new(Mutex::new(Playback::new(audio)));
-        let shared = Arc::clone(&playback);
-        let error_callback = |error| eprintln!("audio stream error: {error}");
+        let config = stereo_config(&device, audio.sample_rate)?;
         let sample_format = config.sample_format();
         let mut stream_config: cpal::StreamConfig = config.into();
         if let Some(frames) = buffer_frames {
             stream_config.buffer_size = cpal::BufferSize::Fixed(frames.max(32));
         }
         let sample_rate = stream_config.sample_rate.0;
+        let audio = resample_stereo(audio, sample_rate);
+        let playback = Arc::new(Mutex::new(Playback::new(audio)));
+        let shared = Arc::clone(&playback);
+        let error_callback = |error| eprintln!("audio stream error: {error}");
         let actual_buffer = match stream_config.buffer_size {
             cpal::BufferSize::Fixed(frames) => Some(frames),
             cpal::BufferSize::Default => None,
@@ -321,6 +382,22 @@ mod tests {
             samples,
             sample_rate: 48_000,
         })
+    }
+
+    #[test]
+    fn resampling_preserves_duration_and_channels() {
+        let audio = RenderedAudio {
+            samples: (0..16).map(|value| value as f32).collect(),
+            sample_rate: 48_000,
+        };
+        let half = resample_stereo(audio.clone(), 24_000);
+        assert_eq!(half.sample_rate, 24_000);
+        assert_eq!(half.samples.len(), 8);
+        assert_eq!(half.samples[0], 0.0);
+        assert_eq!(half.samples[1], 1.0);
+        assert_eq!(half.samples[6], 12.0);
+        let same = resample_stereo(audio, 48_000);
+        assert_eq!(same.samples.len(), 16);
     }
 
     #[test]

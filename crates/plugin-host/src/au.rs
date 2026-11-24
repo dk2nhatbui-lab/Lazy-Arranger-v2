@@ -62,15 +62,33 @@ struct AudioUnitParameterInfo {
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
+struct SmpteTime {
+    subframes: i16,
+    subframe_divisor: i16,
+    counter: u32,
+    kind: u32,
+    flags: u32,
+    hours: i16,
+    minutes: i16,
+    seconds: i16,
+    frames: i16,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
 struct AudioTimeStamp {
     sample_time: f64,
     host_time: u64,
     rate_scalar: f64,
     word_clock_time: u64,
-    smpte_time: [u32; 4],
+    smpte_time: SmpteTime,
     flags: u32,
     reserved: u32,
 }
+
+const K_AUDIO_TIME_STAMP_SAMPLE_TIME_VALID: u32 = 1;
+
+const _: () = assert!(std::mem::size_of::<AudioTimeStamp>() == 64);
 
 #[link(name = "AudioToolbox", kind = "framework")]
 unsafe extern "C" {
@@ -409,13 +427,14 @@ impl AuEffect {
             };
             let timestamp = AudioTimeStamp {
                 sample_time: self.sample_time,
-                flags: 2,
+                flags: K_AUDIO_TIME_STAMP_SAMPLE_TIME_VALID,
                 ..AudioTimeStamp::default()
             };
+            let mut action_flags = 0_u32;
             let result = unsafe {
                 AudioUnitProcess(
                     self.unit,
-                    std::ptr::null_mut(),
+                    &mut action_flags,
                     &timestamp,
                     u32::try_from(frames).unwrap_or(0),
                     &mut buffers,
@@ -619,13 +638,14 @@ impl AuInstrument {
         };
         let timestamp = AudioTimeStamp {
             sample_time: self.sample_time,
-            flags: 2,
+            flags: K_AUDIO_TIME_STAMP_SAMPLE_TIME_VALID,
             ..AudioTimeStamp::default()
         };
+        let mut action_flags = 0_u32;
         let result = unsafe {
             AudioUnitRender(
                 self.unit,
-                std::ptr::null_mut(),
+                &mut action_flags,
                 &timestamp,
                 0,
                 u32::try_from(frames).unwrap_or(0),

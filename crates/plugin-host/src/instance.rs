@@ -1,3 +1,4 @@
+#![allow(clippy::unnecessary_cast)]
 //! Minimal in-process VST3 effect instance: component, audio processor and a
 //! block-processing loop. No editor or parameter automation yet.
 

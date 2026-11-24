@@ -93,53 +93,66 @@ fn reverb(rendered: &mut RenderedAudio, amount: f32) {
     let rate = rendered.sample_rate.max(1) as f32;
     let comb_seconds = [0.0297_f32, 0.0371, 0.0411, 0.0437];
     let allpass_seconds = [0.0050_f32, 0.0017];
-    let mut lines: [Vec<Vec<f32>>; 2] = [
-        comb_seconds
-            .iter()
-            .map(|seconds| vec![0.0_f32; (rate * seconds) as usize + 1])
-            .collect(),
-        allpass_seconds
-            .iter()
-            .map(|seconds| vec![0.0_f32; (rate * seconds) as usize + 1])
-            .collect(),
-    ];
-    let comb_lengths: Vec<usize> = lines[0].iter().map(Vec::len).collect();
-    let allpass_lengths: Vec<usize> = lines[1].iter().map(Vec::len).collect();
-    let mut comb_indices = [0_usize; 4];
-    let mut allpass_indices = [0_usize; 2];
-    let mut damped = [0.0_f32; 4];
+    let mut channels: [ReverbChannel; 2] =
+        std::array::from_fn(|_| ReverbChannel::new(rate, &comb_seconds, &allpass_seconds));
     for frame in rendered.samples.as_chunks_mut::<2>().0.iter_mut() {
         for (channel, sample) in frame.iter_mut().enumerate() {
-            let _ = channel;
             let dry = *sample;
-            let mut wet = 0.0;
-            for comb in 0..4 {
-                let length = comb_lengths[comb];
-                if length == 0 {
-                    continue;
-                }
-                let index = comb_indices[comb] % length;
-                let output = lines[0][comb][index];
-                damped[comb] = output * 0.7 + damped[comb] * 0.3;
-                lines[0][comb][index] = dry + damped[comb] * 0.78;
-                comb_indices[comb] = (index + 1) % length;
-                wet += output;
-            }
-            wet /= 4.0;
-            for allpass in 0..2 {
-                let length = allpass_lengths[allpass];
-                if length == 0 {
-                    continue;
-                }
-                let index = allpass_indices[allpass] % length;
-                let buffered = lines[1][allpass][index];
-                let output = -wet + buffered;
-                lines[1][allpass][index] = wet + buffered * 0.5;
-                allpass_indices[allpass] = (index + 1) % length;
-                wet = output;
-            }
+            let wet = channels[channel].process(dry);
             *sample = dry + wet * amount * 0.6;
         }
+    }
+}
+
+struct CombLine {
+    buffer: Vec<f32>,
+    index: usize,
+    damped: f32,
+}
+
+struct AllpassLine {
+    buffer: Vec<f32>,
+    index: usize,
+}
+
+struct ReverbChannel {
+    combs: [CombLine; 4],
+    allpasses: [AllpassLine; 2],
+}
+
+impl ReverbChannel {
+    fn new(rate: f32, comb_seconds: &[f32; 4], allpass_seconds: &[f32; 2]) -> Self {
+        Self {
+            combs: std::array::from_fn(|index| CombLine {
+                buffer: vec![0.0; (rate * comb_seconds[index]) as usize + 1],
+                index: 0,
+                damped: 0.0,
+            }),
+            allpasses: std::array::from_fn(|index| AllpassLine {
+                buffer: vec![0.0; (rate * allpass_seconds[index]) as usize + 1],
+                index: 0,
+            }),
+        }
+    }
+
+    fn process(&mut self, dry: f32) -> f32 {
+        let mut wet = 0.0;
+        for comb in &mut self.combs {
+            let output = comb.buffer[comb.index];
+            comb.damped = output * 0.7 + comb.damped * 0.3;
+            comb.buffer[comb.index] = dry + comb.damped * 0.78;
+            comb.index = (comb.index + 1) % comb.buffer.len();
+            wet += output;
+        }
+        wet /= 4.0;
+        for allpass in &mut self.allpasses {
+            let buffered = allpass.buffer[allpass.index];
+            let output = -wet + buffered;
+            allpass.buffer[allpass.index] = wet + buffered * 0.5;
+            allpass.index = (allpass.index + 1) % allpass.buffer.len();
+            wet = output;
+        }
+        wet
     }
 }
 
@@ -221,6 +234,33 @@ mod tests {
             },
         );
         assert_eq!(raw.samples, vec![1.0, -1.0]);
+    }
+
+    #[test]
+    fn reverb_keeps_the_channels_separate() {
+        let mut impulse = audio(vec![0.0; 8192]);
+        impulse.samples[0] = 1.0;
+        apply(
+            &mut impulse,
+            Master {
+                reverb: 0.8,
+                chorus: 0.0,
+                limiter: false,
+                ..Master::default()
+            },
+        );
+        let right_tail: f32 = impulse.samples[1..]
+            .iter()
+            .step_by(2)
+            .map(|sample| sample.abs())
+            .sum();
+        let left_tail: f32 = impulse.samples[0..]
+            .iter()
+            .step_by(2)
+            .map(|sample| sample.abs())
+            .sum();
+        assert!(left_tail > 0.01, "left tail {left_tail}");
+        assert!(right_tail < 1.0e-6, "right tail {right_tail}");
     }
 
     #[test]

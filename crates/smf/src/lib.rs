@@ -249,7 +249,13 @@ struct RawNote {
 pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
     let smf = Smf::parse(bytes).map_err(|err| SmfError::Parse(err.to_string()))?;
     let source_ppq = match smf.header.timing {
-        Timing::Metrical(ppq) => u32::from(ppq.as_int()),
+        Timing::Metrical(ppq) => {
+            let ppq = ppq.as_int();
+            if ppq == 0 {
+                return Err(SmfError::Parse(String::from("MIDI file has a zero PPQ")));
+            }
+            u32::from(ppq)
+        }
         Timing::Timecode(_, _) => return Err(SmfError::SmpteTiming),
     };
     let mut report = DecodeReport {
@@ -312,7 +318,13 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
                 },
                 TrackEventKind::Meta(meta) => match meta {
                     MetaMessage::Tempo(micros) => {
-                        let bpm = 60_000_000.0 / f64::from(micros.as_int());
+                        let micros = micros.as_int();
+                        if micros == 0 {
+                            return Err(SmfError::Parse(String::from(
+                                "MIDI file has a zero tempo",
+                            )));
+                        }
+                        let bpm = 60_000_000.0 / f64::from(micros);
                         tempo_changes.push(TempoChange { tick, bpm });
                     }
                     MetaMessage::TimeSignature(numerator, power, _, _) => {
@@ -703,6 +715,16 @@ mod tests {
         // The note-off at tick 960 must be encoded before the note-on.
         let (back, _) = decode(&bytes).expect("decode");
         assert_eq!(notes_of(&back)[0].len(), 2);
+    }
+
+    #[test]
+    fn zero_ppq_is_rejected_not_divided_by_zero() {
+        let mut bytes = Vec::new();
+        let header = Header::new(Format::SingleTrack, Timing::Metrical(u15::new(0)));
+        let mut smf = Smf::new(header);
+        smf.tracks.push(Vec::new());
+        smf.write_std(&mut bytes).expect("write");
+        assert!(decode(&bytes).is_err());
     }
 
     #[test]

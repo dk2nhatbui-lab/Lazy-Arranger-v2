@@ -1709,6 +1709,7 @@ dependencies = [
  "arranger",
  "arranging",
  "audio",
+ "getrandom 0.3.4",
  "music-core",
  "musicxml",
  "plugins",

@@ -855,6 +855,13 @@ pub fn join_loop(
 
         if !track.clips.is_empty() {
             let mut clips = Vec::new();
+            let mut next_clip = track
+                .clips
+                .iter()
+                .map(|clip| clip.id.get())
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1);
             for clip in &track.clips {
                 let mut kept = clip.clone();
                 if clip.start >= end {
@@ -867,19 +874,12 @@ pub fn join_loop(
                         added.start =
                             clip.start + end + section.length * Tick::try_from(copy).unwrap_or(0)
                                 - start;
-                        added.id = project::ClipId::new(
-                            track
-                                .clips
-                                .iter()
-                                .map(|clip| clip.id.get())
-                                .max()
-                                .unwrap_or(0)
-                                + 1
-                                + outcome.copies as u32,
-                        )
-                        .unwrap_or(clip.id);
-                        clips.push(added);
-                        outcome.clips += 1;
+                        if let Ok(id) = project::ClipId::new(next_clip) {
+                            added.id = id;
+                            next_clip = next_clip.saturating_add(1);
+                            clips.push(added);
+                            outcome.clips += 1;
+                        }
                     }
                 }
             }
@@ -1098,6 +1098,12 @@ mod join_loop_tests {
         assert_eq!(song.lyrics.len(), 2);
         assert_eq!(song.marks.len(), 2);
         assert_eq!(song.tracks[0].clips.len(), 3, "A copied, B moved");
+        let ids: std::collections::BTreeSet<u32> = song.tracks[0]
+            .clips
+            .iter()
+            .map(|clip| clip.id.get())
+            .collect();
+        assert_eq!(ids.len(), 3, "clip ids stay unique");
         assert_eq!(song.tracks[0].automation[0].points[0].tick, 7680);
         assert_eq!(song.tracks[0].audio.as_ref().expect("audio").start, 7680);
         session.undo().expect("undo marks");

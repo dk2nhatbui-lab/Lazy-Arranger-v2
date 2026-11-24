@@ -14,8 +14,9 @@ pub fn output_path() -> PathBuf {
 ///
 /// Returns a message when yt-dlp is missing, fails, or writes no file.
 pub fn download(url: &str) -> Result<PathBuf, String> {
-    if url.trim().is_empty() {
-        return Err(String::from("enter a link"));
+    let url = audio::link::clean(url);
+    if url.is_empty() {
+        return Err(String::from("enter an http(s) link"));
     }
     let path = output_path();
     let _ = std::fs::remove_file(&path);
@@ -31,7 +32,8 @@ pub fn download(url: &str) -> Result<PathBuf, String> {
             "-o",
         ])
         .arg(&template)
-        .arg(url.trim())
+        .arg("--")
+        .arg(&url)
         .output()
         .map_err(|error| format!("yt-dlp: {error}"))?;
     if !output.status.success() {

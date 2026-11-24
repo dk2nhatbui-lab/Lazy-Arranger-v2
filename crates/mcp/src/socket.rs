@@ -9,38 +9,38 @@ use std::net::{TcpListener, TcpStream};
 use app_commands::EditSession;
 use serde_json::{Value, json};
 
-/// A random hex token, 16 bytes.
-#[must_use]
-pub fn new_token() -> String {
+/// A random hex token, 16 bytes from the operating-system CSPRNG.
+///
+/// # Errors
+///
+/// Returns a message when the platform random source fails.
+pub fn new_token() -> Result<String, String> {
     let mut bytes = [0_u8; 16];
-    #[cfg(unix)]
-    {
-        use std::io::Read;
-        if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
-            let _ = file.read_exact(&mut bytes);
-        }
-    }
-    let _ = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| {
-            let nanos = duration.subsec_nanos().to_le_bytes();
-            let secs = duration.as_secs().to_le_bytes();
-            for (index, byte) in bytes.iter_mut().enumerate() {
-                *byte ^= nanos[index % 4] ^ secs[index % 8];
-            }
-        });
+    getrandom::fill(&mut bytes).map_err(|error| format!("random source: {error}"))?;
     let mut token = String::with_capacity(32);
     for byte in bytes {
         token.push_str(&format!("{byte:02x}"));
     }
-    token
+    Ok(token)
 }
 
 fn authorized(message: &Value, token: &str) -> bool {
-    message
-        .get("token")
-        .and_then(Value::as_str)
-        .is_some_and(|given| given == token)
+    if token.is_empty() {
+        return false;
+    }
+    let Some(given) = message.get("token").and_then(Value::as_str) else {
+        return false;
+    };
+    if given.len() != token.len() {
+        return false;
+    }
+    given
+        .bytes()
+        .zip(token.bytes())
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
 }
 
 /// Handles one line, checking the token first.
@@ -115,8 +115,8 @@ mod tests {
 
     #[test]
     fn tokens_are_hex_and_unique() {
-        let first = new_token();
-        let second = new_token();
+        let first = new_token().expect("token");
+        let second = new_token().expect("token");
         assert_eq!(first.len(), 32);
         assert!(first.chars().all(|character| character.is_ascii_hexdigit()));
         assert_ne!(first, second);
@@ -151,7 +151,7 @@ mod tests {
     fn a_loopback_connection_round_trips() {
         let listener = bind(0).expect("bind");
         let address = listener.local_addr().expect("address");
-        let token = new_token();
+        let token = new_token().expect("token");
         let server_token = token.clone();
         let handle = std::thread::spawn(move || {
             let mut session = session();

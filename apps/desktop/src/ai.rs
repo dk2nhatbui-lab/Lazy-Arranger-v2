@@ -130,15 +130,11 @@ pub fn local_chat(command: &str, prompt: &str) -> Result<String, String> {
     if command.is_empty() {
         return Err(String::from("set a local assistant command in Settings"));
     }
-    let quoted = format!("'{}'", prompt.replace('\'', "'\\''"));
-    let rendered = if command.contains("{prompt}") {
-        command.replace("{prompt}", &quoted)
-    } else {
-        format!("{command} {quoted}")
-    };
+    let rendered = crate::shell::render(command, "{prompt}", "ARRANGER_PROMPT");
     let output = std::process::Command::new("sh")
         .arg("-c")
         .arg(&rendered)
+        .env("ARRANGER_PROMPT", prompt)
         .output()
         .map_err(|error| format!("assistant command: {error}"))?;
     if !output.status.success() {
@@ -190,6 +186,20 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn local_prompts_cannot_inject_shell_commands() {
+        let marker = std::env::temp_dir().join(format!(
+            "lazy-arranger-assistant-injection-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&marker);
+        let _ = local_chat(
+            "printf '%s' {prompt}",
+            &format!("'; touch {}; echo '", marker.display()),
+        );
+        assert!(!marker.exists());
+    }
+
     #[test]
     fn a_local_assistant_command_returns_stdout() {
         let text = local_chat("printf '  local answer  '", "hello").expect("text");

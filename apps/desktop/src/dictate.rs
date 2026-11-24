@@ -25,15 +25,11 @@ pub fn transcribe(wav: &Path, command: &str) -> Result<String, String> {
     if command.is_empty() {
         return Err(String::from("set a Whisper command in Settings"));
     }
-    let quoted = format!("'{}'", wav.display().to_string().replace('\'', "'\\''"));
-    let rendered = if command.contains("{file}") {
-        command.replace("{file}", &quoted)
-    } else {
-        format!("{command} {quoted}")
-    };
+    let rendered = crate::shell::render(command, "{file}", "ARRANGER_FILE");
     let output = std::process::Command::new("sh")
         .arg("-c")
         .arg(&rendered)
+        .env("ARRANGER_FILE", wav)
         .output()
         .map_err(|error| format!("speech command: {error}"))?;
     if !output.status.success() {

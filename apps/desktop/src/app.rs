@@ -392,7 +392,7 @@ fn profile_for_port(
 }
 
 fn l6_scene_path() -> std::path::PathBuf {
-    std::path::PathBuf::from("lazy-arranger-l6-scenes.txt")
+    crate::settings::Settings::data_dir().join("lazy-arranger-l6-scenes.txt")
 }
 
 fn encode_l6_scenes(scenes: &[Option<L6Scene>; 4]) -> String {
@@ -1185,7 +1185,7 @@ impl ShellApp {
             waveform_zoom: 1.0,
             waveform_position: 0.0,
             launcher: arranging::grid::Launcher::default(),
-            recent_file: std::path::PathBuf::from("recent-projects.txt"),
+            recent_file: crate::settings::Settings::path().with_file_name("recent-projects.txt"),
             recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
             midi_input: None,
             loop_enabled: false,
@@ -1320,9 +1320,9 @@ impl ShellApp {
             marks_open: std::env::var("ARRANGER_MARKS").is_ok(),
             mark_choice: 0,
             l6max_device_open: std::env::var("ARRANGER_L6DEVICE").is_ok(),
-            l6max_device: crate::l6max_device::load(std::path::Path::new(
-                crate::l6max_device::STATE_PATH,
-            )),
+            l6max_device: crate::l6max_device::load(
+                &crate::settings::Settings::data_dir().join(crate::l6max_device::STATE_PATH),
+            ),
             takes_open: std::env::var("ARRANGER_TAKES").is_ok(),
             xg_open: std::env::var("ARRANGER_XG").is_ok(),
             xg_parts: [[100, 64, 40, 0]; 16],
@@ -5559,7 +5559,7 @@ impl ShellApp {
         }
         if self.l6max_device != state {
             crate::l6max_device::save(
-                std::path::Path::new(crate::l6max_device::STATE_PATH),
+                &crate::settings::Settings::data_dir().join(crate::l6max_device::STATE_PATH),
                 &state,
             );
             self.l6max_device = state;

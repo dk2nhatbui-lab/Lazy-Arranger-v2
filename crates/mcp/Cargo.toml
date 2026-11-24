@@ -19,6 +19,7 @@ score = { path = "../score" }
 smf = { path = "../smf" }
 style-formats = { path = "../style-formats" }
 serde_json = { workspace = true }
+getrandom = "0.3"
 thiserror.workspace = true
 
 [lints]

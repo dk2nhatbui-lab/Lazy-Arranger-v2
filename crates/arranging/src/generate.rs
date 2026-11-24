@@ -86,7 +86,15 @@ pub fn drumify(
                 _ => 42,
             };
             let velocity = if matches!(step, 0 | 4) { 112 } else { 78 };
-            push(&mut notes, &mut next, tick, PPQ / 2, pitch, velocity);
+            push(
+                &mut notes,
+                &mut next,
+                tick,
+                PPQ / 2,
+                pitch,
+                velocity,
+                Channel::drums(),
+            );
         }
     }
     let count = notes.len();
@@ -124,12 +132,21 @@ pub fn write_part(
                         length.min(PPQ * 2),
                         root.as_u8(),
                         100,
+                        Channel::first(),
                     );
                 }
             }
             Part::Pad => {
                 for tone in event.chord.tones(3) {
-                    push(&mut notes, &mut next, event.tick, length, tone.as_u8(), 70);
+                    push(
+                        &mut notes,
+                        &mut next,
+                        event.tick,
+                        length,
+                        tone.as_u8(),
+                        70,
+                        Channel::first(),
+                    );
                 }
             }
             Part::Arpeggio => {
@@ -142,6 +159,7 @@ pub fn write_part(
                             PPQ / 2,
                             tone.as_u8(),
                             88,
+                            Channel::first(),
                         );
                     }
                 }
@@ -235,6 +253,7 @@ pub fn melody(
                 PPQ / 2,
                 pitch,
                 84 + (step % 3) as u8 * 8,
+                Channel::first(),
             );
             tick += PPQ / 2;
             step += 1;
@@ -264,6 +283,7 @@ fn push(
     duration: Tick,
     pitch: u8,
     velocity: u8,
+    channel: Channel,
 ) {
     let Ok(id) = NoteId::new(*next) else {
         return;
@@ -272,11 +292,6 @@ fn push(
         return;
     };
     let velocity = Velocity::new(velocity).unwrap_or_else(|_| Velocity::new(80).expect("valid"));
-    let channel = if pitch.as_u8() >= 35 && pitch.as_u8() <= 51 {
-        Channel::drums()
-    } else {
-        Channel::first()
-    };
     *next = next.saturating_add(1);
     notes.push(Note {
         id,
@@ -334,6 +349,22 @@ mod tests {
         assert!((95..=105).contains(&note.velocity.as_u8()));
         session.undo().expect("undo");
         assert_eq!(session.song().tracks[0].notes[0].start, 960);
+    }
+
+    #[test]
+    fn generated_bass_is_not_routed_to_drums() {
+        let mut session = session();
+        let song = session.song().clone();
+        write_part(
+            &mut session,
+            TrackId::new(3).expect("valid"),
+            Part::Bass,
+            &song,
+        )
+        .expect("bass");
+        let notes = &session.song().tracks[2].notes;
+        assert!(!notes.is_empty());
+        assert!(notes.iter().all(|note| note.channel.zero_based() == 0));
     }
 
     #[test]

@@ -19,6 +19,7 @@ pub mod persistence;
 pub mod piano_roll;
 pub mod score_view;
 pub mod settings;
+pub mod shell;
 pub mod speech;
 pub mod strings;
 pub mod theme;

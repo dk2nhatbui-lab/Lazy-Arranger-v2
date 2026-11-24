@@ -51,15 +51,11 @@ pub fn speak_with(text: &str, template: &str) -> Result<(), String> {
     if !template.is_empty() {
         #[cfg(unix)]
         {
-            let quoted = format!("'{}'", text.replace('\'', "'\\''"));
-            let rendered = if template.contains("{text}") {
-                template.replace("{text}", &quoted)
-            } else {
-                format!("{template} {quoted}")
-            };
+            let rendered = crate::shell::render(template, "{text}", "ARRANGER_TEXT");
             return std::process::Command::new("sh")
                 .arg("-c")
                 .arg(rendered)
+                .env("ARRANGER_TEXT", &text)
                 .spawn()
                 .map(|_| ())
                 .map_err(|error| format!("speech: {error}"));
@@ -107,6 +103,22 @@ mod tests {
         assert_eq!(clean("hello\nworld\u{0007}"), "helloworld");
         let long = "a".repeat(400);
         assert_eq!(clean(&long).len(), 240);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn speech_text_cannot_inject_shell_commands() {
+        let marker = std::env::temp_dir().join(format!(
+            "lazy-arranger-speech-injection-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&marker);
+        let _ = speak_with(
+            &format!("'; touch {}; echo '", marker.display()),
+            "printf '%s' {text}",
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(!marker.exists());
     }
 
     #[cfg(unix)]

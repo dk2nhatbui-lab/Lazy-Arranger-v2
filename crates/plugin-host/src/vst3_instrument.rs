@@ -1,3 +1,4 @@
+#![allow(clippy::unnecessary_cast)]
 //! Minimal in-process VST3 instrument: no audio input, MIDI event input and a
 //! stereo output block loop.
 

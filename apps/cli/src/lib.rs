@@ -2725,6 +2725,27 @@ fn mcp_serve(project_path: &PathBuf) -> Result<(), Box<dyn Error>> {
     }
 }
 
+fn write_private_file(path: &PathBuf, contents: &str) -> Result<(), Box<dyn Error>> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        use std::io::Write;
+        file.write_all(contents.as_bytes())?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        fs::write(path, contents)?;
+        Ok(())
+    }
+}
+
 fn mcp_socket(
     project_path: &PathBuf,
     port: u16,
@@ -2734,9 +2755,8 @@ fn mcp_socket(
     let mut session = mcp::session(project)?;
     let listener = mcp::socket::bind(port)?;
     let address = listener.local_addr()?;
-    let token = mcp::socket::new_token();
-    fs::write(token_file, &token)
-        .map_err(|error| format!("could not write {}: {error}", token_file.display()))?;
+    let token = mcp::socket::new_token().map_err(|error| format!("token: {error}"))?;
+    write_private_file(token_file, &token)?;
     println!("listening on {address}; token in {}", token_file.display());
     for stream in listener.incoming() {
         let stream = stream?;

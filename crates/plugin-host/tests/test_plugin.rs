@@ -1,7 +1,9 @@
 //! Exercises the host against the workspace's own test gain plug-in.
 
+#[cfg(target_os = "macos")]
 use std::path::PathBuf;
 
+#[cfg(target_os = "macos")]
 fn dylib_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let debug = exe.parent()?.parent()?;

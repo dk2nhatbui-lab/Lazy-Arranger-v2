@@ -295,8 +295,10 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
                     ),
                 ));
             }
-            if note.duration > 0 {
-                sounding.insert(key, note.end());
+            if note.duration > 0
+                && let Some(end) = note.start.checked_add(note.duration)
+            {
+                sounding.insert(key, end);
             }
         }
     }

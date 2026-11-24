@@ -5,34 +5,19 @@
 
 use crate::RenderedAudio;
 
-/// Decodes 16-bit PCM WAV into mono samples.
-///
-/// Decodes to a stereo buffer by duplicating each mono frame.
-///
-/// # Errors
-///
-/// Returns a message for another format or a truncated file.
-pub fn decode_stereo(bytes: &[u8]) -> Result<RenderedAudio, String> {
-    let mono = decode_mono(bytes)?;
-    let mut samples = Vec::with_capacity(mono.samples.len() * 2);
-    for sample in mono.samples {
-        samples.push(sample);
-        samples.push(sample);
-    }
-    Ok(RenderedAudio {
-        samples,
-        sample_rate: mono.sample_rate,
-    })
+struct WavData<'a> {
+    format_tag: u16,
+    channels: u16,
+    sample_rate: u32,
+    bits: u16,
+    data: &'a [u8],
 }
 
-/// # Errors
-///
-/// Returns a message for another format or a truncated file.
-pub fn decode_mono(bytes: &[u8]) -> Result<RenderedAudio, String> {
+fn parse(bytes: &[u8]) -> Result<WavData<'_>, String> {
     if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return Err(String::from("not a RIFF/WAVE file"));
     }
-    let mut offset = 12;
+    let mut offset = 12usize;
     let mut format_tag = 1u16;
     let mut channels = 0u16;
     let mut sample_rate = 0u32;
@@ -46,8 +31,14 @@ pub fn decode_mono(bytes: &[u8]) -> Result<RenderedAudio, String> {
             bytes[offset + 6],
             bytes[offset + 7],
         ]) as usize;
+        let body_start = offset
+            .checked_add(8)
+            .ok_or_else(|| String::from("WAV chunk offset overflow"))?;
+        let body_end = body_start
+            .checked_add(size)
+            .ok_or_else(|| String::from("WAV chunk length overflow"))?;
         let body = bytes
-            .get(offset + 8..offset + 8 + size)
+            .get(body_start..body_end)
             .ok_or("truncated WAV chunk")?;
         match id {
             b"fmt " if body.len() >= 16 => {
@@ -59,9 +50,11 @@ pub fn decode_mono(bytes: &[u8]) -> Result<RenderedAudio, String> {
             b"data" => data = Some(body),
             _ => {}
         }
-        offset += 8 + size + size % 2;
+        offset = body_end
+            .checked_add(size % 2)
+            .ok_or_else(|| String::from("WAV chunk offset overflow"))?;
     }
-    if channels == 0 || sample_rate == 0 {
+    if channels == 0 || sample_rate == 0 || bits == 0 {
         return Err(String::from("unsupported WAV format"));
     }
     if !matches!((format_tag, bits), (1, 16) | (1, 24) | (1, 32) | (3, 32)) {
@@ -69,49 +62,93 @@ pub fn decode_mono(bytes: &[u8]) -> Result<RenderedAudio, String> {
             "unsupported WAV format: tag {format_tag}, {bits} bits"
         ));
     }
-    let data = data.ok_or("no data chunk")?;
-    let bytes_per_sample = usize::from(bits / 8);
-    let frame = usize::from(channels) * bytes_per_sample;
-    let mut samples = Vec::with_capacity(data.len() / frame.max(1));
-    for chunk in data.chunks_exact(frame) {
-        let mut sum = 0.0_f32;
-        for channel in 0..usize::from(channels) {
-            let start = channel * bytes_per_sample;
-            let value = match (format_tag, bits) {
-                (3, 32) => f32::from_le_bytes([
-                    chunk[start],
-                    chunk[start + 1],
-                    chunk[start + 2],
-                    chunk[start + 3],
-                ]),
-                (1, 16) => {
-                    f32::from(i16::from_le_bytes([chunk[start], chunk[start + 1]]))
-                        / f32::from(i16::MAX)
-                }
-                (1, 24) => {
-                    let raw =
-                        i32::from_le_bytes([0, chunk[start], chunk[start + 1], chunk[start + 2]])
-                            >> 8;
-                    raw as f32 / 8_388_607.0
-                }
-                (1, 32) => {
-                    let raw = i32::from_le_bytes([
-                        chunk[start],
-                        chunk[start + 1],
-                        chunk[start + 2],
-                        chunk[start + 3],
-                    ]);
-                    raw as f32 / 2_147_483_647.0
-                }
-                _ => 0.0,
-            };
-            sum += value;
+    Ok(WavData {
+        format_tag,
+        channels,
+        sample_rate,
+        bits,
+        data: data.ok_or("no data chunk")?,
+    })
+}
+
+fn sample(chunk: &[u8], start: usize, format_tag: u16, bits: u16) -> f32 {
+    match (format_tag, bits) {
+        (3, 32) => f32::from_le_bytes([
+            chunk[start],
+            chunk[start + 1],
+            chunk[start + 2],
+            chunk[start + 3],
+        ]),
+        (1, 16) => {
+            f32::from(i16::from_le_bytes([chunk[start], chunk[start + 1]])) / f32::from(i16::MAX)
         }
-        samples.push((sum / f32::from(channels)).clamp(-1.0, 1.0));
+        (1, 24) => {
+            let raw =
+                i32::from_le_bytes([0, chunk[start], chunk[start + 1], chunk[start + 2]]) >> 8;
+            raw as f32 / 8_388_607.0
+        }
+        (1, 32) => {
+            let raw = i32::from_le_bytes([
+                chunk[start],
+                chunk[start + 1],
+                chunk[start + 2],
+                chunk[start + 3],
+            ]);
+            raw as f32 / 2_147_483_647.0
+        }
+        _ => 0.0,
+    }
+}
+
+/// Decodes WAV into a stereo buffer, preserving the first two channels.
+///
+/// A mono file is duplicated to both sides; channels beyond the first two are
+/// ignored.
+///
+/// # Errors
+///
+/// Returns a message for another format or a truncated file.
+pub fn decode_stereo(bytes: &[u8]) -> Result<RenderedAudio, String> {
+    let wav = parse(bytes)?;
+    let bytes_per_sample = usize::from(wav.bits / 8);
+    let frame = usize::from(wav.channels) * bytes_per_sample;
+    let mut samples = Vec::with_capacity(wav.data.len() / frame * 2);
+    for chunk in wav.data.chunks_exact(frame) {
+        let left = sample(chunk, 0, wav.format_tag, wav.bits);
+        let right = if wav.channels > 1 {
+            sample(chunk, bytes_per_sample, wav.format_tag, wav.bits)
+        } else {
+            left
+        };
+        samples.push(left.clamp(-1.0, 1.0));
+        samples.push(right.clamp(-1.0, 1.0));
     }
     Ok(RenderedAudio {
         samples,
-        sample_rate,
+        sample_rate: wav.sample_rate,
+    })
+}
+
+/// Decodes WAV into mono samples by averaging every channel.
+///
+/// # Errors
+///
+/// Returns a message for another format or a truncated file.
+pub fn decode_mono(bytes: &[u8]) -> Result<RenderedAudio, String> {
+    let wav = parse(bytes)?;
+    let bytes_per_sample = usize::from(wav.bits / 8);
+    let frame = usize::from(wav.channels) * bytes_per_sample;
+    let mut samples = Vec::with_capacity(wav.data.len() / frame);
+    for chunk in wav.data.chunks_exact(frame) {
+        let mut sum = 0.0_f32;
+        for channel in 0..usize::from(wav.channels) {
+            sum += sample(chunk, channel * bytes_per_sample, wav.format_tag, wav.bits);
+        }
+        samples.push((sum / f32::from(wav.channels)).clamp(-1.0, 1.0));
+    }
+    Ok(RenderedAudio {
+        samples,
+        sample_rate: wav.sample_rate,
     })
 }
 
@@ -152,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    fn stereo_decode_duplicates_frames() {
+    fn stereo_decode_preserves_both_channels() {
         let audio = RenderedAudio {
             samples: vec![0.25, -0.25, 0.5, -0.5, 0.1, -0.1, 0.2, -0.2],
             sample_rate: 48_000,
@@ -162,7 +199,23 @@ mod tests {
         assert_eq!(decoded.samples.len(), 8);
         assert_eq!(decoded.frames(), 4);
         assert!((decoded.duration_seconds() - 4.0 / 48_000.0).abs() < 1.0e-9);
-        assert_eq!(decoded.samples[0], decoded.samples[1]);
+        assert!((decoded.samples[0] - 0.25).abs() < 0.001);
+        assert!((decoded.samples[1] + 0.25).abs() < 0.001);
+    }
+
+    #[test]
+    fn stereo_pcm_keeps_left_and_right_separate() {
+        let mut data = Vec::new();
+        for (left, right) in [(0.5_f32, -0.5_f32), (0.25, -0.25)] {
+            data.extend_from_slice(&((left * 32767.0) as i16).to_le_bytes());
+            data.extend_from_slice(&((right * 32767.0) as i16).to_le_bytes());
+        }
+        let bytes = wav_header(1, 2, 48_000, 16, &data);
+        let decoded = decode_stereo(&bytes).expect("stereo wav");
+        assert!((decoded.samples[0] - 0.5).abs() < 0.001);
+        assert!((decoded.samples[1] + 0.5).abs() < 0.001);
+        assert!((decoded.samples[2] - 0.25).abs() < 0.001);
+        assert!((decoded.samples[3] + 0.25).abs() < 0.001);
     }
 
     #[test]

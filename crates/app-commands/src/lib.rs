@@ -633,10 +633,11 @@ impl EditSession {
             return Err(CommandError::Validation(String::from("the split is empty")));
         }
         clips[index].length = tick - original.start;
+        let right_length = original.end() - tick;
         let mut right = original;
         right.id = new_id;
         right.start = tick;
-        right.length = right.end() - tick;
+        right.length = right_length;
         if right.length <= 0 {
             return Err(CommandError::Validation(String::from("the split is empty")));
         }
@@ -1712,6 +1713,9 @@ mod tests {
         edit.split_clip(track, 1200, project::ClipId::new(2).expect("valid"))
             .expect("split");
         assert_eq!(edit.song().tracks[0].clips.len(), 2);
+        assert_eq!(edit.song().tracks[0].clips[0].length, 240);
+        assert_eq!(edit.song().tracks[0].clips[1].start, 1200);
+        assert_eq!(edit.song().tracks[0].clips[1].length, 240);
 
         edit.remove_clip(track, project::ClipId::new(2).expect("valid"))
             .expect("remove");

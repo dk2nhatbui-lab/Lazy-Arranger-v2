@@ -320,20 +320,71 @@ fn save_ai_key(settings_path: &Path, key: &str) -> Result<(), String> {
         let _ = std::fs::remove_file(&path);
         return Ok(());
     }
-    std::fs::write(&path, key.trim()).map_err(|error| format!("{}: {error}", path.display()))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("{}: {error}", parent.display()))?;
+    }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        file.write_all(key.trim().as_bytes())
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&path, key.trim())
+            .map_err(|error| format!("{}: {error}", path.display()))?;
     }
     Ok(())
 }
 
 impl Settings {
-    /// Path of the settings file in the current directory.
+    /// Per-user directory for settings, keys, profiles and recent projects.
+    #[must_use]
+    pub fn data_dir() -> PathBuf {
+        if let Ok(path) = std::env::var("ARRANGER_DATA_DIR")
+            && !path.trim().is_empty()
+        {
+            return PathBuf::from(path);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(home) = std::env::var("HOME") {
+                return PathBuf::from(home).join("Library/Application Support/Lazy Arranger");
+            }
+        }
+        #[cfg(windows)]
+        {
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                return PathBuf::from(appdata).join("Lazy Arranger");
+            }
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            if let Ok(config) = std::env::var("XDG_CONFIG_HOME")
+                && !config.trim().is_empty()
+            {
+                return PathBuf::from(config).join("lazy-arranger");
+            }
+            if let Ok(home) = std::env::var("HOME") {
+                return PathBuf::from(home).join(".config/lazy-arranger");
+            }
+        }
+        PathBuf::from(".")
+    }
+
+    /// Path of the per-user settings file.
     #[must_use]
     pub fn path() -> PathBuf {
-        PathBuf::from(FILE)
+        Self::data_dir().join(FILE)
     }
 
     /// Reads settings; missing or malformed lines fall back to defaults.

@@ -848,6 +848,13 @@ impl ProjectFile {
                 supported: SCHEMA_VERSION,
             });
         }
+        let signature = file.song.time_signature;
+        if signature.numerator == 0 || signature.denominator == 0 {
+            return Err(ProjectError::Invalid(format!(
+                "time signature {}/{} is invalid",
+                signature.numerator, signature.denominator
+            )));
+        }
         let mut file = file;
         file.migrate()?;
         file.check()?;
@@ -1047,6 +1054,26 @@ mod tests {
         let json = serde_json::to_string(&target).expect("json");
         let back: AutomationTarget = serde_json::from_str(&json).expect("parse");
         assert_eq!(back, target);
+    }
+
+    #[test]
+    fn zero_time_signature_is_rejected_not_panicking() {
+        let mut project = ProjectFile::new(Song::default());
+        project.song.time_signature.denominator = 0;
+        let json = serde_json::to_string(&project).expect("serialize");
+        assert!(ProjectFile::from_json(&json).is_err());
+    }
+
+    #[test]
+    fn an_overflowing_note_is_rejected_not_panicking() {
+        let mut project = ProjectFile::new(Song::default());
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        let mut note = note(1, i64::MAX, 1, "C4");
+        note.duration = 1;
+        track.notes.push(note);
+        project.song.tracks.push(track);
+        let json = serde_json::to_string(&project).expect("serialize");
+        assert!(ProjectFile::from_json(&json).is_err());
     }
 
     #[test]
