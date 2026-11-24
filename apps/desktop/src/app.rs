@@ -12603,6 +12603,21 @@ impl eframe::App for ShellApp {
                             .collect();
                         ui.horizontal_wrapped(|ui| {
                             ui.label(egui::RichText::new("Score").strong());
+                            let pdf_title = if project.song.name.is_empty() {
+                                "Lazy Arranger score"
+                            } else {
+                                project.song.name.as_str()
+                            };
+                            if let Some(text) = score::pdf::unencodable_text(&project.song, pdf_title) {
+                                ui.label(
+                                    egui::RichText::new("PDF: ?")
+                                        .size(9.0)
+                                        .color(theme::recording()),
+                                )
+                                .on_hover_text(format!(
+                                    "WinAnsi PDF cannot encode {text:?}; it will print as ?"
+                                ));
+                            }
                             ui.checkbox(&mut self.score_all_tracks, "All tracks");
                             if self.score_all_tracks {
                                 ui.checkbox(&mut self.score_follow, "Follow");

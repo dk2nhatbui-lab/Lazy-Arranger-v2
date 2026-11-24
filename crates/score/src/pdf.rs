@@ -1144,6 +1144,34 @@ fn short_track_name(name: &str) -> String {
     short
 }
 
+fn pdf_encodable(character: char) -> bool {
+    character.is_ascii()
+        || u32::from(character) <= 0xFF
+        || matches!(
+            character,
+            '\u{2013}'
+                | '\u{2014}'
+                | '\u{2018}'
+                | '\u{2019}'
+                | '\u{201c}'
+                | '\u{201d}'
+                | '\u{2026}'
+        )
+}
+
+/// The first title, track, lyric or marker text the WinAnsi PDF cannot encode.
+#[must_use]
+pub fn unencodable_text(song: &project::Song, title: &str) -> Option<String> {
+    let mut texts = vec![title];
+    texts.extend(song.tracks.iter().map(|track| track.name.as_str()));
+    texts.extend(song.lyrics.iter().map(|lyric| lyric.text.as_str()));
+    texts.extend(song.markers.iter().map(|marker| marker.name.as_str()));
+    texts
+        .into_iter()
+        .find(|text| !text.chars().all(pdf_encodable))
+        .map(str::to_string)
+}
+
 fn escape(text: &str) -> String {
     // The PDF uses Helvetica with WinAnsiEncoding. Encode representable
     // characters as octal bytes and replace the rest rather than emitting
@@ -1285,6 +1313,18 @@ mod tests {
         let text = String::from_utf8_lossy(&one);
         assert!(text.contains("(Piano) Tj"));
         assert!(!text.contains("(Bass) Tj"));
+    }
+
+    #[test]
+    fn unsupported_pdf_text_is_reported() {
+        let mut song = Song::new("Text", 120.0);
+        song.lyrics.push(project::song::LyricEvent {
+            tick: 0,
+            text: String::from("日本語"),
+        });
+        assert_eq!(unencodable_text(&song, "Title").as_deref(), Some("日本語"));
+        song.lyrics[0].text = String::from("café");
+        assert!(unencodable_text(&song, "Title").is_none());
     }
 
     #[test]
