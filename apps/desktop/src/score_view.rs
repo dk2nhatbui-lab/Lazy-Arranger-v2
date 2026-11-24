@@ -601,6 +601,21 @@ pub fn show_full(
                     );
                 }
             }
+            if system_index == total_systems.saturating_sub(1)
+                && let Some(last) = system.measures.last()
+            {
+                let x = page_rect.left()
+                    + first_system.map_or(last.x_end, |sys| {
+                        score::full_score_x(system, sys, last.x_end)
+                    }) * scale;
+                painter.line_segment(
+                    [
+                        Pos2::new(x - 3.0 * scale, top),
+                        Pos2::new(x - 3.0 * scale, top + 4.0 * line_gap * scale),
+                    ],
+                    Stroke::new(1.4_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+                );
+            }
             for rest in engraved.rests.iter().filter(|rest| {
                 rest.page == source_page
                     && rest.measure + 1 >= first_number

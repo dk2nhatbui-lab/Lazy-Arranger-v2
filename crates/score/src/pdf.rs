@@ -727,6 +727,21 @@ pub fn to_full_pdf_with_frames(
                     escape(&short_track_name(&staff.name)),
                     y = settings.page_height - (top + 2.0 * line_gap)
                 );
+                if system_index == total_systems.saturating_sub(1)
+                    && let Some(last) = system.measures.last()
+                {
+                    let x = first_system.map_or(last.x_end, |sys| {
+                        crate::full_score_x(system, sys, last.x_end)
+                    });
+                    let _ = writeln!(
+                        content,
+                        "0.06 0.06 0.06 RG 1.4 w {:.1} {:.1} m {:.1} {:.1} l S",
+                        x - 3.0,
+                        settings.page_height - top,
+                        x - 3.0,
+                        settings.page_height - (top + 4.0 * line_gap)
+                    );
+                }
                 for rest in staff.rests.iter().filter(|rest| {
                     rest.page == *page
                         && rest.measure + 1 >= first_number
