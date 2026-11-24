@@ -232,7 +232,7 @@ pub fn from_notes(
 ) -> Style {
     let mut style = Style::new(name, source_chord);
     let mut section = StyleSection::new("Main A", length_ticks.max(1));
-    let mut part = StylePart::new("Audio", ChordRule::default_for_channel(9));
+    let mut part = StylePart::new("Audio", ChordRule::default_for_channel(12));
     part.notes = notes;
     if !part.notes.is_empty() {
         section.parts.push(part);
@@ -760,6 +760,10 @@ mod tests {
         assert_eq!(style.sections.len(), 1);
         assert_eq!(style.sections[0].parts.len(), 1);
         assert_eq!(style.sections[0].parts[0].notes.len(), 1);
+        assert_ne!(
+            style.sections[0].parts[0].rule.transpose.ntt,
+            crate::rules::Ntt::Bypass
+        );
     }
 
     #[test]

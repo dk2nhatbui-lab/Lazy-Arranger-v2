@@ -1359,7 +1359,7 @@ impl Editor {
             track.audio = Some(project::song::AudioRef {
                 path: take.path.display().to_string(),
                 start,
-                length: audio::chords::to_ticks(take.seconds, bpm),
+                length: audio::chords::to_ticks(take.seconds, bpm).max(1),
                 offset: 0,
 
                 fade_in: 0,
@@ -1392,7 +1392,7 @@ impl Editor {
             decoded.samples.len() as f64 / f64::from(decoded.sample_rate)
         };
         let bpm = self.song().tempo_map.bpm_at(start);
-        let length = audio::chords::to_ticks(seconds, bpm);
+        let length = audio::chords::to_ticks(seconds, bpm).max(1);
         let track_id = self
             .session
             .next_track_id()
@@ -1702,7 +1702,7 @@ impl Editor {
             .map_err(|error| format!("could not read {}: {error}", wav.display()))?;
         let info = audio::wav::info(&bytes)?;
         let bpm = self.song().tempo_map.bpm_at(start);
-        let length = audio::chords::to_ticks(info.seconds, bpm);
+        let length = audio::chords::to_ticks(info.seconds, bpm).max(1);
         let mut takes = self
             .song()
             .tracks

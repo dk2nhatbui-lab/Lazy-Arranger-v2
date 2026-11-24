@@ -2200,7 +2200,14 @@ impl ShellApp {
         }
         if let Some(player) = &self.player {
             let seconds = player.frame() as f64 / f64::from(audio::SAMPLE_RATE);
-            self.position = self.song().tempo_map.tick_at_seconds(seconds);
+            let loop_start = if self.loop_enabled && self.loop_buffer.is_some() {
+                self.loop_region
+                    .map(|(start, _)| self.song().tempo_map.seconds_at(start))
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            self.position = self.song().tempo_map.tick_at_seconds(loop_start + seconds);
             self.playing = player.is_playing();
             if self.loop_enabled
                 && self.playing
@@ -8497,7 +8504,7 @@ impl ShellApp {
                             if let Some(path) = &self.downloaded_update
                                 && ui.button("Open download").clicked()
                             {
-                                crate::update::open_url(&path.display().to_string());
+                                crate::update::open_path(path);
                             }
                             if ui.button("Skip this version").clicked() {
                                 self.settings.skipped_update = release.tag.clone();
@@ -10553,10 +10560,13 @@ impl ShellApp {
                                 )
                                 .clicked()
                             {
-                                let path = std::env::temp_dir().join(format!(
-                                    "lazy-arranger-input-{}.wav",
-                                    std::process::id()
-                                ));
+                                let folder = crate::settings::Settings::data_dir().join("audio");
+                                let stamp = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|duration| duration.as_nanos())
+                                    .unwrap_or(0);
+                                let path = folder.join(format!("take-{stamp}.wav"));
+                                let _ = std::fs::create_dir_all(&folder);
                                 let seconds = self.audio_record_seconds;
                                 let start = self.position.max(0);
                                 let input = self.settings.audio_input.clone();
@@ -11044,6 +11054,12 @@ impl ShellApp {
         let imported = kind != ProjectKind::Json;
         match load_project(path) {
             Ok(project) => {
+                if let Some(player) = self.player.take() {
+                    player.pause();
+                    player.release();
+                }
+                self.playing = false;
+                self.loop_buffer = None;
                 match Editor::new(project) {
                     Ok(editor) => self.editor = editor,
                     Err(error) => {
@@ -11980,7 +11996,7 @@ impl eframe::App for ShellApp {
                                 )
                                 .show_ui(ui, |ui| {
                                     for (id, name) in &score_tracks {
-                                        ui.selectable_value(&mut roll.selected, Some(*id), name);
+                                        ui.selectable_value(&mut self.score_track, Some(*id), name);
                                     }
                                 });
                             ui.label("Octave");
@@ -12053,20 +12069,20 @@ impl eframe::App for ShellApp {
                                 self.print_dialog = true;
                             }
                         });
-                        if let Some(track) = self
+                        let track = self
                             .score_track
-                            .or(roll.selected)
-                            .or_else(|| project.song.tracks.first().map(|track| track.id))
-                        {
-                            let grand_staff = self.score_grand
-                                || needs_grand_staff(
-                                    project
-                                        .song
-                                        .tracks
-                                        .iter()
-                                        .find(|entry| entry.id == track)
-                                        .unwrap_or(&project.song.tracks[0]),
-                                );
+                            .filter(|track| project.song.tracks.iter().any(|entry| entry.id == *track))
+                            .or_else(|| {
+                                roll.selected.filter(|track| {
+                                    project.song.tracks.iter().any(|entry| entry.id == *track)
+                                })
+                            })
+                            .or_else(|| project.song.tracks.first().map(|track| track.id));
+                        if let Some(track_song) = track.and_then(|track| {
+                            project.song.tracks.iter().find(|entry| entry.id == track)
+                        }) {
+                            let track = track_song.id;
+                            let grand_staff = self.score_grand || needs_grand_staff(track_song);
                             let score_settings = score::Settings {
                                 grand_staff,
                                 ..score::Settings::default()

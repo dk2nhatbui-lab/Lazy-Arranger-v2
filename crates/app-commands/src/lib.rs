@@ -1095,32 +1095,18 @@ impl EditSession {
                 self.track_mut(*track)?.automation = lanes.clone();
             }
             Command::FreezeTrack { track, reference } => {
-                if let Some(entry) = self
-                    .project
-                    .song
-                    .tracks
-                    .iter_mut()
-                    .find(|entry| entry.id == *track)
-                {
-                    entry.notes.clear();
-                    entry.audio = Some(reference.clone());
-                }
+                let entry = self.track_mut(*track)?;
+                entry.notes.clear();
+                entry.audio = Some(reference.clone());
             }
             Command::RestoreTrack {
                 track,
                 notes,
                 audio,
             } => {
-                if let Some(entry) = self
-                    .project
-                    .song
-                    .tracks
-                    .iter_mut()
-                    .find(|entry| entry.id == *track)
-                {
-                    entry.notes = notes.clone();
-                    entry.audio = audio.clone();
-                }
+                let entry = self.track_mut(*track)?;
+                entry.notes = notes.clone();
+                entry.audio = audio.clone();
             }
             Command::SetAudioRef { track, reference } => {
                 self.track_mut(*track)?.audio = reference.clone();
@@ -1147,26 +1133,10 @@ impl EditSession {
                 self.track_mut(*track)?.patch = patch.as_deref().copied();
             }
             Command::SetSlurs { track, slurs } => {
-                if let Some(entry) = self
-                    .project
-                    .song
-                    .tracks
-                    .iter_mut()
-                    .find(|entry| entry.id == *track)
-                {
-                    entry.slurs = slurs.clone();
-                }
+                self.track_mut(*track)?.slurs = slurs.clone();
             }
             Command::SetSoundFont { track, soundfont } => {
-                if let Some(entry) = self
-                    .project
-                    .song
-                    .tracks
-                    .iter_mut()
-                    .find(|entry| entry.id == *track)
-                {
-                    entry.soundfont = soundfont.clone();
-                }
+                self.track_mut(*track)?.soundfont = soundfont.clone();
             }
             Command::SetPlugins { track, plugins } => {
                 self.track_mut(*track)?.plugins = plugins.clone();

@@ -62,6 +62,22 @@ mod tests {
     }
 
     #[test]
+    fn divisions_scale_durations_and_the_work_title_is_read() {
+        let xml = r#"<?xml version="1.0"?>
+        <score-partwise version="4.0">
+          <work><work-title>External score</work-title></work>
+          <part-list><score-part id="P1"><part-name>Keys</part-name></score-part></part-list>
+          <part id="P1"><measure number="1">
+            <attributes><divisions>480</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+            <note><pitch><step>C</step><octave>4</octave></pitch><duration>480</duration></note>
+          </measure></part>
+        </score-partwise>"#;
+        let song = import(xml).expect("import");
+        assert_eq!(song.name, "External score");
+        assert_eq!(song.tracks[0].notes[0].duration, music_core::PPQ);
+    }
+
+    #[test]
     fn overlapping_notes_keep_their_starts_through_backup() {
         let mut song = Song::new("Overlap", 120.0);
         let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");

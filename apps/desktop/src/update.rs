@@ -99,6 +99,19 @@ pub fn open_url(url: &str) {
     let _ = std::process::Command::new(program).arg(url).spawn();
 }
 
+/// Opens a downloaded file in the platform file manager.
+pub fn open_path(path: &std::path::Path) {
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(target_os = "linux")]
+    let program = "xdg-open";
+    #[cfg(windows)]
+    let program = "explorer";
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    let program = "open";
+    let _ = std::process::Command::new(program).arg(path).spawn();
+}
+
 /// Text for a release response.
 #[must_use]
 pub fn describe_release(current: &str, tag: &str, url: &str) -> String {

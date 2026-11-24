@@ -87,13 +87,39 @@ pub fn chat_with_history(
         "Content-Type: application/json",
     ]);
     let key = config.api_key.trim();
+    let mut header_file = None;
     if !key.is_empty() {
-        command.args(["-H", &format!("Authorization: Bearer {key}")]);
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-ai-header-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
+            .open(&path)
+            .map_err(|error| format!("AI key file: {error}"))?;
+        use std::io::Write;
+        write!(file, "Authorization: Bearer {key}")
+            .map_err(|error| format!("AI key file: {error}"))?;
+        command.arg("-H").arg(format!("@{}", path.display()));
+        header_file = Some(path);
     }
     let output = command
         .args(["-d", &body.to_string(), config.url.trim()])
-        .output()
-        .map_err(|error| format!("curl: {error}"))?;
+        .output();
+    if let Some(path) = header_file {
+        let _ = std::fs::remove_file(path);
+    }
+    let output = output.map_err(|error| format!("curl: {error}"))?;
     if !output.status.success() {
         return Err(format!(
             "endpoint: {}",

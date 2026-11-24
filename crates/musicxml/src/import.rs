@@ -114,21 +114,23 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
         ..roxmltree::ParsingOptions::default()
     };
     let document = roxmltree::Document::parse_with_options(xml, options)?;
-    let root = document.root_element();
-    let title = text_of(root, "work")
-        .and_then(|_| {
-            root.children()
-                .find(|node| node.has_tag_name("work"))
-                .and_then(|work| text_of(work, "work-title"))
-        })
-        .unwrap_or_else(|| String::from("Imported score"));
+    let title = document
+        .descendants()
+        .find(|node| node.has_tag_name("work-title"))
+        .and_then(|node| node.text())
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .unwrap_or("Imported score")
+        .to_string();
     let tempo = document
         .descendants()
-        .find(|node| node.has_tag_name("sound"))
-        .and_then(|node| node.attribute("tempo"))
+        .filter(|node| node.has_tag_name("sound"))
+        .find_map(|node| node.attribute("tempo"))
         .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value > 0.0)
         .unwrap_or(120.0);
     let mut song = Song::new(title, tempo);
+    let mut divisions = 1.0_f64;
     let names: Vec<(String, String)> = document
         .descendants()
         .filter(|node| node.has_tag_name("score-part"))
@@ -179,8 +181,10 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                         meter = found;
                     }
                 }
-                if let Some(divisions) = number_of(attributes, "divisions") {
-                    let _ = divisions;
+                if let Some(value) = number_of(attributes, "divisions")
+                    && value > 0.0
+                {
+                    divisions = value;
                 }
             }
             for direction in measure
@@ -207,7 +211,7 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
             for node in measure.children() {
                 if node.has_tag_name("backup") {
                     let units = number_of(node, "duration").unwrap_or(0.0);
-                    let back = (units / 960.0 * PPQ as f64).round().max(0.0) as Tick;
+                    let back = (units / divisions * PPQ as f64).round().max(0.0) as Tick;
                     cursor = cursor.saturating_sub(back).max(measure_start);
                     last_start = cursor;
                     continue;
@@ -217,7 +221,7 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                 }
                 let note = node;
                 let duration_units = number_of(note, "duration").unwrap_or(0.0);
-                let duration = (duration_units / 960.0 * PPQ as f64).round().max(0.0) as Tick;
+                let duration = (duration_units / divisions * PPQ as f64).round().max(0.0) as Tick;
                 let is_rest = note.children().any(|child| child.has_tag_name("rest"));
                 let is_chord = note.children().any(|child| child.has_tag_name("chord"));
                 let start = if is_chord { last_start } else { cursor };

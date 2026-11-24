@@ -1903,6 +1903,11 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .get("name")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ToolError::Arguments(String::from("name is required")))?;
+            if index >= 4096 {
+                return Err(ToolError::Arguments(String::from(
+                    "scene index must be below 4096",
+                )));
+            }
             let mut names = session.song().scene_names.clone();
             if names.len() <= index {
                 names.resize(index + 1, String::new());

@@ -4,6 +4,9 @@
 //! error and never reaches a tool. The listener is bound to 127.0.0.1 only.
 
 use std::io::{BufRead, BufReader, Write};
+
+/// Refuse a single JSON-RPC line larger than this.
+const MAX_LINE_BYTES: usize = 1_048_576;
 use std::net::{TcpListener, TcpStream};
 
 use app_commands::EditSession;
@@ -76,14 +79,31 @@ pub fn serve_stream(
     token: &str,
     stream: TcpStream,
 ) -> std::io::Result<()> {
-    let reader = BufReader::new(stream.try_clone()?);
+    let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
-    for line in reader.lines() {
-        let line = line?;
+    loop {
+        let mut bytes = Vec::new();
+        let read = reader.read_until(b'\n', &mut bytes)?;
+        if read == 0 {
+            break;
+        }
+        if bytes.len() > MAX_LINE_BYTES {
+            let reply = json!({
+                "jsonrpc": "2.0",
+                "id": Value::Null,
+                "error": {"code": -32600, "message": "request line is too large"},
+            });
+            writeln!(writer, "{reply}")?;
+            writer.flush()?;
+            break;
+        }
+        let Ok(line) = std::str::from_utf8(&bytes) else {
+            continue;
+        };
         if line.trim().is_empty() {
             continue;
         }
-        if let Some(reply) = handle_line(session, token, &line) {
+        if let Some(reply) = handle_line(session, token, line) {
             writeln!(writer, "{reply}")?;
             writer.flush()?;
         }

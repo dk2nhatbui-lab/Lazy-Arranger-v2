@@ -240,7 +240,7 @@ impl PerformanceRecorder {
 /// together: drums on channel 10, then bass, chords, melody or a pad.
 #[must_use]
 pub fn part_label(channel: u8, notes: &[Note]) -> String {
-    if channel == 9 {
+    if channel == 10 {
         return String::from("Drums");
     }
     if notes.is_empty() {
@@ -744,7 +744,7 @@ mod label_tests {
 
     #[test]
     fn channels_and_ranges_name_a_part() {
-        assert_eq!(part_label(9, &[]), "Drums");
+        assert_eq!(part_label(10, &[]), "Drums");
         assert_eq!(
             part_label(2, &[note(1, 0, "C2"), note(2, 960, "G2")]),
             "Bass"

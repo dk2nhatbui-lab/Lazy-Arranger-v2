@@ -72,6 +72,39 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
     let mut track_ids: HashSet<u32> = HashSet::new();
     for (track_index, track) in song.tracks.iter().enumerate() {
         let track_path = format!("song.tracks[{track_index}]");
+        if track.volume > 127 || track.pan > 127 || track.send_level > 127 {
+            issues.push(issue(
+                Severity::Error,
+                format!("{track_path}.mix"),
+                String::from("volume, pan and send level must be 0..=127"),
+            ));
+        }
+        for (lane_index, lane) in track.automation.iter().enumerate() {
+            let mut previous = None;
+            for point in &lane.points {
+                if point.tick < 0
+                    || !point.value.is_finite()
+                    || !(0.0..=127.0).contains(&point.value)
+                {
+                    issues.push(issue(
+                        Severity::Error,
+                        format!("{track_path}.automation[{lane_index}]"),
+                        String::from(
+                            "automation points need a non-negative tick and value 0..=127",
+                        ),
+                    ));
+                    break;
+                }
+                if previous.is_some_and(|tick| point.tick < tick) {
+                    issues.push(issue(
+                        Severity::Warning,
+                        format!("{track_path}.automation[{lane_index}]"),
+                        String::from("automation points are not sorted"),
+                    ));
+                }
+                previous = Some(point.tick);
+            }
+        }
         for (slur_index, slur) in track.slurs.iter().enumerate() {
             if slur.start >= slur.end {
                 issues.push(issue(
@@ -82,7 +115,11 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
             }
         }
         if let Some(reference) = &track.audio
-            && (reference.fade_in < 0
+            && (reference.path.trim().is_empty()
+                || reference.start < 0
+                || reference.length <= 0
+                || reference.offset < 0
+                || reference.fade_in < 0
                 || reference.fade_out < 0
                 || (reference.length > 0
                     && reference.fade_in.saturating_add(reference.fade_out) > reference.length))
@@ -90,7 +127,9 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
             issues.push(issue(
                 Severity::Error,
                 format!("{track_path}.audio"),
-                String::from("fades must be non-negative and fit inside the audio length"),
+                String::from(
+                    "path is empty, start/offset negative, length non-positive, or fades do not fit",
+                ),
             ));
         }
         for (take_index, take) in track.takes.iter().enumerate() {
@@ -389,6 +428,24 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
         ));
     }
 
+    for (index, mark) in song.marks.iter().enumerate() {
+        if mark.tick < 0 {
+            issues.push(issue(
+                Severity::Error,
+                format!("song.marks[{index}].tick"),
+                String::from("negative mark tick"),
+            ));
+        }
+    }
+    for (index, lyric) in song.lyrics.iter().enumerate() {
+        if lyric.tick < 0 {
+            issues.push(issue(
+                Severity::Error,
+                format!("song.lyrics[{index}].tick"),
+                String::from("negative lyric tick"),
+            ));
+        }
+    }
     issues
 }
 
