@@ -2778,6 +2778,31 @@ impl ShellApp {
         }
     }
 
+    fn open_library_path(&mut self, path: &std::path::Path) -> Result<(), String> {
+        let extension = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if extension == "mid" || extension == "midi" {
+            let bytes =
+                std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+            let (song, _) = smf::decode(&bytes).map_err(|error| error.to_string())?;
+            self.replace_project(ProjectFile::new(song), &path.display().to_string());
+            self.project_path = Some(path.to_path_buf());
+            Ok(())
+        } else {
+            let imported = self.editor.import_style_tracks(path, "Playlist")?;
+            self.status = Some(format!(
+                "opened {} track(s), {} note(s) from {}",
+                imported.tracks,
+                imported.notes,
+                path.display()
+            ));
+            Ok(())
+        }
+    }
+
     /// The Music Finder and playlist browser.
     fn library_window(&mut self, context: &egui::Context) {
         if !self.library_open {
@@ -2885,39 +2910,9 @@ impl ShellApp {
                                         std::path::Path::new(&self.library_path),
                                         &path,
                                     );
-                                    let extension = path
-                                        .extension()
-                                        .and_then(|extension| extension.to_str())
-                                        .unwrap_or_default()
-                                        .to_ascii_lowercase();
-                                    if extension == "mid" || extension == "midi" {
-                                        match std::fs::read(&path)
-                                            .map_err(|error| format!("{}: {error}", path.display()))
-                                            .and_then(|bytes| {
-                                                smf::decode(&bytes)
-                                                    .map_err(|error| error.to_string())
-                                            }) {
-                                            Ok((song, _)) => {
-                                                self.replace_project(
-                                                    ProjectFile::new(song),
-                                                    &path.display().to_string(),
-                                                );
-                                                self.project_path = Some(path);
-                                            }
-                                            Err(error) => self.status = Some(error),
-                                        }
-                                    } else {
-                                        match self.editor.import_style_tracks(&path, "Playlist") {
-                                            Ok(imported) => {
-                                                self.status = Some(format!(
-                                                    "opened {} track(s), {} note(s) from {}",
-                                                    imported.tracks,
-                                                    imported.notes,
-                                                    path.display()
-                                                ));
-                                            }
-                                            Err(error) => self.status = Some(error),
-                                        }
+                                    match self.open_library_path(&path) {
+                                        Ok(()) => {}
+                                        Err(error) => self.status = Some(error),
                                     }
                                 }
                             }
@@ -14391,6 +14386,21 @@ mod tests {
                 .all(|note| note.channel.zero_based() == 9)
         );
         assert!(!recorded.notes.is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_playlist_midi_opens_as_a_project() {
+        let context = egui::Context::default();
+        let mut app = ShellApp::new(&context, demo_project(), None);
+        let song = demo_project().song;
+        let bytes = smf::encode(&song).expect("midi");
+        let path =
+            std::env::temp_dir().join(format!("lazy-arranger-playlist-{}.mid", std::process::id()));
+        std::fs::write(&path, bytes).expect("write");
+        app.open_library_path(&path).expect("open");
+        assert_eq!(app.song().tracks.len(), song.tracks.len());
+        assert_eq!(app.project_path.as_deref(), Some(path.as_path()));
         let _ = std::fs::remove_file(&path);
     }
 
