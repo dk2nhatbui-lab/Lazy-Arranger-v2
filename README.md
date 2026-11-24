@@ -49,13 +49,16 @@ section below is a row, so nothing is skipped. Status: **verified**,
 
 ## Scorecard
 
-39 sections at round 461: 0 fully verified beyond their Rust subset, 39 partial,
+39 sections at round 464: 0 fully verified beyond their Rust subset, 39 partial,
 0 missing. No section is missing at row level, but several rows are partial
 because they need hardware, proprietary formats, plugin editors or a model.
-The deepest partials are styles, full score, plugin editors, L6max device pages,
-Korg PCG, built-in speech/model services and hardware acceptance.
+The deepest partials are styles, full score, plugin editors, L6max device
+readback/transport, Korg PCG and built-in speech/model services. Hardware
+acceptance now covers MIDI input and CC on four controllers, L6max mute, cpal
+output and one printed score page; D-05 key input and L6max readback remain
+unverified.
 
-## State at round 461
+## State at round 464
 
 `cargo fmt`, `clippy -D warnings`, `cargo test --workspace` (**777 tests**) and
 rustdoc pass. A macOS bundle script creates an ad-hoc-signed
