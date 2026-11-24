@@ -1202,22 +1202,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             Ok(())
         }
         Commands::AudioToChords { wav, bpm, segment } => {
-            let decoded = audio::decode::decode_mono(&wav).or_else(|_| {
-                let bytes =
-                    fs::read(&wav).map_err(|error| format!("{}: {error}", wav.display()))?;
-                audio::wav::decode_mono(&bytes)
-            })?;
-            let found = audio::chords::recognize(&decoded.samples, decoded.sample_rate, segment);
-            let events: Vec<serde_json::Value> = found
-                .iter()
-                .map(|event| {
-                    serde_json::json!({
-                        "tick": audio::chords::to_ticks(event.start, bpm),
-                        "name": event.chord.format(music_core::Spelling::Sharp),
-                        "score": event.score
-                    })
-                })
-                .collect();
+            let events = audio_chords_json(&wav, bpm, segment)?;
             println!("{}", serde_json::to_string_pretty(&events)?);
             Ok(())
         }
@@ -2939,6 +2924,30 @@ fn mcp_call(
     Ok(())
 }
 
+fn audio_chords_json(
+    wav: &std::path::Path,
+    bpm: f64,
+    segment: f64,
+) -> Result<serde_json::Value, String> {
+    let decoded = audio::decode::decode_mono(wav).or_else(|_| {
+        let bytes = fs::read(wav).map_err(|error| format!("{}: {error}", wav.display()))?;
+        audio::wav::decode_mono(&bytes)
+    })?;
+    let found = audio::chords::recognize(&decoded.samples, decoded.sample_rate, segment);
+    Ok(serde_json::Value::Array(
+        found
+            .iter()
+            .map(|event| {
+                serde_json::json!({
+                    "tick": audio::chords::to_ticks(event.start, bpm),
+                    "name": event.chord.format(music_core::Spelling::Sharp),
+                    "score": event.score
+                })
+            })
+            .collect(),
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn groove_from_audio(
     audio_path: &PathBuf,
@@ -3639,6 +3648,36 @@ mod tests {
     #[test]
     fn the_command_tree_is_valid() {
         on_a_large_stack(|| Cli::command().debug_assert());
+    }
+
+    #[test]
+    fn audio_chords_json_recognizes_a_triad() {
+        let rate = 48_000_u32;
+        let mut samples = vec![0.0_f32; rate as usize];
+        for (index, sample) in samples.iter_mut().enumerate() {
+            let time = index as f32 / rate as f32;
+            *sample = [261.63_f32, 329.63, 392.0]
+                .iter()
+                .map(|hz| (std::f32::consts::TAU * hz * time).sin())
+                .sum::<f32>()
+                / 3.0;
+        }
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-cli-chords-{}.wav",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            audio::RenderedAudio {
+                samples,
+                sample_rate: rate,
+            }
+            .to_wav32f(),
+        )
+        .expect("wav");
+        let value = audio_chords_json(&path, 120.0, 0.5).expect("chords");
+        let _ = std::fs::remove_file(&path);
+        assert!(value.as_array().is_some_and(|chords| !chords.is_empty()));
     }
 
     #[test]
