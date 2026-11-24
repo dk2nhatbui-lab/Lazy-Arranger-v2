@@ -870,6 +870,7 @@ pub struct ShellApp {
     preview_player: Option<audio::player::Player>,
     selected_clip: Option<(TrackId, project::ClipId)>,
     selected_clips: Vec<(TrackId, project::ClipId)>,
+    clip_clipboard: Vec<(TrackId, project::song::Clip)>,
     chord_dialog: bool,
     chord_dialog_target: Tick,
     reharmonize_dialog: bool,
@@ -1232,6 +1233,7 @@ impl ShellApp {
             preview_player: None,
             selected_clip: None,
             selected_clips: Vec::new(),
+            clip_clipboard: Vec::new(),
             chord_dialog: false,
             chord_dialog_target: 0,
             reharmonize_dialog: false,
@@ -1601,6 +1603,10 @@ impl ShellApp {
         });
         let score_typing =
             score_typing(self.view, self.score_entry, context.wants_keyboard_input());
+        let copy_clips = !score_typing
+            && context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::C));
+        let paste_clips = !score_typing
+            && context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::V));
         if context.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::F1)) {
             self.shortcuts_open = true;
         }
@@ -1741,6 +1747,45 @@ impl ShellApp {
                     Err(error) => self.status = Some(error),
                 }
             }
+        }
+        if copy_clips {
+            let mut selected = self.selected_clips.clone();
+            if let Some(clip) = self.selected_clip {
+                selected.push(clip);
+            }
+            selected.sort_unstable();
+            selected.dedup();
+            self.clip_clipboard = selected
+                .into_iter()
+                .filter_map(|(track, clip)| {
+                    self.song()
+                        .tracks
+                        .iter()
+                        .find(|entry| entry.id == track)
+                        .and_then(|entry| entry.clips.iter().find(|entry| entry.id == clip))
+                        .cloned()
+                        .map(|clip| (track, clip))
+                })
+                .collect();
+            if !self.clip_clipboard.is_empty() {
+                self.status = Some(format!("copied {} clip(s)", self.clip_clipboard.len()));
+            }
+        }
+        if paste_clips && !self.clip_clipboard.is_empty() {
+            let earliest = self
+                .clip_clipboard
+                .iter()
+                .map(|(_, clip)| clip.start)
+                .min()
+                .unwrap_or(0);
+            let mut pasted = 0;
+            for (track, clip) in self.clip_clipboard.clone() {
+                let start = self.position + clip.start.saturating_sub(earliest);
+                if self.editor.add_clip(track, start, clip.length).is_ok() {
+                    pasted += 1;
+                }
+            }
+            self.status = Some(format!("pasted {pasted} clip(s)"));
         }
         if delete {
             if !self.selected_notes.is_empty() {
