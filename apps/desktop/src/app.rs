@@ -953,6 +953,7 @@ pub struct ShellApp {
     ai_pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     assistant_tool_rounds: usize,
     window_size: egui::Vec2,
+    window_pos: Option<egui::Pos2>,
     assistant_proposal: Option<AssistantProposal>,
     available_update: Option<crate::update::Release>,
     update_download: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>>,
@@ -1329,6 +1330,10 @@ impl ShellApp {
             ai_pending: None,
             assistant_tool_rounds: 0,
             window_size: egui::vec2(settings.window_width, settings.window_height),
+            window_pos: match (settings.window_x, settings.window_y) {
+                (Some(x), Some(y)) => Some(egui::pos2(x, y)),
+                _ => None,
+            },
             assistant_proposal: None,
             available_update: None,
             update_download: None,
@@ -12129,6 +12134,9 @@ impl eframe::App for ShellApp {
         if let Some(rect) = context.input(|input| input.viewport().inner_rect) {
             self.window_size = rect.size();
         }
+        if let Some(rect) = context.input(|input| input.viewport().outer_rect) {
+            self.window_pos = Some(rect.min);
+        }
         if self.view != self.last_view {
             self.last_view = self.view;
             self.settings.view = self.view.as_str().to_string();
@@ -13733,6 +13741,10 @@ impl eframe::App for ShellApp {
             self.settings.timeline_zoom = self.timeline_zoom;
             self.settings.waveform_zoom = self.waveform_zoom;
             self.settings.score_zoom = self.score_zoom;
+            if let Some(position) = self.window_pos {
+                self.settings.window_x = Some(position.x);
+                self.settings.window_y = Some(position.y);
+            }
             let _ = self.settings.save(&crate::settings::Settings::path());
         }
     }

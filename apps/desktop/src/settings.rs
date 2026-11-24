@@ -197,6 +197,10 @@ pub struct Settings {
     pub waveform_zoom: f32,
     /// Score zoom factor.
     pub score_zoom: f32,
+    /// Last window x position.
+    pub window_x: Option<f32>,
+    /// Last window y position.
+    pub window_y: Option<f32>,
     /// Last opened or saved project path.
     pub last_project: Option<String>,
     /// Show guitar frames in the full score.
@@ -297,6 +301,8 @@ impl Default for Settings {
             timeline_zoom: 1.0,
             waveform_zoom: 1.0,
             score_zoom: 1.0,
+            window_x: None,
+            window_y: None,
             last_project: None,
             score_frames: false,
             keyboard: None,
@@ -481,6 +487,8 @@ impl Settings {
                 "waveform_zoom" => {
                     settings.waveform_zoom = value.parse::<f32>().unwrap_or(1.0).clamp(1.0, 8.0);
                 }
+                "window_x" => settings.window_x = value.parse::<f32>().ok(),
+                "window_y" => settings.window_y = value.parse::<f32>().ok(),
                 "score_zoom" => {
                     settings.score_zoom = value.parse::<f32>().unwrap_or(1.0).clamp(0.5, 3.0);
                 }
@@ -618,6 +626,9 @@ impl Settings {
         text.push_str(&format!("timeline_zoom = {:.3}\n", self.timeline_zoom));
         text.push_str(&format!("waveform_zoom = {:.3}\n", self.waveform_zoom));
         text.push_str(&format!("score_zoom = {:.3}\n", self.score_zoom));
+        if let (Some(x), Some(y)) = (self.window_x, self.window_y) {
+            text.push_str(&format!("window_x = {x:.1}\nwindow_y = {y:.1}\n"));
+        }
         if let Some(path) = &self.last_project {
             text.push_str(&format!("last_project = {}\n", clean_line(path)));
         }
@@ -777,6 +788,25 @@ mod tests {
         assert_eq!(loaded.timeline_zoom, 0.25);
         assert_eq!(loaded.waveform_zoom, 8.0);
         assert_eq!(loaded.score_zoom, 3.0);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn window_position_round_trips_when_both_axes_exist() {
+        let path = temp("lazy-arranger-settings-position.txt");
+        let settings = Settings {
+            window_x: Some(-40.0),
+            window_y: Some(120.0),
+            ..Settings::default()
+        };
+        settings.save(&path).expect("save");
+        let loaded = Settings::load(&path);
+        assert_eq!(loaded.window_x, Some(-40.0));
+        assert_eq!(loaded.window_y, Some(120.0));
+        std::fs::write(&path, "window_x = 20\n").expect("write");
+        let partial = Settings::load(&path);
+        assert_eq!(partial.window_x, Some(20.0));
+        assert_eq!(partial.window_y, None);
         let _ = std::fs::remove_file(path);
     }
 

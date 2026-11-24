@@ -10,10 +10,14 @@ fn main() -> eframe::Result<()> {
     let settings = lazy_arranger_desktop::settings::Settings::load(
         &lazy_arranger_desktop::settings::Settings::path(),
     );
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("Lazy Arranger Midi DAW")
+        .with_inner_size([settings.window_width, settings.window_height]);
+    if let (Some(x), Some(y)) = (settings.window_x, settings.window_y) {
+        viewport = viewport.with_position([x, y]);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Lazy Arranger Midi DAW")
-            .with_inner_size([settings.window_width, settings.window_height])
+        viewport: viewport
             .with_min_inner_size([960.0, 600.0])
             // ADR-011: start hidden; the shell shows it after the first frame.
             .with_visible(false)
