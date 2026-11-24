@@ -610,9 +610,10 @@ pub fn to_full_pdf(
         if page_count > 1 {
             let _ = writeln!(
                 content,
-                "BT /F1 8 Tf {x:.1} 20 Td ({}) Tj ET",
+                "BT /F1 8 Tf {x:.1} 20 Td ({} / {}) Tj ET",
                 page_index + 1,
-                x = settings.page_width / 2.0 - 4.0
+                page_count,
+                x = settings.page_width / 2.0 - 16.0
             );
         }
         let first_system = staves
