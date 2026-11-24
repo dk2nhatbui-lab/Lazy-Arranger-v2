@@ -909,6 +909,20 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "audio_to_chords",
+            description: "Recognize chords from local audio and optionally write them.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "audio": {"type": "string"},
+                    "bpm": {"type": "number"},
+                    "segment": {"type": "number"},
+                    "write": {"type": "boolean"}
+                },
+                "required": ["audio"]
+            }),
+        },
+        Tool {
             name: "audio_to_midi",
             description: "Transcribe monophonic audio to melody or drum notes.",
             input_schema: json!({
@@ -3203,6 +3217,54 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "parts": style.sections.first().map_or(0, |entry| entry.parts.len())
             }))
         }
+        "audio_to_chords" => {
+            let audio_path = arguments
+                .get("audio")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("audio is required")))?;
+            let bpm = arguments
+                .get("bpm")
+                .and_then(Value::as_f64)
+                .unwrap_or_else(|| session.song().tempo_map.bpm_at(0))
+                .max(1.0);
+            let segment = arguments
+                .get("segment")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.5)
+                .clamp(0.05, 10.0);
+            let write = arguments
+                .get("write")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let decoded = audio::decode::decode_mono(std::path::Path::new(audio_path))
+                .or_else(|_| {
+                    let bytes = std::fs::read(audio_path)
+                        .map_err(|error| format!("{audio_path}: {error}"))?;
+                    audio::wav::decode_mono(&bytes)
+                })
+                .map_err(ToolError::Arguments)?;
+            let found = audio::chords::recognize(&decoded.samples, decoded.sample_rate, segment);
+            let events: Vec<project::song::ChordEvent> = found
+                .iter()
+                .map(|event| project::song::ChordEvent {
+                    tick: audio::chords::to_ticks(event.start, bpm),
+                    chord: event.chord,
+                })
+                .collect();
+            if write {
+                session
+                    .apply(Command::SetChords {
+                        chords: events.clone(),
+                    })
+                    .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            }
+            Ok(json!({
+                "chords": events.iter().map(|event| json!({
+                    "tick": event.tick,
+                    "name": event.chord.format(music_core::Spelling::Sharp)
+                })).collect::<Vec<_>>()
+            }))
+        }
         "audio_to_midi" => {
             let audio_path = arguments
                 .get("audio")
@@ -4136,7 +4198,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 107);
+        assert_eq!(tools().len(), 108);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
@@ -4586,6 +4648,41 @@ mod tests {
                 .as_array()
                 .is_some_and(|notes| notes.iter().all(|note| note["channel"] == 9))
         );
+        let chord_path = std::env::temp_dir().join(format!(
+            "lazy-arranger-mcp-chords-{}.wav",
+            std::process::id()
+        ));
+        let mut chord_samples = vec![0.0_f32; rate as usize];
+        for (index, sample) in chord_samples.iter_mut().enumerate() {
+            let time = index as f32 / rate as f32;
+            *sample = [261.63_f32, 329.63, 392.0]
+                .iter()
+                .map(|hz| (std::f32::consts::TAU * hz * time).sin())
+                .sum::<f32>()
+                / 3.0;
+        }
+        std::fs::write(
+            &chord_path,
+            audio::RenderedAudio {
+                samples: chord_samples,
+                sample_rate: rate,
+            }
+            .to_wav32f(),
+        )
+        .expect("chord wav");
+        let chords = call(
+            &mut session,
+            "audio_to_chords",
+            &json!({"audio": chord_path.display().to_string(), "write": true}),
+        )
+        .expect("chords");
+        assert!(
+            chords["chords"]
+                .as_array()
+                .is_some_and(|chords| !chords.is_empty())
+        );
+        assert!(!session.song().chords.is_empty());
+        let _ = std::fs::remove_file(&chord_path);
         let _ = std::fs::remove_file(&path);
     }
 
