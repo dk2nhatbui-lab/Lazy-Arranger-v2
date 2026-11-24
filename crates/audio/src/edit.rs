@@ -11,6 +11,28 @@ pub fn gain(audio: &mut RenderedAudio, decibels: f32) -> f32 {
     factor
 }
 
+/// Applies linear fade-in and fade-out ramps in seconds.
+pub fn fade(audio: &mut RenderedAudio, fade_in: f32, fade_out: f32) {
+    let frames = audio.samples.len() / 2;
+    if frames == 0 {
+        return;
+    }
+    let rate = f64::from(audio.sample_rate).max(1.0);
+    let in_frames = ((f64::from(fade_in.max(0.0)) * rate).round() as usize).min(frames);
+    let out_frames = ((f64::from(fade_out.max(0.0)) * rate).round() as usize).min(frames);
+    for frame in 0..in_frames {
+        let gain = frame as f32 / in_frames.max(1) as f32;
+        audio.samples[frame * 2] *= gain;
+        audio.samples[frame * 2 + 1] *= gain;
+    }
+    for frame in 0..out_frames {
+        let index = frames - 1 - frame;
+        let gain = frame as f32 / out_frames.max(1) as f32;
+        audio.samples[index * 2] *= gain;
+        audio.samples[index * 2 + 1] *= gain;
+    }
+}
+
 /// Reverses frames in place, keeping each stereo pair together.
 pub fn reverse(audio: &mut RenderedAudio) {
     let frames = audio.samples.len() / 2;
@@ -59,6 +81,16 @@ mod tests {
         let factor = gain(&mut audio, 6.0);
         assert!((factor - 1.995_262).abs() < 0.001);
         assert!((audio.samples[0] - 0.997_631).abs() < 0.001);
+    }
+
+    #[test]
+    fn fades_ramp_the_edges() {
+        let mut audio = buffer(vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        fade(&mut audio, 2.0 / 48_000.0, 2.0 / 48_000.0);
+        assert_eq!(audio.samples[0], 0.0);
+        assert!((audio.samples[2] - 0.5).abs() < 1.0e-6);
+        assert_eq!(audio.samples[6], 0.0);
+        assert!((audio.samples[4] - 0.5).abs() < 1.0e-6);
     }
 
     #[test]

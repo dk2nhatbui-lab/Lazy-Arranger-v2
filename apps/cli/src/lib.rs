@@ -163,6 +163,20 @@ enum Commands {
         #[arg(long, default_value_t = 0.9)]
         peak: f32,
     },
+    /// Apply linear fade-in and fade-out to a WAV file.
+    WavFade {
+        /// Input `.wav` file.
+        wav: PathBuf,
+        /// Output `.wav` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Fade-in seconds.
+        #[arg(long, default_value_t = 0.0)]
+        fade_in: f32,
+        /// Fade-out seconds.
+        #[arg(long, default_value_t = 0.0)]
+        fade_out: f32,
+    },
     /// Reverse a WAV file.
     WavReverse {
         /// Input `.wav` file.
@@ -2136,6 +2150,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
         Commands::WavGain { wav, out, db } => wav_edit(&wav, &out, Some(db), 0.0),
         Commands::WavNormalize { wav, out, peak } => wav_edit(&wav, &out, None, peak),
+        Commands::WavFade {
+            wav,
+            out,
+            fade_in,
+            fade_out,
+        } => {
+            let bytes = fs::read(&wav)?;
+            let mut audio = audio::wav::decode_stereo(&bytes)?;
+            audio::edit::fade(&mut audio, fade_in, fade_out);
+            fs::write(&out, audio.to_wav32f())?;
+            println!("wrote {}", out.display());
+            Ok(())
+        }
         Commands::WavReverse { wav, out } => {
             let bytes = fs::read(&wav)?;
             let mut audio = audio::wav::decode_stereo(&bytes)?;
@@ -3752,6 +3779,39 @@ mod tests {
                         assert_eq!(out, std::path::PathBuf::from("out.wav"));
                     }
                     _ => panic!("wav-reverse"),
+                }
+            })
+            .expect("thread")
+            .join()
+            .expect("join");
+    }
+
+    #[test]
+    fn wav_fade_accepts_ramp_seconds() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                use clap::Parser;
+                let cli = Cli::try_parse_from([
+                    "lazy-arranger",
+                    "wav-fade",
+                    "in.wav",
+                    "--out",
+                    "out.wav",
+                    "--fade-in",
+                    "0.5",
+                    "--fade-out",
+                    "1.5",
+                ])
+                .expect("parse");
+                match cli.command {
+                    Commands::WavFade {
+                        fade_in, fade_out, ..
+                    } => {
+                        assert!((fade_in - 0.5).abs() < 1.0e-6);
+                        assert!((fade_out - 1.5).abs() < 1.0e-6);
+                    }
+                    _ => panic!("wav-fade"),
                 }
             })
             .expect("thread")
