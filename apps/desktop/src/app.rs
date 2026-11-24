@@ -11246,10 +11246,11 @@ impl ShellApp {
                 if ai_response.on_hover_text("Open the assistant").clicked() {
                     self.assistant_open = true;
                 }
+                let dirty = if self.editor.dirty() { "*" } else { "" };
                 let title = if self.song().name.is_empty() {
-                    String::from("Lazy Arranger Midi DAW")
+                    format!("Lazy Arranger Midi DAW{dirty}")
                 } else {
-                    format!("{} — Lazy Arranger Midi DAW", self.song().name)
+                    format!("{}{dirty} — Lazy Arranger Midi DAW", self.song().name)
                 };
                 context.send_viewport_cmd(egui::ViewportCommand::Title(title));
             });
