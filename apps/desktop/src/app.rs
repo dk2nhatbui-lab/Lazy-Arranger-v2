@@ -311,16 +311,23 @@ pub fn needs_grand_staff(track: &project::song::Track) -> bool {
 }
 
 /// Builds a short stereo metronome count-in at 48 kHz.
-fn count_in_audio(bpm: f64, bars: u8) -> audio::RenderedAudio {
+fn count_in_audio(bpm: f64, bars: u8, meter: music_core::TimeSignature) -> audio::RenderedAudio {
     let sample_rate = 48_000_u32;
-    let beats = usize::from(bars) * 4;
-    let seconds = beats as f64 * 60.0 / bpm.max(1.0);
+    let beats_per_bar = usize::from(meter.numerator.max(1));
+    let bar_seconds = meter.bar_ticks() as f64 / music_core::PPQ as f64 * 60.0 / bpm.max(1.0);
+    let beats = usize::from(bars) * beats_per_bar;
+    let seconds = bars as f64 * bar_seconds;
     let frames = (seconds * f64::from(sample_rate)).round() as usize;
     let mut samples = vec![0.0_f32; frames * 2];
     let click_frames = (0.035 * f64::from(sample_rate)) as usize;
     for beat in 0..beats {
-        let start = (beat as f64 * 60.0 / bpm.max(1.0) * f64::from(sample_rate)).round() as usize;
-        let amplitude = if beat.is_multiple_of(4) { 0.5 } else { 0.3 };
+        let start = ((beat as f64 / beats_per_bar as f64 * bar_seconds) * f64::from(sample_rate))
+            .round() as usize;
+        let amplitude = if beat.is_multiple_of(beats_per_bar) {
+            0.5
+        } else {
+            0.3
+        };
         for offset in 0..click_frames {
             let frame = start + offset;
             if frame >= frames {
@@ -6578,11 +6585,14 @@ impl ShellApp {
         let seconds = self.record_seconds;
         let count_in = self.settings.record_count_in;
         let bpm = tempo.bpm_at(0).max(1.0);
-        let delay = f64::from(count_in) * 4.0 * 60.0 / bpm;
+        let meter = self.song().time_signature;
+        let delay =
+            f64::from(count_in) * meter.bar_ticks() as f64 / music_core::PPQ as f64 * 60.0 / bpm;
         let (sender, receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             if delay > 0.0 {
-                if let Ok(player) = audio::player::Player::new(count_in_audio(bpm, count_in)) {
+                if let Ok(player) = audio::player::Player::new(count_in_audio(bpm, count_in, meter))
+                {
                     player.play();
                     std::thread::sleep(std::time::Duration::from_secs_f64(delay));
                     player.release();
@@ -10732,13 +10742,17 @@ impl ShellApp {
                                 let input_channel = (self.settings.audio_input_channel > 0)
                                     .then_some(usize::from(self.settings.audio_input_channel - 1));
                                 let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
+                                let meter = self.song().time_signature;
                                 let count_in = self.settings.record_count_in;
-                                let delay = f64::from(count_in) * 4.0 * 60.0 / bpm;
+                                let delay = f64::from(count_in) * meter.bar_ticks() as f64
+                                    / music_core::PPQ as f64
+                                    * 60.0
+                                    / bpm;
                                 let (sender, receiver) = std::sync::mpsc::channel();
                                 std::thread::spawn(move || {
                                     if delay > 0.0 {
                                         if let Ok(player) = audio::player::Player::new(
-                                            count_in_audio(bpm, count_in),
+                                            count_in_audio(bpm, count_in, meter),
                                         ) {
                                             player.play();
                                             std::thread::sleep(std::time::Duration::from_secs_f64(
@@ -13852,7 +13866,7 @@ mod tests {
 
     #[test]
     fn count_in_audio_has_one_accented_click_per_bar() {
-        let audio = count_in_audio(120.0, 1);
+        let audio = count_in_audio(120.0, 1, music_core::TimeSignature::default());
         assert_eq!(audio.sample_rate, 48_000);
         assert_eq!(audio.samples.len(), 96_000 * 2);
         let frames: Vec<f32> = audio.samples.chunks(2).map(|frame| frame[0]).collect();
@@ -13865,6 +13879,13 @@ mod tests {
             .collect();
         assert!(!peaks.is_empty());
         assert!(peaks[0] < 480, "the first click starts the count-in");
+    }
+
+    #[test]
+    fn count_in_follows_the_meter() {
+        let six_eight = music_core::TimeSignature::new(6, 8).expect("meter");
+        let audio = count_in_audio(120.0, 1, six_eight);
+        assert_eq!(audio.samples.len(), 72_000 * 2);
     }
 
     #[test]
