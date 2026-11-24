@@ -3678,6 +3678,39 @@ mod tests {
     }
 
     #[test]
+    fn audio_midi_song_can_transcribe_drums() {
+        let rate = 48_000_u32;
+        let mut samples = vec![0.0_f32; rate as usize];
+        let burst = (0.08 * f64::from(rate)) as usize;
+        let start = (0.2 * f64::from(rate)) as usize;
+        for index in 0..burst {
+            let time = index as f64 / f64::from(rate);
+            samples[start + index] = (std::f64::consts::TAU * 60.0 * time).sin() as f32 * 0.8;
+        }
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-cli-drums-{}.wav",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            audio::RenderedAudio {
+                samples,
+                sample_rate: rate,
+            }
+            .to_wav32f(),
+        )
+        .expect("wav");
+        let song = audio_midi_song(&path, 120.0, true).expect("drums");
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            song.tracks[0]
+                .notes
+                .iter()
+                .all(|note| note.channel.zero_based() == 9)
+        );
+    }
+
+    #[test]
     fn audio_chords_json_recognizes_a_triad() {
         let rate = 48_000_u32;
         let mut samples = vec![0.0_f32; rate as usize];
