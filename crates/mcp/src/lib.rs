@@ -3019,10 +3019,11 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             }))
         }
         "style_from_clips" => {
-            let out = arguments
+            let raw = arguments
                 .get("out")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ToolError::Arguments(String::from("out is required")))?;
+            let out = checked_output(std::path::Path::new(raw))?;
             let section = arguments
                 .get("section")
                 .and_then(Value::as_str)
@@ -3072,10 +3073,10 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             }
             let bytes = style_formats::write_native_style(&style, version)
                 .map_err(|error| ToolError::Arguments(error.to_string()))?;
-            std::fs::write(out, &bytes)
-                .map_err(|error| ToolError::Arguments(format!("{out}: {error}")))?;
+            std::fs::write(&out, &bytes)
+                .map_err(|error| ToolError::Arguments(format!("{}: {error}", out.display())))?;
             Ok(json!({
-                "out": out,
+                "out": out.display().to_string(),
                 "bytes": bytes.len(),
                 "sections": style.sections.iter().map(|entry| entry.name.clone()).collect::<Vec<_>>(),
                 "parts": style.sections.first().map_or(0, |entry| entry.parts.len())
@@ -3182,10 +3183,11 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .get("audio")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ToolError::Arguments(String::from("audio is required")))?;
-            let out = arguments
+            let raw = arguments
                 .get("out")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ToolError::Arguments(String::from("out is required")))?;
+            let out = checked_output(std::path::Path::new(raw))?;
             let bpm = arguments
                 .get("bpm")
                 .and_then(Value::as_f64)
@@ -3263,10 +3265,10 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             .map_err(ToolError::Arguments)?;
             let bytes = style_formats::write_native_style(&built.style, version)
                 .map_err(|error| ToolError::Arguments(error.to_string()))?;
-            std::fs::write(out, &bytes)
-                .map_err(|error| ToolError::Arguments(format!("{out}: {error}")))?;
+            std::fs::write(&out, &bytes)
+                .map_err(|error| ToolError::Arguments(format!("{}: {error}", out.display())))?;
             Ok(json!({
-                "out": out,
+                "out": out.display().to_string(),
                 "source": built.source_chord.name(),
                 "notes": built.notes,
                 "sections": built.style.sections.iter().map(|entry| entry.name.clone()).collect::<Vec<_>>(),
