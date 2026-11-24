@@ -9950,12 +9950,17 @@ impl ShellApp {
             if player.is_playing() {
                 player.pause();
                 self.playing = false;
-            } else {
-                player.play();
-                self.playing = true;
+                return;
             }
-            return;
+            // A paused player holds a snapshot from before later edits; rebuild
+            // it and resume at the same musical position.
+            self.player = None;
         }
+        let resume = if self.position >= self.song().end_tick() {
+            0
+        } else {
+            self.position.max(0)
+        };
         let mut audio = audio::render(self.song(), audio::SAMPLE_RATE);
         let problems = audio::mix::check_audio_references(self.song());
         if self.settings.metronome {
@@ -10022,6 +10027,9 @@ impl ShellApp {
         ) {
             Ok(player) => {
                 player.play();
+                if resume > 0 {
+                    let _ = player.seek_seconds(self.song().tempo_map.seconds_at(resume));
+                }
                 self.stem_levels = stems;
                 self.player = Some(player);
                 self.playing = true;

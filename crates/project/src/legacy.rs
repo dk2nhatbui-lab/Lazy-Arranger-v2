@@ -165,8 +165,15 @@ pub fn import_cpp_project(text: &str) -> Result<ImportedProject, ProjectError> {
         if consumed.contains(&key.as_str()) {
             continue;
         }
-        *report.deferred.entry(key.clone()).or_insert(0) += 1;
-        song.extra.insert(key.clone(), value.clone());
+        // `buses` is typed in the current schema; preserve the legacy value
+        // under a distinct key so serialization has no duplicate field.
+        let stored = if key == "buses" {
+            String::from("legacy_buses")
+        } else {
+            key.clone()
+        };
+        *report.deferred.entry(stored.clone()).or_insert(0) += 1;
+        song.extra.insert(stored, value.clone());
     }
 
     let mut project = ProjectFile::new(song);
@@ -479,9 +486,12 @@ fn read_notes(
             Velocity::new(velocity_raw).map_err(|err| legacy(format!("{note_path}: {err}")))?;
         let id = NoteId::new(u32::try_from(target.notes.len() + 1).unwrap_or(u32::MAX))
             .map_err(|err| legacy(err.to_string()))?;
+        let start = offset
+            .checked_add(start)
+            .ok_or_else(|| legacy(format!("{note_path}: start tick overflow")))?;
         target.notes.push(crate::song::Note {
             id,
-            start: offset + start,
+            start,
             duration,
             pitch,
             velocity,
@@ -657,7 +667,7 @@ mod tests {
                 .any(|track| track.name == "Supersaw Chords")
         );
         // Schema 4 keys that this importer does not interpret are preserved.
-        for key in ["buses", "guitarChords", "launchQuantise"] {
+        for key in ["legacy_buses", "guitarChords", "launchQuantise"] {
             assert!(song.extra.contains_key(key), "{key} was dropped");
         }
         assert!((song.tempo_map.bpm_at(0) - 126.000_126).abs() < 1e-6);

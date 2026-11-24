@@ -33,7 +33,7 @@ pub fn write_native_style(style: &Style, version: SffVersion) -> Result<Vec<u8>,
         let mut rules = Vec::new();
         let mut notes = 0_usize;
         for part in &section.parts {
-            let channel = Channel::from_one_based(part.rule.dest_channel)
+            let channel = Channel::from_one_based(part.rule.source_channel)
                 .map_err(|_| StyleError::Midi(String::from("invalid destination channel")))?;
             let id = TrackId::new(track_id).map_err(|error| StyleError::Midi(error.to_string()))?;
             track_id += 1;

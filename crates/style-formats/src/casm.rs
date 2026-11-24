@@ -718,16 +718,12 @@ mod tests {
 #[must_use]
 pub fn write_casm_sff1(groups: &[SectionRules]) -> Vec<u8> {
     let mut cseg_children = Vec::new();
-    let mut rules = Vec::new();
     for group in groups {
         let names = group.sections.join(",");
         cseg_children.extend(chunk(b"Sdec", names.as_bytes()));
         for rule in &group.rules {
-            rules.extend(encode_rule_sff1(rule));
+            cseg_children.extend(chunk(b"Ctab", &encode_rule_sff1(rule)));
         }
-    }
-    if !rules.is_empty() {
-        cseg_children.extend(chunk(b"Ctab", &rules));
     }
     chunk(b"CASM", &chunk(b"CSEG", &cseg_children))
 }
@@ -772,6 +768,7 @@ fn encode_rule_sff1(rule: &ChordRule) -> Vec<u8> {
         (Ntt::Bypass, _) => 0,
         (Ntt::Melody, true) => 3,
         (Ntt::Melody, false) => 1,
+        (Ntt::Chord, _) => 2,
         (Ntt::MelodicMinor, _) => 4,
         (Ntt::HarmonicMinor, _) => 5,
         _ => 1,
@@ -832,6 +829,29 @@ mod writer_tests {
         assert_eq!(read.transpose.rtr, rule.transpose.rtr);
         assert_eq!(read.special, rule.special);
     }
+
+    #[test]
+    fn two_rules_and_special_bytes_round_trip_in_sff1_and_sff2() {
+        let mut first = ChordRule::new(11, 11);
+        first.transpose.ntt = Ntt::Chord;
+        first.special = vec![1, 2, 3];
+        let mut second = ChordRule::new(12, 12);
+        second.special = vec![9, 8];
+        let group = SectionRules {
+            sections: vec![String::from("Main A")],
+            rules: vec![first, second],
+        };
+        for bytes in [
+            write_casm_sff1(std::slice::from_ref(&group)),
+            write_casm_sff2(std::slice::from_ref(&group)),
+        ] {
+            let parsed = read_rules(&bytes);
+            assert_eq!(parsed.groups[0].rules.len(), 2);
+            assert_eq!(parsed.groups[0].rules[0].transpose.ntt, Ntt::Chord);
+            assert_eq!(parsed.groups[0].rules[0].special, vec![1, 2, 3]);
+            assert_eq!(parsed.groups[0].rules[1].special, vec![9, 8]);
+        }
+    }
 }
 
 /// Encodes rules as an SFF2 `CASM` chunk (`Ctb2`, 40-byte records).
@@ -841,15 +861,11 @@ mod writer_tests {
 #[must_use]
 pub fn write_casm_sff2(groups: &[SectionRules]) -> Vec<u8> {
     let mut cseg_children = Vec::new();
-    let mut rules = Vec::new();
     for group in groups {
         cseg_children.extend(chunk(b"Sdec", group.sections.join(",").as_bytes()));
         for rule in &group.rules {
-            rules.extend(encode_rule_sff2(rule));
+            cseg_children.extend(chunk(b"Ctb2", &encode_rule_sff2(rule)));
         }
-    }
-    if !rules.is_empty() {
-        cseg_children.extend(chunk(b"Ctb2", &rules));
     }
     chunk(b"CASM", &chunk(b"CSEG", &cseg_children))
 }
@@ -861,6 +877,7 @@ fn encode_rule_sff2(rule: &ChordRule) -> Vec<u8> {
     out[22..28].copy_from_slice(&encode_range_sff2(&rule.low_range));
     out[28..34].copy_from_slice(&encode_range_sff2(&rule.transpose));
     out[34..40].copy_from_slice(&encode_range_sff2(&rule.high_range));
+    out.extend_from_slice(&rule.special);
     out
 }
 

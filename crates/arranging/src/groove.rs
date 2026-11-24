@@ -58,11 +58,12 @@ pub fn extract(notes: &[Note], bar: Tick, grid: Tick) -> Option<Groove> {
         .sum::<f64>()
         / notes.len().max(1) as f64;
     for note in notes {
-        let in_bar = note.start.rem_euclid(bar);
-        let slot = usize::try_from(in_bar / grid).unwrap_or(0) % slots;
-        let bar_start = note.start - in_bar;
-        let slot_start = bar_start + in_bar - note.start.rem_euclid(grid);
-        offset_sums[slot] += note.start - slot_start;
+        let nearest_units = (note.start as f64 / grid as f64).round() as i64;
+        let nearest = nearest_units.saturating_mul(grid);
+        let slot = usize::try_from(nearest.div_euclid(grid).rem_euclid(slots as i64))
+            .unwrap_or(0)
+            .min(slots.saturating_sub(1));
+        offset_sums[slot] += note.start.saturating_sub(nearest);
         offset_counts[slot] += 1;
         if mean > 0.0 {
             level_sums[slot] += f64::from(note.velocity.as_u8()) / mean;
@@ -101,22 +102,26 @@ pub fn apply(notes: &[Note], groove: &Groove, amounts: Amounts) -> Vec<Note> {
     if groove.grid <= 0 || groove.offsets.is_empty() {
         return notes.to_vec();
     }
-    let slots = groove.offsets.len() as Tick;
-    let bar = groove.grid * slots;
+    let slots = Tick::try_from(groove.offsets.len()).unwrap_or(Tick::MAX);
+    let bar = groove.grid.checked_mul(slots).unwrap_or(Tick::MAX).max(1);
     notes
         .iter()
         .map(|note| {
             let slot = usize::try_from(note.start.rem_euclid(bar) / groove.grid)
                 .unwrap_or(0)
                 .min(groove.offsets.len() - 1);
-            let offset = f32::from(i16::try_from(groove.offsets[slot]).unwrap_or(0))
+            let offset = groove.offsets.get(slot).copied().unwrap_or(0) as f32
                 * amounts.timing.clamp(0.0, 1.0);
-            let level = 1.0 + (groove.levels[slot] - 1.0) * amounts.accents.clamp(0.0, 1.0);
+            let level = 1.0
+                + (groove.levels.get(slot).copied().unwrap_or(1.0) - 1.0)
+                    * amounts.accents.clamp(0.0, 1.0);
             let velocity = (f32::from(note.velocity.as_u8()) * level)
                 .round()
                 .clamp(1.0, 127.0) as u8;
+            let shifted =
+                (note.start as f64 + f64::from(offset.round())).clamp(0.0, i64::MAX as f64) as Tick;
             Note {
-                start: note.start + offset.round() as Tick,
+                start: shifted,
                 velocity: Velocity::new(velocity).unwrap_or(note.velocity),
                 ..*note
             }
@@ -166,6 +171,24 @@ mod tests {
     }
 
     #[test]
+    fn short_levels_and_negative_starts_do_not_panic() {
+        let groove = Groove {
+            grid: 240,
+            offsets: vec![-480, 1],
+            levels: vec![0.5],
+        };
+        let out = apply(
+            &[note(1, 0, 100)],
+            &groove,
+            Amounts {
+                timing: 1.0,
+                accents: 1.0,
+            },
+        );
+        assert!(out[0].start >= 0);
+    }
+
+    #[test]
     fn notes_after_the_first_bar_keep_their_in_bar_offset() {
         let bar = 4 * music_core::PPQ;
         let grid = music_core::PPQ / 4;
@@ -184,6 +207,14 @@ mod tests {
             "{:?}",
             groove.offsets
         );
+    }
+
+    #[test]
+    fn early_notes_produce_negative_slot_offsets() {
+        let bar = 4 * music_core::PPQ;
+        let grid = music_core::PPQ / 4;
+        let groove = extract(&[note(1, grid - 5, 100)], bar, grid).expect("groove");
+        assert_eq!(groove.offsets[1], -5);
     }
 
     #[test]
