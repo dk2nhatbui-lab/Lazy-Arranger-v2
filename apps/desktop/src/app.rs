@@ -3210,15 +3210,19 @@ impl ShellApp {
 
     fn finish_ai_reply(&mut self, reply: String) {
         let mut text = reply.clone();
-        if let Some(command) = crate::ai::tool_command(&reply) {
+        let commands = crate::ai::tool_commands(&reply);
+        if let Some(command) = commands
+            .iter()
+            .find(|command| crate::ai::changes_project(command))
+        {
             let label = crate::ai::tool_name(command).unwrap_or("tool").to_string();
-            if crate::ai::changes_project(command) {
-                self.assistant_proposal = Some(AssistantProposal {
-                    command: command.to_string(),
-                    label: label.clone(),
-                });
-                text = format!("Proposed: {label}. Apply or cancel below.");
-            } else {
+            self.assistant_proposal = Some(AssistantProposal {
+                command: (*command).to_string(),
+                label: label.clone(),
+            });
+            text = format!("Proposed: {label}. Apply or cancel below.");
+        } else {
+            for command in &commands {
                 self.selected_note = None;
                 self.selected_clip = None;
                 self.selected_clips.clear();

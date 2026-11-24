@@ -183,6 +183,16 @@ pub fn tool_command(reply: &str) -> Option<&str> {
     (line.starts_with("tool ") && !line.contains('\n')).then_some(line)
 }
 
+/// Tool commands on separate lines of a reply.
+#[must_use]
+pub fn tool_commands(reply: &str) -> Vec<&str> {
+    reply
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("tool "))
+        .collect()
+}
+
 /// Tool name from a `tool <name> ...` command.
 #[must_use]
 pub fn tool_name(command: &str) -> Option<&str> {
@@ -247,6 +257,10 @@ mod tests {
         assert!(changes_project("tool add_track {}"));
         assert!(!changes_project("tool get_song {}"));
         assert!(!changes_project("not a tool"));
+        let commands = tool_commands("Checking.\ntool get_song {}\ntool get_tracks {}");
+        assert_eq!(commands.len(), 2);
+        assert_eq!(tool_name(commands[0]), Some("get_song"));
+        assert_eq!(tool_name(commands[1]), Some("get_tracks"));
     }
 
     #[test]
