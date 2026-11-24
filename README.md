@@ -59,7 +59,7 @@ projects.
 ./scripts/rust.sh test --workspace
 ```
 
-Latest local result: **837 tests pass**. GitHub Actions runs the same lint,
+Latest local result: **838 tests pass**. GitHub Actions runs the same lint,
 test, build, documentation and headless-demo steps on macOS, Linux and Windows.
 
 Hardware checks and their limits are recorded in
