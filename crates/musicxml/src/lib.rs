@@ -123,11 +123,13 @@ pub fn export(song: &Song, title: &str) -> String {
                     "        <clef><sign>G</sign><line>2</line></clef>\n"
                 });
                 out.push_str("      </attributes>\n");
-                if index == 0 {
-                    let tempo = song.tempo_map.bpm_at(0);
-                    if tempo.is_finite() && tempo > 0.0 {
-                        out.push_str(&format!("      <sound tempo=\"{tempo}\"/>\n"));
-                    }
+            }
+            if index == 0 || bar_index > 0 {
+                let tempo = song.tempo_map.bpm_at(start);
+                let changed =
+                    bar_index == 0 || (tempo - song.tempo_map.bpm_at(start - 1)).abs() > 1.0e-6;
+                if changed && tempo.is_finite() && tempo > 0.0 {
+                    out.push_str(&format!("      <sound tempo=\"{tempo}\"/>\n"));
                 }
             }
             if index == 0 {
@@ -481,6 +483,23 @@ mod tests {
         let xml = export(&song, "Drums");
         assert!(xml.contains("<sign>percussion</sign>"));
         assert!(xml.contains("<unpitched>"));
+    }
+
+    #[test]
+    fn tempo_changes_are_written_at_measure_starts() {
+        let mut song = song();
+        let mut note = song.tracks[0].notes[0].clone();
+        note.id = project::NoteId::new(9).expect("valid");
+        note.start = PPQ * 4;
+        song.tracks[0].notes.push(note);
+        song.tempo_map = song
+            .tempo_map
+            .clone()
+            .with_change(PPQ * 4, 90.0)
+            .expect("tempo");
+        let xml = export(&song, "Tempo");
+        assert_eq!(xml.matches("<sound tempo=").count(), 2);
+        assert!(xml.contains("tempo=\"90\""));
     }
 
     #[test]

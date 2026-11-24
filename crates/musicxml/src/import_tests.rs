@@ -41,6 +41,31 @@ mod tests {
     }
 
     #[test]
+    fn tempo_changes_survive_our_export() {
+        let mut song = Song::new("Tempo", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 4 * music_core::PPQ,
+            duration: music_core::PPQ,
+            pitch: music_core::Pitch::from_name("C4").expect("valid"),
+            velocity: music_core::Velocity::new(100).expect("valid"),
+            channel: music_core::Channel::first(),
+        });
+        song.tracks.push(track);
+        song.tempo_map = song
+            .tempo_map
+            .clone()
+            .with_change(4 * music_core::PPQ, 90.0)
+            .expect("tempo");
+        let imported = import(&export(&song, "Tempo")).expect("import");
+        let changes = imported.tempo_map.changes();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[1].tick, 4 * music_core::PPQ);
+        assert!((changes[1].bpm - 90.0).abs() < 0.01);
+    }
+
+    #[test]
     fn offsets_survive_our_export() {
         use music_core::Chord;
         use project::song::{Dynamic, Mark, MarkKind};

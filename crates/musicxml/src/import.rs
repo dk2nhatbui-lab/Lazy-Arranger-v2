@@ -2,10 +2,10 @@
 //!
 //! Reads a partwise document into a [`Song`]: one track per part, measures
 //! advanced by the meter, notes placed by divisions, chords stacked, rests
-//! skipped and unpitched notes treated as drums. Tempo comes from the first
-//! `<sound tempo>`; key, lyrics, marks and dynamics are not imported yet.
+//! skipped and unpitched notes treated as drums. Tempo changes come from
+//! `<sound tempo>` elements; key, lyrics, marks and dynamics are not imported yet.
 
-use music_core::{Channel, PPQ, Pitch, Tick, TimeSignature, Velocity};
+use music_core::{Channel, PPQ, Pitch, TempoChange, TempoMap, Tick, TimeSignature, Velocity};
 use project::song::{Note, Song, Track};
 use project::{NoteId, TrackId};
 use thiserror::Error;
@@ -158,6 +158,10 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
     let mut next_track = 0_u32;
     let mut next_note = 0_u32;
     let mut meter = TimeSignature::default();
+    let mut tempo_changes = vec![TempoChange {
+        tick: 0,
+        bpm: tempo,
+    }];
     for part in parts {
         next_track += 1;
         let id = part.attribute("id").unwrap_or_default();
@@ -174,6 +178,19 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
         let mut measure_meter = meter;
         let mut pending_slur: Option<Tick> = None;
         for measure in part.children().filter(|node| node.has_tag_name("measure")) {
+            if next_track == 1
+                && let Some(tempo) = measure
+                    .children()
+                    .find(|node| node.has_tag_name("sound"))
+                    .and_then(|node| node.attribute("tempo"))
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .filter(|value| value.is_finite() && *value > 0.0)
+            {
+                tempo_changes.push(TempoChange {
+                    tick: measure_start,
+                    bpm: tempo,
+                });
+            }
             if let Some(attributes) = measure
                 .children()
                 .find(|node| node.has_tag_name("attributes"))
@@ -344,5 +361,10 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
         song.tracks.push(track);
     }
     song.time_signature = meter;
+    tempo_changes.sort_by_key(|change| change.tick);
+    tempo_changes.dedup_by_key(|change| change.tick);
+    if let Ok(map) = TempoMap::new(tempo_changes) {
+        song.tempo_map = map;
+    }
     Ok(song)
 }
