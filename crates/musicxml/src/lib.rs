@@ -128,8 +128,20 @@ pub fn export(song: &Song, title: &str) -> String {
                     "        <time><beats>{}</beats><beat-type>{}</beat-type></time>\n",
                     song.time_signature.numerator, song.time_signature.denominator
                 ));
+                let average = if track.notes.is_empty() {
+                    60.0
+                } else {
+                    track
+                        .notes
+                        .iter()
+                        .map(|note| f32::from(note.pitch.as_u8()))
+                        .sum::<f32>()
+                        / track.notes.len() as f32
+                };
                 out.push_str(if drums {
                     "        <clef><sign>percussion</sign><line>2</line></clef>\n"
+                } else if average < 52.0 {
+                    "        <clef><sign>F</sign><line>4</line></clef>\n"
                 } else {
                     "        <clef><sign>G</sign><line>2</line></clef>\n"
                 });
@@ -602,6 +614,23 @@ mod tests {
             }),
             1
         );
+    }
+
+    #[test]
+    fn low_tracks_use_a_bass_clef() {
+        let mut song = Song::new("Bass", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Bass");
+        track.notes.push(Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: PPQ,
+            pitch: Pitch::from_name("E2").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        song.tracks.push(track);
+        let xml = export(&song, "Bass");
+        assert!(xml.contains("<clef><sign>F</sign><line>4</line></clef>"));
     }
 
     #[test]
