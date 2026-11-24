@@ -2561,6 +2561,15 @@ impl ShellApp {
         });
     }
 
+    fn waveform_fraction(rect: Rect, x: f32, start: usize, end: usize, peaks: usize) -> f32 {
+        if peaks == 0 {
+            return 0.0;
+        }
+        let fraction = ((x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
+        let index = start as f32 + fraction * end.saturating_sub(start) as f32;
+        (index / peaks as f32).clamp(0.0, 1.0)
+    }
+
     fn draw_waveform(
         ui: &mut egui::Ui,
         peaks: &[audio::waveform::Peak],
@@ -2599,10 +2608,14 @@ impl ShellApp {
         );
         let click = response
             .interact_pointer_pos()
-            .filter(|_| response.clicked())?;
-        let fraction = ((click.x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
-        let index = start as f32 + fraction * (end.saturating_sub(start)) as f32;
-        Some((index / peaks.len() as f32).clamp(0.0, 1.0))
+            .filter(|_| response.clicked() || response.dragged())?;
+        Some(Self::waveform_fraction(
+            rect,
+            click.x,
+            start,
+            end,
+            peaks.len(),
+        ))
     }
 
     /// Opens the configured keyboard once and applies mapped controls.
@@ -14680,6 +14693,13 @@ mod tests {
         );
         assert!(!recorded.notes.is_empty());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn waveform_fraction_maps_the_visible_range() {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(100.0, 20.0));
+        assert_eq!(ShellApp::waveform_fraction(rect, 50.0, 0, 100, 200), 0.25);
+        assert_eq!(ShellApp::waveform_fraction(rect, 100.0, 50, 100, 100), 1.0);
     }
 
     #[test]
