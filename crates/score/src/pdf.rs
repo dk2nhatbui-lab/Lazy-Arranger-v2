@@ -600,8 +600,21 @@ pub fn to_full_pdf(
                     continue;
                 }
                 let relative = (note.y - system.y) * (line_gap / settings.staff_space);
-                let y = settings.page_height - (top + relative);
+                let note_y = top + relative;
+                let y = settings.page_height - note_y;
                 circle(&mut content, note.x, y, line_gap * 0.55);
+                let stem = if note.pitch.as_u8() < 71 {
+                    note_y + 3.0 * line_gap
+                } else {
+                    note_y - 3.0 * line_gap
+                };
+                let _ = writeln!(
+                    content,
+                    "{:.1} {y:.1} m {:.1} {:.1} l S",
+                    note.x,
+                    note.x,
+                    settings.page_height - stem
+                );
             }
         }
         if let Some(staff) = staves.first()
@@ -610,6 +623,13 @@ pub fn to_full_pdf(
             let top = settings.margin + 12.0;
             let bottom = top + roster as f32 * span - 4.0;
             for measure in &system.measures {
+                let _ = writeln!(
+                    content,
+                    "BT /F1 6 Tf {:.1} {:.1} Td ({}) Tj ET",
+                    measure.x + 1.0,
+                    settings.page_height - (top - 5.0),
+                    measure.number
+                );
                 for x in [measure.x, measure.x_end] {
                     let _ = writeln!(
                         content,
