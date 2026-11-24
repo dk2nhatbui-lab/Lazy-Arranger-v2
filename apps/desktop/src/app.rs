@@ -290,6 +290,16 @@ fn consume_binding(context: &Context, text: &str, fallback: &str) -> bool {
 }
 
 /// Rounds recorded note starts to the nearest grid step and re-sorts them.
+fn resolve_playlist_path(base: &std::path::Path, path: &str) -> std::path::PathBuf {
+    let path = std::path::Path::new(path);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.parent()
+            .map_or_else(|| path.to_path_buf(), |parent| parent.join(path))
+    }
+}
+
 fn detected_to_notes(
     detected: &[audio::analysis::DetectedNote],
     bpm: f64,
@@ -2871,17 +2881,10 @@ impl ShellApp {
                                 if path.is_empty() {
                                     self.status = Some(String::from("row has no file"));
                                 } else {
-                                    let path = std::path::Path::new(&path);
-                                    let path = if path.is_absolute() {
-                                        path.to_path_buf()
-                                    } else {
-                                        std::path::Path::new(&self.library_path)
-                                            .parent()
-                                            .map_or_else(
-                                                || path.to_path_buf(),
-                                                |base| base.join(path),
-                                            )
-                                    };
+                                    let path = resolve_playlist_path(
+                                        std::path::Path::new(&self.library_path),
+                                        &path,
+                                    );
                                     let extension = path
                                         .extension()
                                         .and_then(|extension| extension.to_str())
@@ -14389,6 +14392,19 @@ mod tests {
         );
         assert!(!recorded.notes.is_empty());
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn playlist_paths_resolve_against_the_book_folder() {
+        let base = std::path::Path::new("/Music/books/list.tsv");
+        assert_eq!(
+            resolve_playlist_path(base, "song.mid"),
+            std::path::PathBuf::from("/Music/books/song.mid")
+        );
+        assert_eq!(
+            resolve_playlist_path(base, "/tmp/song.mid"),
+            std::path::PathBuf::from("/tmp/song.mid")
+        );
     }
 
     #[test]
