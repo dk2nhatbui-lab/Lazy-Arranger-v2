@@ -916,6 +916,8 @@ pub struct ShellApp {
     marker_text: String,
     marker_selected: Option<Tick>,
     form_dialog: bool,
+    join_section: String,
+    join_total: usize,
     beat_dialog: bool,
     beat_track: Option<TrackId>,
     beat_start: Tick,
@@ -1282,6 +1284,8 @@ impl ShellApp {
             marker_text: String::new(),
             marker_selected: None,
             form_dialog: false,
+            join_section: String::new(),
+            join_total: 2,
             beat_dialog: initial_window == "beat",
             beat_track: None,
             beat_start: 0,
@@ -10484,6 +10488,37 @@ impl ShellApp {
                                 }
                                 Err(error) => self.status = Some(error),
                             }
+                        }
+                    }
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("Join loop");
+                    egui::ComboBox::from_id_salt("join-section")
+                        .selected_text(if self.join_section.is_empty() {
+                            "section"
+                        } else {
+                            &self.join_section
+                        })
+                        .show_ui(ui, |ui| {
+                            for section in &sections {
+                                ui.selectable_value(
+                                    &mut self.join_section,
+                                    section.name.clone(),
+                                    &section.name,
+                                );
+                            }
+                        });
+                    ui.add(egui::DragValue::new(&mut self.join_total).range(2..=16));
+                    if ui.button("Join").clicked() && !self.join_section.is_empty() {
+                        match self.editor.join_loop(&self.join_section, self.join_total) {
+                            Ok(outcome) => {
+                                self.status = Some(format!(
+                                    "{}: {} copy(ies), {} note(s)",
+                                    outcome.section, outcome.copies, outcome.notes
+                                ));
+                            }
+                            Err(error) => self.status = Some(error),
                         }
                     }
                 });

@@ -549,6 +549,22 @@ impl Editor {
         arranging::forms::sections(self.song())
     }
 
+    /// Joins a marker section to itself, moving later material.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the section is missing or the edit is rejected.
+    pub fn join_loop(
+        &mut self,
+        section: &str,
+        total: usize,
+    ) -> Result<arranging::forms::LoopOutcome, String> {
+        let outcome = arranging::forms::join_loop(&mut self.session, section, total)
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(outcome)
+    }
+
     /// Writes a song form to the timeline.
     ///
     /// # Errors
