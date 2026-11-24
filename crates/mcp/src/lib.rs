@@ -4423,13 +4423,28 @@ mod tests {
             &json!({"audio": path.display().to_string(), "bpm": 120.0}),
         )
         .expect("transcribe");
-        let _ = std::fs::remove_file(&path);
         assert_eq!(result["mode"], "melody");
         assert!(
             result["notes"]
                 .as_array()
                 .is_some_and(|notes| !notes.is_empty())
         );
+        let drums = call(
+            &mut session,
+            "audio_to_midi",
+            &json!({
+                "audio": path.display().to_string(),
+                "mode": "drums"
+            }),
+        )
+        .expect("drums");
+        assert_eq!(drums["mode"], "drums");
+        assert!(
+            drums["notes"]
+                .as_array()
+                .is_some_and(|notes| notes.iter().all(|note| note["channel"] == 9))
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
