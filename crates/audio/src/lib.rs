@@ -247,6 +247,7 @@ fn mix_audio_reference(
     } else {
         0.0
     };
+    let clip_gain = 10.0_f32.powf(f32::from(reference.gain_mb) / 20_000.0);
     let mut left_gain = 1.0_f32;
     let mut right_gain = 1.0_f32;
     for frame in 0..target_frames {
@@ -269,7 +270,7 @@ fn mix_audio_reference(
         if fade_out > 0.0 {
             gain = gain.min(((target_frames.saturating_sub(frame)) as f64 / fade_out).min(1.0));
         }
-        let gain = gain as f32;
+        let gain = gain as f32 * clip_gain;
         let left = source.samples[source_position * 2] * left_gain * gain;
         let right = source.samples[source_position * 2 + 1] * right_gain * gain;
         track_buffer[target * 2] += left;
@@ -1424,6 +1425,7 @@ mod tests {
             fade_out: 0,
 
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(take);
         let rendered = render(&song, SAMPLE_RATE);
@@ -1598,6 +1600,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let stems = render_stems(&song, SAMPLE_RATE);
@@ -1729,6 +1732,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         };
         track.audio = Some(reference.clone());
         track.takes.push(reference);
@@ -1774,6 +1778,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         };
         track.audio = Some(reference.clone());
         track.takes.push(reference);
@@ -1819,12 +1824,26 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let rendered = render(&song, SAMPLE_RATE);
+        let unity_peak = rendered
+            .samples
+            .iter()
+            .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+        assert!(unity_peak > 0.3, "audio reference reaches the mix");
+        if let Some(reference) = song.tracks[0].audio.as_mut() {
+            reference.gain_mb = -6_000;
+        }
+        let quieter = render(&song, SAMPLE_RATE);
+        let quieter_peak = quieter
+            .samples
+            .iter()
+            .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
         assert!(
-            rendered.samples.iter().any(|sample| *sample > 0.3),
-            "audio reference reaches the mix"
+            quieter_peak < unity_peak * 0.6,
+            "clip gain lowers the mixed level"
         );
         song.buses.push(project::song::Bus::new(1, "FX"));
         song.tracks[0].bus = Some(1);
@@ -1859,6 +1878,7 @@ mod tests {
             fade_in: music_core::PPQ,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let rendered = render(&song, SAMPLE_RATE);
@@ -1899,6 +1919,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: true,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let rendered = render(&song, SAMPLE_RATE);
@@ -1936,6 +1957,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let rendered = render(&song, SAMPLE_RATE);
@@ -1965,6 +1987,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         track.bus = Some(2);
         track.send = Some(1);
@@ -2004,6 +2027,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         track.automation.push(Automation {
             target: AutomationTarget::Volume,

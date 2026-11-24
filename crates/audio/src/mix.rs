@@ -185,6 +185,7 @@ mod tests {
             fade_out: 0,
 
             stretch: false,
+            gain_mb: 0,
         });
         track.muted = muted;
         song.tracks.push(track);
@@ -229,6 +230,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         let mut rendered = RenderedAudio {
             samples: vec![0.0; 96_000 * 2],
@@ -254,6 +256,7 @@ mod tests {
             fade_out: 0,
 
             stretch: false,
+            gain_mb: 0,
         });
         let mut rendered = RenderedAudio {
             samples: vec![0.0; 96_000 * 2],
@@ -281,6 +284,7 @@ mod tests {
             fade_out: 480,
 
             stretch: false,
+            gain_mb: 0,
         });
         let mut rendered = RenderedAudio {
             samples: vec![0.0; 96_000 * 2],
@@ -308,6 +312,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: true,
+            gain_mb: 0,
         });
         let mut rendered = RenderedAudio {
             samples: vec![0.0; 96_000 * 2],

@@ -1062,6 +1062,7 @@ mod join_loop_tests {
             fade_out: 0,
 
             stretch: false,
+            gain_mb: 0,
         });
         song.lyrics.push(LyricEvent {
             tick: 0,

@@ -11823,6 +11823,7 @@ impl eframe::App for ShellApp {
                 let mut audio_fades: Option<(TrackId, Tick, Tick)> = None;
                 let mut audio_stretch: Option<(TrackId, bool)> = None;
                 let mut audio_normalize: Option<TrackId> = None;
+                let mut audio_gain: Option<(TrackId, i16)> = None;
                 let mut audio_remove: Option<TrackId> = None;
                 let mut score_status: Option<String> = None;
                 let entry_enabled_flag = self.score_entry;
@@ -11948,6 +11949,24 @@ impl eframe::App for ShellApp {
                                 }
                                 if ui.small_button("No fades").clicked() {
                                     audio_fades = Some((*track_id, 0, 0));
+                                }
+                                let mut gain_db = project
+                                    .song
+                                    .tracks
+                                    .iter()
+                                    .find(|track| track.id == *track_id)
+                                    .and_then(|track| track.audio.as_ref())
+                                    .map_or(0.0, |reference| f32::from(reference.gain_mb) / 1_000.0);
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut gain_db, -24.0..=12.0)
+                                            .text("gain")
+                                            .suffix(" dB")
+                                            .fixed_decimals(1),
+                                    )
+                                    .changed()
+                                {
+                                    audio_gain = Some((*track_id, (gain_db * 1_000.0) as i16));
                                 }
                                 let mut stretch = project
                                     .song
@@ -12867,6 +12886,7 @@ impl eframe::App for ShellApp {
                     automation_edit,
                     audio_trim,
                     audio_move,
+                    audio_gain,
                     audio_split,
                     audio_length,
                     audio_fades,
@@ -12891,6 +12911,7 @@ impl eframe::App for ShellApp {
             automation_edit,
             audio_trim,
             audio_move,
+            audio_gain,
             audio_split,
             audio_length,
             audio_fades,
@@ -13043,6 +13064,11 @@ impl eframe::App for ShellApp {
                 Ok(()) => self.status = Some(String::from("removed audio reference")),
                 Err(error) => self.status = Some(error),
             }
+        }
+        if let Some((track, gain)) = audio_gain
+            && let Err(error) = self.editor.set_audio_gain(track, gain)
+        {
+            self.status = Some(error);
         }
         if let Some((track, lane)) = automation_edit
             && let Err(error) = self.editor.merge_automation(track, lane)
@@ -13951,6 +13977,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         let mut cache = WaveformCache::new();
         cache.insert(
@@ -14243,6 +14270,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         app.editor
             .session_for_test()
@@ -14287,6 +14315,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         app.editor
             .session_for_test()
@@ -14558,6 +14587,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         if let Some(take) = audio.audio.clone() {
             audio.takes.push(take);

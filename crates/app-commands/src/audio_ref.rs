@@ -102,6 +102,7 @@ mod tests {
             fade_out: 0,
 
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         EditSession::new(ProjectFile::new(song)).expect("valid")

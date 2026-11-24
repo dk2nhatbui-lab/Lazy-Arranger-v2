@@ -1475,6 +1475,7 @@ impl Editor {
                 fade_out: 0,
 
                 stretch: false,
+                gain_mb: 0,
             });
             self.session
                 .apply(app_commands::Command::InsertTrack { track })
@@ -1521,6 +1522,7 @@ impl Editor {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         self.session
             .apply(app_commands::Command::InsertTrack { track })
@@ -1842,6 +1844,7 @@ impl Editor {
                     fade_in: 0,
                     fade_out: 0,
                     stretch: false,
+                    gain_mb: 0,
                 }),
                 takes,
             })
@@ -1933,6 +1936,7 @@ impl Editor {
                     fade_out: 0,
 
                     stretch: false,
+                    gain_mb: 0,
                 },
             })
             .map_err(|error| error.to_string())?;
@@ -2130,6 +2134,30 @@ impl Editor {
             .map_err(|error| error.to_string())?;
         self.dirty |= copied > 0;
         Ok(copied)
+    }
+
+    /// Sets an audio reference's clip gain in millibels.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track has no audio or the edit is rejected.
+    pub fn set_audio_gain(&mut self, track: TrackId, gain_mb: i16) -> Result<(), String> {
+        let mut reference = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.audio.clone())
+            .ok_or_else(|| String::from("track has no audio reference"))?;
+        reference.gain_mb = gain_mb;
+        self.session
+            .apply(app_commands::Command::SetAudioRef {
+                track,
+                reference: Some(reference),
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
     }
 
     /// Moves an audio reference along the timeline by `delta` ticks.
@@ -2823,6 +2851,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
@@ -2869,6 +2898,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
@@ -2888,6 +2918,7 @@ mod tests {
                     fade_in: 0,
                     fade_out: 0,
                     stretch: false,
+                    gain_mb: 0,
                 }),
             })
             .expect("second take");
@@ -2916,6 +2947,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
@@ -2956,6 +2988,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
@@ -2989,6 +3022,41 @@ mod tests {
     }
 
     #[test]
+    fn audio_clip_gain_is_undoable() {
+        let mut song = Song::new("Gain", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Audio");
+        track.audio = Some(project::song::AudioRef {
+            path: String::from("take.wav"),
+            start: 0,
+            length: 4 * music_core::PPQ,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+            gain_mb: 0,
+        });
+        song.tracks.push(track);
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
+        let track = TrackId::new(1).expect("track");
+        editor.set_audio_gain(track, -3_000).expect("gain");
+        assert_eq!(
+            editor.song().tracks[0]
+                .audio
+                .as_ref()
+                .map(|audio| audio.gain_mb),
+            Some(-3_000)
+        );
+        assert!(editor.undo());
+        assert_eq!(
+            editor.song().tracks[0]
+                .audio
+                .as_ref()
+                .map(|audio| audio.gain_mb),
+            Some(0)
+        );
+    }
+
+    #[test]
     fn splitting_audio_creates_two_comps() {
         let mut song = Song::new("Split", 120.0);
         let mut track = Track::new(TrackId::new(1).expect("track"), "Audio");
@@ -3000,6 +3068,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
@@ -3032,6 +3101,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
@@ -3054,6 +3124,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
@@ -3470,6 +3541,7 @@ mod tests {
                     fade_in: 0,
                     fade_out: 0,
                     stretch: false,
+                    gain_mb: 0,
                 }),
             })
             .expect("audio");
@@ -3510,6 +3582,7 @@ mod tests {
                     fade_out: 0,
 
                     stretch: false,
+                    gain_mb: 0,
                 }),
             })
             .expect("audio");

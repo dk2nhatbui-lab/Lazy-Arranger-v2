@@ -49,6 +49,7 @@ pub fn bounce_to_track(
         fade_out: 0,
 
         stretch: false,
+        gain_mb: 0,
     });
     session.apply(Command::InsertTrack { track })?;
     Ok(Bounce {

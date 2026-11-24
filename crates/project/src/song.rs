@@ -423,10 +423,17 @@ pub struct AudioRef {
     /// Resample the source to fill the reference length (pitch shifts).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stretch: bool,
+    /// Clip gain in millibels (0.001 dB); zero is unity.
+    #[serde(default, skip_serializing_if = "is_zero_i16")]
+    pub gain_mb: i16,
 }
 
 fn is_zero_tick(tick: &Tick) -> bool {
     *tick == 0
+}
+
+fn is_zero_i16(value: &i16) -> bool {
+    *value == 0
 }
 
 /// A phrase slur between two ticks on a track.
@@ -1266,6 +1273,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         track.clips.push(crate::song::Clip {
             id: crate::ClipId::new(1).expect("valid"),
@@ -1666,6 +1674,7 @@ mod tests {
             fade_out: 0,
 
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let text = ProjectFile::new(song).to_json_pretty().expect("serialize");
@@ -1815,6 +1824,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         track.takes.push(AudioRef {
             path: String::from("old.wav"),
@@ -1824,6 +1834,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         track.comps.push(AudioComp {
             take: 0,

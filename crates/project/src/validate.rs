@@ -751,6 +751,7 @@ mod tests {
             fade_in: 0,
             fade_out: 0,
             stretch: false,
+            gain_mb: 0,
         });
         song.tracks.push(track);
         let issues = validate(&ProjectFile::new(song));

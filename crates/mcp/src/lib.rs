@@ -3628,6 +3628,7 @@ fn audio_ref_from_value(value: &Value) -> Option<project::song::AudioRef> {
             .get("stretch")
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        gain_mb: 0,
     })
 }
 
