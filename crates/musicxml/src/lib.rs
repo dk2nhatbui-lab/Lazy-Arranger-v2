@@ -63,7 +63,7 @@ pub fn export(song: &Song, title: &str) -> String {
     out.push_str("  <part-list>\n");
     for (index, track) in song.tracks.iter().enumerate() {
         out.push_str(&format!(
-            "    <score-part id=\"P{}\"><part-name>{}</part-name></score-part>\n",
+            "    <score-part id=\"P{}\"><part-name>{}</part-name>",
             index + 1,
             escape(if track.name.is_empty() {
                 "Track"
@@ -71,6 +71,28 @@ pub fn export(song: &Song, title: &str) -> String {
                 &track.name
             })
         ));
+        let drums = track
+            .notes
+            .iter()
+            .any(|note| note.channel.zero_based() == 9);
+        if drums {
+            let mut pitched: Vec<u8> = track
+                .notes
+                .iter()
+                .filter(|note| note.channel.zero_based() == 9)
+                .map(|note| note.pitch.as_u8())
+                .collect();
+            pitched.sort_unstable();
+            pitched.dedup();
+            for pitch in pitched {
+                out.push_str(&format!(
+                    "<score-instrument id=\"P{part}-I{pitch}\"><instrument-name>Drum {pitch}</instrument-name></score-instrument><midi-instrument id=\"P{part}-I{pitch}\"><midi-channel>10</midi-channel><midi-unpitched>{one}</midi-unpitched></midi-instrument>",
+                    part = index + 1,
+                    one = u16::from(pitch) + 1
+                ));
+            }
+        }
+        out.push_str("</score-part>\n");
     }
     out.push_str("  </part-list>\n");
     for (index, track) in song.tracks.iter().enumerate() {
@@ -100,19 +122,6 @@ pub fn export(song: &Song, title: &str) -> String {
                 } else {
                     "        <clef><sign>G</sign><line>2</line></clef>\n"
                 });
-                if drums {
-                    let mut pitched: Vec<u8> =
-                        track.notes.iter().map(|note| note.pitch.as_u8()).collect();
-                    pitched.sort_unstable();
-                    pitched.dedup();
-                    for pitch in pitched {
-                        out.push_str(&format!(
-                            "        <score-instrument id=\"P{part}-I{pitch}\"><instrument-name>Drum {pitch}</instrument-name></score-instrument>\n        <midi-instrument id=\"P{part}-I{pitch}\"><midi-channel>10</midi-channel><midi-unpitched>{one}</midi-unpitched></midi-instrument>\n",
-                            part = index + 1,
-                            one = u16::from(pitch) + 1
-                        ));
-                    }
-                }
                 out.push_str("      </attributes>\n");
                 if index == 0 {
                     let tempo = song.tempo_map.bpm_at(0);
