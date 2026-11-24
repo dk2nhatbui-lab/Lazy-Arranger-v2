@@ -687,6 +687,7 @@ pub fn tools() -> Vec<Tool> {
                     "fade_in": {"type": "integer"},
                     "fade_out": {"type": "integer"},
                     "stretch": {"type": "boolean"},
+                    "gain_mb": {"type": "integer"},
                     "takes": {"type": "array"},
                     "comps": {"type": "array"}
                 },
@@ -3608,7 +3609,8 @@ fn audio_ref_json(reference: &project::song::AudioRef) -> Value {
         "offset": reference.offset,
         "fade_in": reference.fade_in,
         "fade_out": reference.fade_out,
-        "stretch": reference.stretch
+        "stretch": reference.stretch,
+        "gain_mb": reference.gain_mb
     })
 }
 
@@ -3628,7 +3630,11 @@ fn audio_ref_from_value(value: &Value) -> Option<project::song::AudioRef> {
             .get("stretch")
             .and_then(Value::as_bool)
             .unwrap_or(false),
-        gain_mb: 0,
+        gain_mb: value
+            .get("gain_mb")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .clamp(-32_768, 32_767) as i16,
     })
 }
 
@@ -4562,13 +4568,14 @@ mod tests {
                 "path": "/tmp/take.wav",
                 "length": 960,
                 "fade_in": 120,
+                "gain_mb": -6000,
                 "takes": [{"path": "/tmp/take.wav", "length": 960}],
                 "comps": [{"take": 0, "start": 0, "length": 480}]
             }),
         )
         .expect("audio");
         assert_eq!(session.undo_depth(), before + 1);
-        let (fade_in, length, takes, comps) = {
+        let (fade_in, length, takes, comps, gain_mb) = {
             let track = &session.song().tracks[0];
             let reference = track.audio.as_ref().expect("audio");
             (
@@ -4576,8 +4583,10 @@ mod tests {
                 reference.length,
                 track.takes.len(),
                 track.comps.len(),
+                reference.gain_mb,
             )
         };
+        assert_eq!(gain_mb, -6_000);
         assert_eq!(fade_in, 120);
         assert_eq!(length, 960);
         assert_eq!(takes, 1);
