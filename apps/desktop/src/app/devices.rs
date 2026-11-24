@@ -295,6 +295,24 @@ pub(super) struct AudioChordsState {
     pub(super) auto: bool,
 }
 
+/// The MIDI output window: port, connection and the message being built.
+pub(super) struct MidiOutState {
+    pub(super) open: bool,
+    pub(super) port: Option<String>,
+    pub(super) conn: Option<(
+        String,
+        std::sync::Arc<std::sync::Mutex<midi_devices::devices::MidiOutputConnection>>,
+    )>,
+    pub(super) channel: u8,
+    pub(super) program: u8,
+    pub(super) note: u8,
+    pub(super) velocity: u8,
+    pub(super) cc: u8,
+    pub(super) cc_value: u8,
+    pub(super) bank_msb: u8,
+    pub(super) bank_lsb: u8,
+}
+
 impl ShellApp {
     /// Opens the configured keyboard once and applies mapped controls.
     pub(super) fn poll_midi(&mut self) {
@@ -550,7 +568,7 @@ impl ShellApp {
             }
             if let Some(error) = failed {
                 drop(guard);
-                self.midi_out_conn = None;
+                self.midi_out.conn = None;
                 self.status = Some(format!("{port}: {error}"));
                 return;
             }
@@ -863,22 +881,22 @@ impl ShellApp {
         ),
         String,
     > {
-        let Some(port) = self.midi_out_port.clone() else {
-            self.midi_out_conn = None;
+        let Some(port) = self.midi_out.port.clone() else {
+            self.midi_out.conn = None;
             let message = String::from("choose a MIDI output first");
             self.status = Some(message.clone());
             return Err(message);
         };
-        if let Some((cached_port, connection)) = &self.midi_out_conn
+        if let Some((cached_port, connection)) = &self.midi_out.conn
             && cached_port == &port
         {
             return Ok((port, std::sync::Arc::clone(connection)));
         }
-        self.midi_out_conn = None;
+        self.midi_out.conn = None;
         match midi_devices::devices::open_output(&port) {
             Ok(connection) => {
                 let shared = std::sync::Arc::new(std::sync::Mutex::new(connection));
-                self.midi_out_conn = Some((port.clone(), std::sync::Arc::clone(&shared)));
+                self.midi_out.conn = Some((port.clone(), std::sync::Arc::clone(&shared)));
                 Ok((port, shared))
             }
             Err(error) => {
@@ -900,7 +918,7 @@ impl ShellApp {
         match result {
             Ok(()) => self.status = Some(format!("sent {} byte(s) to {port}", bytes.len())),
             Err(error) => {
-                self.midi_out_conn = None;
+                self.midi_out.conn = None;
                 self.status = Some(format!("{port}: {error}"));
             }
         }
@@ -922,7 +940,7 @@ impl ShellApp {
         match result {
             Ok(()) => self.status = Some(format!("sent to {port}")),
             Err(error) => {
-                self.midi_out_conn = None;
+                self.midi_out.conn = None;
                 self.status = Some(format!("{port}: {error}"));
             }
         }
@@ -962,10 +980,10 @@ impl ShellApp {
     }
 
     pub(super) fn midi_out_window(&mut self, context: &Context) {
-        if !self.midi_out_open {
+        if !self.midi_out.open {
             return;
         }
-        let mut open = self.midi_out_open;
+        let mut open = self.midi_out.open;
         egui::Window::new("MIDI out")
             .open(&mut open)
             .resizable(false)
@@ -981,10 +999,10 @@ impl ShellApp {
                     .map(|(_, outputs)| outputs.clone())
                     .unwrap_or_default();
                 egui::ComboBox::from_id_salt("midi-out-port")
-                    .selected_text(self.midi_out_port.as_deref().unwrap_or("Choose output"))
+                    .selected_text(self.midi_out.port.as_deref().unwrap_or("Choose output"))
                     .show_ui(ui, |ui| {
                         for name in &outputs {
-                            ui.selectable_value(&mut self.midi_out_port, Some(name.clone()), name);
+                            ui.selectable_value(&mut self.midi_out.port, Some(name.clone()), name);
                         }
                     });
                 if ui
@@ -1010,27 +1028,27 @@ impl ShellApp {
                 }
                 ui.horizontal(|ui| {
                     ui.label("channel");
-                    ui.add(egui::DragValue::new(&mut self.midi_out_channel).range(1..=16));
+                    ui.add(egui::DragValue::new(&mut self.midi_out.channel).range(1..=16));
                     ui.label("program");
-                    ui.add(egui::DragValue::new(&mut self.midi_out_program).range(0..=127));
+                    ui.add(egui::DragValue::new(&mut self.midi_out.program).range(0..=127));
                     if ui.button("Send program").clicked()
                         && let Ok(channel) =
-                            music_core::Channel::from_one_based(self.midi_out_channel)
+                            music_core::Channel::from_one_based(self.midi_out.channel)
                     {
                         self.send_midi(music_core::MidiMessage::ProgramChange {
                             channel,
-                            program: self.midi_out_program,
+                            program: self.midi_out.program,
                         });
                     }
                 });
                 ui.horizontal(|ui| {
                     ui.label("bank");
-                    ui.add(egui::DragValue::new(&mut self.midi_out_bank_msb).range(0..=127));
+                    ui.add(egui::DragValue::new(&mut self.midi_out.bank_msb).range(0..=127));
                     ui.label("/");
-                    ui.add(egui::DragValue::new(&mut self.midi_out_bank_lsb).range(0..=127));
+                    ui.add(egui::DragValue::new(&mut self.midi_out.bank_lsb).range(0..=127));
                     if ui.button("Send bank").clicked()
                         && let (Ok(channel), Ok(msb), Ok(lsb)) = (
-                            music_core::Channel::from_one_based(self.midi_out_channel),
+                            music_core::Channel::from_one_based(self.midi_out.channel),
                             music_core::ControlNumber::new(0),
                             music_core::ControlNumber::new(32),
                         )
@@ -1038,42 +1056,42 @@ impl ShellApp {
                         self.send_midi(music_core::MidiMessage::ControlChange {
                             channel,
                             controller: msb,
-                            value: self.midi_out_bank_msb,
+                            value: self.midi_out.bank_msb,
                         });
                         self.send_midi(music_core::MidiMessage::ControlChange {
                             channel,
                             controller: lsb,
-                            value: self.midi_out_bank_lsb,
+                            value: self.midi_out.bank_lsb,
                         });
                     }
                 });
                 ui.horizontal(|ui| {
                     ui.label("CC");
-                    ui.add(egui::DragValue::new(&mut self.midi_out_cc).range(0..=127));
-                    ui.add(egui::DragValue::new(&mut self.midi_out_cc_value).range(0..=127));
+                    ui.add(egui::DragValue::new(&mut self.midi_out.cc).range(0..=127));
+                    ui.add(egui::DragValue::new(&mut self.midi_out.cc_value).range(0..=127));
                     if ui.button("Send CC").clicked()
                         && let (Ok(channel), Ok(controller)) = (
-                            music_core::Channel::from_one_based(self.midi_out_channel),
-                            music_core::ControlNumber::new(self.midi_out_cc),
+                            music_core::Channel::from_one_based(self.midi_out.channel),
+                            music_core::ControlNumber::new(self.midi_out.cc),
                         )
                     {
                         self.send_midi(music_core::MidiMessage::ControlChange {
                             channel,
                             controller,
-                            value: self.midi_out_cc_value,
+                            value: self.midi_out.cc_value,
                         });
                     }
                 });
                 ui.horizontal(|ui| {
                     ui.label("note");
-                    ui.add(egui::DragValue::new(&mut self.midi_out_note).range(0..=127));
+                    ui.add(egui::DragValue::new(&mut self.midi_out.note).range(0..=127));
                     ui.label("velocity");
-                    ui.add(egui::DragValue::new(&mut self.midi_out_velocity).range(1..=127));
+                    ui.add(egui::DragValue::new(&mut self.midi_out.velocity).range(1..=127));
                     if ui.button("Send note").clicked()
                         && let (Ok(channel), Ok(pitch), Ok(velocity)) = (
-                            music_core::Channel::from_one_based(self.midi_out_channel),
-                            music_core::Pitch::new(self.midi_out_note),
-                            music_core::Velocity::new(self.midi_out_velocity),
+                            music_core::Channel::from_one_based(self.midi_out.channel),
+                            music_core::Pitch::new(self.midi_out.note),
+                            music_core::Velocity::new(self.midi_out.velocity),
                         )
                         && let Ok((port, connection)) = self.midi_output_connection()
                     {
@@ -1103,7 +1121,7 @@ impl ShellApp {
                                 });
                             }
                             Err(error) => {
-                                self.midi_out_conn = None;
+                                self.midi_out.conn = None;
                                 self.status = Some(format!("{port}: {error}"));
                             }
                         }
@@ -1111,16 +1129,16 @@ impl ShellApp {
                     if ui.button("Send chord").clicked()
                         && let Some(chord) = self.song().chord_at(self.position).cloned()
                         && let (Ok(channel), Ok(velocity)) = (
-                            music_core::Channel::from_one_based(self.midi_out_channel),
-                            music_core::Velocity::new(self.midi_out_velocity),
+                            music_core::Channel::from_one_based(self.midi_out.channel),
+                            music_core::Velocity::new(self.midi_out.velocity),
                         )
                     {
                         self.send_chord_notes(&chord, channel, velocity, 500);
                     }
                     if ui.button("Panic").clicked()
-                        && let Some(port) = self.midi_out_port.clone()
+                        && let Some(port) = self.midi_out.port.clone()
                     {
-                        self.midi_out_conn = None;
+                        self.midi_out.conn = None;
                         match midi_devices::devices::panic(&port) {
                             Ok(sent) => self.status = Some(format!("panic sent {sent}")),
                             Err(error) => self.status = Some(error.to_string()),
@@ -1136,7 +1154,7 @@ impl ShellApp {
                         self.send_raw(&[0xFC]);
                     }
                 });
-                if self.midi_out_port.is_none() {
+                if self.midi_out.port.is_none() {
                     ui.label(
                         egui::RichText::new("No output selected. Use Settings to list ports.")
                             .size(10.0)
@@ -1144,7 +1162,7 @@ impl ShellApp {
                     );
                 }
             });
-        self.midi_out_open = open;
+        self.midi_out.open = open;
     }
 
     pub(super) fn send_l6max_transport(&mut self, action: &str) {
@@ -1176,7 +1194,7 @@ impl ShellApp {
     }
 
     pub(super) fn l6max_control_port(&mut self) -> Option<String> {
-        if let Some(port) = &self.midi_out_port
+        if let Some(port) = &self.midi_out.port
             && port.contains("L6max Mixer Control")
         {
             return Some(port.clone());
@@ -1192,10 +1210,10 @@ impl ShellApp {
                 .find(|name| name.contains("L6max Mixer Control"))
                 .cloned()
         {
-            self.midi_out_port = Some(found.clone());
+            self.midi_out.port = Some(found.clone());
             return Some(found);
         }
-        self.midi_out_port.clone()
+        self.midi_out.port.clone()
     }
 
     pub(super) fn send_l6max_changes(&mut self, changes: &[(u8, u8)], scene: Option<u8>) {
@@ -1512,7 +1530,7 @@ impl ShellApp {
     }
 
     pub(super) fn d05_port_name(&self) -> Option<String> {
-        if let Some(port) = &self.midi_out_port
+        if let Some(port) = &self.midi_out.port
             && port.contains("D-05")
         {
             return Some(port.clone());
@@ -1524,16 +1542,17 @@ impl ShellApp {
 
     pub(super) fn release_midi_out_if(&mut self, port: &str) {
         if self
-            .midi_out_conn
+            .midi_out
+            .conn
             .as_ref()
             .is_some_and(|(cached, _)| cached == port)
         {
-            self.midi_out_conn = None;
+            self.midi_out.conn = None;
         }
     }
 
     pub(super) fn send_d05_raw(&mut self, bytes: &[u8]) {
-        let port = self.d05_port_name().or_else(|| self.midi_out_port.clone());
+        let port = self.d05_port_name().or_else(|| self.midi_out.port.clone());
         let Some(port) = port else {
             self.d05.editor.note = String::from("connect Roland D-05 MIDI port");
             return;
@@ -1916,7 +1935,7 @@ impl ShellApp {
             self.send_d05_raw(&msg);
         }
         if request_send_all {
-            if let Some(port) = self.d05_port_name().or_else(|| self.midi_out_port.clone()) {
+            if let Some(port) = self.d05_port_name().or_else(|| self.midi_out.port.clone()) {
                 match midi_devices::d05::write_temp_patch(
                     &port,
                     self.d05.editor.device_id,
