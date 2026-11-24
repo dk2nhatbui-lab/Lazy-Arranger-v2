@@ -189,10 +189,20 @@ pub fn all_notes_off_messages(messages: &[TimedMessage], last_micros: u64) -> Ve
 pub fn play_to_port(port_name: &str, messages: &[TimedMessage]) -> Result<usize, DeviceError> {
     let mut sink = PortSink::open(port_name)?;
     let mut clock = RealClock::default();
-    let end = messages.last().map_or(0, |message| message.at_micros);
-    let sent = play_timed(messages, &mut sink, &mut clock)?;
-    let panic = all_notes_off_messages(messages, end);
-    play_timed(&panic, &mut sink, &mut clock)?;
+    play_with(messages, &mut sink, &mut clock)
+}
+
+fn play_with(
+    messages: &[TimedMessage],
+    sink: &mut impl MidiSink,
+    clock: &mut impl Clock,
+) -> Result<usize, DeviceError> {
+    let sent = play_timed(messages, sink, clock)?;
+    // The second schedule starts when the first one ends, so its timestamps
+    // are relative to that instant. One millisecond after the last note is
+    // enough to release every channel without replaying the song duration.
+    let panic = all_notes_off_messages(messages, 0);
+    play_timed(&panic, sink, clock)?;
     Ok(sent)
 }
 
@@ -272,6 +282,20 @@ mod tests {
         );
         assert_eq!(sink.sent.len(), 3);
         assert_eq!(clock.now, Duration::from_millis(1000));
+    }
+
+    #[test]
+    fn all_notes_off_comes_one_millisecond_after_the_schedule() {
+        let messages = [TimedMessage {
+            at_micros: 1_000_000,
+            message: note_on("C4"),
+        }];
+        let mut sink = RecordingSink::default();
+        let mut clock = LogicalClock::default();
+        play_with(&messages, &mut sink, &mut clock).expect("plays");
+        assert_eq!(clock.now, Duration::from_micros(1_001_000));
+        assert_eq!(sink.sent.len(), 2);
+        assert!(matches!(sink.sent[1], MidiMessage::ControlChange { .. }));
     }
 
     #[test]
