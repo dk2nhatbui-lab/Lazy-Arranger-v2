@@ -434,7 +434,10 @@ impl Settings {
                     settings.lesson_wrong = value.parse::<u32>().unwrap_or(0);
                 }
                 "lesson_pack" => {
-                    settings.lesson_pack = value.parse::<usize>().ok();
+                    settings.lesson_pack = value
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|index| *index < music_core::lesson::PACKS.len());
                 }
                 "lesson_kind" => {
                     settings.lesson_kind = value.parse::<usize>().unwrap_or(0).min(2);
@@ -726,6 +729,10 @@ mod tests {
         std::fs::write(&path, "grade = 99\nlanguage = en\n").expect("write");
         let clamped = Settings::load(&path);
         assert_eq!(clamped.grade, 9, "grades clamp to nine");
+        std::fs::write(&path, "lesson_kind = 99\nlesson_pack = 9\n").expect("write");
+        let clamped = Settings::load(&path);
+        assert_eq!(clamped.lesson_kind, 2);
+        assert_eq!(clamped.lesson_pack, None);
         std::fs::write(&path, "kids_pause_seconds = 9\n").expect("write");
         assert_eq!(
             Settings::load(&path).kids_pause_seconds,
