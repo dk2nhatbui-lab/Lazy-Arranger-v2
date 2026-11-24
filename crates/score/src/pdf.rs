@@ -1535,6 +1535,36 @@ mod tests {
     }
 
     #[test]
+    fn a_full_pdf_draws_each_chord_once() {
+        use project::song::{ChordEvent, Note, Song, Track};
+        let mut song = Song::new("Chords", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");
+        for bar in 0..8 {
+            track.notes.push(Note {
+                id: project::NoteId::new(bar + 1).expect("valid"),
+                start: music_core::PPQ * 4 * i64::from(bar),
+                duration: music_core::PPQ * 4,
+                pitch: music_core::Pitch::from_name("C4").expect("valid"),
+                velocity: music_core::Velocity::new(100).expect("valid"),
+                channel: music_core::Channel::first(),
+            });
+            song.chords.push(ChordEvent {
+                tick: music_core::PPQ * 4 * i64::from(bar),
+                chord: music_core::Chord::parse("C").expect("valid"),
+            });
+        }
+        song.tracks.push(track);
+        let pdf = to_full_pdf(
+            &song,
+            Settings::default(),
+            "Chords",
+            &[project::TrackId::new(1).expect("valid")],
+        );
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(text.matches("(C) Tj").count(), 8, "one chord per bar");
+    }
+
+    #[test]
     fn unsupported_pdf_text_is_reported() {
         let mut song = Song::new("Text", 120.0);
         song.lyrics.push(project::song::LyricEvent {
