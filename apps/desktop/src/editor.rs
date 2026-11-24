@@ -867,6 +867,49 @@ impl Editor {
         Ok(())
     }
 
+    /// Replaces the score marks.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_marks(&mut self, mut marks: Vec<project::song::Mark>) -> Result<(), String> {
+        marks.sort_by_key(|mark| mark.tick);
+        self.session
+            .apply(app_commands::Command::SetMarks { marks })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Adds one dynamic or articulation at a tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn add_mark(&mut self, tick: Tick, kind: project::song::MarkKind) -> Result<(), String> {
+        let mut marks = self.song().marks.clone();
+        marks.push(project::song::Mark {
+            tick: tick.max(0),
+            kind,
+        });
+        marks.sort_by_key(|mark| mark.tick);
+        self.set_marks(marks)
+    }
+
+    /// Removes one mark by its index in tick order.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the index or edit is invalid.
+    pub fn remove_mark(&mut self, index: usize) -> Result<(), String> {
+        let mut marks = self.song().marks.clone();
+        if index >= marks.len() {
+            return Err(String::from("unknown score mark"));
+        }
+        marks.remove(index);
+        self.set_marks(marks)
+    }
+
     /// Replaces every marker in one edit.
     ///
     /// # Errors
@@ -2713,6 +2756,22 @@ mod tests {
                 .length,
             4 * music_core::PPQ
         );
+    }
+
+    #[test]
+    fn score_marks_add_and_remove() {
+        let mut editor = editor();
+        editor
+            .add_mark(
+                music_core::PPQ,
+                project::song::MarkKind::Dynamic(project::song::Dynamic::F),
+            )
+            .expect("add");
+        assert_eq!(editor.song().marks.len(), 1);
+        editor.remove_mark(0).expect("remove");
+        assert!(editor.song().marks.is_empty());
+        editor.undo();
+        assert_eq!(editor.song().marks.len(), 1);
     }
 
     #[test]

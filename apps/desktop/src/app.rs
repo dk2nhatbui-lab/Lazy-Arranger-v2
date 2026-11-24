@@ -983,6 +983,8 @@ pub struct ShellApp {
     midi_out_note: u8,
     midi_out_velocity: u8,
     midi_out_cc: u8,
+    marks_open: bool,
+    mark_choice: usize,
     l6max_device_open: bool,
     l6max_device: crate::l6max_device::DeviceState,
     takes_open: bool,
@@ -1310,6 +1312,8 @@ impl ShellApp {
             midi_out_note: 60,
             midi_out_velocity: 100,
             midi_out_cc: 7,
+            marks_open: std::env::var("ARRANGER_MARKS").is_ok(),
+            mark_choice: 0,
             l6max_device_open: std::env::var("ARRANGER_L6DEVICE").is_ok(),
             l6max_device: crate::l6max_device::load(std::path::Path::new(
                 crate::l6max_device::STATE_PATH,
@@ -7126,6 +7130,84 @@ impl ShellApp {
         self.theory_open = open;
     }
 
+    fn marks_window(&mut self, context: &egui::Context) {
+        if !self.marks_open {
+            return;
+        }
+        let marks = self.song().marks.clone();
+        let position = self.position.max(0);
+        let mut open = self.marks_open;
+        let mut add = false;
+        let mut remove = None;
+        egui::Window::new("Score marks")
+            .open(&mut open)
+            .default_width(340.0)
+            .show(context, |ui| {
+                ui.label(
+                    egui::RichText::new(format!("playhead at tick {position}"))
+                        .size(10.0)
+                        .color(theme::text_dim()),
+                );
+                let options = [
+                    "pp", "p", "mp", "mf", "f", "ff", "staccato", "accent", "tenuto", "marcato",
+                    "fermata",
+                ];
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_id_salt("mark-kind")
+                        .selected_text(options[self.mark_choice.min(options.len() - 1)])
+                        .show_ui(ui, |ui| {
+                            for (index, name) in options.iter().enumerate() {
+                                ui.selectable_value(&mut self.mark_choice, index, *name);
+                            }
+                        });
+                    if ui.button("Add at playhead").clicked() {
+                        add = true;
+                    }
+                });
+                ui.separator();
+                for (index, mark) in marks.iter().enumerate() {
+                    let label = match mark.kind {
+                        project::song::MarkKind::Dynamic(dynamic) => dynamic.text().to_string(),
+                        project::song::MarkKind::Articulation(articulation) => {
+                            format!("{articulation:?}").to_lowercase()
+                        }
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{}: {label}", mark.tick));
+                        if ui.small_button("Remove").clicked() {
+                            remove = Some(index);
+                        }
+                    });
+                }
+            });
+        self.marks_open = open;
+        if add {
+            let kind = match self.mark_choice.min(10) {
+                0 => project::song::MarkKind::Dynamic(project::song::Dynamic::Pp),
+                1 => project::song::MarkKind::Dynamic(project::song::Dynamic::P),
+                2 => project::song::MarkKind::Dynamic(project::song::Dynamic::Mp),
+                3 => project::song::MarkKind::Dynamic(project::song::Dynamic::Mf),
+                4 => project::song::MarkKind::Dynamic(project::song::Dynamic::F),
+                5 => project::song::MarkKind::Dynamic(project::song::Dynamic::Ff),
+                6 => project::song::MarkKind::Articulation(project::song::Articulation::Staccato),
+                7 => project::song::MarkKind::Articulation(project::song::Articulation::Accent),
+                8 => project::song::MarkKind::Articulation(project::song::Articulation::Tenuto),
+                9 => project::song::MarkKind::Articulation(project::song::Articulation::Marcato),
+                _ => project::song::MarkKind::Articulation(project::song::Articulation::Fermata),
+            };
+            match self.editor.add_mark(position, kind) {
+                Ok(()) => self.status = Some(String::from("score mark added")),
+                Err(error) => self.status = Some(error),
+            }
+        }
+        if let Some(index) = remove {
+            match self.editor.remove_mark(index) {
+                Ok(()) => self.status = Some(String::from("score mark removed")),
+                Err(error) => self.status = Some(error),
+            }
+        }
+    }
+
     fn markers_window(&mut self, context: &egui::Context) {
         if !self.markers_open {
             return;
@@ -10602,6 +10684,10 @@ impl ShellApp {
                                 self.xg_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Score marks").clicked() {
+                                self.marks_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("L6max device mixer").clicked() {
                                 self.l6max_device_open = true;
                                 ui.close_menu();
@@ -11200,6 +11286,7 @@ impl eframe::App for ShellApp {
         self.generate_window(context);
         self.l6max_mixer_window(context);
         self.l6max_device_window(context);
+        self.marks_window(context);
         self.audio_style_window(context);
         self.style_rules_window(context);
         self.master_fx_window(context);
@@ -13694,6 +13781,7 @@ mod tests {
         app.style_file_open = true;
         app.style_link_open = true;
         app.l6max_device_open = true;
+        app.marks_open = true;
         app.takes_open = true;
         app.xg_open = true;
         let _ = context.run(egui::RawInput::default(), |context| {
@@ -13728,6 +13816,7 @@ mod tests {
             app.style_file_window(context);
             app.style_link_window(context);
             app.l6max_device_window(context);
+            app.marks_window(context);
             app.takes_window(context);
             app.xg_window(context);
         });

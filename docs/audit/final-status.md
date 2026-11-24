@@ -8,7 +8,7 @@ services).
 
 ## Gate and CI
 
-- `cargo test --workspace`: **777 passed, 0 failed** (also 774/774 with one test thread before the L6max module tests).
+- `cargo test --workspace`: **778 passed, 0 failed** (also 774/774 with one test thread before the L6max module tests).
 - `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all`
   and rustdoc (warnings denied): clean.
 - Release build: 32.47 s; 648 release tests at the time; CLI demo and desktop
@@ -205,3 +205,4 @@ For the clef layout, choose either four measures per system without clefs
 - L6max device values persist in l6max-device.json; hardware mute verified, readback absent.
 - Audio input channel picker covers Mix or CH1-CH16; MIDI panic now records the five verified outputs.
 - cpal output played audibly on Mac mini Speakers; a one-page score printed on the Brother printer.
+- Score marks window adds/removes dynamics and articulations at the playhead (`docs/audit/score-marks.png`).
