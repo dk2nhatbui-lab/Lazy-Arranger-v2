@@ -729,7 +729,7 @@ impl ShellApp {
                                 ui.close_menu();
                             }
                             if ui.button("MIDI out").clicked() {
-                                self.midi_out_open = true;
+                                self.midi_out.open = true;
                                 ui.close_menu();
                             }
                             if ui.button("PSR-S970 remote").clicked() {

@@ -914,7 +914,7 @@ fn the_tool_windows_draw_without_panicking() {
     app.master_fx_open = true;
     app.midi_map_open = true;
     app.midi_monitor_open = true;
-    app.midi_out_open = true;
+    app.midi_out.open = true;
     app.pads_open = true;
     app.plugins_open = true;
     app.psr.open = true;
