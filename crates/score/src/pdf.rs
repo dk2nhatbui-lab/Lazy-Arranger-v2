@@ -475,6 +475,7 @@ struct FullStaff {
     systems: Vec<(usize, crate::System)>,
     notes: Vec<crate::PlacedNote>,
     ties: Vec<crate::Tie>,
+    slurs: Vec<crate::SlurArc>,
     tuplets: Vec<crate::Tuplet>,
     chords: Vec<crate::ChordSymbol>,
     lyrics: Vec<crate::Lyric>,
@@ -520,6 +521,7 @@ pub fn to_full_pdf(
             systems,
             notes: engraved.notes,
             ties: engraved.ties,
+            slurs: engraved.slurs,
             tuplets: engraved.tuplets,
             chords: engraved.chord_symbols,
             lyrics: engraved.lyrics,
@@ -535,6 +537,7 @@ pub fn to_full_pdf(
             systems: Vec::new(),
             notes: Vec::new(),
             ties: Vec::new(),
+            slurs: Vec::new(),
             tuplets: Vec::new(),
             chords: Vec::new(),
             lyrics: Vec::new(),
@@ -847,6 +850,27 @@ pub fn to_full_pdf(
                             settings.page_height - (second_y + offset + 1.5)
                         );
                     }
+                }
+                for slur in staff.slurs.iter().filter(|slur| {
+                    slur.page == *page && slur.start_x >= first_x && slur.start_x <= last_x
+                }) {
+                    let y = settings.page_height
+                        - (top + (slur.y - system.y) * (line_gap / settings.staff_space));
+                    let start_x = first_system.map_or(slur.start_x, |sys| {
+                        crate::full_score_x(system, sys, slur.start_x)
+                    });
+                    let end_x = first_system.map_or(slur.end_x, |sys| {
+                        crate::full_score_x(system, sys, slur.end_x)
+                    });
+                    let control = (end_x - start_x).abs() * 0.33;
+                    let _ = writeln!(
+                        content,
+                        "{start_x:.1} {y:.1} m {:.1} {:.1} {:.1} {:.1} {end_x:.1} {y:.1} c S",
+                        start_x + control,
+                        y - 3.0,
+                        end_x - control,
+                        y - 3.0
+                    );
                 }
                 for tie in staff.ties.iter().filter(|tie| {
                     tie.page == *page && tie.start_x >= first_x && tie.start_x <= last_x

@@ -679,6 +679,27 @@ pub fn show_full(
                     );
                 }
             }
+            for slur in engraved.slurs.iter().filter(|slur| {
+                slur.page == source_page && slur.start_x >= first_x && slur.start_x <= last_x
+            }) {
+                let y = top + (slur.y - system.y) * (line_gap / settings.staff_space) * scale;
+                let start = page_rect.left()
+                    + first_system.map_or(slur.start_x, |sys| {
+                        score::full_score_x(system, sys, slur.start_x)
+                    }) * scale;
+                let end = page_rect.left()
+                    + first_system.map_or(slur.end_x, |sys| {
+                        score::full_score_x(system, sys, slur.end_x)
+                    }) * scale;
+                painter.add(egui::Shape::line(
+                    vec![
+                        Pos2::new(start, y),
+                        Pos2::new((start + end) / 2.0, y - 2.0 * scale),
+                        Pos2::new(end, y),
+                    ],
+                    Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+                ));
+            }
             for tie in engraved.ties.iter().filter(|tie| tie.page == source_page) {
                 let y = top + (tie.y - system.y) * (line_gap / settings.staff_space) * scale;
                 let start = page_rect.left()
