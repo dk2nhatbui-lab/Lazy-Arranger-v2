@@ -474,6 +474,8 @@ struct FullStaff {
     name: String,
     systems: Vec<(usize, crate::System)>,
     notes: Vec<crate::PlacedNote>,
+    ties: Vec<crate::Tie>,
+    tuplets: Vec<crate::Tuplet>,
 }
 
 /// Writes an all-track full score to PDF bytes.
@@ -511,6 +513,8 @@ pub fn to_full_pdf(
             name: track.name.clone(),
             systems,
             notes: engraved.notes,
+            ties: engraved.ties,
+            tuplets: engraved.tuplets,
         });
     }
     if staves.is_empty() {
@@ -518,6 +522,8 @@ pub fn to_full_pdf(
             name: String::from("Empty"),
             systems: Vec::new(),
             notes: Vec::new(),
+            ties: Vec::new(),
+            tuplets: Vec::new(),
         });
     }
     let page_count = staves
@@ -707,6 +713,46 @@ pub fn to_full_pdf(
                         settings.page_height - (second_y + offset + 1.5)
                     );
                 }
+            }
+            for tie in staff.ties.iter().filter(|tie| tie.page == *page) {
+                let y = settings.page_height
+                    - (top + (tie.y - system.y) * (line_gap / settings.staff_space));
+                let control = (tie.end_x - tie.start_x).abs() * 0.33;
+                let _ = writeln!(
+                    content,
+                    "{:.1} {y:.1} m {:.1} {:.1} {:.1} {:.1} {:.1} {y:.1} c S",
+                    tie.start_x,
+                    tie.start_x + control,
+                    y + 3.0,
+                    tie.end_x - control,
+                    y + 3.0,
+                    tie.end_x
+                );
+            }
+            for tuplet in staff.tuplets.iter().filter(|tuplet| tuplet.page == *page) {
+                let y = settings.page_height
+                    - (top + (tuplet.y - system.y) * (line_gap / settings.staff_space));
+                let _ = writeln!(
+                    content,
+                    "{:.1} {y:.1} m {:.1} {y:.1} l S {:.1} {:.1} m {:.1} {:.1} l S {:.1} {:.1} m {:.1} {:.1} l S",
+                    tuplet.start_x,
+                    tuplet.end_x,
+                    tuplet.start_x,
+                    y,
+                    tuplet.start_x,
+                    y + 3.0,
+                    tuplet.end_x,
+                    y,
+                    tuplet.end_x,
+                    y + 3.0
+                );
+                let _ = writeln!(
+                    content,
+                    "BT /F1 7 Tf {:.1} {:.1} Td ({} ) Tj ET",
+                    (tuplet.start_x + tuplet.end_x) / 2.0,
+                    y + 4.0,
+                    tuplet.count
+                );
             }
         }
         if let Some(staff) = staves.first()
