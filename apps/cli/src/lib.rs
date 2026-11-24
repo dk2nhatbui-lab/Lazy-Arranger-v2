@@ -888,6 +888,9 @@ enum Commands {
         /// Tempo used to place recorded notes on the tick timeline.
         #[arg(long, default_value_t = 120.0)]
         tempo: f64,
+        /// Wait up to one hour for the first note, then record.
+        #[arg(long)]
+        wait: bool,
     },
     /// Forward MIDI input to an output port to check wiring.
     Echo {
@@ -2238,7 +2241,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             out,
             seconds,
             tempo,
-        } => record(&input, &out, seconds, tempo),
+            wait,
+        } => record(&input, &out, seconds, tempo, wait),
         Commands::Echo {
             input,
             out,
@@ -3307,10 +3311,17 @@ fn play(
     Ok(())
 }
 
-fn record(input: &str, out: &PathBuf, seconds: f64, tempo: f64) -> Result<(), Box<dyn Error>> {
+fn record(
+    input: &str,
+    out: &PathBuf,
+    seconds: f64,
+    tempo: f64,
+    wait: bool,
+) -> Result<(), Box<dyn Error>> {
     let tempo_map = TempoMap::constant(tempo);
-    let (song, notes, stats) = midi_devices::record_to_song(input, seconds, &tempo_map, "Recorded")
-        .map_err(map_device_error)?;
+    let (song, notes, stats) =
+        midi_devices::record_to_song_after(input, seconds, &tempo_map, "Recorded", wait)
+            .map_err(map_device_error)?;
     println!(
         "recorded {} note(s) in {seconds} s from {input:?}",
         notes.len()

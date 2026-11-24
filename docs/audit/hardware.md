@@ -102,9 +102,13 @@ Mac mini Speakers.
 
 ### What did not produce evidence
 
-- Two 30-second input recordings on Launchkey and PSR-S970 wrote 0 notes. The
-  owner pressed keys after the recordings had already finished (the answer came
-  back about 26 minutes later), so physical key capture remains unverified.
+- The first two 30-second input recordings wrote 0 notes because the owner
+  pressed keys after they had finished. A note-triggered recorder (`record
+  --wait`) then captured physical input:
+  - Launchkey Mini MK3 MIDI Port: **9 notes** in a 4-second window.
+  - Yamaha PSR-S970 Port 1: **28 notes** in a 4-second window.
+  Both files imported cleanly. This verifies physical key capture for those two
+  keyboards.
 - A PSR echo test (send to the PSR output while recording its input) wrote 0
   notes.
 - XioSynth input recordings during a channel check and a 35-second demo playback
@@ -127,6 +131,7 @@ acceptance. The hardware rows remain partial.
 lazy-arranger ports
 lazy-arranger audio-devices
 lazy-arranger midi-channel-check --output "Yamaha PSR-S970 Port 1"
+lazy-arranger record --in "Launchkey Mini MK3 MIDI Port" --wait --seconds 4 --out take.mid
 lazy-arranger midi-panic --output "X-TOUCH MINI"
 lazy-arranger audio-devices
 lazy-arranger record-audio --device XioSynth --channel 0 --seconds 3 --out take.wav

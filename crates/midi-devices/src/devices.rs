@@ -398,6 +398,25 @@ pub fn record_to_song(
     tempo_map: &TempoMap,
     track_name: &str,
 ) -> Result<(Song, Vec<CapturedNote>, CaptureStats), DeviceError> {
+    record_to_song_after(input_name, seconds, tempo_map, track_name, false)
+}
+
+/// Records notes, optionally starting the window on the first note-on.
+///
+/// With `wait_for_note`, the function waits up to one hour for a note-on and
+/// then records for `seconds`.
+///
+/// # Errors
+///
+/// Returns [`DeviceError`] when the port cannot be opened or the recorded
+/// notes cannot be stored.
+pub fn record_to_song_after(
+    input_name: &str,
+    seconds: f64,
+    tempo_map: &TempoMap,
+    track_name: &str,
+    wait_for_note: bool,
+) -> Result<(Song, Vec<CapturedNote>, CaptureStats), DeviceError> {
     let (sender, receiver) = channel::<(u64, MidiMessage)>();
     let input =
         MidiInput::new("lazy-arranger").map_err(|err| DeviceError::Init(err.to_string()))?;
@@ -431,11 +450,25 @@ pub fn record_to_song(
         )
         .map_err(|err| DeviceError::Connect(err.to_string()))?;
 
-    let deadline = Instant::now() + Duration::from_secs_f64(seconds.max(0.0));
+    let wait_deadline = Instant::now() + Duration::from_secs(3600);
+    let mut deadline = if wait_for_note {
+        wait_deadline
+    } else {
+        Instant::now() + Duration::from_secs_f64(seconds.max(0.0))
+    };
     let mut capture = NoteCapture::new();
+    let mut waiting = wait_for_note;
     while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
         match receiver.recv_timeout(remaining) {
-            Ok((timestamp, message)) => capture.ingest(timestamp, message),
+            Ok((timestamp, message)) => {
+                if waiting
+                    && matches!(message, MidiMessage::NoteOn { velocity, .. } if velocity.as_u8() > 0)
+                {
+                    waiting = false;
+                    deadline = Instant::now() + Duration::from_secs_f64(seconds.max(0.0));
+                }
+                capture.ingest(timestamp, message);
+            }
             Err(RecvTimeoutError::Timeout) => break,
             Err(RecvTimeoutError::Disconnected) => return Err(DeviceError::InputClosed),
         }
