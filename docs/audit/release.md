@@ -1,13 +1,13 @@
-# Release build verification (2026-11-23)
+# Release build verification (2026-11-24)
 
-Environment: macOS arm64, rustc 1.100.0 (Homebrew), commit `a299cb9` (code
-identical to `d321f73`). No behavior changed for this check.
+Environment: macOS arm64, rustc 1.100.0 (Homebrew), commit `8365050`.
 
 ## Build
 
 ```sh
-./scripts/rust.sh build --release --workspace
-# Finished `release` profile [optimized] target(s) in 32.47s
+./scripts/bundle-macos.sh
+# Finished `release` profile [optimized]
+# built dist/Lazy Arranger Midi DAW.app
 ```
 
 The only warning is Cargo's future-incompatibility notice for `block v0.1.6`, a
@@ -18,16 +18,18 @@ stays green on the workspace.
 
 ```sh
 ./scripts/rust.sh test --release --workspace
-# 648 passed, 0 failed (14.04 s including the first test build)
+# 842 passed, 0 failed
 ```
 
 ## Binaries
 
 | Binary | Size | Smoke |
 | --- | --- | --- |
-| `target/release/lazy-arranger` | 4.7 MB | `--help` exit 0; `demo` wrote 271-byte MIDI, 40 events, 2 tracks/20 notes |
-| `target/release/lazy-arranger-desktop` | 14 MB | ran 6 s under `timeout`; exit 124 is the expected timeout, no panic |
+| `target/release/lazy-arranger` | 9.1 MB | CLI builds and runs |
+| `target/release/lazy-arranger-desktop` | 23 MB | app bundle launches |
+| bundle `lazy-arranger-plugin-scan` | — | returned R0Verb 1.0.4 FX metadata from `/Library/Audio/Plug-Ins/VST3/R0Verb.vst3` |
 
-The debug workspace gate (648 tests, clippy `-D warnings`, fmt, rustdoc) and the
+The debug workspace gate (842 tests, clippy `-D warnings`, fmt, rustdoc) and the
 Windows/Linux/macOS CI matrix remain the authoritative checks; this file records
-that the optimized build and its tests also pass.
+that the optimized build and its tests also pass. Hardware remains powered down,
+so audio/MIDI/print hardware checks are not part of this snapshot.
