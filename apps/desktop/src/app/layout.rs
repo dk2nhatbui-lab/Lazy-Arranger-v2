@@ -3,6 +3,27 @@
 
 use super::*;
 
+/// The score view: note entry, paging, zoom and full-score options.
+pub(super) struct ScoreUi {
+    pub(super) entry: bool,
+    pub(super) octave: i32,
+    pub(super) note_length: music_core::Tick,
+    pub(super) dotted: bool,
+    pub(super) cursor: music_core::Tick,
+    pub(super) page: usize,
+    pub(super) zoom: f32,
+    pub(super) grand: bool,
+    pub(super) preview: bool,
+    pub(super) all_tracks: bool,
+    pub(super) follow: bool,
+    pub(super) full_frames: bool,
+    pub(super) full_hidden: std::collections::HashSet<TrackId>,
+    pub(super) full_cache: Option<(u64, Vec<(String, score::Engraved)>)>,
+    pub(super) pdf_path: String,
+    pub(super) track: Option<TrackId>,
+    pub(super) state: crate::score_view::ScoreState,
+}
+
 impl ShellApp {
     pub(super) fn top_bar(&mut self, context: &Context) {
         egui::TopBottomPanel::top("header")
@@ -1037,7 +1058,8 @@ impl ShellApp {
             return;
         }
         let track_id = self
-            .score_track
+            .score
+            .track
             .or(self.roll.selected)
             .or_else(|| self.song().tracks.first().map(|track| track.id));
         if self.midi_ports.is_none()
@@ -2562,7 +2584,7 @@ impl ShellApp {
                 let mut audio_gain: Option<(TrackId, i16)> = None;
                 let mut audio_remove: Option<TrackId> = None;
                 let mut score_status: Option<String> = None;
-                let entry_enabled_flag = self.score_entry;
+                let entry_enabled_flag = self.score.entry;
                 let mut perform_chord: Option<music_core::Chord> = None;
                 let mut lesson_next = false;
                 let mut lesson_reset = false;
@@ -3230,8 +3252,8 @@ impl ShellApp {
                             self.printers = available_printers();
                             self.printers_loaded = true;
                         }
-                        if self.score_track.is_none() {
-                            self.score_track = project
+                        if self.score.track.is_none() {
+                            self.score.track = project
                                 .song
                                 .tracks
                                 .iter()
@@ -3270,17 +3292,17 @@ impl ShellApp {
                                     "WinAnsi PDF cannot encode {text:?}; it will print as ?"
                                 ));
                             }
-                            ui.checkbox(&mut self.score_all_tracks, "All tracks");
-                            if self.score_all_tracks {
-                                if ui.checkbox(&mut self.score_follow, "Follow").changed() {
-                                    self.settings.score_follow = self.score_follow;
+                            ui.checkbox(&mut self.score.all_tracks, "All tracks");
+                            if self.score.all_tracks {
+                                if ui.checkbox(&mut self.score.follow, "Follow").changed() {
+                                    self.settings.score_follow = self.score.follow;
                                     let _ = self.settings.save(&crate::settings::Settings::path());
                                 }
                                 if ui
-                                    .checkbox(&mut self.score_full_frames, "Frames")
+                                    .checkbox(&mut self.score.full_frames, "Frames")
                                     .changed()
                                 {
-                                    self.settings.score_frames = self.score_full_frames;
+                                    self.settings.score_frames = self.score.full_frames;
                                     let _ = self.settings.save(&crate::settings::Settings::path());
                                 }
                                 let tracks: Vec<(TrackId, String)> = project
@@ -3292,7 +3314,7 @@ impl ShellApp {
                                 let mut toggle = None;
                                 ui.menu_button("Tracks", |ui| {
                                     for (id, name) in &tracks {
-                                        let mut shown = !self.score_full_hidden.contains(id);
+                                        let mut shown = !self.score.full_hidden.contains(id);
                                         if ui.checkbox(&mut shown, name).changed() {
                                             toggle = Some((*id, shown));
                                         }
@@ -3300,19 +3322,19 @@ impl ShellApp {
                                 });
                                 if let Some((id, shown)) = toggle {
                                     if shown {
-                                        self.score_full_hidden.remove(&id);
+                                        self.score.full_hidden.remove(&id);
                                     } else {
-                                        self.score_full_hidden.insert(id);
+                                        self.score.full_hidden.insert(id);
                                     }
                                 }
                             }
-                            let mut write = self.score_entry;
+                            let mut write = self.score.entry;
                             if ui.checkbox(&mut write, "Write notes").changed() {
-                                self.score_entry = write;
-                                self.score_preview = !write;
+                                self.score.entry = write;
+                                self.score.preview = !write;
                             }
                             let selected = self
-                                .score_track
+                                .score.track
                                 .or_else(|| score_tracks.first().map(|(id, _)| *id));
                             egui::ComboBox::from_id_salt("score-track")
                                 .selected_text(
@@ -3327,16 +3349,16 @@ impl ShellApp {
                                 )
                                 .show_ui(ui, |ui| {
                                     for (id, name) in &score_tracks {
-                                        ui.selectable_value(&mut self.score_track, Some(*id), name);
+                                        ui.selectable_value(&mut self.score.track, Some(*id), name);
                                     }
                                 });
                             ui.label("Octave");
                             ui.add(
-                                egui::DragValue::new(&mut self.score_octave).range(0..=8),
+                                egui::DragValue::new(&mut self.score.octave).range(0..=8),
                             );
                             ui.label("Length");
                             egui::ComboBox::from_id_salt("score-length")
-                                .selected_text(match self.score_note_length {
+                                .selected_text(match self.score.note_length {
                                     value if value >= music_core::PPQ * 4 => "Whole",
                                     value if value >= music_core::PPQ * 2 => "Half",
                                     value if value >= music_core::PPQ => "Quarter",
@@ -3352,43 +3374,43 @@ impl ShellApp {
                                         (music_core::PPQ / 4, "16th"),
                                     ] {
                                         ui.selectable_value(
-                                            &mut self.score_note_length,
+                                            &mut self.score.note_length,
                                             value,
                                             label,
                                         );
                                     }
                                 });
-                            ui.checkbox(&mut self.score_dotted, "Dot");
+                            ui.checkbox(&mut self.score.dotted, "Dot");
                             if ui.button("Rest").on_hover_text("Advance the entry cursor").clicked() {
-                                self.score_cursor += entry_length(
-                                    self.score_note_length.max(1),
-                                    self.score_dotted,
+                                self.score.cursor += entry_length(
+                                    self.score.note_length.max(1),
+                                    self.score.dotted,
                                 );
                             }
-                            ui.label(format!("cursor {}", self.score_cursor));
+                            ui.label(format!("cursor {}", self.score.cursor));
                             if ui.small_button("Reset").clicked() {
-                                self.score_cursor = 0;
+                                self.score.cursor = 0;
                             }
                             ui.label("Staves: automatic");
-                            ui.checkbox(&mut self.score_grand, "Grand staff");
+                            ui.checkbox(&mut self.score.grand, "Grand staff");
                             if ui.button("−").clicked() {
-                                self.score_zoom = (self.score_zoom - 0.1).max(0.5);
+                                self.score.zoom = (self.score.zoom - 0.1).max(0.5);
                             }
-                            ui.label(format!("{:.1}", self.score_zoom));
+                            ui.label(format!("{:.1}", self.score.zoom));
                             if ui.button("+").clicked() {
-                                self.score_zoom = (self.score_zoom + 0.1).min(2.5);
+                                self.score.zoom = (self.score.zoom + 0.1).min(2.5);
                             }
                             if ui.button("◀").clicked() {
-                                self.score_page = self.score_page.saturating_sub(1);
+                                self.score.page = self.score.page.saturating_sub(1);
                             }
                             if ui.button("▶").clicked() {
-                                self.score_page += 1;
+                                self.score.page += 1;
                             }
                             ui.label(
                                 egui::RichText::new(format!(
                                     "{}/{}",
-                                    self.score_page + 1,
-                                    self.score_state.cecilia_page_count.max(1)
+                                    self.score.page + 1,
+                                    self.score.state.cecilia_page_count.max(1)
                                 ))
                                 .size(10.0)
                                 .color(theme::text_dim()),
@@ -3401,7 +3423,7 @@ impl ShellApp {
                             }
                         });
                         let track = self
-                            .score_track
+                            .score.track
                             .filter(|track| project.song.tracks.iter().any(|entry| entry.id == *track))
                             .or_else(|| {
                                 roll.selected.filter(|track| {
@@ -3413,21 +3435,21 @@ impl ShellApp {
                             project.song.tracks.iter().find(|entry| entry.id == track)
                         }) {
                             let track = track_song.id;
-                            let grand_staff = self.score_grand || needs_grand_staff(track_song);
+                            let grand_staff = self.score.grand || needs_grand_staff(track_song);
                             let score_settings = score::Settings {
                                 grand_staff,
                                 ..score::Settings::default()
                             };
                             let engraved = score::engrave(&project.song, track, score_settings);
-                            if !self.score_preview {
+                            if !self.score.preview {
                                 if self.playing
                                     && let Some(page) =
                                         crate::score_view::page_at_tick(&engraved, position)
                                 {
-                                    self.score_page = page;
+                                    self.score.page = page;
                                 }
-                                self.score_page =
-                                    crate::score_view::clamp_page(&engraved, self.score_page);
+                                self.score.page =
+                                    crate::score_view::clamp_page(&engraved, self.score.page);
                             }
                             let title = if project.song.name.is_empty() {
                                 "Lazy Arranger score"
@@ -3441,12 +3463,12 @@ impl ShellApp {
                                 .position(|entry| entry.id == track)
                                 .unwrap_or(0);
                             if save_pdf {
-                                let pdf = if self.score_all_tracks {
+                                let pdf = if self.score.all_tracks {
                                     let tracks: Vec<TrackId> = project
                                         .song
                                         .tracks
                                         .iter()
-                                        .filter(|entry| !self.score_full_hidden.contains(&entry.id))
+                                        .filter(|entry| !self.score.full_hidden.contains(&entry.id))
                                         .map(|entry| entry.id)
                                         .collect();
                                     let tracks = if tracks.is_empty() {
@@ -3460,7 +3482,7 @@ impl ShellApp {
                                         title,
                                         &tracks,
                                     ))
-                                } else if self.score_preview {
+                                } else if self.score.preview {
                                     score::cecilia::render_pdf(
                                         &project.song,
                                         track_index,
@@ -3471,14 +3493,14 @@ impl ShellApp {
                                     Ok(score::pdf::to_pdf(&engraved, score_settings, title))
                                 };
                                 match pdf {
-                                    Ok(pdf) => match std::fs::write(&self.score_pdf_path, pdf) {
+                                    Ok(pdf) => match std::fs::write(&self.score.pdf_path, pdf) {
                                         Ok(()) => {
                                             score_status =
-                                                Some(format!("wrote {}", self.score_pdf_path));
+                                                Some(format!("wrote {}", self.score.pdf_path));
                                         }
                                         Err(error) => {
                                             score_status =
-                                                Some(format!("{}: {error}", self.score_pdf_path));
+                                                Some(format!("{}: {error}", self.score.pdf_path));
                                         }
                                     },
                                     Err(error) => {
@@ -3486,14 +3508,14 @@ impl ShellApp {
                                     }
                                 }
                             }
-                            let zoom = self.score_zoom;
-                            let page = self.score_page;
-                            let full_tracks: Vec<(String, score::Engraved)> = if self.score_all_tracks {
+                            let zoom = self.score.zoom;
+                            let page = self.score.page;
+                            let full_tracks: Vec<(String, score::Engraved)> = if self.score.all_tracks {
                                 let selected: Vec<TrackId> = project
                                     .song
                                     .tracks
                                     .iter()
-                                    .filter(|entry| !self.score_full_hidden.contains(&entry.id))
+                                    .filter(|entry| !self.score.full_hidden.contains(&entry.id))
                                     .map(|entry| entry.id)
                                     .collect();
                                 let selected = if selected.is_empty() {
@@ -3508,11 +3530,11 @@ impl ShellApp {
                                         .wrapping_add(u64::from(id.get()));
                                 }
                                 if self
-                                    .score_full_cache
+                                    .score.full_cache
                                     .as_ref()
                                     .is_none_or(|(cached, _)| *cached != key)
                                 {
-                                    self.score_full_cache = Some((
+                                    self.score.full_cache = Some((
                                         key,
                                         project
                                             .song
@@ -3532,15 +3554,15 @@ impl ShellApp {
                                             .collect(),
                                     ));
                                 }
-                                self.score_full_cache
+                                self.score.full_cache
                                     .as_ref()
                                     .map(|(_, tracks)| tracks.clone())
                                     .unwrap_or_default()
                             } else {
                                 Vec::new()
                             };
-                            if self.score_all_tracks
-                                && self.score_follow
+                            if self.score.all_tracks
+                                && self.score.follow
                                 && self
                                     .player
                                     .as_ref()
@@ -3550,48 +3572,48 @@ impl ShellApp {
                                     position,
                                 )
                             {
-                                self.score_page = page;
+                                self.score.page = page;
                             }
-                            let outcome = if self.score_all_tracks {
+                            let outcome = if self.score.all_tracks {
                                 let (count, score_seek) = crate::score_view::show_full(
                                     ui,
                                     &full_tracks,
-                                    self.score_page,
+                                    self.score.page,
                                     zoom,
                                     title,
-                                    &mut self.score_state,
+                                    &mut self.score.state,
                                     position,
-                                    self.score_full_frames,
+                                    self.score.full_frames,
                                     project.song.tempo_map.bpm_at(position),
                                     &project.song.markers,
                                 );
                                 if let Some(tick) = score_seek {
                                     seek = Some(tick);
                                 }
-                                self.score_page = self.score_page.min(count.saturating_sub(1));
-                                self.score_state.cecilia_page_count = count;
+                                self.score.page = self.score.page.min(count.saturating_sub(1));
+                                self.score.state.cecilia_page_count = count;
                                 crate::score_view::ScoreOutcome::default()
-                            } else if self.score_preview {
-                                self.score_state.ensure_cecilia(
+                            } else if self.score.preview {
+                                self.score.state.ensure_cecilia(
                                     ui.ctx(),
                                     &project.song,
                                     track_index,
                                     title,
                                     grand_staff,
                                 );
-                                if let Some(error) = &self.score_state.cecilia_error {
+                                if let Some(error) = &self.score.state.cecilia_error {
                                     score_status = Some(format!("Cecilia: {error}"));
                                 }
-                                let pages = self.score_state.cecilia_page_count.max(1);
-                                self.score_page = self.score_page.min(pages - 1);
+                                let pages = self.score.state.cecilia_page_count.max(1);
+                                self.score.page = self.score.page.min(pages - 1);
                                 if let Some(tick) = crate::score_view::show_preview(
                                     ui,
-                                    &mut self.score_state,
-                                    self.score_page,
+                                    &mut self.score.state,
+                                    self.score.page,
                                     zoom,
                                     &engraved,
                                     position,
-                                    self.score_entry.then_some(self.score_cursor),
+                                    self.score.entry.then_some(self.score.cursor),
                                 ) {
                                     seek = Some(tick);
                                 }
@@ -3603,9 +3625,9 @@ impl ShellApp {
                                     page,
                                     zoom,
                                     title,
-                                    &mut self.score_state,
+                                    &mut self.score.state,
                                     position,
-                                    self.score_entry.then_some(self.score_cursor),
+                                    self.score.entry.then_some(self.score.cursor),
                                 )
                             };
                             if let Some(drag) = outcome.drag {
