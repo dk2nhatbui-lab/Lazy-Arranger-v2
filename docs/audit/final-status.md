@@ -7,7 +7,7 @@ plug-in editor support or model services).
 
 ## Gate and CI
 
-- `cargo test --workspace`: **824 passed, 0 failed**.
+- `cargo test --workspace`: **825 passed, 0 failed**.
 - `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all`
   and rustdoc (warnings denied): clean.
 - Release bundle builds; the app launches; the bundled scanner returns R0Verb
