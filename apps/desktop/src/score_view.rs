@@ -287,6 +287,7 @@ pub fn full_score_hash(song: &project::Song, title: &str) -> u64 {
             note.start.hash(&mut hasher);
             note.duration.hash(&mut hasher);
             note.pitch.as_u8().hash(&mut hasher);
+            note.channel.zero_based().hash(&mut hasher);
         }
         for clip in &track.clips {
             clip.start.hash(&mut hasher);
@@ -1347,6 +1348,9 @@ mod tests {
         let mut song = score_song();
         let before = full_score_hash(&song, "Full");
         song.tracks[0].notes[0].pitch = Pitch::from_name("E4").expect("valid");
+        assert_ne!(before, full_score_hash(&song, "Full"));
+        let before = full_score_hash(&song, "Full");
+        song.tracks[0].notes[0].channel = Channel::new(9).expect("valid");
         assert_ne!(before, full_score_hash(&song, "Full"));
     }
 
