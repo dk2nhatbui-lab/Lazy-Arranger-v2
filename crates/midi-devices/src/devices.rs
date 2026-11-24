@@ -8,7 +8,8 @@
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::{Duration, Instant};
 
-use midir::{MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnection};
+pub use midir::MidiOutputConnection;
+use midir::{MidiInput, MidiInputConnection, MidiOutput};
 use music_core::{MidiMessage, TempoMap};
 use project::ids::TrackId;
 use project::song::Song;

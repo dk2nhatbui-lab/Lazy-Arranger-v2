@@ -859,7 +859,6 @@ struct RenderedSong {
     audio: audio::RenderedAudio,
     stems: Vec<(TrackId, Vec<f32>)>,
     problems: Vec<audio::mix::AudioProblem>,
-    loop_start: Option<music_core::Tick>,
 }
 
 enum NativeEditorKind {
@@ -975,7 +974,8 @@ pub struct ShellApp {
     midi_map: midi_devices::map::MidiMap,
     loop_enabled: bool,
     loop_region: Option<(Tick, Tick)>,
-    loop_buffer: Option<audio::RenderedAudio>,
+    last_loop_wraps: u64,
+    stem_sample_rate: u32,
     lesson: crate::kids::Lesson,
     perform_player: Option<audio::player::Player>,
     library_open: bool,
@@ -1109,6 +1109,10 @@ pub struct ShellApp {
     bus_fx_plugin_choice: usize,
     midi_out_open: bool,
     midi_out_port: Option<String>,
+    midi_out_conn: Option<(
+        String,
+        std::sync::Arc<std::sync::Mutex<midi_devices::devices::MidiOutputConnection>>,
+    )>,
     midi_out_channel: u8,
     midi_out_program: u8,
     midi_out_note: u8,
@@ -1358,7 +1362,8 @@ impl ShellApp {
             midi_input: None,
             loop_enabled: false,
             loop_region: None,
-            loop_buffer: None,
+            last_loop_wraps: 0,
+            stem_sample_rate: audio::SAMPLE_RATE,
             lesson: crate::kids::Lesson::default(),
             perform_player: None,
             library_open: initial_window == "library",
@@ -1501,6 +1506,7 @@ impl ShellApp {
             bus_fx_plugin_choice: 0,
             midi_out_open: std::env::var("ARRANGER_MIDI_OUT").is_ok(),
             midi_out_port: midi_output_pref,
+            midi_out_conn: None,
             midi_out_channel: 1,
             midi_out_program: 0,
             midi_out_note: 60,
@@ -2444,36 +2450,12 @@ impl ShellApp {
             }
         }
         if let Some(player) = &self.player {
-            let seconds = player.frame() as f64 / f64::from(audio::SAMPLE_RATE);
-            let loop_start = if self.loop_enabled && self.loop_buffer.is_some() {
-                self.loop_region
-                    .map(|(start, _)| self.song().tempo_map.seconds_at(start))
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            };
-            self.position = self.song().tempo_map.tick_at_seconds(loop_start + seconds);
+            let seconds = player.seconds();
+            self.position = self.song().tempo_map.tick_at_seconds(seconds);
             self.playing = player.is_playing();
-            if self.loop_enabled
-                && self.playing
-                && let Some(region) = self.loop_region
-                && self.position >= region.1
-            {
-                self.position = region.0;
-                if let Some(buffer) = self.loop_buffer.clone()
-                    && let Ok(restart) = audio::player::Player::new_on(
-                        buffer,
-                        self.settings.audio_output.as_deref(),
-                        (self.settings.audio_buffer_frames > 0)
-                            .then_some(self.settings.audio_buffer_frames),
-                    )
-                {
-                    restart.play();
-                    self.player = Some(restart);
-                }
-                self.advance_launcher();
-                context.request_repaint_after(Duration::from_millis(16));
-                return;
+            let wraps = player.loop_wraps();
+            if wraps != self.last_loop_wraps {
+                self.last_loop_wraps = wraps;
             }
             self.advance_launcher();
             if self.playing {
@@ -4329,20 +4311,38 @@ impl ShellApp {
             if let Ok(pitch) =
                 music_core::Pitch::new(u8::try_from(root + i32::from(*interval)).unwrap_or(60))
             {
-                self.send_midi(music_core::MidiMessage::note_on(channel, pitch, velocity));
                 pitches.push(pitch);
             }
         }
-        let port = self.midi_out_port.clone();
+        let Ok((port, connection)) = self.midi_output_connection() else {
+            return;
+        };
+        if let Ok(mut guard) = connection.lock() {
+            let mut failed = None;
+            for &pitch in &pitches {
+                let message = music_core::MidiMessage::note_on(channel, pitch, velocity);
+                let bytes = message.to_bytes();
+                if let Err(error) = guard.send(&bytes[..message.encoded_len()]) {
+                    failed = Some(error.to_string());
+                    break;
+                }
+            }
+            if let Some(error) = failed {
+                drop(guard);
+                self.midi_out_conn = None;
+                self.status = Some(format!("{port}: {error}"));
+                return;
+            }
+            self.status = Some(format!("sent to {port}"));
+        }
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(hold_ms));
-            if let Some(port) = port
-                && let Ok(mut connection) = midi_devices::devices::open_output(&port)
-                && let Ok(release) = music_core::Velocity::new(0)
+            if let Ok(release) = music_core::Velocity::new(0)
+                && let Ok(mut guard) = connection.lock()
             {
                 for pitch in pitches {
                     let bytes = music_core::MidiMessage::note_off(channel, pitch, release);
-                    let _ = connection.send(&bytes.to_bytes()[..3]);
+                    let _ = guard.send(&bytes.to_bytes()[..3]);
                 }
             }
         });
@@ -4953,34 +4953,77 @@ impl ShellApp {
         self.psr_open = open;
     }
 
-    fn send_raw(&mut self, bytes: &[u8]) {
+    fn midi_output_connection(
+        &mut self,
+    ) -> Result<
+        (
+            String,
+            std::sync::Arc<std::sync::Mutex<midi_devices::devices::MidiOutputConnection>>,
+        ),
+        String,
+    > {
         let Some(port) = self.midi_out_port.clone() else {
-            self.status = Some(String::from("choose a MIDI output first"));
+            self.midi_out_conn = None;
+            let message = String::from("choose a MIDI output first");
+            self.status = Some(message.clone());
+            return Err(message);
+        };
+        if let Some((cached_port, connection)) = &self.midi_out_conn
+            && cached_port == &port
+        {
+            return Ok((port, std::sync::Arc::clone(connection)));
+        }
+        self.midi_out_conn = None;
+        match midi_devices::devices::open_output(&port) {
+            Ok(connection) => {
+                let shared = std::sync::Arc::new(std::sync::Mutex::new(connection));
+                self.midi_out_conn = Some((port.clone(), std::sync::Arc::clone(&shared)));
+                Ok((port, shared))
+            }
+            Err(error) => {
+                let message = error.to_string();
+                self.status = Some(message.clone());
+                Err(message)
+            }
+        }
+    }
+
+    fn send_raw(&mut self, bytes: &[u8]) {
+        let Ok((port, connection)) = self.midi_output_connection() else {
             return;
         };
-        match midi_devices::devices::open_output(&port) {
-            Ok(mut connection) => match connection.send(bytes) {
-                Ok(()) => self.status = Some(format!("sent {} byte(s) to {port}", bytes.len())),
-                Err(error) => self.status = Some(format!("{port}: {error}")),
-            },
-            Err(error) => self.status = Some(error.to_string()),
+        let result = connection
+            .lock()
+            .map_err(|_| String::from("MIDI output lock poisoned"))
+            .and_then(|mut guard| guard.send(bytes).map_err(|error| error.to_string()));
+        match result {
+            Ok(()) => self.status = Some(format!("sent {} byte(s) to {port}", bytes.len())),
+            Err(error) => {
+                self.midi_out_conn = None;
+                self.status = Some(format!("{port}: {error}"));
+            }
         }
     }
 
     fn send_midi(&mut self, message: music_core::MidiMessage) {
-        let Some(port) = self.midi_out_port.clone() else {
-            self.status = Some(String::from("choose a MIDI output first"));
+        let Ok((port, connection)) = self.midi_output_connection() else {
             return;
         };
-        match midi_devices::devices::open_output(&port) {
-            Ok(mut connection) => {
-                let bytes = message.to_bytes();
-                match connection.send(&bytes[..message.encoded_len()]) {
-                    Ok(()) => self.status = Some(format!("sent to {port}")),
-                    Err(error) => self.status = Some(format!("{port}: {error}")),
-                }
+        let bytes = message.to_bytes();
+        let result = connection
+            .lock()
+            .map_err(|_| String::from("MIDI output lock poisoned"))
+            .and_then(|mut guard| {
+                guard
+                    .send(&bytes[..message.encoded_len()])
+                    .map_err(|error| error.to_string())
+            });
+        match result {
+            Ok(()) => self.status = Some(format!("sent to {port}")),
+            Err(error) => {
+                self.midi_out_conn = None;
+                self.status = Some(format!("{port}: {error}"));
             }
-            Err(error) => self.status = Some(error.to_string()),
         }
     }
 
@@ -5047,25 +5090,22 @@ impl ShellApp {
                     .button("Channel check")
                     .on_hover_text("Play a short note on each of the 16 channels")
                     .clicked()
+                    && let Ok((port, connection)) = self.midi_output_connection()
                 {
-                    if let Some(port) = self.midi_out_port.clone() {
-                        self.status = Some(format!("channel check on {port}"));
-                        std::thread::spawn(move || {
-                            if let Ok(mut connection) = midi_devices::devices::open_output(&port) {
-                                for channel in 0..16 {
-                                    if let Ok(messages) =
-                                        midi_devices::devices::channel_check_messages(channel, 60)
-                                    {
-                                        for bytes in messages {
-                                            let _ = connection.send(&bytes);
-                                        }
+                    self.status = Some(format!("channel check on {port}"));
+                    std::thread::spawn(move || {
+                        if let Ok(mut guard) = connection.lock() {
+                            for channel in 0..16 {
+                                if let Ok(messages) =
+                                    midi_devices::devices::channel_check_messages(channel, 60)
+                                {
+                                    for bytes in messages {
+                                        let _ = guard.send(&bytes);
                                     }
                                 }
                             }
-                        });
-                    } else {
-                        self.status = Some(String::from("choose a MIDI output first"));
-                    }
+                        }
+                    });
                 }
                 ui.horizontal(|ui| {
                     ui.label("channel");
@@ -5134,60 +5174,52 @@ impl ShellApp {
                             music_core::Pitch::new(self.midi_out_note),
                             music_core::Velocity::new(self.midi_out_velocity),
                         )
+                        && let Ok((port, connection)) = self.midi_output_connection()
                     {
-                        self.send_midi(music_core::MidiMessage::note_on(channel, pitch, velocity));
-                        let port = self.midi_out_port.clone();
-                        std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(350));
-                            if let Some(port) = port
-                                && let Ok(mut connection) =
-                                    midi_devices::devices::open_output(&port)
-                            {
-                                let bytes = music_core::MidiMessage::note_off(
-                                    channel,
-                                    pitch,
-                                    music_core::Velocity::new(0).unwrap_or(velocity),
-                                );
-                                let _ = connection.send(&bytes.to_bytes()[..3]);
+                        let message = music_core::MidiMessage::note_on(channel, pitch, velocity);
+                        let bytes = message.to_bytes();
+                        let sent = connection
+                            .lock()
+                            .map_err(|_| String::from("MIDI output lock poisoned"))
+                            .and_then(|mut guard| {
+                                guard
+                                    .send(&bytes[..message.encoded_len()])
+                                    .map_err(|error| error.to_string())
+                            });
+                        match sent {
+                            Ok(()) => {
+                                self.status = Some(format!("sent to {port}"));
+                                std::thread::spawn(move || {
+                                    std::thread::sleep(std::time::Duration::from_millis(350));
+                                    if let Ok(mut guard) = connection.lock() {
+                                        let bytes = music_core::MidiMessage::note_off(
+                                            channel,
+                                            pitch,
+                                            music_core::Velocity::new(0).unwrap_or(velocity),
+                                        );
+                                        let _ = guard.send(&bytes.to_bytes()[..3]);
+                                    }
+                                });
                             }
-                        });
-                    }
-                    if ui.button("Send chord").clicked()
-                        && let Some(chord) = self.song().chord_at(self.position)
-                        && let Ok(channel) =
-                            music_core::Channel::from_one_based(self.midi_out_channel)
-                        && let Some(port) = self.midi_out_port.clone()
-                    {
-                        let root = 60 + i32::from(chord.root.as_u8());
-                        let mut pitches = Vec::new();
-                        for interval in chord.quality.intervals() {
-                            if let Ok(pitch) = music_core::Pitch::new(
-                                u8::try_from(root + i32::from(*interval)).unwrap_or(60),
-                            ) && let Ok(velocity) =
-                                music_core::Velocity::new(self.midi_out_velocity)
-                            {
-                                self.send_midi(music_core::MidiMessage::note_on(
-                                    channel, pitch, velocity,
-                                ));
-                                pitches.push(pitch);
+                            Err(error) => {
+                                self.midi_out_conn = None;
+                                self.status = Some(format!("{port}: {error}"));
                             }
                         }
-                        std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(500));
-                            if let Ok(mut connection) = midi_devices::devices::open_output(&port)
-                                && let Ok(release) = music_core::Velocity::new(0)
-                            {
-                                for pitch in pitches {
-                                    let bytes =
-                                        music_core::MidiMessage::note_off(channel, pitch, release);
-                                    let _ = connection.send(&bytes.to_bytes()[..3]);
-                                }
-                            }
-                        });
+                    }
+                    if ui.button("Send chord").clicked()
+                        && let Some(chord) = self.song().chord_at(self.position).cloned()
+                        && let (Ok(channel), Ok(velocity)) = (
+                            music_core::Channel::from_one_based(self.midi_out_channel),
+                            music_core::Velocity::new(self.midi_out_velocity),
+                        )
+                    {
+                        self.send_chord_notes(&chord, channel, velocity, 500);
                     }
                     if ui.button("Panic").clicked()
                         && let Some(port) = self.midi_out_port.clone()
                     {
+                        self.midi_out_conn = None;
                         match midi_devices::devices::panic(&port) {
                             Ok(sent) => self.status = Some(format!("panic sent {sent}")),
                             Err(error) => self.status = Some(error.to_string()),
@@ -5811,7 +5843,7 @@ impl ShellApp {
         let bar_ticks = imported.time_signature.bar_ticks().max(1);
         let seconds = 60.0 / (imported.tempo_bpm.max(30.0) * music_core::PPQ as f64);
         let bar_seconds = bar_ticks as f64 * seconds;
-        let now = player.frame() as f64 / f64::from(audio::SAMPLE_RATE);
+        let now = player.seconds();
         self.style_queued_section = Some(index);
         self.style_queue_at = next_bar_seconds(now, bar_seconds);
         self.status = Some(String::from("section queued at the next bar"));
@@ -5834,7 +5866,7 @@ impl ShellApp {
         let bar_ticks = imported.time_signature.bar_ticks().max(1);
         let seconds = 60.0 / (imported.tempo_bpm.max(30.0) * music_core::PPQ as f64);
         let bar_seconds = bar_ticks as f64 * seconds;
-        let now = player.frame() as f64 / f64::from(audio::SAMPLE_RATE);
+        let now = player.seconds();
         self.style_chord = chord.to_string();
         self.style_queued_chord = Some(chord.to_string());
         self.style_queue_at = next_bar_seconds(now, bar_seconds);
@@ -5945,6 +5977,7 @@ impl ShellApp {
             self.status = Some(String::from("connect the L6max Mixer Control port"));
             return;
         };
+        self.release_midi_out_if(&port);
         let channel = self.l6max_device.channel.clamp(1, 16) - 1;
         let Ok(mut connection) = midi_devices::devices::open_output(&port) else {
             self.status = Some(format!("could not open {port}"));
@@ -6260,12 +6293,23 @@ impl ShellApp {
             .and_then(|ports| ports.outputs.into_iter().find(|name| name.contains("D-05")))
     }
 
+    fn release_midi_out_if(&mut self, port: &str) {
+        if self
+            .midi_out_conn
+            .as_ref()
+            .is_some_and(|(cached, _)| cached == port)
+        {
+            self.midi_out_conn = None;
+        }
+    }
+
     fn send_d05_raw(&mut self, bytes: &[u8]) {
         let port = self.d05_port_name().or_else(|| self.midi_out_port.clone());
         let Some(port) = port else {
             self.d05_editor.note = String::from("connect Roland D-05 MIDI port");
             return;
         };
+        self.release_midi_out_if(&port);
         if let Err(error) = midi_devices::devices::send_raw(&port, bytes) {
             self.d05_editor.note = error.to_string();
         }
@@ -6276,6 +6320,7 @@ impl ShellApp {
             self.d05_editor.note = String::from("Roland D-05 MIDI port not connected");
             return;
         };
+        self.release_midi_out_if(&port);
         let device = self.d05_editor.device_id;
         let (tx, rx) = std::sync::mpsc::channel();
         self.d05_reply = Some(rx);
@@ -10325,7 +10370,10 @@ impl ShellApp {
                 .as_ref()
                 .is_some_and(audio::player::Player::is_playing)
             {
-                let position = self.player.as_ref().map_or(0, |player| player.frame() * 2);
+                let stem_rate = self.stem_sample_rate.max(1);
+                let position = self.player.as_ref().map_or(0, |player| {
+                    ((player.seconds() * f64::from(stem_rate)).round() as usize).saturating_mul(2)
+                });
                 self.stem_levels
                     .iter()
                     .filter(|(id, _)| {
@@ -10335,7 +10383,7 @@ impl ShellApp {
                         })
                     })
                     .map(|(_, samples)| {
-                        audio::master::meter_at(samples, position, audio::SAMPLE_RATE as usize / 20)
+                        audio::master::meter_at(samples, position, stem_rate as usize / 20)
                     })
                     .fold(audio::master::Meter::default(), |left, right| {
                         audio::master::Meter {
@@ -10821,12 +10869,15 @@ impl ShellApp {
                 .as_ref()
                 .is_some_and(audio::player::Player::is_playing)
             {
-                let position = self.player.as_ref().map_or(0, |player| player.frame() * 2);
+                let stem_rate = self.stem_sample_rate.max(1);
+                let position = self.player.as_ref().map_or(0, |player| {
+                    ((player.seconds() * f64::from(stem_rate)).round() as usize).saturating_mul(2)
+                });
                 self.stem_levels
                     .iter()
                     .find(|(track, _)| *track == id)
                     .map_or_else(audio::master::Meter::default, |(_, samples)| {
-                        audio::master::meter_at(samples, position, audio::SAMPLE_RATE as usize / 20)
+                        audio::master::meter_at(samples, position, stem_rate as usize / 20)
                     })
             } else {
                 audio::master::Meter::default()
@@ -11639,32 +11690,22 @@ impl ShellApp {
             reverb: self.settings.master_reverb,
             chorus: self.settings.master_chorus,
         };
-        let loop_region = if self.loop_enabled {
-            self.loop_region
-        } else {
-            None
-        };
-        let stems_wanted = self.view == View::Mix && loop_region.is_none();
+        let stems_wanted = self.view == View::Mix;
+        let output_name = self.settings.audio_output.clone();
         let (sender, receiver) = std::sync::mpsc::channel();
         self.render_pending = Some((receiver, resume));
         self.status = Some(String::from("rendering audio"));
         std::thread::spawn(move || {
-            let mut audio = audio::render(&song, audio::SAMPLE_RATE);
+            let rate =
+                audio::player::preferred_sample_rate(output_name.as_deref(), audio::SAMPLE_RATE);
+            let mut audio = audio::render(&song, rate);
             let problems = audio::mix::check_audio_references(&song);
             if metronome {
                 audio::metronome::mix_accent(&mut audio, &song, 1.0, accent);
             }
             audio::master::apply(&mut audio, master);
-            let (audio, loop_start) = match loop_region {
-                Some((start, end)) => {
-                    let from = song.tempo_map.seconds_at(start);
-                    let to = song.tempo_map.seconds_at(end);
-                    (audio.slice(from, to), Some(start))
-                }
-                None => (audio, None),
-            };
             let stems = if stems_wanted {
-                audio::render_stems(&song, audio::SAMPLE_RATE)
+                audio::render_stems(&song, rate)
                     .into_iter()
                     .map(|stem| (stem.track, stem.audio.samples))
                     .collect()
@@ -11675,9 +11716,24 @@ impl ShellApp {
                 audio,
                 stems,
                 problems,
-                loop_start,
             }));
         });
+    }
+
+    fn sync_player_loop(&self) {
+        let Some(player) = &self.player else {
+            return;
+        };
+        if self.loop_enabled
+            && let Some((start, end)) = self.loop_region
+            && end > start
+        {
+            let from = self.song().tempo_map.seconds_at(start);
+            let to = self.song().tempo_map.seconds_at(end);
+            player.set_loop(true, from, to);
+        } else {
+            player.set_loop(false, 0.0, 0.0);
+        }
     }
 
     fn poll_render(&mut self, context: &Context) {
@@ -11701,7 +11757,7 @@ impl ShellApp {
                 if let Some(problem) = rendered.problems.first() {
                     self.status = Some(format!("audio {}: {}", problem.path, problem.reason));
                 }
-                let loop_buffer = rendered.loop_start.map(|_| rendered.audio.clone());
+                let stem_rate = rendered.audio.sample_rate;
                 match audio::player::Player::new_on(
                     rendered.audio,
                     self.settings.audio_output.as_deref(),
@@ -11709,13 +11765,21 @@ impl ShellApp {
                         .then_some(self.settings.audio_buffer_frames),
                 ) {
                     Ok(player) => {
-                        player.play();
-                        if let Some(start) = rendered.loop_start {
-                            self.loop_buffer = loop_buffer;
+                        if self.loop_enabled
+                            && let Some((start, end)) = self.loop_region
+                            && end > start
+                        {
+                            let from = self.song().tempo_map.seconds_at(start);
+                            let to = self.song().tempo_map.seconds_at(end);
+                            player.set_loop(true, from, to);
+                            let _ = player.seek_seconds(from);
                             self.position = start;
                         } else if resume > 0 {
                             let _ = player.seek_seconds(self.song().tempo_map.seconds_at(resume));
                         }
+                        player.play();
+                        self.last_loop_wraps = 0;
+                        self.stem_sample_rate = stem_rate;
                         self.stem_levels = rendered.stems;
                         self.player = Some(player);
                         self.playing = true;
@@ -12153,6 +12217,7 @@ impl ShellApp {
                             self.loop_region =
                                 Some(crate::transport::bar_region(self.position, bar));
                         }
+                        self.sync_player_loop();
                     }
                     if ui
                         .small_button("From bar")
@@ -12162,7 +12227,7 @@ impl ShellApp {
                         let bar = self.song().time_signature.bar_ticks().max(1);
                         self.loop_region = Some(crate::transport::bar_region(self.position, bar));
                         self.loop_enabled = true;
-                        self.loop_buffer = None;
+                        self.sync_player_loop();
                     }
                 });
                 ui.add_space(4.0);
@@ -12776,7 +12841,7 @@ impl ShellApp {
                     player.release();
                 }
                 self.playing = false;
-                self.loop_buffer = None;
+                self.last_loop_wraps = 0;
                 match Editor::new(project) {
                     Ok(editor) => self.editor = editor,
                     Err(error) => {
@@ -12864,8 +12929,7 @@ impl eframe::App for ShellApp {
         self.handle_keys(context);
         if (self.style_queued_section.is_some() || self.style_queued_chord.is_some())
             && let Some(player) = &self.style_preview
-            && (!player.is_playing()
-                || player.frame() as f64 / f64::from(audio::SAMPLE_RATE) >= self.style_queue_at)
+            && (!player.is_playing() || player.seconds() >= self.style_queue_at)
         {
             if let Some(index) = self.style_queued_section.take() {
                 self.style_section = index;
@@ -13010,6 +13074,7 @@ impl eframe::App for ShellApp {
                 let end = self.song().end_tick().max(1);
                 self.loop_region = Some((0, end));
                 self.loop_enabled = true;
+                self.sync_player_loop();
             }
         }
         if self.view == View::Drums
@@ -16183,5 +16248,19 @@ mod tests {
         let danish = crate::strings::Language::parse("da");
         assert_eq!(crate::strings::text(danish, View::Score.key()), "Partitur");
         assert_eq!(crate::strings::text(danish, View::Perform.key()), "Spil");
+    }
+
+    #[test]
+    fn playhead_ticks_stay_accurate_at_44100_hz() {
+        // 120 BPM = 2 beats per second = 1920 ticks per second at PPQ 960.
+        let tempo_map = music_core::TempoMap::constant(120.0);
+        let playback = audio::player::Playback::new(audio::RenderedAudio {
+            samples: vec![0.0_f32; 44_100 * 4 * 2],
+            sample_rate: 44_100,
+        });
+        // Advance 2 full seconds at 44.1 kHz (88,200 frames = 1 bar of 4/4 at 120 BPM).
+        playback.seek_frame(88_200);
+        assert!((playback.seconds() - 2.0).abs() < 1.0e-9);
+        assert_eq!(tempo_map.tick_at_seconds(playback.seconds()), 3840);
     }
 }

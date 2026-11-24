@@ -461,6 +461,9 @@ pub struct EditSession {
     redo: Vec<UndoEntry>,
 }
 
+/// Maximum number of undo steps retained in memory per editing session.
+pub const MAX_UNDO_DEPTH: usize = 256;
+
 impl EditSession {
     /// Opens a session on a project. The project is validated first.
     ///
@@ -500,6 +503,14 @@ impl EditSession {
         self.redo.len()
     }
 
+    fn push_undo(&mut self, entry: UndoEntry) {
+        if self.undo.len() >= MAX_UNDO_DEPTH {
+            let overflow = self.undo.len() + 1 - MAX_UNDO_DEPTH;
+            self.undo.drain(..overflow);
+        }
+        self.undo.push(entry);
+    }
+
     /// Applies one command, or leaves the song untouched.
     ///
     /// # Errors
@@ -518,7 +529,7 @@ impl EditSession {
             self.project = before;
             return Err(CommandError::Validation(err.to_string()));
         }
-        self.undo.push(UndoEntry {
+        self.push_undo(UndoEntry {
             inverse,
             description: description.clone(),
         });
@@ -532,10 +543,13 @@ impl EditSession {
     ///
     /// Returns [`CommandError::NothingToUndo`] when the history is empty.
     pub fn undo(&mut self) -> Result<CommandOutcome, CommandError> {
-        let Some(entry) = self.undo.pop() else {
+        let Some(entry) = self.undo.last() else {
             return Err(CommandError::NothingToUndo);
         };
         let forward = self.inverse_for(&entry.inverse)?;
+        let Some(entry) = self.undo.pop() else {
+            return Err(CommandError::NothingToUndo);
+        };
         let before = self.project.clone();
         if let Err(err) = self.run(&entry.inverse) {
             self.project = before;
@@ -556,10 +570,13 @@ impl EditSession {
     ///
     /// Returns [`CommandError::NothingToRedo`] when the history is empty.
     pub fn redo(&mut self) -> Result<CommandOutcome, CommandError> {
-        let Some(entry) = self.redo.pop() else {
+        let Some(entry) = self.redo.last() else {
             return Err(CommandError::NothingToRedo);
         };
         let reverse = self.inverse_for(&entry.inverse)?;
+        let Some(entry) = self.redo.pop() else {
+            return Err(CommandError::NothingToRedo);
+        };
         let before = self.project.clone();
         if let Err(err) = self.run(&entry.inverse) {
             self.project = before;
@@ -567,7 +584,7 @@ impl EditSession {
             return Err(err);
         }
         let description = format!("redo {}", entry.description);
-        self.undo.push(UndoEntry {
+        self.push_undo(UndoEntry {
             inverse: reverse,
             description: entry.description,
         });
@@ -2580,5 +2597,45 @@ mod tests {
         let project = ProjectFile::new(Song::default());
         // An empty song has no tracks; that is a warning, not an error.
         assert!(check_project(&project).is_ok());
+    }
+
+    #[test]
+    fn undo_and_redo_keep_entry_when_inverse_fails() {
+        let mut edit = session();
+        let bogus_track = TrackId::new(999).expect("valid");
+        edit.undo.push(UndoEntry {
+            inverse: Command::RenameTrack {
+                track: bogus_track,
+                name: String::from("Ghost"),
+            },
+            description: String::from("corrupt undo"),
+        });
+        assert!(edit.undo().is_err());
+        assert_eq!(edit.undo_depth(), 1, "failed undo must not drop history");
+
+        edit.redo.push(UndoEntry {
+            inverse: Command::RenameTrack {
+                track: bogus_track,
+                name: String::from("Ghost"),
+            },
+            description: String::from("corrupt redo"),
+        });
+        assert!(edit.redo().is_err());
+        assert_eq!(edit.redo_depth(), 1, "failed redo must not drop history");
+    }
+
+    #[test]
+    fn undo_stack_is_capped_at_max_depth() {
+        let mut edit = session();
+        for step in 0..(MAX_UNDO_DEPTH + 20) {
+            let bpm = 80.0 + (step % 40) as f64;
+            edit.apply(Command::SetTempo { tick: 0, bpm })
+                .expect("apply tempo");
+        }
+        assert_eq!(edit.undo_depth(), MAX_UNDO_DEPTH);
+        edit.undo().expect("undo newest");
+        assert_eq!(edit.undo_depth(), MAX_UNDO_DEPTH - 1);
+        edit.redo().expect("redo newest");
+        assert_eq!(edit.undo_depth(), MAX_UNDO_DEPTH);
     }
 }
