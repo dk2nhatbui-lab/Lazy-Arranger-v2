@@ -914,4 +914,41 @@ mod tests {
         assert_eq!(id.member, [0x0d, 0x00]);
         assert_eq!(id.revision_text(), "0110");
     }
+
+    #[test]
+    fn malformed_d05_sysex_and_identity_inputs_never_panic() {
+        let crafted: &[&[u8]] = &[
+            &[],
+            &[0xf0],
+            &[0xf0, 0xf7],
+            &[0xf0, 0x41, 0x00, 0x14, 0x12, 0xf7],
+            &[0xf0, 0x41, 0x00, 0x14, 0x12, 0x7f, 0x7f, 0x7f, 0x00, 0xf7],
+            &[0xf0, 0x7e, 0x00, 0x06, 0x02, 0x00, 0xf7],
+            &[0xf0, 0x7e, 0x7f, 0x06, 0x02, 0x00, 0x01, 0x02, 0xf7],
+        ];
+        for bytes in crafted {
+            let _ = parse_dt1(bytes);
+            let _ = parse_data_packet(bytes);
+            let _ = TempPatch::from_syx_bytes(bytes);
+            let _ = IdentityReply::parse(bytes);
+        }
+
+        let mut seed = 0xD050_5EED_1234_5678_u64;
+        for case in 0..256_usize {
+            let len = (case * 19) % 512;
+            let mut buf = vec![0_u8; len];
+            for byte in &mut buf {
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                *byte = (seed >> 56) as u8;
+            }
+            if buf.len() >= 2 {
+                buf[0] = 0xf0;
+                *buf.last_mut().expect("non-empty") = 0xf7;
+            }
+            let _ = parse_dt1(&buf);
+            let _ = parse_data_packet(&buf);
+            let _ = TempPatch::from_syx_bytes(&buf);
+            let _ = IdentityReply::parse(&buf);
+        }
+    }
 }

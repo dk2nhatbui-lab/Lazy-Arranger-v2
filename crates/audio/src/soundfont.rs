@@ -1043,6 +1043,36 @@ mod tests {
     }
 
     #[test]
+    fn malformed_and_mutated_sf2_inputs_never_panic() {
+        let valid = build();
+        // Truncate at every byte offset across the valid SoundFont fixture.
+        for cut in 0..valid.len() {
+            let _ = parse(&valid[..cut]);
+        }
+        // Single-byte corruptions across header, LIST, and subchunk sizes.
+        for pos in (0..valid.len()).step_by(7) {
+            let mut mutated = valid.clone();
+            mutated[pos] ^= 0xFF;
+            let _ = parse(&mutated);
+        }
+        // Pseudorandom RIFF/sfbk payloads.
+        let mut seed = 0x5F20_1234_5678_9ABC_u64;
+        for case in 0..128_usize {
+            let len = (case * 19) % 256;
+            let mut buf = vec![0_u8; len];
+            for byte in &mut buf {
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                *byte = (seed >> 56) as u8;
+            }
+            if buf.len() >= 12 {
+                buf[..4].copy_from_slice(b"RIFF");
+                buf[8..12].copy_from_slice(b"sfbk");
+            }
+            let _ = parse(&buf);
+        }
+    }
+
+    #[test]
     #[ignore = "needs ARRANGER_SF2 pointing at a real bank"]
     fn a_real_bank_parses() {
         let Ok(path) = std::env::var("ARRANGER_SF2") else {

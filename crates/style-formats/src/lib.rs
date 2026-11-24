@@ -395,4 +395,34 @@ mod tests {
         assert!(chunk.payload(&[0u8; 10]).is_none());
         assert_eq!(chunk.payload_offset(), 8);
     }
+
+    #[test]
+    fn malformed_style_and_casm_inputs_never_panic() {
+        let crafted: &[&[u8]] = &[
+            b"",
+            b"MThd",
+            b"MThd\xFF\xFF\xFF\xFF",
+            b"MThd\x00\x00\x00\x06\x00\x00\x00\x01\x00\x60CASM\xFF\xFF\xFF\xFF",
+            b"MThd\x00\x00\x00\x06\x00\x00\x00\x01\x00\x60CASM\x00\x00\x00\x08CSEG\xFF\xFF\xFF\xFF",
+        ];
+        for bytes in crafted {
+            let _ = scan_chunks(bytes);
+            let _ = import_style(bytes);
+        }
+
+        let mut seed = 0xCAFE_BABE_900D_F00D_u64;
+        for case in 0..256_usize {
+            let len = (case * 23) % 256;
+            let mut buf = vec![0_u8; len];
+            for byte in &mut buf {
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                *byte = (seed >> 56) as u8;
+            }
+            if buf.len() >= 8 && case % 2 == 0 {
+                buf[..4].copy_from_slice(b"MThd");
+            }
+            let _ = scan_chunks(&buf);
+            let _ = import_style(&buf);
+        }
+    }
 }

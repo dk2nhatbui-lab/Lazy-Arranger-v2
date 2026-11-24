@@ -372,13 +372,15 @@ fn save_ai_key(settings_path: &Path, key: &str) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .mode(0o600)
             .open(&path)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .map_err(|error| format!("{}: {error}", path.display()))?;
         file.write_all(key.trim().as_bytes())
             .map_err(|error| format!("{}: {error}", path.display()))?;
@@ -895,6 +897,16 @@ mod tests {
                 .mode()
                 & 0o777;
             assert_eq!(mode, 0o600);
+            // Existing world-readable key file must be tightened to 0600 on save.
+            std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o644))
+                .expect("chmod 644");
+            settings.save(&path).expect("resave");
+            let tightened = std::fs::metadata(&key_path)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(tightened, 0o600);
         }
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&key_path);

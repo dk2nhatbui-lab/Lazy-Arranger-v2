@@ -7044,7 +7044,7 @@ impl ShellApp {
                         self.style_link_pending = Some(receiver);
                         self.status = Some(String::from("downloading link audio…"));
                         std::thread::spawn(move || {
-                            let _ = sender.send(crate::link::download(&url));
+                            let _ = sender.send(audio::link::download_mono_wav(&url));
                         });
                     }
                 }

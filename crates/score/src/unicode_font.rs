@@ -363,29 +363,40 @@ fn extract_standalone_ttf(raw: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let num_tables = usize::from(be_u16(face0_header, 4)?);
+    if num_tables == 0 {
+        return None;
+    }
     let mut tables = BTreeMap::new();
     for i in 0..num_tables {
-        let rec = face0_offset + 12 + i * 16;
-        let tag_slice = raw.get(rec..rec + 4)?;
+        let rec = face0_offset
+            .checked_add(12)?
+            .checked_add(i.checked_mul(16)?)?;
+        let tag_slice = raw.get(rec..rec.checked_add(4)?)?;
         let tag = [tag_slice[0], tag_slice[1], tag_slice[2], tag_slice[3]];
-        let offset = be_u32(raw, rec + 8)? as usize;
-        let length = be_u32(raw, rec + 12)? as usize;
+        let offset = be_u32(raw, rec.checked_add(8)?)? as usize;
+        let length = be_u32(raw, rec.checked_add(12)?)? as usize;
         let slice = raw.get(offset..offset.checked_add(length)?)?;
         tables.insert(tag, slice.to_vec());
+    }
+    if tables.is_empty() {
+        return None;
     }
     Some(assemble_sfnt(&tables))
 }
 
 fn assemble_sfnt(tables: &BTreeMap<[u8; 4], Vec<u8>>) -> Vec<u8> {
-    let num_tables = tables.len() as u16;
+    if tables.is_empty() {
+        return Vec::new();
+    }
+    let num_tables = u16::try_from(tables.len()).unwrap_or(u16::MAX);
     let mut entry_selector = 0_u16;
     let mut max_pow2 = 1_u16;
-    while max_pow2 * 2 <= num_tables {
-        max_pow2 *= 2;
-        entry_selector += 1;
+    while max_pow2.saturating_mul(2) <= num_tables {
+        max_pow2 = max_pow2.saturating_mul(2);
+        entry_selector = entry_selector.saturating_add(1);
     }
-    let search_range = max_pow2 * 16;
-    let range_shift = num_tables * 16 - search_range;
+    let search_range = max_pow2.saturating_mul(16);
+    let range_shift = num_tables.saturating_mul(16).saturating_sub(search_range);
 
     let mut out = Vec::new();
     out.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
@@ -587,5 +598,57 @@ mod tests {
             "subsetted font stream too large: {} bytes",
             objects[3].len()
         );
+    }
+
+    #[test]
+    fn malformed_ttf_and_ttc_inputs_never_panic() {
+        // Empty, truncated, and crafted TTC headers (including 0 tables and huge offsets).
+        let mut ttc_zero_tables = Vec::new();
+        ttc_zero_tables.extend_from_slice(b"ttcf");
+        ttc_zero_tables.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
+        ttc_zero_tables.extend_from_slice(&1_u32.to_be_bytes());
+        ttc_zero_tables.extend_from_slice(&16_u32.to_be_bytes());
+        ttc_zero_tables.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
+        ttc_zero_tables.extend_from_slice(&0_u16.to_be_bytes()); // num_tables = 0
+        ttc_zero_tables.extend_from_slice(&[0; 6]);
+
+        let mut ttf_huge_table = Vec::new();
+        ttf_huge_table.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
+        ttf_huge_table.extend_from_slice(&1_u16.to_be_bytes());
+        ttf_huge_table.extend_from_slice(&[0; 6]);
+        ttf_huge_table.extend_from_slice(b"glyf");
+        ttf_huge_table.extend_from_slice(&0_u32.to_be_bytes());
+        ttf_huge_table.extend_from_slice(&u32::MAX.to_be_bytes());
+        ttf_huge_table.extend_from_slice(&u32::MAX.to_be_bytes());
+
+        for sample in [
+            &[][..],
+            b"ttcf",
+            &[0x00, 0x01, 0x00, 0x00, 0xFF, 0xFF],
+            &ttc_zero_tables,
+            &ttf_huge_table,
+        ] {
+            assert!(UnicodePdfFont::from_bytes(sample).is_none());
+        }
+
+        // Deterministic pseudorandom byte corpus with TrueType/TTC magic prefixes.
+        let mut seed = 0x5EED_CAFE_1234_5678_u64;
+        for case in 0..256_usize {
+            let len = (case * 17) % 192;
+            let mut buf = vec![0_u8; len];
+            for byte in &mut buf {
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                *byte = (seed >> 56) as u8;
+            }
+            if buf.len() >= 4 {
+                let magic: &[u8; 4] = match case % 3 {
+                    0 => &[0x00, 0x01, 0x00, 0x00],
+                    1 => b"ttcf",
+                    _ => b"true",
+                };
+                buf[..4].copy_from_slice(magic);
+            }
+            let _ = UnicodePdfFont::from_bytes(&buf);
+        }
     }
 }

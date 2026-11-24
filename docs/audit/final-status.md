@@ -7,7 +7,7 @@ plug-in editor support or model services).
 
 ## Gate and CI
 
-- `cargo test --workspace`: **923 passed, 0 failed** (including all 5 VST3 test-plugin fixture tests in `plugin-host` and `audio`).
+- `cargo test --workspace`: **936 passed, 0 failed** (including all 5 VST3 test-plugin fixture tests in `plugin-host` and `audio`, lock-free playback / 44.1 kHz timing / loop tests, undo safety tests, private-file permission tests, and deterministic adversarial parser tests across SFF/CASM, SF2, WAV, SMF, `.arranger` JSON, Roland D-05 SysEx, and TrueType/TTC).
 - `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all`
   and rustdoc (warnings denied): clean.
 - Release bundle builds; the app launches; the bundled scanner returns R0Verb
@@ -95,3 +95,15 @@ choice; an AI/speech endpoint with credentials; or the hardware powered on.
 - Take comping, buses, automation, plug-in state, freeze, and macOS native
   VST3/AU editor windows have model, command, UI, and smoke coverage;
   Windows/Linux native plug-in editors remain unimplemented.
+- Second-pass code audit remediation completed: device sample-rate playhead,
+  stem meter, and style-queue timing (`Player::seconds`); lock-free atomic audio
+  callback with seamless in-callback looping and background-thread device-rate
+  rendering; shared MIDI output connection reuse for chord/note previews so
+  Windows exclusive drivers do not hang note-offs; safe `undo()`/`redo()`
+  (`inverse_for` validated before pop) with `MAX_UNDO_DEPTH = 256`; existing
+  private token/key files tightened to `0o600` on save; duplicate `yt-dlp`
+  wrapper and profile copies removed; `README.md` toolchain note fixed; SMF
+  `0x80` SMPTE header crash and TrueType `.ttc` zero-table underflow fixed and
+  covered by adversarial parser tests. Remaining open decisions: optional git
+  history purge for `.swift-cache/` (requires force-push) / Git LFS for audit
+  screenshots, splitting `app.rs`, and live scheduled playback vs pre-render.

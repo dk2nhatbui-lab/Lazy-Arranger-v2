@@ -1890,4 +1890,31 @@ mod tests {
             "{errors:?}"
         );
     }
+
+    #[test]
+    fn malformed_project_json_inputs_never_panic() {
+        let cases = [
+            "",
+            "{}",
+            "null",
+            "[]",
+            r#"{"format":"lazy-arranger-project","version":0,"song":{}}"#,
+            r#"{"format":"lazy-arranger-project","version":999999,"song":{}}"#,
+            r#"{"format":"wrong","version":1,"song":{}}"#,
+            r#"{"format":"lazy-arranger-project","version":6,"song":{"tracks":[{"id":0}]}}"#,
+            r#"{"format":"lazy-arranger-project","version":6,"song":{"tempo_map":{"changes":[{"tick":0,"bpm":0.0}]}}}"#,
+            r#"{"format":"lazy-arranger-project","version":6,"song":{"time_signature":{"numerator":0,"denominator":0}}}"#,
+        ];
+        for raw in cases {
+            assert!(ProjectFile::from_json(raw).is_err(), "{raw}");
+        }
+        let valid = ProjectFile::new(Song::new("Probe", 120.0))
+            .to_json_pretty()
+            .expect("json");
+        for cut in (0..valid.len()).step_by(9) {
+            if valid.is_char_boundary(cut) {
+                let _ = ProjectFile::from_json(&valid[..cut]);
+            }
+        }
+    }
 }

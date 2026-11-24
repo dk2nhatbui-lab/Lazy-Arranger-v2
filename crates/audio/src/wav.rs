@@ -353,4 +353,34 @@ mod info_tests {
         assert!(info(b"nope").is_err());
         assert!(info(b"RIFF____WAVE").is_err());
     }
+
+    #[test]
+    fn malformed_and_mutated_wav_inputs_never_panic() {
+        let valid = RenderedAudio {
+            samples: vec![0.25, -0.25, 0.5, -0.5],
+            sample_rate: 48_000,
+        }
+        .to_wav();
+        for cut in 0..valid.len() {
+            let _ = info(&valid[..cut]);
+            let _ = decode_stereo(&valid[..cut]);
+            let _ = decode_mono(&valid[..cut]);
+        }
+        let mut seed = 0xDA7A_1234_5678_9ABC_u64;
+        for case in 0..128_usize {
+            let len = (case * 13) % 160;
+            let mut buf = vec![0_u8; len];
+            for byte in &mut buf {
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                *byte = (seed >> 56) as u8;
+            }
+            if buf.len() >= 12 {
+                buf[..4].copy_from_slice(b"RIFF");
+                buf[8..12].copy_from_slice(b"WAVE");
+            }
+            let _ = info(&buf);
+            let _ = decode_stereo(&buf);
+            let _ = decode_mono(&buf);
+        }
+    }
 }

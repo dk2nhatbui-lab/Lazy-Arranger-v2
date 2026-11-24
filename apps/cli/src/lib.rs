@@ -3137,14 +3137,15 @@ fn mcp_serve(project_path: &PathBuf) -> Result<(), Box<dyn Error>> {
 fn write_private_file(path: &PathBuf, contents: &str) -> Result<(), Box<dyn Error>> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .mode(0o600)
             .open(path)?;
-        use std::io::Write;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
         file.write_all(contents.as_bytes())?;
         Ok(())
     }
@@ -4212,6 +4213,26 @@ mod tests {
         let value = audio_chords_json(&path, 120.0, 0.5).expect("chords");
         let _ = std::fs::remove_file(&path);
         assert!(value.as_array().is_some_and(|chords| !chords.is_empty()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_private_file_tightens_existing_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-cli-private-{}.token",
+            std::process::id()
+        ));
+        std::fs::write(&path, "old").expect("seed");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+        write_private_file(&path, "fresh-token").expect("write");
+        let mode = std::fs::metadata(&path)
+            .expect("metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(mode, 0o600);
     }
 
     #[test]

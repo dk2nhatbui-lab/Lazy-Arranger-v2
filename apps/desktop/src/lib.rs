@@ -14,7 +14,6 @@ pub mod help;
 pub mod kids;
 pub mod l6max_device;
 pub mod library_view;
-pub mod link;
 pub mod pads;
 pub mod persistence;
 pub mod piano_roll;

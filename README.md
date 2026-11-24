@@ -10,7 +10,7 @@ in [`docs/audit/cpp-features-crosscheck.md`](docs/audit/cpp-features-crosscheck.
 
 ## Requirements
 
-- Rust 1.89 or newer (the repository pins the toolchain through `rust-toolchain.toml`)
+- Rust 1.89 or newer (MSRV declared in `Cargo.toml` via `rust-version = "1.89"`)
 - macOS for Audio Units and the desktop bundle; Linux and Windows build the
   desktop shell and all core crates
 - Optional: SoundFont 2 banks, VST3/AU plug-ins, `yt-dlp`, `ffmpeg`, `lp`

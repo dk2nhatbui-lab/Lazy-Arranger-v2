@@ -87,8 +87,15 @@ pub fn chat_with_history(
         "-H",
         "Content-Type: application/json",
     ]);
+    struct TempFileGuard(std::path::PathBuf);
+    impl Drop for TempFileGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
     let key = config.api_key.trim();
-    let mut header_file = None;
+    let mut _header_file = None;
     if !key.is_empty() {
         let path = std::env::temp_dir().join(format!(
             "lazy-arranger-ai-header-{}-{}",
@@ -108,18 +115,17 @@ pub fn chat_with_history(
         let mut file = options
             .open(&path)
             .map_err(|error| format!("AI key file: {error}"))?;
+        let guard = TempFileGuard(path.clone());
         use std::io::Write;
         write!(file, "Authorization: Bearer {key}")
             .map_err(|error| format!("AI key file: {error}"))?;
         command.arg("-H").arg(format!("@{}", path.display()));
-        header_file = Some(path);
+        _header_file = Some(guard);
     }
     let output = command
         .args(["-d", &body.to_string(), config.url.trim()])
         .output();
-    if let Some(path) = header_file {
-        let _ = std::fs::remove_file(path);
-    }
+    drop(_header_file);
     let output = output.map_err(|error| format!("curl: {error}"))?;
     if !output.status.success() {
         return Err(format!(

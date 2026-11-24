@@ -411,7 +411,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_command_template_returns_stdout() {
-        let wav = std::env::temp_dir().join("lazy-arranger-dictate-command.wav");
+        let wav = std::env::temp_dir().join(format!(
+            "lazy-arranger-dictate-command-{}.wav",
+            std::process::id()
+        ));
         std::fs::write(&wav, b"RIFF").expect("wav");
         let text = transcribe(&wav, "printf '  hello world  '").expect("text");
         assert_eq!(text, "hello world");
@@ -422,7 +425,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_file_placeholder_is_quoted() {
-        let wav = std::env::temp_dir().join("lazy-arranger-dictate-q.wav");
+        let wav = std::env::temp_dir().join(format!(
+            "lazy-arranger-dictate-q-{}.wav",
+            std::process::id()
+        ));
         std::fs::write(&wav, b"RIFF").expect("wav");
         let text = transcribe(&wav, "test -f {file} && echo present").expect("present");
         assert_eq!(text, "present");

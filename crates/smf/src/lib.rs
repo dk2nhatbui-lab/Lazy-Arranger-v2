@@ -269,6 +269,16 @@ struct RawNote {
 /// Returns [`SmfError::Parse`] for malformed bytes and
 /// [`SmfError::SmpteTiming`] for SMPTE-timed files.
 pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
+    // Guard against midly 0.5.3 panicking on SMPTE division high-byte 0x80 (-128i8 negation).
+    let header_slice = if bytes.len() >= 20 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"RMID" {
+        bytes.get(20..).unwrap_or(&[])
+    } else {
+        bytes
+    };
+    if header_slice.len() >= 14 && &header_slice[0..4] == b"MThd" && (header_slice[12] & 0x80) != 0
+    {
+        return Err(SmfError::SmpteTiming);
+    }
     let smf = Smf::parse(bytes).map_err(|err| SmfError::Parse(err.to_string()))?;
     let source_ppq = match smf.header.timing {
         Timing::Metrical(ppq) => {
@@ -932,5 +942,32 @@ mod tests {
             );
         }
         assert_eq!(tempo_micros(120.0).expect("valid").as_int(), 500_000);
+    }
+
+    #[test]
+    fn malformed_and_random_smf_inputs_never_panic() {
+        let crafted: &[&[u8]] = &[
+            b"",
+            b"MThd",
+            b"MThd\x00\x00\x00\x06\x00\x01\x00\x01\x00\x00", // 0 PPQ
+            b"MThd\x00\x00\x00\x06\x00\x01\xFF\xFF\x01\xE0MTrk\xFF\xFF\xFF\xFF",
+            b"MThd\x00\x00\x00\x06\x00\x01\x00\x01\x80\x01MTrk\x00\x00\x00\x04\x00\xFF\x2F\x00",
+        ];
+        for bytes in crafted {
+            let _ = decode(bytes);
+        }
+        let mut seed = 0x51D1_0001_2345_6789_u64;
+        for case in 0..256_usize {
+            let len = (case * 17) % 192;
+            let mut buf = vec![0_u8; len];
+            for byte in &mut buf {
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                *byte = (seed >> 56) as u8;
+            }
+            if buf.len() >= 14 && case % 2 == 0 {
+                buf[..10].copy_from_slice(b"MThd\x00\x00\x00\x06\x00\x01");
+            }
+            let _ = decode(&buf);
+        }
     }
 }

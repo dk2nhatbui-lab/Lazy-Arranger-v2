@@ -60,8 +60,62 @@ pub fn ytdlp_args(
         args.push(String::from("--ffmpeg-location"));
         args.push(ffmpeg_folder.display().to_string());
     }
+    args.push(String::from("--"));
     args.push(link.to_string());
     args
+}
+
+/// Temporary WAV path for one link download.
+#[must_use]
+pub fn temp_wav_path() -> PathBuf {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "lazy-arranger-link-{}-{stamp}.wav",
+        std::process::id()
+    ))
+}
+
+/// Downloads the best audio and converts it to a temporary 48 kHz mono WAV.
+///
+/// # Errors
+///
+/// Returns a message when `url` is invalid or `yt-dlp` is missing, fails, or writes no file.
+pub fn download_mono_wav(url: &str) -> Result<PathBuf, String> {
+    let url = clean(url);
+    if url.is_empty() {
+        return Err(String::from("enter an http(s) link"));
+    }
+    let path = temp_wav_path();
+    let _ = std::fs::remove_file(&path);
+    let template = path.with_extension("%(ext)s");
+    let output = std::process::Command::new("yt-dlp")
+        .args([
+            "--no-playlist",
+            "-x",
+            "--audio-format",
+            "wav",
+            "--postprocessor-args",
+            "-ac 1 -ar 48000",
+            "-o",
+        ])
+        .arg(&template)
+        .arg("--")
+        .arg(&url)
+        .output()
+        .map_err(|error| format!("yt-dlp: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "yt-dlp: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    if !path.exists() {
+        return Err(String::from("yt-dlp wrote no WAV"));
+    }
+    Ok(path)
 }
 
 /// Parses the `FILE <path>` line yt-dlp prints.
@@ -130,7 +184,19 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "--no-playlist"));
         assert!(args.iter().any(|arg| arg.contains("%(title)s")));
         assert!(!args.iter().any(|arg| arg == "--ffmpeg-location"));
+        assert_eq!(args[args.len() - 2], "--");
         assert_eq!(args.last().map(String::as_str), Some("https://youtu.be/x"));
+    }
+
+    #[test]
+    fn empty_links_are_rejected_and_temp_paths_are_wav() {
+        assert!(download_mono_wav("   ").is_err());
+        let path = temp_wav_path();
+        assert_eq!(
+            path.extension().and_then(|value| value.to_str()),
+            Some("wav")
+        );
+        assert!(path.starts_with(std::env::temp_dir()));
     }
 
     #[test]
