@@ -1298,7 +1298,11 @@ impl ShellApp {
             style_chord: String::from("C"),
             style_length: 3840,
             style_from_markers: true,
-            style_path: String::from("clips.sty"),
+            style_path: crate::settings::Settings::data_dir()
+                .join("styles")
+                .join("clips.sty")
+                .display()
+                .to_string(),
             style_sff1: false,
             style_draft: None,
             style_rules_open: false,
@@ -1382,7 +1386,10 @@ impl ShellApp {
             vst3_params_slot: None,
             vst3_effect: None,
             vst3_params: Vec::new(),
-            score_pdf_path: String::from("score.pdf"),
+            score_pdf_path: crate::settings::Settings::data_dir()
+                .join("score.pdf")
+                .display()
+                .to_string(),
             score_track: None,
             score_state: crate::score_view::ScoreState::default(),
             lyrics_open: initial_window == "lyrics",
@@ -6192,6 +6199,9 @@ impl ShellApp {
         };
         let bytes = style_formats::write_native_style(&style, version)
             .map_err(|error| error.to_string())?;
+        if let Some(parent) = std::path::Path::new(&self.style_path).parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         std::fs::write(&self.style_path, &bytes)
             .map_err(|error| format!("{}: {error}", self.style_path))?;
         Ok(format!(
