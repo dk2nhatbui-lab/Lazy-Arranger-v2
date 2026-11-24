@@ -421,7 +421,9 @@ pub fn tools() -> Vec<Tool> {
                 "properties": {
                     "path": {"type": "string"},
                     "track": {"type": "integer"},
-                    "title": {"type": "string"}
+                    "title": {"type": "string"},
+                    "all_tracks": {"type": "boolean"},
+                    "frames": {"type": "boolean"}
                 },
                 "required": ["path"]
             }),
@@ -2113,11 +2115,21 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .get("all_tracks")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
+            let frames = arguments
+                .get("frames")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let settings = score::Settings::default();
             let (pdf, pages) = if all_tracks {
                 let tracks: Vec<project::TrackId> =
                     session.song().tracks.iter().map(|track| track.id).collect();
-                let pdf = score::pdf::to_full_pdf(session.song(), settings, title, &tracks);
+                let pdf = score::pdf::to_full_pdf_with_frames(
+                    session.song(),
+                    settings,
+                    title,
+                    &tracks,
+                    frames,
+                );
                 (pdf, tracks.len().max(1))
             } else {
                 let engraved = score::engrave(session.song(), track, settings);
