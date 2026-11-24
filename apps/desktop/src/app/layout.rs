@@ -24,6 +24,33 @@ pub(super) struct ScoreUi {
     pub(super) state: crate::score_view::ScoreState,
 }
 
+/// What the central view asked for while it was drawn, applied after the
+/// panel closes so the editor is no longer borrowed.
+struct PanelEdits {
+    clicked: Option<piano_roll::RollClick>,
+    automation_edit: Option<(TrackId, project::song::Automation)>,
+    audio_trim: Option<(TrackId, Tick)>,
+    audio_move: Option<(TrackId, Tick)>,
+    audio_gain: Option<(TrackId, i16)>,
+    audio_split: Option<(TrackId, Tick)>,
+    audio_length: Option<(TrackId, Tick)>,
+    audio_fades: Option<(TrackId, Tick, Tick)>,
+    audio_stretch: Option<(TrackId, bool)>,
+    audio_normalize: Option<TrackId>,
+    audio_remove: Option<TrackId>,
+    score_status: Option<String>,
+    perform_chord: Option<music_core::Chord>,
+    lesson_next: bool,
+    lesson_reset: bool,
+    kids_load: bool,
+    scroll_edit: Option<crate::piano_roll::RollEdit>,
+    velocity_edit: Option<(TrackId, project::NoteId, u8)>,
+    preview_note: Option<u8>,
+    chord_click: Option<Tick>,
+    seek: Option<Tick>,
+    lyric_click: Option<Tick>,
+}
+
 impl ShellApp {
     pub(super) fn top_bar(&mut self, context: &Context) {
         egui::TopBottomPanel::top("header")
@@ -3771,6 +3798,58 @@ impl ShellApp {
             seek,
             lyric_click,
         ) = panel.inner;
+        self.apply_panel_edits(PanelEdits {
+            clicked,
+            automation_edit,
+            audio_trim,
+            audio_move,
+            audio_gain,
+            audio_split,
+            audio_length,
+            audio_fades,
+            audio_stretch,
+            audio_normalize,
+            audio_remove,
+            score_status,
+            perform_chord,
+            lesson_next,
+            lesson_reset,
+            kids_load,
+            scroll_edit,
+            velocity_edit,
+            preview_note,
+            chord_click,
+            seek,
+            lyric_click,
+        });
+    }
+
+    /// Applies the edits the central view collected this frame.
+    fn apply_panel_edits(&mut self, edits: PanelEdits) {
+        let PanelEdits {
+            clicked,
+            automation_edit,
+            audio_trim,
+            audio_move,
+            audio_gain,
+            audio_split,
+            audio_length,
+            audio_fades,
+            audio_stretch,
+            audio_normalize,
+            audio_remove,
+            score_status,
+            perform_chord,
+            lesson_next,
+            lesson_reset,
+            kids_load,
+            scroll_edit,
+            velocity_edit,
+            preview_note,
+            chord_click,
+            seek,
+            lyric_click,
+        } = edits;
         if let Some(tick) = seek {
             self.seek_to(tick);
         }
