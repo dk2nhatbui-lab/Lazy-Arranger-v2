@@ -241,6 +241,34 @@ pub struct LoadedProfile {
     pub controls: Vec<DeviceControl>,
 }
 
+/// The MIDI messages for a profile voice: optional bank select then program.
+#[must_use]
+pub fn voice_messages(
+    bank: Option<&Bank>,
+    program: u8,
+    channel: music_core::Channel,
+) -> Vec<music_core::MidiMessage> {
+    let mut messages = Vec::new();
+    if let Some(bank) = bank {
+        if let (Some(msb), Ok(controller)) = (bank.msb, music_core::ControlNumber::new(0)) {
+            messages.push(music_core::MidiMessage::ControlChange {
+                channel,
+                controller,
+                value: msb,
+            });
+        }
+        if let (Some(lsb), Ok(controller)) = (bank.lsb, music_core::ControlNumber::new(32)) {
+            messages.push(music_core::MidiMessage::ControlChange {
+                channel,
+                controller,
+                value: lsb,
+            });
+        }
+    }
+    messages.push(music_core::MidiMessage::ProgramChange { channel, program });
+    messages
+}
+
 /// A malformed profile file and its reason.
 pub type ProfileProblem = (std::path::PathBuf, String);
 
@@ -519,6 +547,30 @@ drum_kits:
         );
         assert_eq!(program_for_track("Electric Piano"), 4);
         assert_eq!(program_for_track("Grand Piano"), 0);
+    }
+
+    #[test]
+    fn voice_messages_put_bank_before_program() {
+        let bank = Bank {
+            name: String::from("Preset"),
+            program: 0,
+            msb: Some(63),
+            lsb: Some(1),
+        };
+        let messages = voice_messages(Some(&bank), 33, music_core::Channel::first());
+        assert_eq!(messages.len(), 3);
+        assert!(matches!(
+            messages[0],
+            music_core::MidiMessage::ControlChange { value: 63, .. }
+        ));
+        assert!(matches!(
+            messages[1],
+            music_core::MidiMessage::ControlChange { value: 1, .. }
+        ));
+        assert!(matches!(
+            messages[2],
+            music_core::MidiMessage::ProgramChange { program: 33, .. }
+        ));
     }
 
     #[test]

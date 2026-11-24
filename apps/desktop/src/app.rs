@@ -8366,30 +8366,13 @@ impl ShellApp {
                         if ui.button("Send voice").clicked() {
                             let (_, program) = voices[voice];
 
-                            if let Some(bank) = bank {
-                                if let Some(msb) = bank.msb
-                                    && let Ok(controller) = music_core::ControlNumber::new(0)
-                                {
-                                    self.send_midi(music_core::MidiMessage::ControlChange {
-                                        channel: music_core::Channel::first(),
-                                        controller,
-                                        value: msb,
-                                    });
-                                }
-                                if let Some(lsb) = bank.lsb
-                                    && let Ok(controller) = music_core::ControlNumber::new(32)
-                                {
-                                    self.send_midi(music_core::MidiMessage::ControlChange {
-                                        channel: music_core::Channel::first(),
-                                        controller,
-                                        value: lsb,
-                                    });
-                                }
-                            }
-                            self.send_midi(music_core::MidiMessage::ProgramChange {
-                                channel: music_core::Channel::first(),
+                            for message in midi_devices::profiles::voice_messages(
+                                bank.as_ref(),
                                 program,
-                            });
+                                music_core::Channel::first(),
+                            ) {
+                                self.send_midi(message);
+                            }
                             self.status = Some(format!("sent voice {program}"));
                         }
                     });
