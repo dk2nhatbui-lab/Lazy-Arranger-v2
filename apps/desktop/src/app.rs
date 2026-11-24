@@ -886,6 +886,13 @@ pub struct ShellApp {
     dictation_pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
     timeline_waveforms: std::collections::HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
+    waveform_pending: std::collections::HashMap<
+        TrackId,
+        (
+            String,
+            std::sync::mpsc::Receiver<Vec<audio::waveform::Peak>>,
+        ),
+    >,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
     audio_inputs: Option<Vec<String>>,
     audio_outputs: Option<Vec<String>>,
@@ -1213,6 +1220,7 @@ impl ShellApp {
             dictation_pending: None,
             waveform: None,
             timeline_waveforms: std::collections::HashMap::new(),
+            waveform_pending: std::collections::HashMap::new(),
             midi_ports: None,
             audio_inputs: None,
             audio_outputs: None,
@@ -2365,7 +2373,7 @@ impl ShellApp {
     }
 
     /// Loads and caches audio waveform peaks for the meters and timeline.
-    fn refresh_waveform(&mut self) {
+    fn refresh_waveform(&mut self, context: &Context) {
         let audio_tracks: Vec<(TrackId, String)> = self
             .song()
             .tracks
@@ -2377,67 +2385,66 @@ impl ShellApp {
                     .map(|reference| (track.id, reference.path.clone()))
             })
             .collect();
-        for (id, path) in audio_tracks {
+        self.waveform_pending
+            .retain(|track, (path, _)| audio_tracks.iter().any(|(id, p)| id == track && p == path));
+        let mut finished = Vec::new();
+        for (track, (path, receiver)) in &self.waveform_pending {
+            match receiver.try_recv() {
+                Ok(peaks) => finished.push((*track, path.clone(), peaks)),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    finished.push((*track, path.clone(), Vec::new()))
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        for (track, path, peaks) in finished {
+            self.waveform_pending.remove(&track);
+            self.timeline_waveforms.insert(track, (path, peaks));
+        }
+        for (id, path) in &audio_tracks {
             if self
                 .timeline_waveforms
-                .get(&id)
-                .is_some_and(|(cached, _)| *cached == path)
+                .get(id)
+                .is_some_and(|(cached, _)| cached == path)
+                || self.waveform_pending.contains_key(id)
             {
                 continue;
             }
-            let source = std::path::Path::new(&path);
-            let peaks = std::fs::read(source)
-                .ok()
-                .and_then(|bytes| {
-                    if bytes.starts_with(b"RIFF") {
-                        audio::wav::decode_mono(&bytes).ok()
-                    } else {
-                        audio::decode::decode_mono(source).ok()
-                    }
-                })
-                .map(|decoded| audio::waveform::peaks(&decoded.samples, 240))
-                .unwrap_or_default();
-            self.timeline_waveforms.insert(id, (path, peaks));
+            let path = path.clone();
+            let source = std::path::PathBuf::from(&path);
+            let (sender, receiver) = std::sync::mpsc::channel();
+            self.waveform_pending.insert(*id, (path.clone(), receiver));
+            context.request_repaint_after(std::time::Duration::from_millis(100));
+            std::thread::spawn(move || {
+                let peaks = std::fs::read(&source)
+                    .ok()
+                    .and_then(|bytes| {
+                        if bytes.starts_with(b"RIFF") {
+                            audio::wav::decode_mono(&bytes).ok()
+                        } else {
+                            audio::decode::decode_mono(&source).ok()
+                        }
+                    })
+                    .map(|decoded| audio::waveform::peaks(&decoded.samples, 240))
+                    .unwrap_or_default();
+                let _ = sender.send(peaks);
+            });
         }
-        let Some(track) = self
-            .roll
-            .selected
-            .or_else(|| {
-                self.song()
-                    .tracks
-                    .iter()
-                    .find(|track| track.audio.is_some())
-                    .map(|track| track.id)
-            })
-            .and_then(|id| self.song().tracks.iter().find(|track| track.id == id))
-        else {
-            self.waveform = None;
-            return;
-        };
-        let Some(reference) = &track.audio else {
-            self.waveform = None;
-            return;
-        };
-        if self
-            .waveform
-            .as_ref()
-            .is_some_and(|(id, path, _)| *id == track.id && *path == reference.path)
-        {
-            return;
+        if !self.waveform_pending.is_empty() {
+            context.request_repaint_after(std::time::Duration::from_millis(100));
         }
-        let path = std::path::Path::new(&reference.path);
-        let peaks = std::fs::read(path)
-            .ok()
-            .and_then(|bytes| {
-                if bytes.starts_with(b"RIFF") {
-                    audio::wav::decode_mono(&bytes).ok()
-                } else {
-                    audio::decode::decode_mono(path).ok()
-                }
-            })
-            .map(|decoded| audio::waveform::peaks(&decoded.samples, 240))
-            .unwrap_or_default();
-        self.waveform = Some((track.id, reference.path.clone(), peaks));
+        let selected = self.roll.selected.or_else(|| {
+            self.song()
+                .tracks
+                .iter()
+                .find(|track| track.audio.is_some())
+                .map(|track| track.id)
+        });
+        self.waveform = selected.and_then(|id| {
+            self.timeline_waveforms
+                .get(&id)
+                .map(|(path, peaks)| (id, path.clone(), peaks.clone()))
+        });
     }
 
     fn draw_waveform(ui: &mut egui::Ui, peaks: &[audio::waveform::Peak], zoom: f32, position: f32) {
@@ -11306,7 +11313,7 @@ impl eframe::App for ShellApp {
                 Err(error) => self.status = Some(error.to_string()),
             }
         }
-        self.refresh_waveform();
+        self.refresh_waveform(context);
         if self.settings.kids_mode && self.view.index() > 1 {
             self.view = View::Perform;
         }
