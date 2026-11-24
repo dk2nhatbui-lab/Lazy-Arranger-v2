@@ -114,6 +114,12 @@ pub fn export(song: &Song, title: &str) -> String {
                     }
                 }
                 out.push_str("      </attributes>\n");
+                if index == 0 {
+                    let tempo = song.tempo_map.bpm_at(0);
+                    if tempo.is_finite() && tempo > 0.0 {
+                        out.push_str(&format!("      <sound tempo=\"{tempo}\"/>\n"));
+                    }
+                }
             }
             if index == 0 {
                 for mark in song
@@ -176,7 +182,9 @@ pub fn export(song: &Song, title: &str) -> String {
                 };
                 write_note(&mut out, note, duration, &marks);
                 last_start = Some(note.start);
-                cursor = note.start + duration;
+                if !chord {
+                    cursor = note.start + duration;
+                }
             }
             if cursor < stop {
                 write_rest(&mut out, stop - cursor);

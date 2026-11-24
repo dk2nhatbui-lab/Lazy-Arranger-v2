@@ -37,6 +37,7 @@ mod tests {
             .collect();
         assert_eq!(starts, vec![0, 960, 1920]);
         assert_eq!(imported.tracks[0].notes[0].duration, 960);
+        assert!((imported.tempo_map.bpm_at(0) - 120.0).abs() < 1.0e-6);
     }
 
     #[test]
