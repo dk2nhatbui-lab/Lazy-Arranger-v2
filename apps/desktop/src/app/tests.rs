@@ -1,4 +1,6 @@
-use super::devices::{decode_l6_scenes, encode_l6_scenes, seed_default_device_profiles};
+use super::devices::{
+    decode_l6_scenes, encode_l6_scenes, profile_for_port, seed_default_device_profiles,
+};
 use super::*;
 
 #[test]
