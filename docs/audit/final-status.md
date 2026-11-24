@@ -42,8 +42,11 @@ and tutorial; background rendering for Cecilia previews, waveforms and playback.
    and device feedback remain unverified.
 3. **Full score** — a read-only all-track canvas and printable review PDF exist.
    They put two systems on each page with clefs, stems, accidentals,
-   beams, ties, tuplets, rests, chords, lyrics, marks and measure numbers, and a Tracks menu hides chosen tracks; the editable
-   Score view still engraves one track.
+   dots, ledger lines, shaped rests, beams, ties, slurs, tuplets, chords, optional
+   guitar frames, lyrics, marks, section markers, measure numbers, a staff
+   bracket, final double bar and tempo; clicks or drags seek, pages follow the
+   playhead, and a Tracks menu hides chosen tracks. The editable Score view still
+   engraves one track.
 4. **SF3** — SF2 is supported; SF3 compressed samples are out of scope by request.
 5. **PDF CJK text** — WinAnsi covers Latin-1; unsupported scripts render as `?`.
 6. **AI/speech input** — the assistant is a local rule engine with an optional
