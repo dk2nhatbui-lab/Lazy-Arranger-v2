@@ -127,7 +127,12 @@ impl DecodeReport {
 pub fn encode(song: &Song) -> Result<Vec<u8>, SmfError> {
     let mut tracks: Vec<Vec<TrackEvent<'_>>> = Vec::with_capacity(song.tracks.len() + 1);
 
-    let mut conductor = TrackBuilder::new("Conductor");
+    let conductor_name = if song.name.is_empty() {
+        "Conductor"
+    } else {
+        song.name.as_str()
+    };
+    let mut conductor = TrackBuilder::new(conductor_name);
     conductor.push(
         0,
         1,
@@ -287,6 +292,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
     let mut key_signature: Option<KeySignature> = None;
     let mut markers: Vec<Marker> = Vec::new();
     let mut lyrics: Vec<project::song::LyricEvent> = Vec::new();
+    let mut song_name: Option<String> = None;
     let mut tracks: Vec<Track> = Vec::new();
     let mut next_track_id: u32 = 1;
 
@@ -385,6 +391,9 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
         }
         report.unpaired_note_ons += sounding.len();
         if notes.is_empty() {
+            if index == 0 {
+                song_name = name;
+            }
             continue;
         }
         notes.sort_by(|left, right| {
@@ -451,7 +460,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
         master_plugins: Vec::new(),
         marks: Vec::new(),
         lyrics,
-        name: String::new(),
+        name: song_name.unwrap_or_default(),
         tempo_map,
         time_signature: time_signature.unwrap_or_default(),
         key: key_signature,
@@ -721,6 +730,7 @@ mod tests {
         let bytes = encode(&song).expect("encode");
         let (back, report) = decode(&bytes).expect("decode");
         assert_eq!(report.notes, 5);
+        assert_eq!(back.name, "Round trip");
         assert_eq!(report.source_tracks, 3);
         assert!(!report.rescaled);
         assert_eq!(notes_of(&back), notes_of(&song));
