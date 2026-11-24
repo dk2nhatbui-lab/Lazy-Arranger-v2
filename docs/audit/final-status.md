@@ -7,7 +7,7 @@ plug-in editor support or model services).
 
 ## Gate and CI
 
-- `cargo test --workspace`: **833 passed, 0 failed**.
+- `cargo test --workspace`: **835 passed, 0 failed**.
 - `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all`
   and rustdoc (warnings denied): clean.
 - Release bundle builds; the app launches; the bundled scanner returns R0Verb
@@ -40,9 +40,9 @@ and tutorial; background rendering for Cecilia previews, waveforms and playback.
    PCG binary layout, and no PCG/L6max project fixture was supplied. The L6max
    device page sends the documented CC map and transport bytes; project readback
    and device feedback remain unverified.
-3. **Full score** — a printable all-track review PDF stacks every track on a
-   system per page, but the Score view still engraves one track and the review
-   PDF omits clefs, stems and accidentals.
+3. **Full score** — a read-only all-track canvas and printable review PDF exist.
+   They stack every track on a system per page and omit beaming, ties and tuplets
+   on the canvas; the editable Score view still engraves one track.
 4. **SF3** — SF2 is supported; SF3 compressed samples are out of scope by request.
 5. **PDF CJK text** — WinAnsi covers Latin-1; unsupported scripts render as `?`.
 6. **AI/speech input** — the assistant is a local rule engine with an optional
