@@ -100,6 +100,13 @@ fn number_of(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<f64> {
     text_of(node, tag).and_then(|text| text.parse().ok())
 }
 
+fn offset_ticks(node: roxmltree::Node<'_, '_>, divisions: f64) -> Tick {
+    let Some(offset) = number_of(node, "offset") else {
+        return 0;
+    };
+    (offset * music_core::PPQ as f64 / divisions.max(1.0)).round() as Tick
+}
+
 /// Imports a partwise MusicXML document.
 ///
 /// # Errors
@@ -191,7 +198,10 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                 .children()
                 .filter(|node| node.has_tag_name("direction"))
             {
-                if let Some(mark) = read_mark(direction, measure_start) {
+                if let Some(mark) = read_mark(
+                    direction,
+                    measure_start + offset_ticks(direction, divisions),
+                ) {
                     song.marks.push(mark);
                 }
             }
@@ -201,7 +211,7 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
             {
                 if let Some(chord) = read_harmony(harmony) {
                     song.chords.push(project::song::ChordEvent {
-                        tick: measure_start,
+                        tick: measure_start + offset_ticks(harmony, divisions),
                         chord,
                     });
                 }

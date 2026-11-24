@@ -41,6 +41,28 @@ mod tests {
     }
 
     #[test]
+    fn offsets_survive_our_export() {
+        use music_core::Chord;
+        use project::song::{Dynamic, Mark, MarkKind};
+        let mut song = Song::new("Offsets", 120.0);
+        song.tracks.push(Track::new(
+            project::TrackId::new(1).expect("valid"),
+            "Piano",
+        ));
+        song.chords.push(project::song::ChordEvent {
+            tick: 480,
+            chord: Chord::parse("G").expect("chord"),
+        });
+        song.marks.push(Mark {
+            tick: 480,
+            kind: MarkKind::Dynamic(Dynamic::F),
+        });
+        let imported = import(&export(&song, "Offsets")).expect("import");
+        assert_eq!(imported.chords[0].tick, 480);
+        assert_eq!(imported.marks[0].tick, 480);
+    }
+
+    #[test]
     fn chords_stack_and_unpitched_notes_become_drums() {
         let xml = r#"<?xml version="1.0"?>
         <score-partwise version="4.0">
