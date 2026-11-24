@@ -637,6 +637,23 @@ pub fn to_full_pdf(
                 let note_y = top + relative;
                 let y = settings.page_height - note_y;
                 circle(&mut content, note.x, y, line_gap * 0.55);
+                if let Some(alter) = note.spelled.accidental {
+                    let accidental = match alter {
+                        1 => "#",
+                        -1 => "b",
+                        2 => "x",
+                        -2 => "bb",
+                        _ => "",
+                    };
+                    if !accidental.is_empty() {
+                        let _ = writeln!(
+                            content,
+                            "BT /F1 7 Tf {:.1} {:.1} Td ({accidental}) Tj ET",
+                            note.x - 5.5,
+                            y - 2.0
+                        );
+                    }
+                }
                 let stem = if note.pitch.as_u8() < 71 {
                     note_y + 3.0 * line_gap
                 } else {
@@ -928,7 +945,7 @@ pub fn page_count(pdf: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use music_core::{Channel, PPQ, Pitch, Velocity};
+    use music_core::{Channel, PPQ, Pitch, PitchClass, Velocity};
     use project::TrackId;
     use project::song::{Note, Song, Track};
 
@@ -977,13 +994,17 @@ mod tests {
     #[test]
     fn a_full_score_pdf_lists_every_track() {
         let mut song = Song::new("Full", 120.0);
+        song.key = Some(project::song::KeySignature {
+            tonic: PitchClass::new(0),
+            minor: false,
+        });
         for (index, name) in [(1_u32, "Piano"), (2, "Bass")] {
             let mut track = Track::new(TrackId::new(index).expect("valid"), name);
             track.notes.push(Note {
                 id: project::NoteId::new(index).expect("valid"),
                 start: 0,
                 duration: PPQ,
-                pitch: Pitch::from_name("C4").expect("valid"),
+                pitch: Pitch::from_name(if index == 1 { "C4" } else { "C#4" }).expect("valid"),
                 velocity: Velocity::new(100).expect("valid"),
                 channel: Channel::first(),
             });
@@ -998,6 +1019,10 @@ mod tests {
         assert!(text.contains("(Piano) Tj"));
         assert!(text.contains("(Bass) Tj"));
         assert!(text.contains("/ClefTreble"), "clef image resource");
+        assert!(
+            text.contains("(#) Tj") || text.contains("(b) Tj"),
+            "accidental"
+        );
         assert!(page_count(&pdf).is_some_and(|count| count >= 1));
     }
 
