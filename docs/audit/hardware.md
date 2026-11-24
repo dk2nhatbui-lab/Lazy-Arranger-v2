@@ -133,7 +133,7 @@ Mac mini Speakers.
 - A 60-second XioSynth audio capture stopped at **0.54 s** and peaked around
   0.0004, so its USB audio path is inconclusive. This is outside the app's MIDI
   capture claim.
-- L6max readback and transport are not verified; only CC sends and the CH1 mute response are.
+- L6max readback and transport are not verified; only CC sends and the CH1 mute response are. A 45-second monitor on Mixer Control while the owner moved CH1 level and mute captured **0 messages**, so the port appears receive-only.
 - No plug-in editor window was opened.
 
 These are transport/send and stream-open checks, not audible or physical

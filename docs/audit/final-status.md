@@ -1,6 +1,6 @@
 # Final status (2026-11-23)
 
-Commit basis: the L6max device-mixer commit at round 464. Goal: C++ v1.0.0-beta.1 feature parity.
+Commit basis: the L6max device-mixer commit at round 465. Goal: C++ v1.0.0-beta.1 feature parity.
 **Parity is not claimed.** All 39 crosscheck rows are `partial`; none is
 `verified` in full, because several require material this environment does not
 have (hardware, proprietary formats, native plug-in editor support or model

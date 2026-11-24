@@ -69,7 +69,7 @@ Sources retained from the earlier crosscheck:
 | Inputs turn on by themselves, device profiles | verified | YAML profiles, auto-open inputs, port-name profile selection and CC panels |
 | D-05 and XioSynth sound editors | partial | Profiles and CC editors exist; no full patch editor or program dump decode |
 | Launchkey / X-Touch mixer pages | partial | Launchkey CC 21–28 mixer preset, pad preset and physical CC capture; no full controller-page editor |
-| Zoom LiveTrak L6max import | partial | Take-folder import, master/mix mute, A–D scenes, compact/reset; device project, EQ, MONO, USB, effects and transport absent |
+| Zoom LiveTrak L6max import | partial | Take-folder import, master/mix mute, A–D scenes, compact/reset, and an 8-channel device page for EQ, sub, AUX, EFX, pan, level, mute, MONO, USB, effect type, compressor and scenes. Hardware mute verified; device project/readback/transport absent |
 | Timeline · Score · Beat · Clips · Mixer · Sound Editor | verified | Timeline, Score, Drums/Beat, Loops/clip grid, Mixer, Patch/SoundFont and plug-in windows exist |
 
 ## Established C++ features named in the ideas document
