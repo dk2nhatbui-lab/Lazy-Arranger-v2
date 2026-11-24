@@ -518,7 +518,7 @@ fn alpha_stream(image: &ClefImage) -> Vec<u8> {
 }
 
 fn accidental(content: &mut String, alter: i8, x: f32, y: f32, radius: f32) {
-    let _ = writeln!(content, "{} w", radius * 0.22);
+    let _ = writeln!(content, "q {} w", radius * 0.22);
     match alter {
         1 => {
             for offset in [-0.35_f32, 0.05] {
@@ -587,6 +587,7 @@ fn accidental(content: &mut String, alter: i8, x: f32, y: f32, radius: f32) {
             }
         }
     }
+    let _ = writeln!(content, "Q");
 }
 
 fn circle(content: &mut String, x: f32, y: f32, radius: f32) {
@@ -624,7 +625,15 @@ fn circle(content: &mut String, x: f32, y: f32, radius: f32) {
 }
 
 fn escape(text: &str) -> String {
-    text.replace('\\', "\\\\")
+    // The PDF uses Helvetica with WinAnsiEncoding. Non-ASCII text would be
+    // written as UTF-8 bytes and read as mojibake, so mark it as unsupported
+    // instead of emitting corrupt characters.
+    let ascii: String = text
+        .chars()
+        .map(|character| if character.is_ascii() { character } else { '?' })
+        .collect();
+    ascii
+        .replace('\\', "\\\\")
         .replace('(', "\\(")
         .replace(')', "\\)")
 }
