@@ -184,6 +184,18 @@ palette!(
         Color32::from_rgb(0x2c, 0x30, 0x2d)
     ),
     (
+        ok,
+        "Success, such as a running audio device.",
+        Color32::from_rgb(0x91, 0xad, 0x7c),
+        Color32::from_rgb(0x51, 0x7d, 0x45)
+    ),
+    (
+        warning,
+        "Warning, such as no audio device.",
+        Color32::from_rgb(0xdc, 0xa4, 0x5f),
+        Color32::from_rgb(0xb3, 0x76, 0x32)
+    ),
+    (
         lcd_text,
         "LCD text.",
         Color32::from_rgb(0xf1, 0xec, 0xe4),
@@ -220,6 +232,12 @@ pub fn track_colour(index: usize) -> Color32 {
 
 /// Base spacing unit.
 pub const GRID: f32 = 4.0;
+
+/// Inter SemiBold at `size` points, for titles and values (`Theme::font(size, true)`).
+#[must_use]
+pub fn semibold(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("inter-semibold".into()))
+}
 /// Panel corner radius. The owner asked for square corners, so this is 0
 /// (v1 used 9 and 7).
 pub const RADIUS: f32 = 0.0;

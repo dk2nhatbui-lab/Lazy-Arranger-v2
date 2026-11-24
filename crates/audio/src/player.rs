@@ -290,6 +290,12 @@ fn resample_stereo(audio: RenderedAudio, target_rate: u32) -> RenderedAudio {
     }
 }
 
+/// The name of the audio system in use, such as "CoreAudio", "ALSA" or "WASAPI".
+#[must_use]
+pub fn host_name() -> String {
+    cpal::default_host().id().name().to_string()
+}
+
 /// Names of available output devices.
 #[must_use]
 pub fn output_devices() -> Vec<String> {

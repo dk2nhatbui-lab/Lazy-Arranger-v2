@@ -65,9 +65,10 @@ impl ShellApp {
                     [rect.left_bottom(), rect.right_bottom()],
                     egui::Stroke::new(1.0_f32, theme::line()),
                 );
+                // HeaderBar::resized: 16 px margins, a 220 px title area, the
+                // transport (stop, play, record, loop, click), then the LCD.
                 let mut area = rect.shrink2(egui::vec2(16.0, 0.0));
-                // Title area: badge, title, subtitle (HeaderBar::paint).
-                let title_area = Rect::from_min_size(area.min, egui::vec2(200.0, area.height()));
+                let title_area = Rect::from_min_size(area.min, egui::vec2(220.0, area.height()));
                 area = Rect::from_min_max(egui::pos2(title_area.right(), area.top()), area.max);
                 let badge = Rect::from_center_size(
                     egui::pos2(title_area.left() + 18.0, title_area.center().y),
@@ -79,90 +80,97 @@ impl ShellApp {
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                     egui::Color32::WHITE,
                 );
-                let title_rect = Rect::from_min_max(
-                    egui::pos2(title_area.left() + 36.0 + 14.0, title_area.top() + 6.0),
-                    egui::pos2(title_area.right(), title_area.center().y),
-                );
+                let text_left = badge.right() + 14.0;
+                let text_width = (title_area.right() - text_left).max(0.0);
                 let name = if self.song().name.is_empty() {
                     "Untitled"
                 } else {
                     self.song().name.as_str()
                 };
-                ui.painter().text(
-                    title_rect.left_bottom(),
-                    egui::Align2::LEFT_BOTTOM,
-                    name,
-                    egui::FontId::proportional(14.0),
+                let title = ui.painter().layout(
+                    name.to_owned(),
+                    theme::semibold(16.0),
+                    theme::text(),
+                    text_width,
+                );
+                ui.painter().galley(
+                    egui::pos2(text_left, rect.center().y - title.size().y),
+                    title,
                     theme::text(),
                 );
+                let (tonic, minor) = self.song().key.map_or_else(
+                    || {
+                        let key = score::spelling::detect_key(self.song());
+                        (key.tonic, key.minor)
+                    },
+                    |key| (key.tonic, key.minor),
+                );
                 let subtitle = format!(
-                    "{} BPM \u{b7} {}/{}",
+                    "{} BPM \u{b7} {}/{} \u{b7} {} {}",
                     self.song().tempo_map.bpm_at(self.position).round() as i64,
                     self.song().time_signature.numerator,
-                    self.song().time_signature.denominator
+                    self.song().time_signature.denominator,
+                    if minor {
+                        tonic.name_flat()
+                    } else {
+                        tonic.name_sharp()
+                    },
+                    if minor { "minor" } else { "major" }
                 );
                 ui.painter().text(
-                    egui::pos2(title_rect.left(), title_rect.bottom() + 2.0),
+                    egui::pos2(text_left, rect.center().y + 2.0),
                     egui::Align2::LEFT_TOP,
                     subtitle,
                     egui::FontId::proportional(12.5),
                     theme::text_muted(),
                 );
 
-                // Transport buttons: stop 44, play 54, 8 px gaps.
-                let buttons_rect = Rect::from_min_size(area.min, egui::vec2(214.0, area.height()));
-                area = Rect::from_min_max(egui::pos2(buttons_rect.right(), area.top()), area.max);
-                let mut x = buttons_rect.left();
-                let stop = Rect::from_center_size(
-                    egui::pos2(x + 19.0, buttons_rect.center().y),
-                    egui::vec2(38.0, 38.0),
-                );
-                x += 44.0;
-                let play = Rect::from_center_size(
-                    egui::pos2(x + 22.0, buttons_rect.center().y),
-                    egui::vec2(44.0, 44.0),
-                );
-                if transport_button(ui, stop, "\u{25A0}", false) {
+                // Transport: stop 44, play 54, record, loop and click 44, 8 px gaps.
+                let mut x = area.left();
+                let mut next_button = |size: f32| {
+                    let button = Rect::from_center_size(
+                        egui::pos2(x + size * 0.5, rect.center().y),
+                        egui::vec2(size, size),
+                    );
+                    x += size + 8.0;
+                    button
+                };
+                let stop = next_button(44.0);
+                let play = next_button(54.0);
+                let record = next_button(44.0);
+                let looping = next_button(44.0);
+                let metronome = next_button(44.0);
+                area = Rect::from_min_max(egui::pos2(x - 8.0, area.top()), area.max);
+                if transport_button(ui, stop, crate::transport::STOP, false) {
                     self.stop_playback();
                 }
-                if transport_button(
-                    ui,
-                    play,
-                    if self.playing { "\u{2016}" } else { "\u{25B6}" },
-                    self.playing,
-                ) {
+                if transport_button(ui, play, crate::transport::PLAY, self.playing) {
                     self.toggle_playback();
                     context.request_repaint_after(std::time::Duration::from_millis(16));
                 }
-                x += 50.0;
-                let record = Rect::from_center_size(
-                    egui::pos2(x + 19.0, buttons_rect.center().y),
-                    egui::vec2(38.0, 38.0),
-                );
-                if transport_button(ui, record, "\u{25CF}", self.recording.is_some()) {
+                if transport_button(
+                    ui,
+                    record,
+                    crate::transport::RECORD,
+                    self.recording.is_some(),
+                ) {
                     self.start_midi_recording();
                 }
-                x += 44.0;
-                let undo = Rect::from_center_size(
-                    egui::pos2(x + 16.0, buttons_rect.center().y),
-                    egui::vec2(32.0, 32.0),
-                );
-                if transport_button(ui, undo, "\u{21B6}", false) && !self.editor.undo() {
-                    self.status = Some(String::from("nothing to undo"));
+                if transport_button(ui, looping, crate::transport::LOOP, self.loop_enabled) {
+                    self.toggle_loop();
                 }
-                x += 38.0;
-                let metronome = Rect::from_center_size(
-                    egui::pos2(x + 16.0, buttons_rect.center().y),
-                    egui::vec2(32.0, 32.0),
-                );
                 if metronome_button(ui, metronome, self.settings.metronome) {
                     self.settings.metronome = !self.settings.metronome;
                 }
-                // LCD, 320 x 52, then the view tabs on the right.
-                let lcd_rect = Rect::from_center_size(
-                    egui::pos2(area.left() + 16.0 + 175.0, rect.center().y),
+                // LCD, 350 x 52, 16 px after the transport.
+                let lcd_rect = Rect::from_min_size(
+                    egui::pos2(
+                        area.left() + 16.0,
+                        rect.center().y - widgets::LCD_SIZE.y * 0.5,
+                    ),
                     widgets::LCD_SIZE,
                 );
+                area = Rect::from_min_max(egui::pos2(lcd_rect.right(), area.top()), area.max);
                 let mut lcd_ui = ui.new_child(egui::UiBuilder::new().max_rect(lcd_rect));
                 widgets::lcd(
                     &mut lcd_ui,
@@ -200,48 +208,51 @@ impl ShellApp {
                     }
                     return;
                 }
-                let wide = rect.width() >= 1380.0;
-                let ai_rect = Rect::from_center_size(
-                    egui::pos2(rect.right() - 16.0 - 38.0, rect.center().y),
-                    egui::vec2(76.0, 34.0),
+                // Right side, from the right edge: Ask AI, zoom - / +, the
+                // audio pill, then the tab strip with the Mixer button.
+                let ai_width = 112.0_f32.max(
+                    ui.painter()
+                        .layout_no_wrap(
+                            String::from("Ask AI"),
+                            theme::semibold(14.5),
+                            theme::text(),
+                        )
+                        .size()
+                        .x
+                        + 64.0,
                 );
-                let (mixer_rect, audio_rect, minus_rect, plus_rect) = if wide {
-                    let plus_rect = Rect::from_center_size(
-                        egui::pos2(ai_rect.left() - 6.0 - 12.0, rect.center().y),
-                        egui::vec2(24.0, 28.0),
-                    );
-                    let minus_rect = Rect::from_center_size(
-                        egui::pos2(plus_rect.left() - 4.0 - 12.0, rect.center().y),
-                        egui::vec2(24.0, 28.0),
-                    );
-                    let audio_rect = Rect::from_center_size(
-                        egui::pos2(minus_rect.left() - 8.0 - 40.0, rect.center().y),
-                        egui::vec2(80.0, 32.0),
-                    );
-                    let mixer_rect = Rect::from_center_size(
-                        egui::pos2(audio_rect.left() - 8.0 - 27.0, rect.center().y),
-                        egui::vec2(54.0, 34.0),
-                    );
-                    (
-                        mixer_rect,
-                        Some(audio_rect),
-                        Some(minus_rect),
-                        Some(plus_rect),
-                    )
-                } else {
-                    let mixer_rect = Rect::from_center_size(
-                        egui::pos2(ai_rect.left() - 8.0 - 27.0, rect.center().y),
-                        egui::vec2(54.0, 34.0),
-                    );
-                    (mixer_rect, None, None, None)
-                };
-                let tabs_rect = Rect::from_center_size(
-                    egui::pos2(
-                        mixer_rect.left() - 8.0 - widgets::TABS_SIZE.x * 0.5,
-                        rect.center().y,
-                    ),
-                    widgets::TABS_SIZE,
+                let ai_rect = Rect::from_min_size(
+                    egui::pos2(area.right() - ai_width, rect.center().y - 20.0),
+                    egui::vec2(ai_width, 40.0),
                 );
+                let zoom_right = ai_rect.left() - 10.0;
+                let plus_rect = Rect::from_min_size(
+                    egui::pos2(zoom_right - 28.0, rect.center().y - 15.0),
+                    egui::vec2(28.0, 30.0),
+                );
+                let minus_rect = plus_rect.translate(egui::vec2(-36.0, 0.0));
+                let rest = Rect::from_min_max(
+                    egui::pos2(area.left(), area.top()),
+                    egui::pos2(minus_rect.left() - 10.0, area.bottom()),
+                );
+                let status_width = 260.0_f32.min(rest.width() / 3.0);
+                let status_area = Rect::from_min_max(
+                    egui::pos2(rest.right() - status_width, rest.top()),
+                    rest.max,
+                );
+                let rest =
+                    Rect::from_min_max(rest.min, egui::pos2(status_area.left(), rest.bottom()));
+                let tab_width = (rest.width() - 16.0).clamp(0.0, 440.0);
+                let tab_area = Rect::from_center_size(rest.center(), egui::vec2(tab_width, 44.0));
+                let mixer_rect = Rect::from_center_size(
+                    egui::pos2(tab_area.right() - 36.0, rect.center().y),
+                    egui::vec2(72.0, 34.0),
+                );
+                let tabs_rect = Rect::from_min_max(
+                    tab_area.min,
+                    egui::pos2(mixer_rect.left() - 10.0, tab_area.bottom()),
+                );
+
                 let mut tabs_ui = ui.new_child(egui::UiBuilder::new().max_rect(tabs_rect));
                 let views: Vec<View> = View::allowed(self.settings.kids_mode)
                     .into_iter()
@@ -272,131 +283,159 @@ impl ShellApp {
                         self.load_beat();
                     }
                 }
-                if let (Some(audio_rect), Some(minus_rect), Some(plus_rect)) =
-                    (audio_rect, minus_rect, plus_rect)
-                {
-                    let audio_response = ui.interact(
-                        audio_rect,
-                        ui.id().with("audio-settings"),
-                        egui::Sense::click(),
-                    );
-                    ui.painter().rect_filled(audio_rect, 4.0, theme::raised());
-                    ui.painter().rect_stroke(
-                        audio_rect,
-                        4.0,
-                        egui::Stroke::new(1.0_f32, theme::line()),
-                        egui::StrokeKind::Inside,
-                    );
-                    ui.painter().circle_filled(
-                        egui::pos2(audio_rect.left() + 10.0, audio_rect.center().y),
-                        3.5,
-                        egui::Color32::from_rgb(0x4c, 0xaf, 0x50),
-                    );
-                    ui.painter().text(
-                        egui::pos2(audio_rect.left() + 20.0, audio_rect.center().y),
-                        egui::Align2::LEFT_CENTER,
-                        "CoreAudio",
-                        egui::FontId::proportional(11.0),
-                        theme::text(),
-                    );
-                    if audio_response
-                        .on_hover_text("Audio and MIDI settings")
-                        .clicked()
-                    {
-                        self.settings_open = true;
-                    }
-                    for (rect, glyph, direction) in
-                        [(minus_rect, "-", 1.25_f32), (plus_rect, "+", 0.8_f32)]
-                    {
-                        let response = ui.interact(rect, ui.id().with(glyph), egui::Sense::click());
-                        ui.painter().rect_filled(
-                            rect,
-                            4.0,
-                            if response.hovered() {
-                                theme::line()
-                            } else {
-                                theme::raised()
-                            },
-                        );
-                        ui.painter().rect_stroke(
-                            rect,
-                            4.0,
-                            egui::Stroke::new(1.0_f32, theme::line()),
-                            egui::StrokeKind::Inside,
-                        );
-                        ui.painter().text(
-                            rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            glyph,
-                            egui::FontId::proportional(14.0),
-                            theme::text(),
-                        );
-                        if response
-                            .on_hover_text(if direction < 1.0 {
-                                "Zoom in"
-                            } else {
-                                "Zoom out"
-                            })
-                            .clicked()
-                        {
-                            if self.view == View::Arrange && self.timeline_mode {
-                                self.timeline_zoom =
-                                    (self.timeline_zoom * direction).clamp(0.5, 3.0);
-                            } else {
-                                self.roll.ticks_per_point =
-                                    (self.roll.ticks_per_point * direction).clamp(2.0, 64.0);
-                            }
-                        }
-                    }
-                }
-                let mixer_response = ui.interact(
-                    mixer_rect,
-                    ui.id().with("mixer-toggle"),
-                    egui::Sense::click(),
-                );
-                ui.painter().rect_filled(
-                    mixer_rect,
-                    4.0,
-                    if self.mixer_visible {
-                        theme::accent().gamma_multiply(0.18)
-                    } else {
-                        theme::raised()
-                    },
-                );
-                ui.painter().rect_stroke(
-                    mixer_rect,
-                    4.0,
-                    egui::Stroke::new(1.0_f32, theme::line()),
-                    egui::StrokeKind::Inside,
-                );
-                ui.painter().text(
-                    mixer_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "Mixer",
-                    egui::FontId::proportional(11.0),
-                    theme::text(),
-                );
-                if mixer_response
-                    .on_hover_text("Show or hide the mixer")
+
+                if widgets::text_button(ui, mixer_rect, "mixer-toggle", "Mixer", self.mixer_visible)
+                    .on_hover_text("Show or hide the mixer under the view")
                     .clicked()
                 {
                     self.mixer_visible = !self.mixer_visible;
                 }
+
+                // Audio device pill (HeaderBar::paint, status pills).
+                let (host, has_output) = self
+                    .audio_host
+                    .get_or_insert_with(|| {
+                        (
+                            audio::player::host_name(),
+                            !audio::player::output_devices().is_empty(),
+                        )
+                    })
+                    .clone();
+                let running = has_output;
+                let pill_text = match self
+                    .player
+                    .as_ref()
+                    .and_then(|player| player.buffer_frames())
+                {
+                    Some(frames) => format!("{host} \u{b7} {frames}"),
+                    None if has_output => {
+                        format!("{host} \u{b7} {} kHz", audio::SAMPLE_RATE / 1000)
+                    }
+                    None => String::from("No audio device"),
+                };
+                let pill_galley = ui.painter().layout_no_wrap(
+                    pill_text.clone(),
+                    egui::FontId::proportional(13.0),
+                    theme::text(),
+                );
+                let pill_width = (pill_galley.size().x.ceil() + 50.0).min(status_area.width());
+                if pill_width > 40.0 {
+                    let pill = Rect::from_min_size(
+                        egui::pos2(status_area.right() - pill_width, rect.center().y - 16.0),
+                        egui::vec2(pill_width, 32.0),
+                    );
+                    let response =
+                        ui.interact(pill, ui.id().with("audio-settings"), egui::Sense::click());
+                    ui.painter().rect_filled(
+                        pill,
+                        theme::RADIUS,
+                        crate::transport::blend(theme::panel(), egui::Color32::WHITE, 0.03),
+                    );
+                    ui.painter().rect_stroke(
+                        pill.shrink(0.5),
+                        theme::RADIUS,
+                        egui::Stroke::new(1.0_f32, theme::line_strong().gamma_multiply(0.7)),
+                        egui::StrokeKind::Inside,
+                    );
+                    ui.painter().circle_filled(
+                        egui::pos2(pill.left() + 17.0, pill.center().y),
+                        4.0,
+                        if running {
+                            theme::ok()
+                        } else {
+                            theme::warning()
+                        },
+                    );
+                    let text_rect = Rect::from_min_max(
+                        egui::pos2(pill.left() + 28.0, pill.top()),
+                        egui::pos2(pill.right() - 13.0, pill.bottom()),
+                    );
+                    let galley = ui.painter().layout(
+                        pill_text,
+                        egui::FontId::proportional(13.0),
+                        theme::text(),
+                        f32::INFINITY,
+                    );
+                    ui.painter().with_clip_rect(text_rect).galley(
+                        egui::pos2(
+                            text_rect.left(),
+                            text_rect.center().y - galley.size().y * 0.5,
+                        ),
+                        galley,
+                        theme::text(),
+                    );
+                    if response.on_hover_text("Audio and MIDI settings").clicked() {
+                        self.settings_open = true;
+                    }
+                }
+
+                for (button, glyph, factor, hint) in [
+                    (minus_rect, "-", 1.2_f32, "Zoom out in time"),
+                    (plus_rect, "+", 1.0 / 1.2, "Zoom in in time"),
+                ] {
+                    if widgets::text_button(ui, button, glyph, glyph, false)
+                        .on_hover_text(hint)
+                        .clicked()
+                    {
+                        if self.view == View::Arrange && self.timeline_mode {
+                            self.timeline_zoom = (self.timeline_zoom * factor).clamp(0.5, 3.0);
+                        } else {
+                            self.roll.ticks_per_point =
+                                (self.roll.ticks_per_point * factor).clamp(2.0, 64.0);
+                        }
+                    }
+                }
+
+                // Ask AI (AiButton::paintButton): accent gradient pill, sparkle, label.
                 let ai_response =
                     ui.interact(ai_rect, ui.id().with("ask-ai"), egui::Sense::click());
-                ui.painter().rect_filled(
-                    ai_rect,
-                    16.0,
-                    theme::accent().gamma_multiply(if ai_response.hovered() { 1.0 } else { 0.9 }),
+                let mut accent = theme::accent();
+                if ai_response.is_pointer_button_down_on() {
+                    accent = crate::transport::blend(accent, egui::Color32::BLACK, 0.15);
+                } else if ai_response.hovered() {
+                    accent = crate::transport::blend(accent, egui::Color32::WHITE, 0.1);
+                }
+                let radius = ai_rect.height() / 2.0;
+                let top = crate::transport::blend(accent, egui::Color32::WHITE, 0.18);
+                let bottom = crate::transport::blend(accent, egui::Color32::BLACK, 0.18);
+                let mut mesh = egui::Mesh::default();
+                mesh.colored_vertex(ai_rect.left_top(), top);
+                mesh.colored_vertex(ai_rect.right_top(), top);
+                mesh.colored_vertex(ai_rect.right_bottom(), bottom);
+                mesh.colored_vertex(ai_rect.left_bottom(), bottom);
+                mesh.add_triangle(0, 1, 2);
+                mesh.add_triangle(0, 2, 3);
+                ui.painter().with_clip_rect(ai_rect).add(mesh);
+                ui.painter().rect_stroke(
+                    ai_rect.shrink(0.5),
+                    theme::RADIUS,
+                    egui::Stroke::new(
+                        1.0_f32,
+                        crate::transport::blend(accent, egui::Color32::BLACK, 0.35),
+                    ),
+                    egui::StrokeKind::Inside,
+                );
+                let ink = theme::accent_text();
+                let inner_left = ai_rect.left() + radius * 0.7;
+                crate::transport::draw_sparkle(
+                    ui.painter(),
+                    Rect::from_min_size(
+                        egui::pos2(inner_left, ai_rect.center().y - 10.0),
+                        egui::vec2(20.0, 20.0),
+                    ),
+                    ink,
                 );
                 ui.painter().text(
-                    ai_rect.center(),
-                    egui::Align2::CENTER_CENTER,
+                    egui::pos2(inner_left + 27.0, ai_rect.center().y),
+                    egui::Align2::LEFT_CENTER,
                     "Ask AI",
-                    egui::FontId::proportional(12.0),
-                    egui::Color32::WHITE,
+                    theme::semibold(14.5),
+                    ink,
                 );
-                if ai_response.on_hover_text("Open the assistant").clicked() {
+                if ai_response
+                    .on_hover_text("AI Chat: tell the AI what to make or change, in plain words")
+                    .clicked()
+                {
                     self.assistant.open = true;
                 }
                 let title = Self::window_title(&self.song().name, self.editor.dirty());
@@ -461,13 +500,7 @@ impl ShellApp {
                         .on_hover_text("Repeat the loop region")
                         .clicked()
                     {
-                        self.loop_enabled = !self.loop_enabled;
-                        if self.loop_enabled && self.loop_region.is_none() {
-                            let bar = self.song().time_signature.bar_ticks().max(1);
-                            self.loop_region =
-                                Some(crate::transport::bar_region(self.position, bar));
-                        }
-                        self.sync_player_loop();
+                        self.toggle_loop();
                     }
                     if ui
                         .small_button("From bar")
@@ -1010,73 +1043,105 @@ impl ShellApp {
     }
 
     pub(super) fn status_bar(&mut self, context: &Context) {
+        // StatusBar::paint: panel with a 1 px top line, MIDI inputs on the
+        // left, key hints (or what the app is doing) on the right, 12.5 pt.
         egui::TopBottomPanel::bottom("status")
             .exact_height(theme::STATUS_HEIGHT)
-            .frame(
-                egui::Frame::new()
-                    .fill(theme::panel())
-                    .inner_margin(egui::Margin::symmetric(12, 4)),
-            )
+            .frame(egui::Frame::NONE.fill(theme::panel()))
             .show(context, |ui| {
-                ui.horizontal(|ui| {
-                    let notes: usize = self
-                        .song()
-                        .tracks
-                        .iter()
-                        .map(|track| track.notes.len())
-                        .sum();
-                    let issues = self.editor.project().validate();
-                    let errors = issues
-                        .iter()
-                        .filter(|issue| issue.severity == project::Severity::Error)
-                        .count();
-                    let label = if errors == 0 {
-                        let midi = self.midi_input.as_ref().map_or_else(
-                            || String::from("No MIDI inputs"),
-                            |inputs| format!("{} MIDI input(s)", inputs.count()),
-                        );
-                        format!(
-                            "schema v{}  ·  {} track(s)  ·  {notes} note(s)  ·  {}  ·  {midi}",
-                            self.editor.project().version,
-                            self.song().tracks.len(),
-                            audio_engine_label()
-                        )
-                    } else {
-                        format!("{errors} validation error(s)")
-                    };
-                    ui.label(egui::RichText::new(label).size(10.0).color(if errors == 0 {
-                        theme::text_muted()
-                    } else {
-                        theme::recording()
-                    }));
-                    if let Some(status) = &self.status {
-                        ui.label(
-                            egui::RichText::new(status)
-                                .size(10.0)
-                                .color(theme::text_muted()),
-                        );
+                let rect = ui.max_rect();
+                ui.painter().line_segment(
+                    [rect.left_top(), rect.right_top()],
+                    egui::Stroke::new(1.0_f32, theme::line()),
+                );
+                let font = egui::FontId::proportional(12.5);
+                let inner = rect.shrink2(egui::vec2(16.0, 0.0));
+                let errors = self
+                    .editor
+                    .project()
+                    .validate()
+                    .iter()
+                    .filter(|issue| issue.severity == project::Severity::Error)
+                    .count();
+                let (hint, colour) = if errors > 0 {
+                    (format!("{errors} validation error(s)"), theme::recording())
+                } else if let Some(status) = &self.status {
+                    (status.clone(), theme::text())
+                } else {
+                    (
+                        String::from("Space Play \u{b7} C Metronome \u{b7} Home Start"),
+                        theme::text_dim(),
+                    )
+                };
+                let hint_width = if colour == theme::text_dim() {
+                    340.0
+                } else {
+                    420.0
+                };
+                let hint_rect = Rect::from_min_max(
+                    egui::pos2((inner.right() - hint_width).max(inner.left()), inner.top()),
+                    inner.max,
+                );
+                let galley = ui.painter().layout_no_wrap(hint, font.clone(), colour);
+                ui.painter().with_clip_rect(hint_rect).galley(
+                    egui::pos2(
+                        (hint_rect.right() - galley.size().x).max(hint_rect.left()),
+                        hint_rect.center().y - galley.size().y * 0.5,
+                    ),
+                    galley,
+                    colour,
+                );
+
+                let mut left = inner.left();
+                let mut right_limit = hint_rect.left();
+                if self.view == View::Arrange && self.timeline_mode {
+                    let button = Rect::from_min_size(
+                        egui::pos2(hint_rect.left() - 92.0, rect.center().y - 10.0),
+                        egui::vec2(84.0, 20.0),
+                    );
+                    right_limit = button.left();
+                    if widgets::text_button(ui, button, "piano-roll", "Piano roll", false)
+                        .on_hover_text("Edit the notes of the selected track")
+                        .clicked()
+                    {
+                        self.timeline_mode = false;
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(path) = &self.project_path {
-                            ui.label(
-                                egui::RichText::new(path.display().to_string())
-                                    .size(10.0)
-                                    .color(theme::text_dim()),
-                            );
+                }
+                let names: Vec<String> = self
+                    .midi_input
+                    .as_ref()
+                    .map(|inputs| inputs.names().into_iter().map(str::to_owned).collect())
+                    .unwrap_or_default();
+                if names.is_empty() {
+                    ui.painter().text(
+                        egui::pos2(left, rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        "No MIDI devices",
+                        font,
+                        theme::text_dim(),
+                    );
+                } else {
+                    for name in names {
+                        let galley =
+                            ui.painter()
+                                .layout_no_wrap(name, font.clone(), theme::text_muted());
+                        let width = galley.size().x + 34.0;
+                        if left + width > right_limit {
+                            break;
                         }
-                        if self.view == View::Arrange
-                            && self.timeline_mode
-                            && ui.small_button("Piano roll").clicked()
-                        {
-                            self.timeline_mode = false;
-                        }
-                        ui.label(
-                            egui::RichText::new("Space Play · C Metronome · Home Start")
-                                .size(9.0)
-                                .color(theme::text_dim()),
+                        ui.painter().circle_filled(
+                            egui::pos2(left + 7.0, rect.center().y),
+                            3.5,
+                            theme::ok(),
                         );
-                    });
-                });
+                        ui.painter().galley(
+                            egui::pos2(left + 14.0, rect.center().y - galley.size().y * 0.5),
+                            galley,
+                            theme::text_muted(),
+                        );
+                        left += width;
+                    }
+                }
             });
     }
 

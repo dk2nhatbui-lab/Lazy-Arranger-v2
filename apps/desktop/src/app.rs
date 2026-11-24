@@ -794,6 +794,8 @@ pub struct ShellApp {
     midi_ports: Option<(Vec<String>, Vec<String>)>,
     audio_inputs: Option<Vec<String>>,
     audio_outputs: Option<Vec<String>>,
+    /// Audio system name and whether it has an output, for the header pill.
+    audio_host: Option<(String, bool)>,
     settings: crate::settings::Settings,
     settings_open: bool,
     shortcuts_open: bool,
@@ -1110,6 +1112,7 @@ impl ShellApp {
             midi_ports: None,
             audio_inputs: None,
             audio_outputs: None,
+            audio_host: None,
             midi_map: std::fs::read_to_string("lazy-arranger-midi-map.txt")
                 .ok()
                 .and_then(|text| midi_devices::map::MidiMap::from_text(&text).ok())
@@ -4660,6 +4663,16 @@ impl ShellApp {
                 problems,
             }));
         });
+    }
+
+    /// Turns looping on or off; with no loop region yet, loops the current bar.
+    fn toggle_loop(&mut self) {
+        self.loop_enabled = !self.loop_enabled;
+        if self.loop_enabled && self.loop_region.is_none() {
+            let bar = self.song().time_signature.bar_ticks().max(1);
+            self.loop_region = Some(crate::transport::bar_region(self.position, bar));
+        }
+        self.sync_player_loop();
     }
 
     fn sync_player_loop(&self) {
