@@ -5333,6 +5333,34 @@ impl ShellApp {
         });
     }
 
+    fn send_l6max_transport(&mut self, action: &str) {
+        let Some(message) = crate::l6max_device::transport_byte(action) else {
+            return;
+        };
+        if self.midi_ports.is_none()
+            && let Ok(ports) = midi_devices::devices::list_ports()
+        {
+            self.midi_ports = Some((ports.inputs, ports.outputs));
+        }
+        let port = self.midi_ports.as_ref().and_then(|(_, outputs)| {
+            outputs
+                .iter()
+                .find(|name| name.contains("L6max MIDI I/O"))
+                .cloned()
+        });
+        let Some(port) = port else {
+            self.status = Some(String::from("connect the L6max MIDI I/O port"));
+            return;
+        };
+        match midi_devices::devices::open_output(&port) {
+            Ok(mut connection) => match connection.send(&[message]) {
+                Ok(()) => self.status = Some(format!("L6max transport: {action}")),
+                Err(error) => self.status = Some(format!("{port}: {error}")),
+            },
+            Err(error) => self.status = Some(error.to_string()),
+        }
+    }
+
     fn l6max_control_port(&mut self) -> Option<String> {
         if let Some(port) = &self.midi_out_port
             && port.contains("L6max Mixer Control")
@@ -5393,6 +5421,7 @@ impl ShellApp {
         let mut changes: Vec<(u8, u8)> = Vec::new();
         let mut scene = None;
         let mut reset = false;
+        let mut transport = None;
         egui::Window::new("L6max device mixer")
             .open(&mut open)
             .resizable(true)
@@ -5502,6 +5531,24 @@ impl ShellApp {
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
+                    ui.label("Transport");
+                    for (action, label) in [
+                        ("start", "Start"),
+                        ("continue", "Continue"),
+                        ("stop", "Stop"),
+                    ] {
+                        if ui.button(label).clicked() {
+                            transport = Some(action);
+                        }
+                    }
+                    ui.label(
+                        egui::RichText::new("MIDI I/O port")
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                    );
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
                     ui.label("Effect");
                     egui::ComboBox::from_id_salt("l6max-efx")
                         .selected_text(crate::l6max_device::EFX_NAMES[state.efx.min(5)])
@@ -5572,6 +5619,9 @@ impl ShellApp {
             self.l6max_device = state;
         }
         self.l6max_device_open = open;
+        if let Some(action) = transport {
+            self.send_l6max_transport(action);
+        }
         self.send_l6max_changes(&changes, scene);
     }
 

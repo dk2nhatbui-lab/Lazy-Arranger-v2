@@ -51,6 +51,17 @@ pub fn parameter_cc(row: usize, channel: usize) -> Option<u8> {
     (channel < 8).then(|| base + channel)
 }
 
+/// MIDI realtime byte for an L6max transport action.
+#[must_use]
+pub fn transport_byte(action: &str) -> Option<u8> {
+    match action {
+        "start" => Some(0xFA),
+        "continue" => Some(0xFB),
+        "stop" => Some(0xFC),
+        _ => None,
+    }
+}
+
 /// Mutable mixer state shown by the window.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DeviceState {
@@ -135,6 +146,14 @@ mod tests {
         let text = serde_json::to_string(&state).expect("json");
         let back: DeviceState = serde_json::from_str(&text).expect("parse");
         assert_eq!(back, state);
+    }
+
+    #[test]
+    fn transport_actions_have_realtime_bytes() {
+        assert_eq!(transport_byte("start"), Some(0xFA));
+        assert_eq!(transport_byte("continue"), Some(0xFB));
+        assert_eq!(transport_byte("stop"), Some(0xFC));
+        assert_eq!(transport_byte("clock"), None);
     }
 
     #[test]
