@@ -214,6 +214,9 @@ enum Commands {
         /// Score title; defaults to the song name.
         #[arg(long)]
         title: Option<String>,
+        /// Write every track as a review full score instead of one track.
+        #[arg(long)]
+        all: bool,
     },
     /// Lay out a track as score pages and report the geometry.
     ScoreLayout {
@@ -1178,14 +1181,29 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             out,
             track,
             title,
+            all,
         } => {
             let project = read_project(&project)?;
+            let settings = score::Settings::default();
+            let score_title = title.unwrap_or_else(|| project.song.name.clone());
+            if all {
+                let tracks: Vec<project::TrackId> =
+                    project.song.tracks.iter().map(|entry| entry.id).collect();
+                let pdf = score::pdf::to_full_pdf(&project.song, settings, &score_title, &tracks);
+                fs::write(&out, &pdf)
+                    .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+                println!(
+                    "wrote {}: full score, {} track(s), {} byte(s)",
+                    out.display(),
+                    tracks.len(),
+                    pdf.len()
+                );
+                return Ok(());
+            }
             let Some(entry) = project.song.tracks.get(track) else {
                 return Err(format!("no track at index {track}").into());
             };
-            let settings = score::Settings::default();
             let engraved = score::engrave(&project.song, entry.id, settings);
-            let score_title = title.unwrap_or_else(|| project.song.name.clone());
             let pdf = score::pdf::to_pdf(&engraved, settings, &score_title);
             fs::write(&out, &pdf)
                 .map_err(|error| format!("could not write {}: {error}", out.display()))?;
