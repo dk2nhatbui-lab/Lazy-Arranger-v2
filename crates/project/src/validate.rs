@@ -199,14 +199,19 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
                     String::from("audio take path is empty"),
                 ));
             }
-            if take.fade_in < 0
+            if take.start < 0
+                || take.length <= 0
+                || take.offset < 0
+                || take.fade_in < 0
                 || take.fade_out < 0
                 || (take.length > 0 && take.fade_in.saturating_add(take.fade_out) > take.length)
             {
                 issues.push(issue(
                     Severity::Error,
                     format!("{track_path}.takes[{take_index}]"),
-                    String::from("take fades must be non-negative and fit inside its length"),
+                    String::from(
+                        "a take needs a non-negative start/offset, positive length and fitting fades",
+                    ),
                 ));
             }
         }
@@ -668,6 +673,30 @@ mod tests {
             issues
                 .iter()
                 .any(|issue| issue.message.contains("overlaps another note")),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn catches_invalid_audio_take_geometry() {
+        use crate::song::AudioRef;
+        let mut song = Song::new("x", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "t");
+        track.takes.push(AudioRef {
+            path: String::from("take.wav"),
+            start: -1,
+            length: 0,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let issues = validate(&ProjectFile::new(song));
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.message.contains("a take needs")),
             "{issues:?}"
         );
     }

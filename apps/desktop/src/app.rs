@@ -11156,6 +11156,7 @@ impl ShellApp {
         let imported = kind != ProjectKind::Json;
         match load_project(path) {
             Ok(project) => {
+                self.render_pending = None;
                 if let Some(player) = self.player.take() {
                     player.pause();
                     player.release();
