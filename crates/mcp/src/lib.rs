@@ -4527,7 +4527,7 @@ mod tests {
         let full_export = call(
             &mut session,
             "export_pdf",
-            &json!({"path": full.display().to_string(), "all_tracks": true}),
+            &json!({"path": full.display().to_string(), "all_tracks": true, "frames": true}),
         )
         .expect("full pdf");
         assert!(full_export["pages"].as_u64().unwrap_or(0) >= 1);
