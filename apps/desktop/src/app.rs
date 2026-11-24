@@ -10044,11 +10044,21 @@ impl ShellApp {
         let buses = self.song().buses.clone();
         for bus in &buses {
             ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(format!("BUS {}", bus.name))
-                        .size(11.0)
-                        .color(theme::accent()),
-                );
+                let mut name = bus.name.clone();
+                if ui
+                    .add(
+                        egui::TextEdit::singleline(&mut name)
+                            .desired_width(80.0)
+                            .font(egui::TextStyle::Small),
+                    )
+                    .changed()
+                {
+                    let mut updated = buses.clone();
+                    if let Some(target) = updated.iter_mut().find(|entry| entry.id == bus.id) {
+                        target.name = name;
+                    }
+                    let _ = self.editor.set_buses(updated);
+                }
                 let mut level = i32::from(bus.volume);
                 if ui
                     .add(egui::Slider::new(&mut level, 0..=127).text("vol"))
