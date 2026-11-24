@@ -2113,6 +2113,8 @@ impl ShellApp {
         self.recent = project::recent::record(&self.recent_file, &path)
             .unwrap_or_else(|_| self.recent.clone());
         self.project_path = Some(path.clone());
+        self.settings.last_project = Some(path.display().to_string());
+        let _ = self.settings.save(&crate::settings::Settings::path());
         self.recovery = None;
         self.load_error = None;
         self.status = Some(format!("saved {}", path.display()));
@@ -11733,6 +11735,17 @@ impl ShellApp {
                         {
                             self.open(&path);
                         }
+                        if let Some(last) = self.settings.last_project.clone()
+                            && std::path::Path::new(&last).is_file()
+                        {
+                            let name = std::path::Path::new(&last)
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or(&last);
+                            if ui.button(format!("Reopen {name}")).clicked() {
+                                self.open(&std::path::PathBuf::from(&last));
+                            }
+                        }
                         if ui.button("Save").clicked() {
                             if let Some(path) = self.project_path.clone() {
                                 self.save_to(path);
@@ -11956,6 +11969,8 @@ impl ShellApp {
                 };
                 self.recent = project::recent::record(&self.recent_file, path)
                     .unwrap_or_else(|_| self.recent.clone());
+                self.settings.last_project = Some(path.display().to_string());
+                let _ = self.settings.save(&crate::settings::Settings::path());
                 self.song_name_input = self.song().name.clone();
                 self.position = 0;
                 self.playing = false;
