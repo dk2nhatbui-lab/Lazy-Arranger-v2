@@ -1072,6 +1072,11 @@ pub struct ShellApp {
 }
 
 impl ShellApp {
+    /// Shows a startup failure in the file window.
+    pub fn report_startup_error(&mut self, error: impl Into<String>) {
+        self.load_error = Some(error.into());
+    }
+
     #[must_use]
     pub fn new(context: &Context, project: ProjectFile, project_path: Option<PathBuf>) -> Self {
         let settings = crate::settings::Settings::load(&crate::settings::Settings::path());
@@ -13100,6 +13105,30 @@ pub fn export_musicxml_file(
     std::fs::write(path, xml).map_err(|error| format!("{}: {error}", path.display()))
 }
 
+/// Loads an optional startup project, falling back to the demo on failure.
+///
+/// A failed open clears the path so a later save cannot overwrite the damaged
+/// file with the demo.
+#[must_use]
+pub fn load_startup_project(
+    path: Option<&std::path::Path>,
+) -> (ProjectFile, Option<PathBuf>, Option<String>) {
+    let Some(path) = path else {
+        return (demo_project(), None, None);
+    };
+    match load_project(&path.to_path_buf()) {
+        Ok(project) => (project, Some(path.to_path_buf()), None),
+        Err(error) => (
+            demo_project(),
+            None,
+            Some(format!(
+                "could not open {}: {error}. The demo is loaded and the file path was cleared.",
+                path.display()
+            )),
+        ),
+    }
+}
+
 pub fn load_project(path: &PathBuf) -> Result<ProjectFile, ProjectError> {
     let bytes = std::fs::read(path)
         .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
@@ -13719,6 +13748,20 @@ mod tests {
         assert_eq!(View::parse("MIX"), Some(View::Mix));
         assert_eq!(View::parse("arrange"), Some(View::Arrange));
         assert_eq!(View::parse("nope"), None);
+    }
+
+    #[test]
+    fn a_failed_startup_open_clears_the_path() {
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-broken-load-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&path, b"not a project").expect("write");
+        let (project, loaded_path, error) = load_startup_project(Some(&path));
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(project.song.name, demo_project().song.name);
+        assert!(loaded_path.is_none());
+        assert!(error.is_some_and(|message| message.contains("could not open")));
     }
 
     #[test]

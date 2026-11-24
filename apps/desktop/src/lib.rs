@@ -28,7 +28,7 @@ pub mod update;
 pub mod video;
 pub mod widgets;
 
-pub use app::{ShellApp, demo_project, load_project};
+pub use app::{ShellApp, demo_project, load_project, load_startup_project};
 
 /// The window and header icon, as raw RGBA for egui.
 #[must_use]

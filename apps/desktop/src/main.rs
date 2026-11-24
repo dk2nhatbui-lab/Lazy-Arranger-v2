@@ -5,11 +5,8 @@ use std::sync::Arc;
 
 fn main() -> eframe::Result<()> {
     let project_path: Option<PathBuf> = std::env::args().nth(1).map(PathBuf::from);
-    let project = match &project_path {
-        Some(path) => lazy_arranger_desktop::load_project(path)
-            .unwrap_or_else(|_| lazy_arranger_desktop::demo_project()),
-        None => lazy_arranger_desktop::demo_project(),
-    };
+    let (project, project_path, startup_error) =
+        lazy_arranger_desktop::load_startup_project(project_path.as_deref());
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Lazy Arranger Midi DAW")
@@ -24,11 +21,11 @@ fn main() -> eframe::Result<()> {
         "Lazy Arranger Midi DAW",
         options,
         Box::new(move |cc| {
-            Ok(Box::new(lazy_arranger_desktop::ShellApp::new(
-                &cc.egui_ctx,
-                project,
-                project_path,
-            )))
+            let mut app = lazy_arranger_desktop::ShellApp::new(&cc.egui_ctx, project, project_path);
+            if let Some(error) = startup_error {
+                app.report_startup_error(error);
+            }
+            Ok(Box::new(app))
         }),
     )
 }
