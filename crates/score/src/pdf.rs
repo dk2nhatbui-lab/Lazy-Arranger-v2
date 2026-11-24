@@ -1239,6 +1239,10 @@ mod tests {
             "accidental"
         );
         assert!(page_count(&pdf).is_some_and(|count| count >= 1));
+        let one = to_full_pdf(&song, small(), "One", &[TrackId::new(1).expect("valid")]);
+        let text = String::from_utf8_lossy(&one);
+        assert!(text.contains("(Piano) Tj"));
+        assert!(!text.contains("(Bass) Tj"));
     }
 
     #[test]
