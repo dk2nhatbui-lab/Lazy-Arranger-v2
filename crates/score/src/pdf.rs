@@ -1314,6 +1314,9 @@ mod tests {
                 velocity: Velocity::new(100).expect("valid"),
                 channel: Channel::first(),
             });
+            if index == 1 {
+                track.slurs.push(project::song::Slur { start: 0, end: PPQ });
+            }
             song.tracks.push(track);
         }
         let tracks = vec![
@@ -1328,6 +1331,7 @@ mod tests {
         assert!(text.contains("(la) Tj"));
         assert!(text.contains("(f) Tj"));
         assert!(text.contains("/ClefTreble"), "clef image resource");
+        assert!(text.contains(" c "), "slur curve");
         assert!(
             text.contains("(#) Tj") || text.contains("(b) Tj"),
             "accidental"
