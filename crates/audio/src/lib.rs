@@ -359,7 +359,7 @@ pub fn render_with_soundfont(
                         .offset
                         .saturating_add(start.saturating_sub(active.start));
                     placed.start = start;
-                    placed.length = end.saturating_sub(start);
+                    placed.length = end.saturating_sub(start).saturating_add(cross);
                     placed.fade_in = placed.fade_in.max(cross);
                     placed.fade_out = placed.fade_out.max(cross);
                     mix_audio_reference(song, track, &mut track_buffer, &placed, sample_rate);
@@ -370,7 +370,9 @@ pub fn render_with_soundfont(
                     let cross = chords::to_ticks(0.005, song.tempo_map.bpm_at(comp.start)).max(1);
                     let mut placed = take.clone();
                     placed.start = comp.start;
-                    placed.length = comp.length;
+                    // Overlap the next span by the crossfade length so the two
+                    // edges cross rather than both fading to silence.
+                    placed.length = comp.length.saturating_add(cross);
                     placed.offset = placed
                         .offset
                         .saturating_add(comp.start.saturating_sub(take.start).max(0));
@@ -1747,6 +1749,51 @@ mod tests {
         assert!(
             rendered.samples[after * 2].abs() > 0.3,
             "the active reference fills the gap outside the comp"
+        );
+    }
+
+    #[test]
+    fn adjacent_comp_spans_crossfade_instead_of_dropping_to_silence() {
+        use project::song::{AudioComp, AudioRef, Track};
+        let mut song = Song::new("Comp crossfade", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Audio");
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-comp-cross-{}.wav",
+            std::process::id()
+        ));
+        let source = RenderedAudio {
+            samples: vec![0.5; SAMPLE_RATE as usize * 2],
+            sample_rate: SAMPLE_RATE,
+        };
+        std::fs::write(&path, source.to_wav32f()).expect("wav");
+        let reference = AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: music_core::PPQ * 2,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        };
+        track.audio = Some(reference.clone());
+        track.takes.push(reference);
+        track.comps.push(AudioComp {
+            take: 0,
+            start: 0,
+            length: music_core::PPQ,
+        });
+        track.comps.push(AudioComp {
+            take: 0,
+            start: music_core::PPQ,
+            length: music_core::PPQ,
+        });
+        song.tracks.push(track);
+        let rendered = render(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        let boundary = (SAMPLE_RATE as f64 * 0.5).round() as usize;
+        assert!(
+            rendered.samples[boundary * 2].abs() > 0.2,
+            "comp boundary should not fade to silence"
         );
     }
 
