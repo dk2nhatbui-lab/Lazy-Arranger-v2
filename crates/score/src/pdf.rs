@@ -480,6 +480,7 @@ struct FullStaff {
     lyrics: Vec<crate::Lyric>,
     marks: Vec<crate::PlacedMark>,
     rests: Vec<crate::PlacedRest>,
+    frames: Vec<crate::ChordFrame>,
 }
 
 /// Writes an all-track full score to PDF bytes.
@@ -523,6 +524,7 @@ pub fn to_full_pdf(
             lyrics: engraved.lyrics,
             marks: engraved.marks,
             rests: engraved.rests,
+            frames: engraved.frames,
         });
     }
     if staves.is_empty() {
@@ -536,6 +538,7 @@ pub fn to_full_pdf(
             lyrics: Vec::new(),
             marks: Vec::new(),
             rests: Vec::new(),
+            frames: Vec::new(),
         });
     }
     let page_count = staves
@@ -658,6 +661,75 @@ pub fn to_full_pdf(
                 );
             }
             if staff_index == 0 {
+                for frame in staff.frames.iter().filter(|frame| frame.page == *page) {
+                    let left = first_system
+                        .map_or(frame.x, |sys| crate::full_score_x(system, sys, frame.x));
+                    let width = 3.0 * line_gap;
+                    let height = 3.0 * line_gap;
+                    let bottom = top + (frame.y - system.y) * (line_gap / settings.staff_space);
+                    let top_edge = bottom - height;
+                    for string in 0..6 {
+                        let x = left + width * string as f32 / 5.0;
+                        let _ = writeln!(
+                            content,
+                            "{x:.1} {:.1} m {x:.1} {:.1} l S",
+                            settings.page_height - bottom,
+                            settings.page_height - top_edge
+                        );
+                    }
+                    for fret in 0..=5 {
+                        let y = settings.page_height - (top_edge - height * fret as f32 / 5.0);
+                        let _ =
+                            writeln!(content, "{left:.1} {y:.1} m {:.1} {y:.1} l S", left + width);
+                    }
+                    let _ = writeln!(
+                        content,
+                        "BT /F1 7 Tf {left:.1} {:.1} Td ({}) Tj ET",
+                        settings.page_height - (top_edge - 2.0),
+                        escape(&frame.name)
+                    );
+                    if frame.base_fret > 1 {
+                        let _ = writeln!(
+                            content,
+                            "BT /F1 5 Tf {:.1} {:.1} Td ({}fr) Tj ET",
+                            left - 7.0,
+                            settings.page_height - top_edge,
+                            frame.base_fret
+                        );
+                    }
+                    for (string, fret) in frame.frets.iter().enumerate() {
+                        let x = left + width * string as f32 / 5.0;
+                        match fret {
+                            None => {
+                                let _ = writeln!(
+                                    content,
+                                    "BT /F1 6 Tf {:.1} {:.1} Td (x) Tj ET",
+                                    x - 2.0,
+                                    settings.page_height - (top_edge - 1.0)
+                                );
+                            }
+                            Some(0) => {
+                                let _ = writeln!(
+                                    content,
+                                    "BT /F1 6 Tf {:.1} {:.1} Td (o) Tj ET",
+                                    x - 2.0,
+                                    settings.page_height - (top_edge - 1.0)
+                                );
+                            }
+                            Some(value) => {
+                                if *value >= frame.base_fret {
+                                    let row = (*value - frame.base_fret) as f32 + 0.5;
+                                    circle(
+                                        &mut content,
+                                        x,
+                                        settings.page_height - (top_edge - height * row / 5.0),
+                                        line_gap * 0.28,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
                 for chord in staff.chords.iter().filter(|chord| chord.page == *page) {
                     let x = first_system
                         .map_or(chord.x, |sys| crate::full_score_x(system, sys, chord.x));

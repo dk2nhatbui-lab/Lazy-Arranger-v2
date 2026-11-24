@@ -474,6 +474,63 @@ pub fn show_full(
             );
         }
         if index == 0 {
+            for frame in engraved
+                .frames
+                .iter()
+                .filter(|frame| frame.page == source_page)
+            {
+                let left = page_rect.left()
+                    + first_system.map_or(frame.x, |sys| score::full_score_x(system, sys, frame.x))
+                        * zoom;
+                let width = 3.0 * line_gap * zoom;
+                let height = 3.0 * line_gap * zoom;
+                let bottom = top + (frame.y - system.y) * (line_gap / settings.staff_space) * zoom;
+                let top_edge = bottom - height;
+                for string in 0..6 {
+                    let x = left + width * string as f32 / 5.0;
+                    painter.line_segment(
+                        [Pos2::new(x, bottom), Pos2::new(x, top_edge)],
+                        Stroke::new(0.5_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+                    );
+                }
+                for fret in 0..=5 {
+                    let y = top_edge + height * fret as f32 / 5.0;
+                    painter.line_segment(
+                        [Pos2::new(left, y), Pos2::new(left + width, y)],
+                        Stroke::new(0.5_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+                    );
+                }
+                painter.text(
+                    Pos2::new(left, top_edge - 2.0 * zoom),
+                    egui::Align2::LEFT_BOTTOM,
+                    &frame.name,
+                    egui::FontId::proportional(7.0 * zoom),
+                    Color32::from_rgb(0x10, 0x10, 0x10),
+                );
+                for (string, fret) in frame.frets.iter().enumerate() {
+                    let x = left + width * string as f32 / 5.0;
+                    match fret {
+                        None | Some(0) => {
+                            painter.text(
+                                Pos2::new(x, top_edge - 1.0 * zoom),
+                                egui::Align2::CENTER_BOTTOM,
+                                if fret.is_none() { "x" } else { "o" },
+                                egui::FontId::proportional(6.0 * zoom),
+                                Color32::from_rgb(0x10, 0x10, 0x10),
+                            );
+                        }
+                        Some(value) if *value >= frame.base_fret => {
+                            let row = (*value - frame.base_fret) as f32 + 0.5;
+                            painter.circle_filled(
+                                Pos2::new(x, top_edge + height * row / 5.0),
+                                line_gap * 0.28 * zoom,
+                                Color32::from_rgb(0x10, 0x10, 0x10),
+                            );
+                        }
+                        Some(_) => {}
+                    }
+                }
+            }
             for chord in engraved
                 .chord_symbols
                 .iter()
