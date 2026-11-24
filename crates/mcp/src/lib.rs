@@ -1067,6 +1067,18 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "form_transition",
+            description: "Add a transition ending at a tick.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "tick": {"type": "integer"},
+                    "kind": {"type": "string"}
+                },
+                "required": ["tick"]
+            }),
+        },
+        Tool {
             name: "make_song_form",
             description: "Write a preset song form to the timeline: short, gig, long_intro or instrumental.",
             input_schema: json!({
@@ -3531,6 +3543,35 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
         "save_groove" => save_groove(session, arguments),
         "apply_groove_file" => apply_groove_file(session, arguments),
         "apply_groove" => apply_groove(session, arguments),
+        "form_transition" => {
+            use arranging::forms::Transition;
+            let tick = arguments
+                .get("tick")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+            let kind = match arguments
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("automatic")
+            {
+                "straight" => Transition::Straight,
+                "fill" | "drumfill" => Transition::DrumFill,
+                "lead" | "lead-in" | "lead_in" => Transition::LeadIn,
+                "hold" => Transition::Hold,
+                "break" => Transition::Break,
+                "automatic" => Transition::Automatic,
+                other => {
+                    return Err(ToolError::Arguments(format!(
+                        "unknown transition {other:?}"
+                    )));
+                }
+            };
+            let plan = arranging::forms::transition(session.song(), tick, kind);
+            let description = plan.description.clone();
+            let added = arranging::forms::apply_transition(session, &plan)
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            Ok(json!({"notes": added, "description": description}))
+        }
         "make_song_form" => make_song_form(session, arguments),
         "reharmonize" => reharmonize(session, arguments),
         "add_notes" => add_notes(session, arguments),
@@ -4095,7 +4136,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 106);
+        assert_eq!(tools().len(), 107);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
@@ -5397,6 +5438,18 @@ mod arranging_tool_tests {
     #[test]
     fn a_form_and_a_reharmonization_apply() {
         let mut session = session();
+        let transition = call(
+            &mut session,
+            "form_transition",
+            &json!({"tick": 3840, "kind": "fill"}),
+        )
+        .expect("transition");
+        assert!(
+            !transition["description"]
+                .as_str()
+                .unwrap_or_default()
+                .is_empty()
+        );
         let form = call(&mut session, "make_song_form", &json!({"preset": "gig"})).expect("form");
         assert!(form["notes"].as_u64().expect("notes") > 0);
         let reharm = call(
