@@ -371,7 +371,8 @@ pub fn show_full(
             egui::TextureOptions::LINEAR,
         ));
     }
-    let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
+    let (response, painter) =
+        ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
     let available = response.rect.size();
     let fit = ((available.x - 24.0).max(120.0) / settings.page_width)
         .min((available.y - 24.0).max(120.0) / settings.page_height)
@@ -852,9 +853,15 @@ pub fn show_full(
         egui::FontId::proportional(8.0 * zoom),
         Color32::from_rgb(0x50, 0x50, 0x50),
     );
+    eprintln!(
+        "clicked {} pos {:?} rect {:?}",
+        response.clicked(),
+        response.interact_pointer_pos(),
+        response.rect
+    );
     let seek = response
         .interact_pointer_pos()
-        .filter(|_| response.clicked())
+        .filter(|_| response.clicked() || response.dragged())
         .and_then(|point| {
             if !page_rect.contains(point) {
                 return None;
@@ -870,7 +877,13 @@ pub fn show_full(
                 .iter()
                 .flat_map(|page| page.systems.iter())
                 .nth(system_index)?;
-            tick_at_system_x(system, (point.x - page_rect.left()) / scale)
+            let x = (point.x - page_rect.left()) / scale;
+            eprintln!(
+                "slot {slot} system measures {:?} x {x} -> {:?}",
+                system.measures.first(),
+                tick_at_system_x(system, x)
+            );
+            tick_at_system_x(system, x)
         });
     (page_count, seek)
 }
@@ -1823,6 +1836,54 @@ mod tests {
         assert_eq!(tick, measure.start);
         let middle = tick_at_system_x(system, (measure.x + measure.x_end) / 2.0).expect("middle");
         assert!(middle > measure.start && middle < measure.start + measure.length);
+    }
+
+    #[test]
+    fn clicking_the_full_score_returns_a_seek_tick() {
+        let song = score_song();
+        let engraved = score::engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        let tracks = vec![(String::from("Piano"), engraved)];
+        let context = egui::Context::default();
+        let mut state = ScoreState::default();
+        let point = Pos2::new(210.0, 150.0);
+        eprintln!(
+            "page {:?}",
+            page_rect(Pos2::new(450.0, 450.0), Settings::default(), 1.0)
+        );
+        let mut press = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0))),
+            events: vec![egui::Event::PointerMoved(point)],
+            ..egui::RawInput::default()
+        };
+        let _ = context.run(press.clone(), |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                let _ = show_full(ui, &tracks, 0, 1.0, "Click", &mut state, 0, false, 120.0);
+            });
+        });
+        press.events = vec![egui::Event::PointerButton {
+            pos: point,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }];
+        let _ = context.run(press.clone(), |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                let _ = show_full(ui, &tracks, 0, 1.0, "Click", &mut state, 0, false, 120.0);
+            });
+        });
+        press.events = vec![egui::Event::PointerButton {
+            pos: point,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }];
+        let mut seek = None;
+        let _ = context.run(press, |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                seek = show_full(ui, &tracks, 0, 1.0, "Click", &mut state, 0, false, 120.0).1;
+            });
+        });
+        assert!(seek.is_some(), "full-score click");
     }
 
     #[test]
