@@ -984,6 +984,7 @@ pub struct ShellApp {
     device_editor_profile: usize,
     device_editor_values: Vec<u8>,
     device_editor_voice: usize,
+    device_editor_kit: usize,
     device_sysex: String,
     device_dump_path: String,
     groove_open: bool,
@@ -1351,6 +1352,7 @@ impl ShellApp {
             device_editor_profile: 0,
             device_editor_values: Vec::new(),
             device_editor_voice: 0,
+            device_editor_kit: 0,
             device_sysex: String::new(),
             device_dump_path: String::from("dump.syx"),
             groove_open: initial_window == "groove",
@@ -8610,6 +8612,7 @@ impl ShellApp {
                             {
                                 self.device_editor_values.clear();
                                 self.device_editor_voice = 0;
+                                self.device_editor_kit = 0;
                             }
                         }
                     });
@@ -8672,6 +8675,67 @@ impl ShellApp {
                         }
                     });
                     self.device_editor_voice = voice;
+                }
+                let kits = self
+                    .device_profiles
+                    .get(self.device_editor_profile)
+                    .map(|profile| profile.drum_kits.clone())
+                    .unwrap_or_default();
+                if !kits.is_empty() {
+                    let mut kit = self.device_editor_kit.min(kits.len() - 1);
+                    ui.horizontal(|ui| {
+                        ui.label("Kit");
+                        egui::ComboBox::from_id_salt("device-editor-kit")
+                            .selected_text(&kits[kit].name)
+                            .show_ui(ui, |ui| {
+                                for (index, entry) in kits.iter().enumerate() {
+                                    ui.selectable_value(&mut kit, index, &entry.name);
+                                }
+                            });
+                        let kit_data = kits[kit].clone();
+                        let bank = (kit_data.msb.is_some() || kit_data.lsb.is_some()).then_some(
+                            project::song::BankSelect {
+                                msb: kit_data.msb.unwrap_or(0),
+                                lsb: kit_data.lsb.unwrap_or(0),
+                            },
+                        );
+                        let profile_bank = midi_devices::profiles::Bank {
+                            name: kit_data.name.clone(),
+                            program: kit_data.program,
+                            msb: kit_data.msb,
+                            lsb: kit_data.lsb,
+                        };
+                        if ui.button("Send kit").clicked() {
+                            if let Ok(channel) = music_core::Channel::new(9) {
+                                for message in midi_devices::profiles::voice_messages(
+                                    Some(&profile_bank),
+                                    kit_data.program,
+                                    channel,
+                                ) {
+                                    self.send_midi(message);
+                                }
+                            }
+                            self.status = Some(format!("sent kit {}", kit_data.program));
+                        }
+                        if let Some(track) = self.roll.selected
+                            && ui.button("Use kit").clicked()
+                        {
+                            match self
+                                .editor
+                                .set_track_voice(track, Some(kit_data.program), bank)
+                            {
+                                Ok(()) => {
+                                    self.status = Some(format!(
+                                        "track {} kit {}",
+                                        track.get(),
+                                        kit_data.program
+                                    ));
+                                }
+                                Err(error) => self.status = Some(error),
+                            }
+                        }
+                    });
+                    self.device_editor_kit = kit;
                 }
                 for (index, control) in controls.iter().enumerate() {
                     let name = control.name.clone();
