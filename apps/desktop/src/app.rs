@@ -1155,6 +1155,7 @@ impl ShellApp {
             .get(settings.lesson_kind)
             .copied()
             .unwrap_or(music_core::lesson::LessonKind::ChordQuality);
+        let initial_score_follow = settings.score_follow;
         let midi_output_pref = settings.midi_output.clone();
         let initial_window = std::env::var("ARRANGER_WINDOW")
             .unwrap_or_default()
@@ -1345,7 +1346,7 @@ impl ShellApp {
             score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err()
                 && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
             score_all_tracks: std::env::var("ARRANGER_SCORE_ALL").is_ok(),
-            score_follow: true,
+            score_follow: initial_score_follow,
             score_full_hidden: std::collections::HashSet::new(),
             score_full_cache: None,
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
@@ -12695,7 +12696,10 @@ impl eframe::App for ShellApp {
                             }
                             ui.checkbox(&mut self.score_all_tracks, "All tracks");
                             if self.score_all_tracks {
-                                ui.checkbox(&mut self.score_follow, "Follow");
+                                if ui.checkbox(&mut self.score_follow, "Follow").changed() {
+                                    self.settings.score_follow = self.score_follow;
+                                    let _ = self.settings.save(&crate::settings::Settings::path());
+                                }
                                 let tracks: Vec<(TrackId, String)> = project
                                     .song
                                     .tracks
