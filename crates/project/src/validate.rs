@@ -83,6 +83,44 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
                 String::from("program and bank values must be 0..=127"),
             ));
         }
+        let mut automation_targets = HashSet::new();
+        for (lane_index, lane) in track.automation.iter().enumerate() {
+            let lane_path = format!("{track_path}.automation[{lane_index}]");
+            if !automation_targets.insert(format!("{:?}", lane.target)) {
+                issues.push(issue(
+                    Severity::Error,
+                    &lane_path,
+                    String::from("duplicate automation target"),
+                ));
+            }
+            let mut previous: Option<Tick> = None;
+            for (point_index, point) in lane.points.iter().enumerate() {
+                if point.tick < 0 {
+                    issues.push(issue(
+                        Severity::Error,
+                        format!("{lane_path}.points[{point_index}].tick"),
+                        format!("negative tick {}", point.tick),
+                    ));
+                }
+                if !point.value.is_finite() || !(0.0..=127.0).contains(&point.value) {
+                    issues.push(issue(
+                        Severity::Error,
+                        format!("{lane_path}.points[{point_index}].value"),
+                        format!("value {} is outside 0..=127", point.value),
+                    ));
+                }
+                if let Some(previous) = previous
+                    && point.tick < previous
+                {
+                    issues.push(issue(
+                        Severity::Error,
+                        format!("{lane_path}.points[{point_index}].tick"),
+                        format!("points are not sorted: {previous} then {}", point.tick),
+                    ));
+                }
+                previous = Some(point.tick);
+            }
+        }
         let mut plugin_ids = HashSet::new();
         for plugin in &track.plugins {
             if !plugin_ids.insert(plugin.id) {
@@ -223,6 +261,44 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
             ));
         }
 
+        let mut automation_targets = HashSet::new();
+        for (lane_index, lane) in track.automation.iter().enumerate() {
+            let lane_path = format!("{track_path}.automation[{lane_index}]");
+            if !automation_targets.insert(format!("{:?}", lane.target)) {
+                issues.push(issue(
+                    Severity::Error,
+                    &lane_path,
+                    String::from("duplicate automation target"),
+                ));
+            }
+            let mut previous: Option<Tick> = None;
+            for (point_index, point) in lane.points.iter().enumerate() {
+                if point.tick < 0 {
+                    issues.push(issue(
+                        Severity::Error,
+                        format!("{lane_path}.points[{point_index}].tick"),
+                        format!("negative tick {}", point.tick),
+                    ));
+                }
+                if !point.value.is_finite() || !(0.0..=127.0).contains(&point.value) {
+                    issues.push(issue(
+                        Severity::Error,
+                        format!("{lane_path}.points[{point_index}].value"),
+                        format!("value {} is outside 0..=127", point.value),
+                    ));
+                }
+                if let Some(previous) = previous
+                    && point.tick < previous
+                {
+                    issues.push(issue(
+                        Severity::Error,
+                        format!("{lane_path}.points[{point_index}].tick"),
+                        format!("points are not sorted: {previous} then {}", point.tick),
+                    ));
+                }
+                previous = Some(point.tick);
+            }
+        }
         let mut plugin_ids = HashSet::new();
         for plugin in &track.plugins {
             if !plugin_ids.insert(plugin.id) {
@@ -593,6 +669,38 @@ mod tests {
                 .iter()
                 .any(|issue| issue.message.contains("overlaps another note")),
             "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn catches_invalid_automation_points() {
+        use crate::song::{Automation, AutomationPoint, AutomationTarget};
+        let mut song = Song::new("x", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "t");
+        track.automation.push(Automation {
+            target: AutomationTarget::Volume,
+            points: vec![
+                AutomationPoint {
+                    tick: 960,
+                    value: 100.0,
+                },
+                AutomationPoint {
+                    tick: 0,
+                    value: 200.0,
+                },
+            ],
+        });
+        song.tracks.push(track);
+        let issues = validate(&ProjectFile::new(song));
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.message.contains("not sorted"))
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.message.contains("outside 0..=127"))
         );
     }
 
