@@ -53,8 +53,25 @@ unsafe fn len_wstring(string: *const TChar) -> usize {
 // Adapted from the vst3-rs gain example (MIT OR Apache-2.0).
 const PLUGIN_NAME: &'static str = "Lazy Arranger Test Gain";
 
+struct DelayLine {
+    left: [f32; 32],
+    right: [f32; 32],
+    index: usize,
+}
+
+impl DelayLine {
+    fn new() -> Self {
+        Self {
+            left: [0.0; 32],
+            right: [0.0; 32],
+            index: 0,
+        }
+    }
+}
+
 struct GainProcessor {
     gain: AtomicU64,
+    delay: std::sync::Mutex<DelayLine>,
 }
 
 impl Class for GainProcessor {
@@ -67,6 +84,7 @@ impl GainProcessor {
     fn new() -> GainProcessor {
         GainProcessor {
             gain: AtomicU64::new(1.0f64.to_bits()),
+            delay: std::sync::Mutex::new(DelayLine::new()),
         }
     }
 }
@@ -171,12 +189,26 @@ impl IComponentTrait for GainProcessor {
         kResultOk
     }
 
-    unsafe fn setState(&self, _state: *mut IBStream) -> tresult {
+    unsafe fn setState(&self, state: *mut IBStream) -> tresult {
+        let Some(stream) = ComRef::from_raw(state) else {
+            return kInvalidArgument;
+        };
+        let mut bytes = [0u8; 8];
+        let mut read = 0i32;
+        if stream.read(bytes.as_mut_ptr().cast(), 8, &mut read) == kResultOk && read == 8 {
+            let gain = f64::from_le_bytes(bytes);
+            self.gain.store(gain.to_bits(), Ordering::Relaxed);
+        }
         kResultOk
     }
 
-    unsafe fn getState(&self, _state: *mut IBStream) -> tresult {
-        kResultOk
+    unsafe fn getState(&self, state: *mut IBStream) -> tresult {
+        let Some(stream) = ComRef::from_raw(state) else {
+            return kInvalidArgument;
+        };
+        let bytes = f64::from_bits(self.gain.load(Ordering::Relaxed)).to_le_bytes();
+        let mut written = 0i32;
+        stream.write(bytes.as_ptr() as *mut c_void, 8, &mut written)
     }
 }
 
@@ -322,11 +354,18 @@ impl IAudioProcessorTrait for GainProcessor {
 
         // Input and output may alias for in-place processing. Read one frame
         // before writing it instead of forming overlapping slices.
+        let mut delay = self.delay.lock().unwrap_or_else(|e| e.into_inner());
         for i in 0..num_samples {
             let left = *(*input_channels.add(0)).add(i);
             let right = *(*input_channels.add(1)).add(i);
-            *(*output_channels.add(0)).add(i) = gain * left;
-            *(*output_channels.add(1)).add(i) = gain * right;
+            let idx = delay.index;
+            let out_left = delay.left[idx];
+            let out_right = delay.right[idx];
+            delay.left[idx] = gain * left;
+            delay.right[idx] = gain * right;
+            delay.index = (idx + 1) % 32;
+            *(*output_channels.add(0)).add(i) = out_left;
+            *(*output_channels.add(1)).add(i) = out_right;
         }
 
         kResultOk
@@ -376,12 +415,26 @@ impl IEditControllerTrait for GainController {
         kNotImplemented
     }
 
-    unsafe fn setState(&self, _state: *mut IBStream) -> tresult {
+    unsafe fn setState(&self, state: *mut IBStream) -> tresult {
+        let Some(stream) = ComRef::from_raw(state) else {
+            return kInvalidArgument;
+        };
+        let mut bytes = [0u8; 8];
+        let mut read = 0i32;
+        if stream.read(bytes.as_mut_ptr().cast(), 8, &mut read) == kResultOk && read == 8 {
+            let gain = f64::from_le_bytes(bytes);
+            self.gain.store(gain.to_bits(), Ordering::Relaxed);
+        }
         kResultOk
     }
 
-    unsafe fn getState(&self, _state: *mut IBStream) -> tresult {
-        kResultOk
+    unsafe fn getState(&self, state: *mut IBStream) -> tresult {
+        let Some(stream) = ComRef::from_raw(state) else {
+            return kInvalidArgument;
+        };
+        let bytes = f64::from_bits(self.gain.load(Ordering::Relaxed)).to_le_bytes();
+        let mut written = 0i32;
+        stream.write(bytes.as_ptr() as *mut c_void, 8, &mut written)
     }
 
     unsafe fn getParameterCount(&self) -> i32 {

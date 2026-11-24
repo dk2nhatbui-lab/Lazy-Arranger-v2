@@ -1117,15 +1117,43 @@ mod tests {
     }
 
     #[cfg(target_os = "macos")]
-    fn test_gain_bundle() -> Option<std::path::PathBuf> {
+    fn find_test_plugin_dylib() -> Option<std::path::PathBuf> {
         let exe = std::env::current_exe().ok()?;
-        let debug = exe.parent()?.parent()?;
-        let library = debug.join("liblazy_arranger_test_plugin.dylib");
-        if !library.is_file() {
-            return None;
+        let name = "liblazy_arranger_test_plugin.dylib";
+        let profile_dir = exe.ancestors().skip(1).find(|dir| {
+            dir.join("deps").is_dir()
+                || dir.join("build").join("lazy-arranger-test-plugin").is_dir()
+        })?;
+        let mut candidates = Vec::new();
+        for direct in [profile_dir.join("deps").join(name), profile_dir.join(name)] {
+            if direct.is_file() {
+                candidates.push(direct);
+            }
         }
-        let root =
-            std::env::temp_dir().join(format!("lazy-arranger-pdc-plugin-{}", std::process::id()));
+        if let Ok(entries) =
+            std::fs::read_dir(profile_dir.join("build").join("lazy-arranger-test-plugin"))
+        {
+            for entry in entries.flatten() {
+                let candidate = entry.path().join("out").join(name);
+                if candidate.is_file() {
+                    candidates.push(candidate);
+                }
+            }
+        }
+        candidates.into_iter().max_by_key(|path| {
+            std::fs::metadata(path)
+                .and_then(|meta| meta.modified())
+                .ok()
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    fn test_gain_bundle(tag: &str) -> Option<std::path::PathBuf> {
+        let library = find_test_plugin_dylib()?;
+        let root = std::env::temp_dir().join(format!(
+            "lazy-arranger-pdc-plugin-{}-{tag}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         let macos = root.join("Test.vst3").join("Contents").join("MacOS");
         std::fs::create_dir_all(&macos).ok()?;
@@ -1137,7 +1165,7 @@ mod tests {
     #[test]
     fn latency_compensation_aligns_a_delayed_plugin_track() {
         use project::song::{PluginFormat, PluginSlot};
-        let Some(bundle) = test_gain_bundle() else {
+        let Some(bundle) = test_gain_bundle("pdc") else {
             return;
         };
         let classes = plugin_host::scan_vst3(&bundle).expect("scan");
@@ -1178,7 +1206,7 @@ mod tests {
         use project::song::{
             Automation, AutomationPoint, AutomationTarget, PluginFormat, PluginSlot,
         };
-        let Some(bundle) = test_gain_bundle() else {
+        let Some(bundle) = test_gain_bundle("automation") else {
             return;
         };
         let classes = plugin_host::scan_vst3(&bundle).expect("scan");
@@ -1338,7 +1366,7 @@ mod tests {
     #[test]
     fn a_test_vst3_synth_renders_track_notes() {
         use project::song::{PluginFormat, PluginSlot};
-        let Some(bundle) = test_gain_bundle() else {
+        let Some(bundle) = test_gain_bundle("synth") else {
             return;
         };
         let classes = plugin_host::scan_vst3(&bundle).expect("scan");

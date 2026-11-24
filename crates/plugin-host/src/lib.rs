@@ -88,7 +88,8 @@ pub fn cid_hex(cid: &vst3::Steinberg::TUID) -> String {
 fn scan_vst3_inner(path: &Path) -> Result<Vec<Vst3Class>, String> {
     use vst3::ComPtr;
     use vst3::Steinberg::{
-        IPluginFactory, IPluginFactory2, IPluginFactory2Trait, IPluginFactoryTrait, PClassInfo2,
+        IPluginFactory, IPluginFactory2, IPluginFactory2Trait, IPluginFactoryTrait, PClassInfo,
+        PClassInfo2, PFactoryInfo,
     };
 
     type GetFactory = unsafe extern "system" fn() -> *mut IPluginFactory;
@@ -100,29 +101,53 @@ fn scan_vst3_inner(path: &Path) -> Result<Vec<Vst3Class>, String> {
             .map_err(|error| format!("GetPluginFactory: {error}"))?;
     let factory = unsafe { ComPtr::from_raw(get_factory()) }
         .ok_or_else(|| String::from("GetPluginFactory returned null"))?;
-    let factory2 = factory
-        .cast::<IPluginFactory2>()
-        .ok_or_else(|| String::from("factory has no IPluginFactory2"))?;
-    let count = unsafe { factory2.countClasses() }.max(0);
     let mut classes = Vec::new();
-    for index in 0..count {
-        let mut info: PClassInfo2 = unsafe { std::mem::zeroed() };
-        let result = unsafe { factory2.getClassInfo2(index, &mut info) };
-        if result != 0 {
-            continue;
+    if let Some(factory2) = factory.cast::<IPluginFactory2>() {
+        let count = unsafe { factory2.countClasses() }.max(0);
+        for index in 0..count {
+            let mut info: PClassInfo2 = unsafe { std::mem::zeroed() };
+            let result = unsafe { factory2.getClassInfo2(index, &mut info) };
+            if result != 0 {
+                continue;
+            }
+            if text(&info.category) != "Audio Module Class" {
+                continue;
+            }
+            classes.push(Vst3Class {
+                cid: cid_hex(&info.cid),
+                name: text(&info.name),
+                vendor: text(&info.vendor),
+                version: text(&info.version),
+                subcategories: text(&info.subCategories),
+            });
         }
-        if text(&info.category) != "Audio Module Class" {
-            continue;
+        drop(factory2);
+    } else {
+        let mut factory_info: PFactoryInfo = unsafe { std::mem::zeroed() };
+        let vendor = if unsafe { factory.getFactoryInfo(&mut factory_info) } == 0 {
+            text(&factory_info.vendor)
+        } else {
+            String::new()
+        };
+        let count = unsafe { factory.countClasses() }.max(0);
+        for index in 0..count {
+            let mut info: PClassInfo = unsafe { std::mem::zeroed() };
+            let result = unsafe { factory.getClassInfo(index, &mut info) };
+            if result != 0 {
+                continue;
+            }
+            if text(&info.category) != "Audio Module Class" {
+                continue;
+            }
+            classes.push(Vst3Class {
+                cid: cid_hex(&info.cid),
+                name: text(&info.name),
+                vendor: vendor.clone(),
+                version: String::new(),
+                subcategories: String::new(),
+            });
         }
-        classes.push(Vst3Class {
-            cid: cid_hex(&info.cid),
-            name: text(&info.name),
-            vendor: text(&info.vendor),
-            version: text(&info.version),
-            subcategories: text(&info.subCategories),
-        });
     }
-    drop(factory2);
     drop(factory);
     drop(library);
     if classes.is_empty() {

@@ -6,7 +6,6 @@ use std::path::PathBuf;
 #[cfg(target_os = "macos")]
 fn dylib_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let debug = exe.parent()?.parent()?;
     let name = if cfg!(target_os = "macos") {
         "liblazy_arranger_test_plugin.dylib"
     } else if cfg!(target_os = "windows") {
@@ -14,8 +13,30 @@ fn dylib_path() -> Option<PathBuf> {
     } else {
         "liblazy_arranger_test_plugin.so"
     };
-    let path = debug.join(name);
-    path.is_file().then_some(path)
+    let profile_dir = exe.ancestors().skip(1).find(|dir| {
+        dir.join("deps").is_dir() || dir.join("build").join("lazy-arranger-test-plugin").is_dir()
+    })?;
+    let mut candidates = Vec::new();
+    for direct in [profile_dir.join("deps").join(name), profile_dir.join(name)] {
+        if direct.is_file() {
+            candidates.push(direct);
+        }
+    }
+    if let Ok(entries) =
+        std::fs::read_dir(profile_dir.join("build").join("lazy-arranger-test-plugin"))
+    {
+        for entry in entries.flatten() {
+            let candidate = entry.path().join("out").join(name);
+            if candidate.is_file() {
+                candidates.push(candidate);
+            }
+        }
+    }
+    candidates.into_iter().max_by_key(|path| {
+        std::fs::metadata(path)
+            .and_then(|meta| meta.modified())
+            .ok()
+    })
 }
 
 #[cfg(target_os = "macos")]

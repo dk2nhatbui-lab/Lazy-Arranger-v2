@@ -389,35 +389,34 @@ fn found_from_classes(path: &Path, classes: Vec<ScannedClass>) -> Vec<FoundPlugi
         .collect()
 }
 
-fn vst3_plugins(path: &Path, failed: &mut Vec<PathBuf>) -> Vec<FoundPlugin> {
-    let helper = scanner_path();
-    if helper.is_some() {
-        match scan_vst3_isolated(path) {
-            Ok(classes) if !classes.is_empty() => {
-                return found_from_classes(path, classes);
-            }
-            Ok(_) => {}
-            Err(()) => {
-                failed.push(path.to_path_buf());
-                return Vec::new();
-            }
+fn has_vst3_binary(path: &Path) -> bool {
+    let contents = path.join("Contents");
+    let Ok(entries) = std::fs::read_dir(&contents) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !dir.is_dir() || dir.file_name().is_some_and(|name| name == "Resources") {
+            continue;
+        }
+        if std::fs::read_dir(&dir)
+            .ok()
+            .is_some_and(|files| files.flatten().any(|file| file.path().is_file()))
+        {
+            return true;
         }
     }
-    // Without the isolated helper, read only the bundle's JSON metadata. Do not
-    // load the module in-process just to enumerate it.
+    false
+}
+
+fn moduleinfo_plugins(path: &Path) -> Option<Vec<FoundPlugin>> {
     let moduleinfo = path
         .join("Contents")
         .join("Resources")
         .join("moduleinfo.json");
-    let Ok(bytes) = std::fs::read(&moduleinfo) else {
-        return vec![fallback(path, Format::Vst3)];
-    };
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-        return vec![fallback(path, Format::Vst3)];
-    };
-    let Some(classes) = value.get("Classes").and_then(serde_json::Value::as_array) else {
-        return vec![fallback(path, Format::Vst3)];
-    };
+    let bytes = std::fs::read(&moduleinfo).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let classes = value.get("Classes")?.as_array()?;
     let mut found = Vec::new();
     for class in classes {
         if class
@@ -464,11 +463,26 @@ fn vst3_plugins(path: &Path, failed: &mut Vec<PathBuf>) -> Vec<FoundPlugin> {
             format: Format::Vst3,
         });
     }
-    if found.is_empty() {
-        vec![fallback(path, Format::Vst3)]
-    } else {
-        found
+    (!found.is_empty()).then_some(found)
+}
+
+fn vst3_plugins(path: &Path, failed: &mut Vec<PathBuf>) -> Vec<FoundPlugin> {
+    if let Some(found) = moduleinfo_plugins(path) {
+        return found;
     }
+    if scanner_path().is_some() && has_vst3_binary(path) {
+        match scan_vst3_isolated(path) {
+            Ok(classes) if !classes.is_empty() => {
+                return found_from_classes(path, classes);
+            }
+            Ok(_) => {}
+            Err(()) => {
+                failed.push(path.to_path_buf());
+                return Vec::new();
+            }
+        }
+    }
+    vec![fallback(path, Format::Vst3)]
 }
 
 /// Convenience over [`default_roots`].
