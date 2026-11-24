@@ -674,6 +674,13 @@ pub fn show_full(
                     line_gap * 0.55 * scale,
                     Color32::from_rgb(0x10, 0x10, 0x10),
                 );
+                for dot in 0..note.dots {
+                    painter.circle_filled(
+                        Pos2::new(x + line_gap * (1.0 + f32::from(dot) * 0.8) * scale, y),
+                        line_gap * 0.16 * scale,
+                        Color32::from_rgb(0x10, 0x10, 0x10),
+                    );
+                }
                 let stem = if note.pitch.as_u8() < 71 {
                     y + 3.0 * line_gap * scale
                 } else {
