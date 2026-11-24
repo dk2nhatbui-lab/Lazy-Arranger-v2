@@ -293,6 +293,15 @@ pub enum Command {
         /// The new note list, usually from a regeneration.
         notes: Vec<Note>,
     },
+    /// Replace one track's notes and clips in one undo step.
+    ReplaceTrackNotesAndClips {
+        /// The track.
+        track: TrackId,
+        /// New notes.
+        notes: Vec<Note>,
+        /// New clips.
+        clips: Vec<Clip>,
+    },
     /// Replace the notes of several tracks in one undo step.
     ReplaceTrackNotesMany {
         /// Track and its new notes.
@@ -357,9 +366,9 @@ impl Command {
             Self::SetLyrics { .. } => "set lyrics",
             Self::SetMarks { .. } => "set marks",
             Self::SetClips { .. } => "set clips",
-            Self::ReplaceTrackNotes { .. } | Self::ReplaceTrackNotesMany { .. } => {
-                "replace track notes"
-            }
+            Self::ReplaceTrackNotes { .. }
+            | Self::ReplaceTrackNotesAndClips { .. }
+            | Self::ReplaceTrackNotesMany { .. } => "replace track notes",
             Self::SetProvenance { .. } => "set provenance",
             Self::ReplaceTempoMap { .. } => "restore tempo map",
         }
@@ -1013,6 +1022,13 @@ impl EditSession {
                 track: *track,
                 notes: self.track(*track)?.notes.clone(),
             },
+            Command::ReplaceTrackNotesAndClips { track, .. } => {
+                Command::ReplaceTrackNotesAndClips {
+                    track: *track,
+                    notes: self.track(*track)?.notes.clone(),
+                    clips: self.track(*track)?.clips.clone(),
+                }
+            }
             Command::ReplaceTrackNotesMany { tracks } => {
                 let mut inverse = Vec::with_capacity(tracks.len());
                 for (track, _) in tracks {
@@ -1286,6 +1302,17 @@ impl EditSession {
             Command::ReplaceTrackNotes { track, notes } => {
                 self.track_mut(*track)?.notes = notes.clone();
             }
+            Command::ReplaceTrackNotesAndClips {
+                track,
+                notes,
+                clips,
+            } => {
+                let entry = self.track_mut(*track)?;
+                entry.notes = notes.clone();
+                entry.clips = clips.clone();
+                entry.notes.sort_by_key(|note| note.start);
+                entry.clips.sort_by_key(|clip| clip.start);
+            }
             Command::ReplaceTrackNotesMany { tracks } => {
                 for (track, _) in tracks {
                     self.track(*track)?;
@@ -1461,6 +1488,9 @@ fn describe(command: &Command) -> String {
         }
         Command::ReplaceTrackNotesMany { tracks } => {
             format!("replace notes on {} track(s)", tracks.len())
+        }
+        Command::ReplaceTrackNotesAndClips { track, .. } => {
+            format!("replace notes and clips on track {track}")
         }
         Command::SetProvenance { track, provenance } => {
             if provenance.is_some() {

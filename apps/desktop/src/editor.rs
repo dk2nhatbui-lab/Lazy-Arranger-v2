@@ -1042,6 +1042,22 @@ impl Editor {
         for (index, note) in track.notes.iter_mut().enumerate() {
             note.id = project::NoteId::new(index as u32 + 1).map_err(|error| error.to_string())?;
         }
+        if let Some(start) = track.notes.iter().map(|note| note.start).min() {
+            let bar = self.song().time_signature.bar_ticks().max(1);
+            let end = track
+                .notes
+                .iter()
+                .map(project::song::Note::end)
+                .max()
+                .unwrap_or(start);
+            let start = start.div_euclid(bar) * bar;
+            track.clips.push(project::song::Clip {
+                id: project::ClipId::new(1).expect("valid"),
+                name: String::from("Recorded"),
+                start,
+                length: end.saturating_sub(start).max(1),
+            });
+        }
         self.session
             .apply(app_commands::Command::InsertTrack { track })
             .map_err(|error| error.to_string())?;
@@ -1066,6 +1082,7 @@ impl Editor {
             .find(|entry| entry.id == track)
             .ok_or_else(|| String::from("unknown track"))?;
         let mut merged = entry.notes.clone();
+        let existing_clips = entry.clips.clone();
         let start = merged.iter().map(|note| note.id.get()).max().unwrap_or(0) + 1;
         for (offset, note) in notes.iter().enumerate() {
             let mut note = note.clone();
@@ -1073,10 +1090,38 @@ impl Editor {
                 project::NoteId::new(start + offset as u32).map_err(|error| error.to_string())?;
             merged.push(note);
         }
+        let mut clips = existing_clips;
+        if let Some(first) = notes.iter().map(|note| note.start).min() {
+            let bar = self.song().time_signature.bar_ticks().max(1);
+            let end = notes
+                .iter()
+                .map(project::song::Note::end)
+                .max()
+                .unwrap_or(first);
+            let clip_start = first.div_euclid(bar) * bar;
+            let overlaps = clips.iter().any(|clip| {
+                clip.start < end && clip_start < clip.start.saturating_add(clip.length)
+            });
+            if !overlaps {
+                let id = clips
+                    .iter()
+                    .map(|clip| clip.id.get())
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_add(1);
+                clips.push(project::song::Clip {
+                    id: project::ClipId::new(id).map_err(|error| error.to_string())?,
+                    name: String::from("Recorded"),
+                    start: clip_start,
+                    length: end.saturating_sub(clip_start).max(1),
+                });
+            }
+        }
         self.session
-            .apply(app_commands::Command::ReplaceTrackNotes {
+            .apply(app_commands::Command::ReplaceTrackNotesAndClips {
                 track,
                 notes: merged,
+                clips,
             })
             .map_err(|error| error.to_string())?;
         self.dirty = true;
@@ -2914,6 +2959,12 @@ mod tests {
         let notes = vec![editor.song().tracks[0].notes[0].clone()];
         editor.append_recorded(track, &notes).expect("append");
         assert_eq!(editor.song().tracks[0].notes.len(), before + 1);
+        assert!(
+            editor.song().tracks[0]
+                .clips
+                .iter()
+                .any(|clip| clip.name == "Recorded")
+        );
         assert!(editor.undo());
         assert_eq!(editor.song().tracks[0].notes.len(), before);
     }
