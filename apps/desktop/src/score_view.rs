@@ -387,7 +387,7 @@ pub fn show_full(
         ),
         egui::Align2::LEFT_TOP,
         title,
-        egui::FontId::proportional((12.0 * scale).max(9.0)),
+        egui::FontId::proportional(12.0 * zoom),
         Color32::from_rgb(0x14, 0x14, 0x14),
     );
     if let Some((_, engraved)) = tracks.first() {
@@ -404,7 +404,7 @@ pub fn show_full(
                 engraved.time_signature.numerator,
                 engraved.time_signature.denominator
             ),
-            egui::FontId::proportional((8.0 * scale).max(7.0)),
+            egui::FontId::proportional(8.0 * zoom),
             Color32::from_rgb(0x50, 0x50, 0x50),
         );
     }
@@ -444,7 +444,7 @@ pub fn show_full(
             Pos2::new(page_rect.left() + 4.0, top + 2.0 * line_gap * scale),
             egui::Align2::LEFT_CENTER,
             short_track_name(name),
-            egui::FontId::proportional((7.0 * scale).max(6.0)),
+            egui::FontId::proportional(7.0 * zoom),
             Color32::from_rgb(0x40, 0x40, 0x40),
         );
         let average = if engraved.notes.is_empty() {
@@ -510,7 +510,7 @@ pub fn show_full(
                     Pos2::new(x, y),
                     egui::Align2::LEFT_CENTER,
                     &chord.name,
-                    egui::FontId::proportional((8.0 * scale).max(7.0)),
+                    egui::FontId::proportional(8.0 * zoom),
                     Color32::from_rgb(0x10, 0x10, 0x10),
                 );
             }
@@ -529,7 +529,7 @@ pub fn show_full(
                     Pos2::new(x, y),
                     egui::Align2::LEFT_CENTER,
                     &lyric.text,
-                    egui::FontId::proportional((7.0 * scale).max(6.0)),
+                    egui::FontId::proportional(7.0 * zoom),
                     Color32::from_rgb(0x20, 0x20, 0x20),
                 );
             }
@@ -554,7 +554,7 @@ pub fn show_full(
                     Pos2::new(x, y),
                     egui::Align2::LEFT_CENTER,
                     text,
-                    egui::FontId::proportional((7.0 * scale).max(6.0)),
+                    egui::FontId::proportional(7.0 * zoom),
                     Color32::from_rgb(0x20, 0x20, 0x20),
                 );
             }
@@ -600,7 +600,7 @@ pub fn show_full(
                         Pos2::new(x - 4.0 * scale, y - 1.0 * scale),
                         egui::Align2::RIGHT_CENTER,
                         accidental,
-                        egui::FontId::proportional((7.0 * scale).max(6.0)),
+                        egui::FontId::proportional(7.0 * zoom),
                         Color32::from_rgb(0x10, 0x10, 0x10),
                     );
                 }
@@ -695,7 +695,7 @@ pub fn show_full(
                 Pos2::new((start + end) / 2.0, y - 1.0 * scale),
                 egui::Align2::CENTER_BOTTOM,
                 format!("{}", tuplet.count),
-                egui::FontId::proportional((6.0 * scale).max(5.0)),
+                egui::FontId::proportional(6.0 * zoom),
                 Color32::from_rgb(0x10, 0x10, 0x10),
             );
         }
@@ -717,7 +717,7 @@ pub fn show_full(
                 ),
                 egui::Align2::LEFT_BOTTOM,
                 format!("{}", measure.number),
-                egui::FontId::proportional((6.0 * scale).max(5.0)),
+                egui::FontId::proportional(6.0 * zoom),
                 Color32::from_rgb(0x50, 0x50, 0x50),
             );
             for x in [measure.x, measure.x_end] {
@@ -733,7 +733,7 @@ pub fn show_full(
         Pos2::new(page_rect.center().x, page_rect.bottom() - 8.0 * scale),
         egui::Align2::CENTER_BOTTOM,
         format!("{} / {page_count}", page_index + 1),
-        egui::FontId::proportional((8.0 * scale).max(7.0)),
+        egui::FontId::proportional(8.0 * zoom),
         Color32::from_rgb(0x50, 0x50, 0x50),
     );
     let _ = position;
