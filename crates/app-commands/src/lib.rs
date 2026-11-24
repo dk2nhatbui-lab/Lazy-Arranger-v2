@@ -288,6 +288,11 @@ pub enum Command {
         /// The new note list, usually from a regeneration.
         notes: Vec<Note>,
     },
+    /// Replace the notes of several tracks in one undo step.
+    ReplaceTrackNotesMany {
+        /// Track and its new notes.
+        tracks: Vec<(TrackId, Vec<Note>)>,
+    },
     /// Set or clear a track's generation provenance.
     SetProvenance {
         /// The track.
@@ -346,7 +351,9 @@ impl Command {
             Self::SetLyrics { .. } => "set lyrics",
             Self::SetMarks { .. } => "set marks",
             Self::SetClips { .. } => "set clips",
-            Self::ReplaceTrackNotes { .. } => "replace track notes",
+            Self::ReplaceTrackNotes { .. } | Self::ReplaceTrackNotesMany { .. } => {
+                "replace track notes"
+            }
             Self::SetProvenance { .. } => "set provenance",
             Self::ReplaceTempoMap { .. } => "restore tempo map",
         }
@@ -997,6 +1004,13 @@ impl EditSession {
                 track: *track,
                 notes: self.track(*track)?.notes.clone(),
             },
+            Command::ReplaceTrackNotesMany { tracks } => {
+                let mut inverse = Vec::with_capacity(tracks.len());
+                for (track, _) in tracks {
+                    inverse.push((*track, self.track(*track)?.notes.clone()));
+                }
+                Command::ReplaceTrackNotesMany { tracks: inverse }
+            }
             Command::SetProvenance { track, .. } => Command::SetProvenance {
                 track: *track,
                 provenance: self.track(*track)?.provenance.clone(),
@@ -1259,6 +1273,20 @@ impl EditSession {
             Command::ReplaceTrackNotes { track, notes } => {
                 self.track_mut(*track)?.notes = notes.clone();
             }
+            Command::ReplaceTrackNotesMany { tracks } => {
+                for (track, _) in tracks {
+                    self.track(*track)?;
+                }
+                for (track, notes) in tracks {
+                    self.project
+                        .song
+                        .tracks
+                        .iter_mut()
+                        .find(|entry| entry.id == *track)
+                        .ok_or(CommandError::UnknownTrack(*track))?
+                        .notes = notes.clone();
+                }
+            }
             Command::SetProvenance { track, provenance } => {
                 self.track_mut(*track)?.provenance = provenance.clone();
             }
@@ -1409,6 +1437,9 @@ fn describe(command: &Command) -> String {
         }
         Command::ReplaceTrackNotes { track, notes } => {
             format!("replace {} note(s) on track {track}", notes.len())
+        }
+        Command::ReplaceTrackNotesMany { tracks } => {
+            format!("replace notes on {} track(s)", tracks.len())
         }
         Command::SetProvenance { track, provenance } => {
             if provenance.is_some() {
@@ -2202,6 +2233,39 @@ mod tests {
         assert_eq!(edit.song().tracks[0].notes[0].start, 1920);
         edit.undo().expect("undo");
         assert_eq!(edit.song().tracks[0].notes[0].start, 0);
+    }
+
+    #[test]
+    fn replacing_notes_on_many_tracks_is_one_undo_step() {
+        let mut edit = session();
+        edit.add_track("Second").expect("second");
+        let ids: Vec<TrackId> = edit.song().tracks.iter().map(|track| track.id).collect();
+        assert_eq!(ids.len(), 2);
+        let note = Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 960,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        };
+        edit.apply(Command::ReplaceTrackNotesMany {
+            tracks: vec![(ids[0], vec![note.clone()]), (ids[1], vec![note])],
+        })
+        .expect("replace");
+        assert!(
+            edit.song()
+                .tracks
+                .iter()
+                .all(|track| track.notes.len() == 1)
+        );
+        edit.undo().expect("undo");
+        assert!(
+            edit.song()
+                .tracks
+                .iter()
+                .all(|track| track.notes.is_empty())
+        );
     }
 
     #[test]

@@ -3354,17 +3354,19 @@ fn apply_groove(session: &mut EditSession, arguments: &Value) -> Result<Value, T
         .filter(|entry| entry.id != track && !entry.notes.is_empty())
         .map(|entry| entry.id)
         .collect();
-    let mut changed = 0;
+    let mut tracks = Vec::new();
     for other in others {
         let Some(entry) = session.song().tracks.iter().find(|entry| entry.id == other) else {
             continue;
         };
-        let notes = arranging::groove::apply(&entry.notes, &groove, amounts);
-        session.apply(Command::ReplaceTrackNotes {
-            track: other,
-            notes,
-        })?;
-        changed += 1;
+        tracks.push((
+            other,
+            arranging::groove::apply(&entry.notes, &groove, amounts),
+        ));
+    }
+    let changed = tracks.len();
+    if !tracks.is_empty() {
+        session.apply(Command::ReplaceTrackNotesMany { tracks })?;
     }
     Ok(json!({"tracks": changed}))
 }
@@ -3413,14 +3415,19 @@ fn reharmonize(session: &mut EditSession, arguments: &Value) -> Result<Value, To
     };
     let chords = music_core::reharmonize::apply(original, kind);
     let bar = session.song().time_signature.bar_ticks().max(1);
-    session.apply(Command::RemoveChord { tick })?;
     let step = bar / chords.len() as Tick;
+    let mut events = session.song().chords.clone();
+    if let Some(index) = events.iter().position(|event| event.tick == tick) {
+        events.remove(index);
+    }
     for (index, chord) in chords.iter().enumerate() {
-        session.apply(Command::SetChord {
+        events.push(project::song::ChordEvent {
             tick: tick + (index as Tick) * step,
             chord: *chord,
-        })?;
+        });
     }
+    events.sort_by_key(|event| event.tick);
+    session.apply(Command::SetChords { chords: events })?;
     Ok(json!({"chords": chords.len()}))
 }
 
