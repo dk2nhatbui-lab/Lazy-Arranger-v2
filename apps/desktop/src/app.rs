@@ -938,6 +938,7 @@ pub struct ShellApp {
     score_grand: bool,
     score_preview: bool,
     score_all_tracks: bool,
+    score_full_hidden: std::collections::HashSet<TrackId>,
     score_full_cache: Option<(u64, Vec<(String, score::Engraved)>)>,
     patch_open: bool,
     patch_track: Option<TrackId>,
@@ -1287,6 +1288,7 @@ impl ShellApp {
             score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err()
                 && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
             score_all_tracks: false,
+            score_full_hidden: std::collections::HashSet::new(),
             score_full_cache: None,
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
             patch_track: None,
@@ -12130,6 +12132,30 @@ impl eframe::App for ShellApp {
                         ui.horizontal_wrapped(|ui| {
                             ui.label(egui::RichText::new("Score").strong());
                             ui.checkbox(&mut self.score_all_tracks, "All tracks");
+                            if self.score_all_tracks {
+                                let tracks: Vec<(TrackId, String)> = project
+                                    .song
+                                    .tracks
+                                    .iter()
+                                    .map(|entry| (entry.id, entry.name.clone()))
+                                    .collect();
+                                let mut toggle = None;
+                                ui.menu_button("Tracks", |ui| {
+                                    for (id, name) in &tracks {
+                                        let mut shown = !self.score_full_hidden.contains(id);
+                                        if ui.checkbox(&mut shown, name).changed() {
+                                            toggle = Some((*id, shown));
+                                        }
+                                    }
+                                });
+                                if let Some((id, shown)) = toggle {
+                                    if shown {
+                                        self.score_full_hidden.remove(&id);
+                                    } else {
+                                        self.score_full_hidden.insert(id);
+                                    }
+                                }
+                            }
                             let mut write = self.score_entry;
                             if ui.checkbox(&mut write, "Write notes").changed() {
                                 self.score_entry = write;
@@ -12270,8 +12296,14 @@ impl eframe::App for ShellApp {
                                         .song
                                         .tracks
                                         .iter()
+                                        .filter(|entry| !self.score_full_hidden.contains(&entry.id))
                                         .map(|entry| entry.id)
                                         .collect();
+                                    let tracks = if tracks.is_empty() {
+                                        project.song.tracks.iter().map(|entry| entry.id).collect()
+                                    } else {
+                                        tracks
+                                    };
                                     Ok(score::pdf::to_full_pdf(
                                         &project.song,
                                         score_settings,
@@ -12307,7 +12339,24 @@ impl eframe::App for ShellApp {
                             let zoom = self.score_zoom;
                             let page = self.score_page;
                             let full_tracks: Vec<(String, score::Engraved)> = if self.score_all_tracks {
-                                let key = crate::score_view::full_score_hash(&project.song, title);
+                                let selected: Vec<TrackId> = project
+                                    .song
+                                    .tracks
+                                    .iter()
+                                    .filter(|entry| !self.score_full_hidden.contains(&entry.id))
+                                    .map(|entry| entry.id)
+                                    .collect();
+                                let selected = if selected.is_empty() {
+                                    project.song.tracks.iter().map(|entry| entry.id).collect()
+                                } else {
+                                    selected
+                                };
+                                let mut key = crate::score_view::full_score_hash(&project.song, title);
+                                for id in &selected {
+                                    key = key
+                                        .wrapping_mul(1_099_511_628_211)
+                                        .wrapping_add(u64::from(id.get()));
+                                }
                                 if self
                                     .score_full_cache
                                     .as_ref()
@@ -12319,6 +12368,7 @@ impl eframe::App for ShellApp {
                                             .song
                                             .tracks
                                             .iter()
+                                            .filter(|entry| selected.contains(&entry.id))
                                             .map(|entry| {
                                                 (
                                                     entry.name.clone(),
