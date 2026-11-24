@@ -467,7 +467,7 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
     objects.push(image_stream(bass, bass_mask));
     objects.push(alpha_stream(bass));
 
-    finish_pdf(objects)
+    finish_pdf(objects, title)
 }
 
 struct FullStaff {
@@ -1016,10 +1016,13 @@ pub fn to_full_pdf_with_frames(
     let bass = clef::bass();
     objects.push(image_stream(bass, bass_mask));
     objects.push(alpha_stream(bass));
-    finish_pdf(objects)
+    finish_pdf(objects, title)
 }
 
-fn finish_pdf(objects: Vec<Vec<u8>>) -> Vec<u8> {
+fn finish_pdf(mut objects: Vec<Vec<u8>>, title: &str) -> Vec<u8> {
+    objects
+        .push(format!("<< /Title ({}) /Producer (Lazy Arranger) >>", escape(title)).into_bytes());
+    let info = objects.len();
     let mut out = Vec::new();
     out.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
     let mut offsets = Vec::with_capacity(objects.len());
@@ -1037,7 +1040,7 @@ fn finish_pdf(objects: Vec<Vec<u8>>) -> Vec<u8> {
     }
     out.extend_from_slice(
         format!(
-            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n",
+            "trailer\n<< /Size {} /Root 1 0 R /Info {info} 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n",
             objects.len() + 1
         )
         .as_bytes(),
@@ -1498,6 +1501,7 @@ mod tests {
         assert!(text.contains("/Type /Catalog"));
         assert_eq!(page_count(&pdf), Some(2));
         assert!(text.contains("(Test score) Tj"));
+        assert!(text.contains("/Title (Test score)"), "PDF metadata title");
         assert!(text.contains("(4) Tj"), "time signature digits");
         assert!(text.contains("(1) Tj"), "measure number");
         assert!(text.contains("/ClefTreble"), "treble clef image object");
