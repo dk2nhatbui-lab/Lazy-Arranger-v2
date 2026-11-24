@@ -21,8 +21,16 @@ pub fn is_video(path: &Path) -> bool {
 ///
 /// Returns a message when FFmpeg fails or produces no file.
 pub fn extract_audio(path: &Path) -> Result<PathBuf, String> {
-    let output = std::env::temp_dir().join(format!(
-        "lazy-arranger-video-{}-{}.wav",
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let mut folder = crate::settings::Settings::data_dir().join("audio");
+    if std::fs::create_dir_all(&folder).is_err() {
+        folder = std::env::temp_dir();
+    }
+    let output = folder.join(format!(
+        "video-{}-{stamp}-{}.wav",
         std::process::id(),
         path.file_stem()
             .and_then(|stem| stem.to_str())

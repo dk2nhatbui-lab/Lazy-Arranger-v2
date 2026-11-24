@@ -215,7 +215,10 @@ fn unit_parameters(unit: AudioUnit) -> Vec<(u32, String, f32, f32, f32, f32)> {
                 &mut info_size,
             )
         };
-        if result != 0 {
+        if result != 0
+            || usize::try_from(info_size).unwrap_or(usize::MAX)
+                > std::mem::size_of::<AudioUnitParameterInfo>()
+        {
             continue;
         }
         let mut current = info.default;

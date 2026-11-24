@@ -3444,11 +3444,18 @@ fn add_notes(session: &mut EditSession, arguments: &Value) -> Result<Value, Tool
         .get("notes")
         .and_then(Value::as_array)
         .ok_or_else(|| ToolError::Arguments(String::from("notes must be an array")))?;
+    if array.len() > 100_000 {
+        return Err(ToolError::Arguments(String::from(
+            "too many notes in one call",
+        )));
+    }
     let mut notes = existing.notes.clone();
     let mut highest = notes.iter().map(|note| note.id.get()).max().unwrap_or(0);
     let mut added = 0;
     for entry in array {
-        highest += 1;
+        highest = highest
+            .checked_add(1)
+            .ok_or_else(|| ToolError::Arguments(String::from("note id overflow")))?;
         let start = entry
             .get("start")
             .and_then(Value::as_i64)

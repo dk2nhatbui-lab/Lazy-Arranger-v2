@@ -364,6 +364,9 @@ pub fn render_with_soundfont(
                     let mut placed = take.clone();
                     placed.start = comp.start;
                     placed.length = comp.length;
+                    placed.offset = placed
+                        .offset
+                        .saturating_add(comp.start.saturating_sub(take.start).max(0));
                     placed.fade_in = placed.fade_in.max(cross);
                     placed.fade_out = placed.fade_out.max(cross);
                     mix_audio_reference(song, track, &mut track_buffer, &placed, sample_rate);

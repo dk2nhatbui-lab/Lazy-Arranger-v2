@@ -70,6 +70,10 @@ pub fn fetch_release() -> Result<Release, String> {
             "--show-error",
             "--max-time",
             "10",
+            "--proto",
+            "=https",
+            "--proto-redir",
+            "=https",
             "-H",
             "Accept: application/vnd.github+json",
             RELEASE_URL,
@@ -185,6 +189,13 @@ pub fn download_asset(
     asset: &Asset,
     directory: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
+    let secure = asset.url.starts_with("https://")
+        || (cfg!(test)
+            && (asset.url.starts_with("http://127.0.0.1")
+                || asset.url.starts_with("http://localhost")));
+    if !secure {
+        return Err(String::from("update asset URL is not HTTPS"));
+    }
     std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let name = std::path::Path::new(&asset.name)
         .file_name()
@@ -192,16 +203,20 @@ pub fn download_asset(
         .filter(|name| !name.is_empty())
         .ok_or_else(|| String::from("asset has no usable file name"))?;
     let path = directory.join(name);
-    let output = std::process::Command::new("curl")
-        .args([
-            "--location",
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--max-time",
-            "300",
-            "--output",
-        ])
+    let mut command = std::process::Command::new("curl");
+    command.args([
+        "--location",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "300",
+    ]);
+    if asset.url.starts_with("https://") {
+        command.args(["--proto", "=https", "--proto-redir", "=https"]);
+    }
+    let output = command
+        .arg("--output")
         .arg(&path)
         .arg(&asset.url)
         .output()
