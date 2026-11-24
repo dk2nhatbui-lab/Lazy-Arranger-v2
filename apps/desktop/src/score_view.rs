@@ -1937,6 +1937,15 @@ mod tests {
     }
 
     #[test]
+    fn percussion_track_names_are_recognised() {
+        assert!(is_percussion("Drums"));
+        assert!(is_percussion("Drum Kit"));
+        assert!(is_percussion("Percussion"));
+        assert!(!is_percussion("Piano"));
+        assert!(!is_percussion(""));
+    }
+
+    #[test]
     fn full_score_draws_each_chord_once() {
         use project::song::{ChordEvent, Note, Song, Track};
         let mut song = Song::new("Chords", 120.0);
