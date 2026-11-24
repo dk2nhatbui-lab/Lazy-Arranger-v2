@@ -4264,6 +4264,7 @@ impl ShellApp {
         let mut play_take: Option<String> = None;
         let mut to_midi = false;
         let mut to_drums = false;
+        let mut duplicate = false;
         egui::Window::new("Audio takes")
             .open(&mut open)
             .default_width(400.0)
@@ -4277,6 +4278,9 @@ impl ShellApp {
                             }
                             if ui.small_button("To drums").clicked() {
                                 to_drums = true;
+                            }
+                            if ui.small_button("Duplicate track").clicked() {
+                                duplicate = true;
                             }
                         });
                     }
@@ -4424,6 +4428,12 @@ impl ShellApp {
         }
         if to_drums && let Err(error) = self.transcribe_audio_drums(track_id) {
             self.status = Some(error);
+        }
+        if duplicate {
+            match self.editor.duplicate_audio_track(track_id) {
+                Ok(id) => self.status = Some(format!("duplicated audio to track {}", id.get())),
+                Err(error) => self.status = Some(error),
+            }
         }
         self.takes_open = open;
     }

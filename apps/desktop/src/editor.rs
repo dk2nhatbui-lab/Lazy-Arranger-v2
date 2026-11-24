@@ -1130,6 +1130,33 @@ impl Editor {
         Ok(())
     }
 
+    /// Duplicates an audio track, including takes and comps, as a new track.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the insert is rejected.
+    pub fn duplicate_audio_track(&mut self, track: TrackId) -> Result<TrackId, String> {
+        let source = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .cloned()
+            .ok_or_else(|| String::from("unknown track"))?;
+        let id = self
+            .session
+            .next_track_id()
+            .map_err(|error| error.to_string())?;
+        let mut copy = source;
+        copy.id = id;
+        copy.name = format!("{} copy", copy.name);
+        self.session
+            .apply(app_commands::Command::InsertTrack { track: copy })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(id)
+    }
+
     /// Sets the song meter.
     ///
     /// # Errors
@@ -2951,6 +2978,31 @@ mod tests {
         assert_eq!(editor.song().lyrics.len(), 1);
         assert!(editor.undo());
         assert_eq!(editor.song().lyrics.len(), 2);
+    }
+
+    #[test]
+    fn an_audio_track_can_be_duplicated() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let id = editor.duplicate_audio_track(track).expect("duplicate");
+        let copy = editor
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == id)
+            .expect("copy");
+        let source = editor
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .expect("source");
+        assert_eq!(copy.audio, source.audio);
+        assert_eq!(copy.takes, source.takes);
+        assert_eq!(copy.comps, source.comps);
+        assert!(copy.name.ends_with("copy"));
+        assert!(editor.undo());
+        assert!(editor.song().tracks.iter().all(|entry| entry.id != id));
     }
 
     #[test]
