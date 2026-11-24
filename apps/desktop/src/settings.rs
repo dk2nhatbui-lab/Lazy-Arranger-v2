@@ -766,6 +766,21 @@ mod tests {
     }
 
     #[test]
+    fn zoom_values_are_clamped() {
+        let path = temp("lazy-arranger-settings-zoom.txt");
+        std::fs::write(
+            &path,
+            "timeline_zoom = 0\nwaveform_zoom = 99\nscore_zoom = 10\n",
+        )
+        .expect("write");
+        let loaded = Settings::load(&path);
+        assert_eq!(loaded.timeline_zoom, 0.25);
+        assert_eq!(loaded.waveform_zoom, 8.0);
+        assert_eq!(loaded.score_zoom, 3.0);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn defaults_round_trip_and_unknown_keys_survive() {
         let path = temp("lazy-arranger-settings-test.txt");
         let mut settings = Settings {
