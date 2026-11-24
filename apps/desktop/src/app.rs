@@ -4133,6 +4133,59 @@ impl ShellApp {
         self.psr_send_state();
     }
 
+    fn transcribe_audio_track(&mut self, track_id: TrackId) -> Result<(), String> {
+        let reference = self
+            .song()
+            .tracks
+            .iter()
+            .find(|track| track.id == track_id)
+            .and_then(|track| track.audio.clone())
+            .ok_or_else(|| String::from("this track has no active audio reference"))?;
+        let decoded = audio::decode::decode_mono(std::path::Path::new(&reference.path))
+            .map_err(|error| format!("{}: {error}", reference.path))?;
+        let detected = audio::analysis::to_midi(&decoded.samples, decoded.sample_rate);
+        if detected.is_empty() {
+            return Err(String::from("no stable monophonic pitch found"));
+        }
+        let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
+        let mut notes = Vec::with_capacity(detected.len());
+        for (index, detected) in detected.iter().enumerate() {
+            let (start, duration) = audio::analysis::as_ticks(detected, bpm);
+            let Some(pitch) = audio::analysis::as_pitch(detected.pitch) else {
+                continue;
+            };
+            notes.push(project::song::Note {
+                id: project::NoteId::new(index as u32 + 1).map_err(|error| error.to_string())?,
+                start,
+                duration: duration.max(1),
+                pitch,
+                velocity: music_core::Velocity::new(
+                    (detected.level * 127.0).clamp(1.0, 127.0) as u8
+                )
+                .map_err(|error| error.to_string())?,
+                channel: music_core::Channel::first(),
+            });
+        }
+        if notes.is_empty() {
+            return Err(String::from("no notes after pitch conversion"));
+        }
+        let name = format!(
+            "{} MIDI",
+            self.song()
+                .tracks
+                .iter()
+                .find(|track| track.id == track_id)
+                .map_or("Audio", |track| track.name.as_str())
+        );
+        let new_track = self.editor.insert_recorded(&name, &notes)?;
+        self.status = Some(format!(
+            "transcribed {} note(s) into track {}",
+            notes.len(),
+            new_track.get()
+        ));
+        Ok(())
+    }
+
     fn takes_window(&mut self, context: &Context) {
         if !self.takes_open {
             return;
@@ -4165,13 +4218,19 @@ impl ShellApp {
         let mut action = None;
         let mut comp_edit: Option<(usize, usize, Tick, Tick)> = None;
         let mut play_take: Option<String> = None;
+        let mut to_midi = false;
         egui::Window::new("Audio takes")
             .open(&mut open)
             .default_width(400.0)
             .show(context, |ui| {
                 match &active {
                     Some(reference) => {
-                        ui.label(format!("Active: {}", reference.path));
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Active: {}", reference.path));
+                            if ui.small_button("To MIDI").clicked() {
+                                to_midi = true;
+                            }
+                        });
                     }
                     None => {
                         ui.label("This track has no active audio reference.");
@@ -4311,6 +4370,9 @@ impl ShellApp {
                 }
                 None => self.status = Some(format!("could not audition {path}")),
             }
+        }
+        if to_midi && let Err(error) = self.transcribe_audio_track(track_id) {
+            self.status = Some(error);
         }
         self.takes_open = open;
     }
