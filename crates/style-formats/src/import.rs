@@ -122,6 +122,7 @@ pub fn import_style(bytes: &[u8]) -> Result<ImportedStyle, StyleError> {
             stats.markers_skipped += 1;
         }
     }
+    selected.sort_by_key(|(_, tick)| *tick);
     stats.markers_used = selected.len();
     if selected.is_empty() {
         return Err(StyleError::NoSections);

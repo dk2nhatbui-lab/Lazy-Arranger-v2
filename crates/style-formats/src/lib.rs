@@ -218,7 +218,8 @@ impl NativeStyle {
         let chunks = scan_chunks(bytes)?;
         let ids: Vec<String> = chunks.iter().map(Chunk::id_str).collect();
         let has_casm = ids.iter().any(|id| id == "CASM");
-        let has_sections = ids.iter().any(|id| id == "CSEG");
+        let has_sections =
+            ids.iter().any(|id| id == "CSEG") || bytes.windows(4).any(|window| window == b"CSEG");
         let mut warnings = Vec::new();
         if !has_casm {
             warnings.push(String::from(
@@ -325,6 +326,23 @@ mod tests {
         let style = NativeStyle::describe_yamaha("with-casm", &bytes).expect("describe");
         assert!(style.has_chord_rules());
         assert!(style.warnings.is_empty());
+    }
+
+    #[test]
+    fn finds_cseg_inside_casm() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"MThd");
+        bytes.extend_from_slice(&6u32.to_be_bytes());
+        bytes.extend_from_slice(&[0, 1, 0, 1, 0x03, 0xC0]);
+        bytes.extend_from_slice(b"MTrk");
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        bytes.extend_from_slice(b"CASM");
+        bytes.extend_from_slice(&12u32.to_be_bytes());
+        bytes.extend_from_slice(b"CSEG");
+        bytes.extend_from_slice(&4u32.to_be_bytes());
+        bytes.extend_from_slice(&[0, 0, 0, 0]);
+        let style = NativeStyle::describe_yamaha("nested", &bytes).expect("describe");
+        assert!(style.warnings.is_empty(), "{:?}", style.warnings);
     }
 
     #[test]
