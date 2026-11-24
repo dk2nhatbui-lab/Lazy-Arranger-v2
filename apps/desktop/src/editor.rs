@@ -2157,6 +2157,64 @@ impl Editor {
         Ok(())
     }
 
+    /// Splits a plain audio reference at `at` into two comped takes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track has no audio, `at` is outside it, or the
+    /// track already has comps.
+    pub fn split_audio(&mut self, track: TrackId, at: Tick) -> Result<(), String> {
+        let entry = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .ok_or_else(|| String::from("unknown track"))?;
+        let active = entry
+            .audio
+            .clone()
+            .ok_or_else(|| String::from("track has no audio reference"))?;
+        if !entry.comps.is_empty() {
+            return Err(String::from("track already has comps"));
+        }
+        let end = active.start.saturating_add(active.length);
+        if at <= active.start || at >= end {
+            return Err(String::from("split point must be inside the audio"));
+        }
+        let left = active.clone();
+        let mut right = active.clone();
+        right.offset = right.offset.saturating_add(at.saturating_sub(active.start));
+        right.start = at;
+        right.length = end.saturating_sub(at);
+        let mut takes = entry.takes.clone();
+        let left_take = takes.len();
+        takes.push(left);
+        let right_take = takes.len();
+        takes.push(right);
+        let comps = vec![
+            project::song::AudioComp {
+                take: left_take,
+                start: active.start,
+                length: at.saturating_sub(active.start),
+            },
+            project::song::AudioComp {
+                take: right_take,
+                start: at,
+                length: end.saturating_sub(at),
+            },
+        ];
+        self.session
+            .apply(app_commands::Command::SetAudioStateFull {
+                track,
+                reference: Some(active),
+                takes,
+                comps,
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Removes a track's audio reference.
     ///
     /// # Errors
@@ -2928,6 +2986,38 @@ mod tests {
                 .map(|audio| audio.start),
             Some(0)
         );
+    }
+
+    #[test]
+    fn splitting_audio_creates_two_comps() {
+        let mut song = Song::new("Split", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Audio");
+        track.audio = Some(project::song::AudioRef {
+            path: String::from("take.wav"),
+            start: 0,
+            length: 4 * music_core::PPQ,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
+        let track = TrackId::new(1).expect("track");
+        editor
+            .split_audio(track, 2 * music_core::PPQ)
+            .expect("split");
+        let entry = &editor.song().tracks[0];
+        assert_eq!(entry.takes.len(), 2);
+        assert_eq!(entry.comps.len(), 2);
+        assert_eq!(entry.comps[0].start, 0);
+        assert_eq!(entry.comps[0].length, 2 * music_core::PPQ);
+        assert_eq!(entry.comps[1].start, 2 * music_core::PPQ);
+        assert_eq!(entry.comps[1].length, 2 * music_core::PPQ);
+        assert_eq!(entry.takes[1].offset, 2 * music_core::PPQ);
+        assert!(editor.undo());
+        assert!(editor.song().tracks[0].comps.is_empty());
+        assert!(editor.song().tracks[0].takes.is_empty());
     }
 
     #[test]

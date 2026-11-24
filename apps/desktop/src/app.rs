@@ -11818,6 +11818,7 @@ impl eframe::App for ShellApp {
                 let mut automation_edit: Option<(TrackId, project::song::Automation)> = None;
                 let mut audio_trim: Option<(TrackId, Tick)> = None;
                 let mut audio_move: Option<(TrackId, Tick)> = None;
+                let mut audio_split: Option<(TrackId, Tick)> = None;
                 let mut audio_length: Option<(TrackId, Tick)> = None;
                 let mut audio_fades: Option<(TrackId, Tick, Tick)> = None;
                 let mut audio_stretch: Option<(TrackId, bool)> = None;
@@ -11885,6 +11886,9 @@ impl eframe::App for ShellApp {
                                 if ui.button("Move back 1 beat").clicked() {
                                     let bar = project.song.time_signature.bar_ticks().max(1);
                                     audio_move = Some((*track_id, -(bar / 4)));
+                                }
+                                if ui.button("Split at playhead").clicked() {
+                                    audio_split = Some((*track_id, position));
                                 }
                                 if ui.button("Remove audio").clicked() {
                                     audio_remove = Some(*track_id);
@@ -12863,6 +12867,7 @@ impl eframe::App for ShellApp {
                     automation_edit,
                     audio_trim,
                     audio_move,
+                    audio_split,
                     audio_length,
                     audio_fades,
                     audio_stretch,
@@ -12886,6 +12891,7 @@ impl eframe::App for ShellApp {
             automation_edit,
             audio_trim,
             audio_move,
+            audio_split,
             audio_length,
             audio_fades,
             audio_stretch,
@@ -13009,6 +13015,12 @@ impl eframe::App for ShellApp {
             && let Err(error) = self.editor.move_audio(track, delta)
         {
             self.status = Some(error);
+        }
+        if let Some((track, at)) = audio_split {
+            match self.editor.split_audio(track, at) {
+                Ok(()) => self.status = Some(String::from("split audio at playhead")),
+                Err(error) => self.status = Some(error),
+            }
         }
         if let Some((track, fade_in, fade_out)) = audio_fades
             && let Err(error) = self.editor.set_audio_fades(track, fade_in, fade_out)
