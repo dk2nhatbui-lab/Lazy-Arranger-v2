@@ -27,7 +27,7 @@ percussion, lyrics, chords, guitar frames, spacing, meter, measure numbers,
 PDF/canvas/print dialog, Latin-1 PDF text); audio render, SF2 with presets,
 mixer buses/sends/master reverb/chorus/meters, stems and freeze; MIDI maps,
 learn, Launchkey preset and panic builders; arrangements, grooves, forms,
-theory and lessons; MCP server with **104 tools**, token socket and project-root
+theory and lessons; MCP server with **105 tools**, token socket and project-root
 write sandbox; five-view egui shell with eight languages, Kids Mode, named songs
 and tutorial; background rendering for Cecilia previews, waveforms and playback.
 
