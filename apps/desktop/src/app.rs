@@ -1172,6 +1172,7 @@ impl ShellApp {
             .copied()
             .unwrap_or(music_core::lesson::LessonKind::ChordQuality);
         let initial_score_follow = settings.score_follow;
+        let initial_score_frames = settings.score_frames;
         let midi_output_pref = settings.midi_output.clone();
         let initial_window = std::env::var("ARRANGER_WINDOW")
             .unwrap_or_default()
@@ -1364,7 +1365,8 @@ impl ShellApp {
                 && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
             score_all_tracks: std::env::var("ARRANGER_SCORE_ALL").is_ok(),
             score_follow: initial_score_follow,
-            score_full_frames: std::env::var("ARRANGER_FULL_FRAMES").is_ok(),
+            score_full_frames: std::env::var("ARRANGER_FULL_FRAMES").is_ok()
+                || initial_score_frames,
             score_full_hidden: std::collections::HashSet::new(),
             score_full_cache: None,
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
@@ -12729,7 +12731,13 @@ impl eframe::App for ShellApp {
                                     self.settings.score_follow = self.score_follow;
                                     let _ = self.settings.save(&crate::settings::Settings::path());
                                 }
-                                ui.checkbox(&mut self.score_full_frames, "Frames");
+                                if ui
+                                    .checkbox(&mut self.score_full_frames, "Frames")
+                                    .changed()
+                                {
+                                    self.settings.score_frames = self.score_full_frames;
+                                    let _ = self.settings.save(&crate::settings::Settings::path());
+                                }
                                 let tracks: Vec<(TrackId, String)> = project
                                     .song
                                     .tracks
