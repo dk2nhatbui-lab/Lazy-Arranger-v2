@@ -476,6 +476,7 @@ struct FullStaff {
     notes: Vec<crate::PlacedNote>,
     ties: Vec<crate::Tie>,
     tuplets: Vec<crate::Tuplet>,
+    chords: Vec<crate::ChordSymbol>,
 }
 
 /// Writes an all-track full score to PDF bytes.
@@ -515,6 +516,7 @@ pub fn to_full_pdf(
             notes: engraved.notes,
             ties: engraved.ties,
             tuplets: engraved.tuplets,
+            chords: engraved.chord_symbols,
         });
     }
     if staves.is_empty() {
@@ -524,6 +526,7 @@ pub fn to_full_pdf(
             notes: Vec::new(),
             ties: Vec::new(),
             tuplets: Vec::new(),
+            chords: Vec::new(),
         });
     }
     let page_count = staves
@@ -633,6 +636,19 @@ pub fn to_full_pdf(
                 escape(&short_track_name(&staff.name)),
                 y = settings.page_height - (top + 2.0 * line_gap)
             );
+            if staff_index == 0 {
+                for chord in staff.chords.iter().filter(|chord| chord.page == *page) {
+                    let x = first_system
+                        .map_or(chord.x, |sys| crate::full_score_x(system, sys, chord.x));
+                    let y = top + (chord.y - system.y) * (line_gap / settings.staff_space);
+                    let _ = writeln!(
+                        content,
+                        "BT /F1 8 Tf {x:.1} {:.1} Td ({}) Tj ET",
+                        settings.page_height - y,
+                        escape(&chord.name)
+                    );
+                }
+            }
             for note in staff.notes.iter().filter(|note| note.page == *page) {
                 if note.measure + 1 < system.measures.first().map_or(0, |m| m.number)
                     || note.measure + 1 > system.measures.last().map_or(0, |m| m.number)
@@ -1107,6 +1123,10 @@ mod tests {
             tonic: PitchClass::new(0),
             minor: false,
         });
+        song.chords.push(project::song::ChordEvent {
+            tick: 0,
+            chord: music_core::Chord::parse("C").expect("chord"),
+        });
         for (index, name) in [(1_u32, "Piano"), (2, "Bass")] {
             let mut track = Track::new(TrackId::new(index).expect("valid"), name);
             track.notes.push(Note {
@@ -1127,6 +1147,7 @@ mod tests {
         let text = String::from_utf8_lossy(&pdf);
         assert!(text.contains("(Piano) Tj"));
         assert!(text.contains("(Bass) Tj"));
+        assert!(text.contains("(C) Tj"));
         assert!(text.contains("/ClefTreble"), "clef image resource");
         assert!(
             text.contains("(#) Tj") || text.contains("(b) Tj"),
