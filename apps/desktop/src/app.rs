@@ -11319,6 +11319,8 @@ impl ShellApp {
                     |key| key.tonic,
                 );
                 self.theory_minor = self.song().key.is_some_and(|key| key.minor);
+                self.score_full_hidden.clear();
+                self.score_full_cache = None;
                 self.selected_note = None;
                 self.selected_clip = None;
                 self.selected_clips.clear();
