@@ -24,6 +24,25 @@ fn exports_outside_the_allowed_root_are_refused() {
         &serde_json::json!({"path": root.join("song.json").display().to_string()}),
     );
     assert!(allowed.is_ok());
+    assert!(
+        mcp::call(
+            &mut session,
+            "style_from_clips",
+            &serde_json::json!({"out": outside.join("style.sty").display().to_string()}),
+        )
+        .is_err()
+    );
+    assert!(
+        mcp::call(
+            &mut session,
+            "style_from_audio",
+            &serde_json::json!({
+                "audio": outside.join("missing.wav").display().to_string(),
+                "out": outside.join("audio.sty").display().to_string()
+            }),
+        )
+        .is_err()
+    );
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&outside);
 }
