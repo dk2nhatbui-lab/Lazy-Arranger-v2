@@ -428,6 +428,15 @@ pub fn show(
         egui::FontId::proportional(12.0 * zoom),
         Color32::from_rgb(0x14, 0x14, 0x14),
     );
+    if engraved.pages.len() > 1 {
+        painter.text(
+            Pos2::new(page_rect.center().x, page_rect.bottom() - 8.0 * zoom),
+            egui::Align2::CENTER_BOTTOM,
+            format!("{}", page_index + 1),
+            egui::FontId::proportional(8.0 * zoom),
+            Color32::from_rgb(0x50, 0x50, 0x50),
+        );
+    }
     if let Some(page) = engraved.pages.get(page_index) {
         for system in &page.systems {
             if engraved.percussion {
