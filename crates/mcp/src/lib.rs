@@ -5633,6 +5633,17 @@ mod arranging_tool_tests {
     }
 
     #[test]
+    fn export_pdf_schema_lists_full_score_options() {
+        let tool = tools()
+            .into_iter()
+            .find(|tool| tool.name == "export_pdf")
+            .expect("export_pdf");
+        let properties = &tool.input_schema["properties"];
+        assert!(properties.get("all_tracks").is_some());
+        assert!(properties.get("frames").is_some());
+    }
+
+    #[test]
     fn grooves_can_be_extracted_and_applied() {
         let mut session = session();
         let result = call(&mut session, "extract_groove", &json!({"track": 1})).expect("groove");
