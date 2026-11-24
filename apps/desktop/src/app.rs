@@ -14845,6 +14845,16 @@ mod tests {
     }
 
     #[test]
+    fn recent_projects_load_from_the_settings_folder() {
+        let context = egui::Context::default();
+        let app = ShellApp::new(&context, demo_project(), None);
+        assert_eq!(
+            app.recent_file,
+            crate::settings::Settings::path().with_file_name("recent-projects.txt")
+        );
+    }
+
+    #[test]
     fn playlist_paths_resolve_against_the_book_folder() {
         let base = std::path::Path::new("/Music/books/list.tsv");
         assert_eq!(
