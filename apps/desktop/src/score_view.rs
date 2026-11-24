@@ -730,6 +730,30 @@ pub fn show_full(
                 .flat_map(|page| page.systems.iter())
                 .nth(system_index)
         {
+            if let Some(measure) = system.measures.iter().find(|measure| {
+                position >= measure.start
+                    && position <= measure.start.saturating_add(measure.length)
+            }) {
+                let ratio = if measure.length > 0 && measure.x_end > measure.x {
+                    ((position - measure.start) as f32 / measure.length as f32).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let x =
+                    page_rect.left() + (measure.x + (measure.x_end - measure.x) * ratio) * scale;
+                painter.line_segment(
+                    [
+                        Pos2::new(x, slot_top - 2.0 * scale),
+                        Pos2::new(
+                            x,
+                            slot_top
+                                + (roster.saturating_sub(1)) as f32 * span * scale
+                                + 4.0 * line_gap * scale,
+                        ),
+                    ],
+                    Stroke::new(1.0_f32, Color32::from_rgb(0xD0, 0x30, 0x30)),
+                );
+            }
             let top = slot_top;
             let bottom =
                 top + (roster.saturating_sub(1)) as f32 * span * scale + 4.0 * line_gap * scale;
@@ -761,7 +785,6 @@ pub fn show_full(
         egui::FontId::proportional(8.0 * zoom),
         Color32::from_rgb(0x50, 0x50, 0x50),
     );
-    let _ = position;
     let seek = response
         .interact_pointer_pos()
         .filter(|_| response.clicked())
