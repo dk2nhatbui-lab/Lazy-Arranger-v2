@@ -19,6 +19,8 @@ pub struct Row {
     pub style: Option<String>,
     /// Style number, when the source has one.
     pub style_number: Option<usize>,
+    /// Playlist file path, when the source has one.
+    pub path: Option<String>,
 }
 
 /// A loaded book or playlist.
@@ -49,6 +51,7 @@ impl Browser {
                     tempo: None,
                     style: None,
                     style_number: None,
+                    path: Some(item.file_path.clone()),
                 })
                 .collect(),
             kind: String::from("Playlist"),
@@ -86,6 +89,7 @@ fn row_from_entry(entry: &Entry) -> Row {
             Some(entry.style.clone())
         },
         style_number: (entry.style_number > 0).then_some(entry.style_number as usize),
+        path: None,
     }
 }
 
@@ -134,6 +138,8 @@ pub enum Action {
     Apply(usize),
     /// Import the row's style.
     Import(usize),
+    /// Open the row's playlist file.
+    Open(usize),
 }
 
 /// Draws the browser; returns the requested action.
@@ -176,6 +182,9 @@ pub fn show(ui: &mut egui::Ui, browser: &Browser, query: &mut String) -> Option<
                     if row.style.is_some() && ui.small_button("Import").clicked() {
                         apply = Some(Action::Import(index));
                     }
+                    if row.path.is_some() && ui.small_button("Open").clicked() {
+                        apply = Some(Action::Open(index));
+                    }
                     ui.label(
                         egui::RichText::new(&row.detail)
                             .size(9.0)
@@ -206,6 +215,21 @@ mod tests {
         assert!(browser.filtered("nothing").is_empty());
         assert_eq!(browser.rows[0].tempo, Some(68.0));
         assert_eq!(browser.rows[0].style.as_deref(), Some("Ballad.sty"));
+    }
+
+    #[test]
+    fn playlist_rows_keep_the_file_path() {
+        let list = List {
+            items: vec![library::Item {
+                title: String::from("Opening"),
+                file_path: String::from("song.mid"),
+                regist: 1,
+                open_viewer: true,
+            }],
+        };
+        let browser = Browser::from_list(&list);
+        assert_eq!(browser.kind, "Playlist");
+        assert_eq!(browser.rows[0].path.as_deref(), Some("song.mid"));
     }
 
     #[test]

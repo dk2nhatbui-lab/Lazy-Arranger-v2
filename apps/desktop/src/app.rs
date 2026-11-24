@@ -2800,9 +2800,10 @@ impl ShellApp {
                     {
                         let index = match action {
                             crate::library_view::Action::Apply(index)
-                            | crate::library_view::Action::Import(index) => index,
+                            | crate::library_view::Action::Import(index)
+                            | crate::library_view::Action::Open(index) => index,
                         };
-                        let row = &browser.rows[index];
+                        let row = browser.rows[index].clone();
                         match action {
                             crate::library_view::Action::Apply(_) => match row.tempo {
                                 Some(bpm) => match self.editor.set_tempo(bpm) {
@@ -2863,6 +2864,58 @@ impl ShellApp {
                                         }
                                     }
                                     Err(error) => self.status = Some(error),
+                                }
+                            }
+                            crate::library_view::Action::Open(_) => {
+                                let path = row.path.clone().unwrap_or_default();
+                                if path.is_empty() {
+                                    self.status = Some(String::from("row has no file"));
+                                } else {
+                                    let path = std::path::Path::new(&path);
+                                    let path = if path.is_absolute() {
+                                        path.to_path_buf()
+                                    } else {
+                                        std::path::Path::new(&self.library_path)
+                                            .parent()
+                                            .map_or_else(
+                                                || path.to_path_buf(),
+                                                |base| base.join(path),
+                                            )
+                                    };
+                                    let extension = path
+                                        .extension()
+                                        .and_then(|extension| extension.to_str())
+                                        .unwrap_or_default()
+                                        .to_ascii_lowercase();
+                                    if extension == "mid" || extension == "midi" {
+                                        match std::fs::read(&path)
+                                            .map_err(|error| format!("{}: {error}", path.display()))
+                                            .and_then(|bytes| {
+                                                smf::decode(&bytes)
+                                                    .map_err(|error| error.to_string())
+                                            }) {
+                                            Ok((song, _)) => {
+                                                self.replace_project(
+                                                    ProjectFile::new(song),
+                                                    &path.display().to_string(),
+                                                );
+                                                self.project_path = Some(path);
+                                            }
+                                            Err(error) => self.status = Some(error),
+                                        }
+                                    } else {
+                                        match self.editor.import_style_tracks(&path, "Playlist") {
+                                            Ok(imported) => {
+                                                self.status = Some(format!(
+                                                    "opened {} track(s), {} note(s) from {}",
+                                                    imported.tracks,
+                                                    imported.notes,
+                                                    path.display()
+                                                ));
+                                            }
+                                            Err(error) => self.status = Some(error),
+                                        }
+                                    }
                                 }
                             }
                         }
