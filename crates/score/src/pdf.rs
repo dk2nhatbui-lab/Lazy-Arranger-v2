@@ -648,6 +648,24 @@ pub fn to_full_pdf_with_frames(
                 .first()
                 .and_then(|staff| staff.systems.get(system_index))
                 .map(|(_, system)| system);
+            let bracket_x = settings.margin - 10.0;
+            let bracket_bottom =
+                slot_top + (roster.saturating_sub(1)) as f32 * span + 4.0 * line_gap;
+            let _ = writeln!(
+                content,
+                "0.23 0.23 0.23 RG 1.4 w {bracket_x:.1} {:.1} m {bracket_x:.1} {:.1} l S",
+                settings.page_height - (slot_top - 2.0),
+                settings.page_height - (bracket_bottom + 2.0)
+            );
+            for y in [slot_top - 2.0, bracket_bottom + 2.0] {
+                let _ = writeln!(
+                    content,
+                    "0.23 0.23 0.23 RG 1 w {bracket_x:.1} {:.1} m {:.1} {:.1} l S",
+                    settings.page_height - y,
+                    bracket_x + 5.0,
+                    settings.page_height - y
+                );
+            }
             for (staff_index, staff) in staves.iter().enumerate() {
                 let Some((page, system)) = staff.systems.get(system_index) else {
                     continue;

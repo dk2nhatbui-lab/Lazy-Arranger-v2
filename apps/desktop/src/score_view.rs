@@ -432,6 +432,26 @@ pub fn show_full(
             + (slot as f32 * (roster as f32 * span + 12.0)
                 + (roster as f32 * span - staff_height) * 0.5)
                 * scale;
+        let bracket_x = left - 10.0 * scale;
+        let bracket_bottom =
+            slot_top + (roster.saturating_sub(1)) as f32 * span * scale + 4.0 * line_gap * scale;
+        let bracket_colour = Color32::from_rgb(0x3A, 0x3A, 0x3A);
+        painter.line_segment(
+            [
+                Pos2::new(bracket_x, slot_top - 2.0 * scale),
+                Pos2::new(bracket_x, bracket_bottom + 2.0 * scale),
+            ],
+            Stroke::new(1.4_f32, bracket_colour),
+        );
+        for y in [slot_top - 2.0 * scale, bracket_bottom + 2.0 * scale] {
+            painter.line_segment(
+                [
+                    Pos2::new(bracket_x, y),
+                    Pos2::new(bracket_x + 5.0 * scale, y),
+                ],
+                Stroke::new(1.0_f32, bracket_colour),
+            );
+        }
         let first_system = tracks.first().and_then(|(_, engraved)| {
             engraved
                 .pages
