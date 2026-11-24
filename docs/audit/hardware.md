@@ -107,8 +107,11 @@ Mac mini Speakers.
   --wait`) then captured physical input:
   - Launchkey Mini MK3 MIDI Port: **9 notes** in a 4-second window.
   - Yamaha PSR-S970 Port 1: **28 notes** in a 4-second window.
-  Both files imported cleanly. This verifies physical key capture for those two
-  keyboards.
+  - XioSynth: **8 notes** in a 4-second window (one held note was dropped at
+    stop).
+  - X-TOUCH MINI: **10 pads/keys** in a 4-second window.
+  All four files imported cleanly. This verifies physical input from these four
+  devices.
 - A PSR echo test (send to the PSR output while recording its input) wrote 0
   notes.
 - XioSynth input recordings during a channel check and a 35-second demo playback
@@ -116,7 +119,11 @@ Mac mini Speakers.
   captured, so audio output and the XioSynth audio path remain unverified.
 - D-05 input opened at 44.1 kHz and captured peaks around 0.031, but RMS before,
   during and after four channel-check notes showed no repeatable note envelope.
-  This is not enough to call the D-05 audio path verified.
+  This is not enough to call the D-05 audio path verified. The owner reports the
+  D-05 has no keyboard attached, so its physical key input could not be tested.
+- A 60-second XioSynth audio capture stopped at **0.54 s** and peaked around
+  0.0004, so its USB audio path is inconclusive. This is outside the app's MIDI
+  capture claim.
 - No print job was sent, so physical printing is unverified.
 - No L6max control surface response was measured; only port presence and sends
   are verified.
