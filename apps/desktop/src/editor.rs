@@ -2902,6 +2902,16 @@ mod tests {
                 .map(|audio| audio.start),
             Some(0)
         );
+        editor
+            .move_audio(track, -music_core::PPQ)
+            .expect("move back");
+        assert_eq!(
+            editor.song().tracks[0]
+                .audio
+                .as_ref()
+                .map(|audio| audio.start),
+            Some(0)
+        );
     }
 
     #[test]

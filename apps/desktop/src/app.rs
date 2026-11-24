@@ -11881,6 +11881,10 @@ impl eframe::App for ShellApp {
                                     let bar = project.song.time_signature.bar_ticks().max(1);
                                     audio_move = Some((*track_id, bar / 4));
                                 }
+                                if ui.button("Move back 1 beat").clicked() {
+                                    let bar = project.song.time_signature.bar_ticks().max(1);
+                                    audio_move = Some((*track_id, -(bar / 4)));
+                                }
                                 if ui
                                     .button("Start at playhead")
                                     .on_hover_text("Trim the front to the playhead")
