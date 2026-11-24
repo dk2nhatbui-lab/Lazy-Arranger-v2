@@ -985,6 +985,7 @@ pub struct ShellApp {
     score_grand: bool,
     score_preview: bool,
     score_all_tracks: bool,
+    score_follow: bool,
     score_full_hidden: std::collections::HashSet<TrackId>,
     score_full_cache: Option<(u64, Vec<(String, score::Engraved)>)>,
     patch_open: bool,
@@ -1336,6 +1337,7 @@ impl ShellApp {
             score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err()
                 && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
             score_all_tracks: std::env::var("ARRANGER_SCORE_ALL").is_ok(),
+            score_follow: true,
             score_full_hidden: std::collections::HashSet::new(),
             score_full_cache: None,
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
@@ -12603,6 +12605,7 @@ impl eframe::App for ShellApp {
                             ui.label(egui::RichText::new("Score").strong());
                             ui.checkbox(&mut self.score_all_tracks, "All tracks");
                             if self.score_all_tracks {
+                                ui.checkbox(&mut self.score_follow, "Follow");
                                 let tracks: Vec<(TrackId, String)> = project
                                     .song
                                     .tracks
@@ -12860,6 +12863,7 @@ impl eframe::App for ShellApp {
                                 Vec::new()
                             };
                             if self.score_all_tracks
+                                && self.score_follow
                                 && self
                                     .player
                                     .as_ref()
