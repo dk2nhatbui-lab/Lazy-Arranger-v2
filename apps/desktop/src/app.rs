@@ -4246,6 +4246,38 @@ impl ShellApp {
         Ok(())
     }
 
+    fn transcribe_audio_chords(&mut self, track_id: TrackId) -> Result<usize, String> {
+        let reference = self
+            .song()
+            .tracks
+            .iter()
+            .find(|track| track.id == track_id)
+            .and_then(|track| track.audio.clone())
+            .ok_or_else(|| String::from("this track has no active audio reference"))?;
+        let decoded = audio::decode::decode_mono(std::path::Path::new(&reference.path))
+            .map_err(|error| format!("{}: {error}", reference.path))?;
+        let found = audio::chords::recognize(&decoded.samples, decoded.sample_rate, 0.5);
+        if found.is_empty() {
+            return Err(String::from("no chords found"));
+        }
+        let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
+        let mut chords = Vec::with_capacity(found.len());
+        let mut previous = None;
+        for event in &found {
+            if previous == Some(event.chord) {
+                continue;
+            }
+            previous = Some(event.chord);
+            chords.push(project::song::ChordEvent {
+                tick: audio::chords::to_ticks(event.start, bpm),
+                chord: event.chord,
+            });
+        }
+        self.editor.set_chords(chords)?;
+        self.status = Some(format!("found {} chord(s)", found.len()));
+        Ok(found.len())
+    }
+
     fn transcribe_audio_drums(&mut self, track_id: TrackId) -> Result<(), String> {
         let reference = self
             .song()
@@ -4317,6 +4349,7 @@ impl ShellApp {
         let mut play_take: Option<String> = None;
         let mut to_midi = false;
         let mut to_drums = false;
+        let mut to_chords = false;
         let mut duplicate = false;
         egui::Window::new("Audio takes")
             .open(&mut open)
@@ -4331,6 +4364,9 @@ impl ShellApp {
                             }
                             if ui.small_button("To drums").clicked() {
                                 to_drums = true;
+                            }
+                            if ui.small_button("To chords").clicked() {
+                                to_chords = true;
                             }
                             if ui.small_button("Duplicate track").clicked() {
                                 duplicate = true;
@@ -4480,6 +4516,9 @@ impl ShellApp {
             self.status = Some(error);
         }
         if to_drums && let Err(error) = self.transcribe_audio_drums(track_id) {
+            self.status = Some(error);
+        }
+        if to_chords && let Err(error) = self.transcribe_audio_chords(track_id) {
             self.status = Some(error);
         }
         if duplicate {
@@ -14446,6 +14485,54 @@ mod tests {
             resolve_playlist_path(base, "/tmp/song.mid"),
             std::path::PathBuf::from("/tmp/song.mid")
         );
+    }
+
+    #[test]
+    fn an_audio_track_transcribes_chords() {
+        let context = egui::Context::default();
+        let mut app = ShellApp::new(&context, demo_project(), None);
+        let rate = 48_000_u32;
+        let mut samples = vec![0.0_f32; rate as usize];
+        for (index, sample) in samples.iter_mut().enumerate() {
+            let time = index as f32 / rate as f32;
+            *sample = [261.63_f32, 329.63, 392.0]
+                .iter()
+                .map(|hz| (std::f32::consts::TAU * hz * time).sin())
+                .sum::<f32>()
+                / 3.0;
+        }
+        let path =
+            std::env::temp_dir().join(format!("lazy-arranger-chords-{}.wav", std::process::id()));
+        std::fs::write(
+            &path,
+            audio::RenderedAudio {
+                samples,
+                sample_rate: rate,
+            }
+            .to_wav32f(),
+        )
+        .expect("wav");
+        let id = project::TrackId::new(92).expect("track");
+        let mut track = project::song::Track::new(id, "Chords source");
+        track.audio = Some(project::song::AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: 960,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+            gain_mb: 0,
+        });
+        app.editor
+            .session_for_test()
+            .apply(app_commands::Command::InsertTrack { track })
+            .expect("track");
+        let found = app.transcribe_audio_chords(id).expect("chords");
+        assert!(found >= 1);
+        assert!(!app.song().chords.is_empty());
+        assert_eq!(app.song().chords[0].chord.root.as_u8(), 0);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
