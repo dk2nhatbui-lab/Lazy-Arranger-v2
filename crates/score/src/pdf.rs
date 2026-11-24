@@ -299,6 +299,16 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     b = mid + (x2 - x1) / 6.0,
                 );
             }
+            if engraved.pages.len() > 1 {
+                let label = format!("{}", index + 1);
+                let width = label.len() as f32 * 4.5;
+                let _ = writeln!(
+                    content,
+                    "BT /F1 8 Tf {:.1} 20 Td ({}) Tj ET",
+                    settings.page_width / 2.0 - width / 2.0,
+                    label
+                );
+            }
             for rest in engraved.rests.iter().filter(|rest| rest.page == index) {
                 let (width, height) = match rest.kind {
                     crate::RestKind::Whole | crate::RestKind::Half => {
@@ -743,6 +753,7 @@ mod tests {
         assert!(text.contains("(4) Tj"), "time signature digits");
         assert!(text.contains("(1) Tj"), "measure number");
         assert!(text.contains("/ClefTreble"), "treble clef image object");
+        assert_eq!(text.matches(" 20 Td").count(), 2, "page numbers");
         assert!(text.contains("/ClefBass"), "bass clef image object");
         assert!(!text.contains(" C? "), "no music glyphs from base fonts");
     }
