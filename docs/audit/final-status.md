@@ -200,4 +200,4 @@ For the clef layout, choose either four measures per system without clefs
 - Timeline draws comp-span boundaries on the audio block (`docs/audit/audio-comps-timeline.png`).
 - `scripts/check.sh` runs fmt, clippy, the workspace suite and rustdoc; all gates pass.
 - Corrected stale audit text: VST3 parameter UI and automation target exist; native editors still do not.
-- Final hardware round: all five MIDI outputs accepted note and panic sends; a new note-triggered recorder captured **9 Launchkey notes**, **28 PSR-S970 notes**, **8 XioSynth notes**, **10 X-TOUCH pads**, and **1,118 Launchkey and 1,118 X-TOUCH control changes**. D-05 audio capture was inconclusive; audible output, printing and L6max control remain unverified (`docs/audit/hardware.md`).
+- Final hardware round: all five MIDI outputs accepted note and panic sends; a new note-triggered recorder captured **9 Launchkey notes**, **28 PSR-S970 notes**, **8 XioSynth notes**, **10 X-TOUCH pads**, and **1,118 Launchkey / 635 X-TOUCH control changes**. D-05 audio capture was inconclusive; audible output, printing and L6max control remain unverified (`docs/audit/hardware.md`).
