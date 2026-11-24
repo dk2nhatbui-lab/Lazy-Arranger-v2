@@ -2797,6 +2797,24 @@ mod tests {
     }
 
     #[test]
+    fn a_section_can_be_joined_to_itself() {
+        let mut editor = editor();
+        editor.add_marker(0, "A").expect("A");
+        editor.add_marker(3840, "B").expect("B");
+        let outcome = editor.join_loop("A", 2).expect("join");
+        assert_eq!(outcome.copies, 1);
+        assert_eq!(outcome.section, "A");
+        assert!(editor.undo());
+        assert!(
+            editor
+                .song()
+                .markers
+                .iter()
+                .any(|marker| marker.name == "A")
+        );
+    }
+
+    #[test]
     fn a_transition_is_added_and_undone() {
         let mut song = Song::new("Fill", 120.0);
         let mut drums = Track::new(TrackId::new(1).expect("valid"), "Drums");
