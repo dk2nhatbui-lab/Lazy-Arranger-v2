@@ -1081,6 +1081,18 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "join_loop",
+            description: "Repeat a marker section in place.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "section": {"type": "string"},
+                    "total": {"type": "integer"}
+                },
+                "required": ["section", "total"]
+            }),
+        },
+        Tool {
             name: "form_transition",
             description: "Add a transition ending at a tick.",
             input_schema: json!({
@@ -3667,6 +3679,26 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
         "save_groove" => save_groove(session, arguments),
         "apply_groove_file" => apply_groove_file(session, arguments),
         "apply_groove" => apply_groove(session, arguments),
+        "join_loop" => {
+            let section = arguments
+                .get("section")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("section is required")))?;
+            let total = arguments
+                .get("total")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("total is required")))?;
+            let total = usize::try_from(total)
+                .map_err(|_| ToolError::Arguments(String::from("total is too large")))?;
+            let outcome = arranging::forms::join_loop(session, section, total)
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            Ok(json!({
+                "section": outcome.section,
+                "copies": outcome.copies,
+                "notes": outcome.notes,
+                "length": outcome.length
+            }))
+        }
         "form_transition" => {
             use arranging::forms::Transition;
             let tick = arguments
@@ -4260,7 +4292,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 110);
+        assert_eq!(tools().len(), 111);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
@@ -5615,6 +5647,18 @@ mod arranging_tool_tests {
         );
         let form = call(&mut session, "make_song_form", &json!({"preset": "gig"})).expect("form");
         assert!(form["notes"].as_u64().expect("notes") > 0);
+        let markers = call(&mut session, "get_markers", &json!({})).expect("markers");
+        let section = markers["markers"][0]["name"]
+            .as_str()
+            .expect("section")
+            .to_string();
+        let joined = call(
+            &mut session,
+            "join_loop",
+            &json!({"section": section, "total": 2}),
+        )
+        .expect("join");
+        assert_eq!(joined["copies"], 1);
         let reharm = call(
             &mut session,
             "reharmonize",
