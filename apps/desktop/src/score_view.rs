@@ -482,6 +482,84 @@ pub fn show_full(
                 }
             }
         }
+        let mut shorts: Vec<&score::PlacedNote> = engraved
+            .notes
+            .iter()
+            .filter(|note| note.page == source_page && note.duration <= music_core::PPQ / 2)
+            .collect();
+        shorts.sort_by_key(|note| note.tick);
+        for pair in shorts.windows(2) {
+            let [first, second] = pair else {
+                continue;
+            };
+            if first.measure != second.measure || second.tick - first.tick > music_core::PPQ / 2 {
+                continue;
+            }
+            if first.measure + 1 < system.measures.first().map_or(0, |m| m.number)
+                || first.measure + 1 > system.measures.last().map_or(0, |m| m.number)
+            {
+                continue;
+            }
+            let first_y = top + (first.y - system.y) * (line_gap / settings.staff_space) * zoom;
+            let second_y = top + (second.y - system.y) * (line_gap / settings.staff_space) * zoom;
+            let upward = first.pitch.as_u8() < 71 && second.pitch.as_u8() < 71;
+            let offset = if upward {
+                3.0 * line_gap * zoom
+            } else {
+                -3.0 * line_gap * zoom
+            };
+            let first_x = page_rect.left() + first.x * zoom;
+            let second_x = page_rect.left() + second.x * zoom;
+            painter.line_segment(
+                [
+                    Pos2::new(first_x, first_y + offset),
+                    Pos2::new(second_x, second_y + offset),
+                ],
+                Stroke::new(0.7_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+            );
+            if first.duration <= music_core::PPQ / 4 && second.duration <= music_core::PPQ / 4 {
+                painter.line_segment(
+                    [
+                        Pos2::new(first_x, first_y + offset + 1.5 * zoom),
+                        Pos2::new(second_x, second_y + offset + 1.5 * zoom),
+                    ],
+                    Stroke::new(0.7_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+                );
+            }
+        }
+        for tie in engraved.ties.iter().filter(|tie| tie.page == source_page) {
+            let y = top + (tie.y - system.y) * (line_gap / settings.staff_space) * zoom;
+            let start = page_rect.left() + tie.start_x * zoom;
+            let end = page_rect.left() + tie.end_x * zoom;
+            painter.add(egui::Shape::line(
+                vec![
+                    Pos2::new(start, y),
+                    Pos2::new((start + end) / 2.0, y + 2.0 * zoom),
+                    Pos2::new(end, y),
+                ],
+                Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+            ));
+        }
+        for tuplet in engraved
+            .tuplets
+            .iter()
+            .filter(|tuplet| tuplet.page == source_page)
+        {
+            let y = top + (tuplet.y - system.y) * (line_gap / settings.staff_space) * zoom;
+            let start = page_rect.left() + tuplet.start_x * zoom;
+            let end = page_rect.left() + tuplet.end_x * zoom;
+            painter.line_segment(
+                [Pos2::new(start, y), Pos2::new(end, y)],
+                Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+            );
+            painter.text(
+                Pos2::new((start + end) / 2.0, y - 1.0 * zoom),
+                egui::Align2::CENTER_BOTTOM,
+                format!("{}", tuplet.count),
+                egui::FontId::proportional(6.0 * zoom),
+                Color32::from_rgb(0x10, 0x10, 0x10),
+            );
+        }
     }
     if let Some((_, engraved)) = tracks.first()
         && let Some(system) = engraved
