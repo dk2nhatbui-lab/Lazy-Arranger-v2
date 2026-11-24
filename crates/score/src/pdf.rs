@@ -667,6 +667,47 @@ pub fn to_full_pdf(
                     settings.page_height - stem
                 );
             }
+            let mut shorts: Vec<&crate::PlacedNote> = staff
+                .notes
+                .iter()
+                .filter(|note| note.page == *page && note.duration <= music_core::PPQ / 2)
+                .collect();
+            shorts.sort_by_key(|note| note.tick);
+            for pair in shorts.windows(2) {
+                let [first, second] = pair else {
+                    continue;
+                };
+                if first.measure != second.measure || second.tick - first.tick > music_core::PPQ / 2
+                {
+                    continue;
+                }
+                let first_y = top + (first.y - system.y) * (line_gap / settings.staff_space);
+                let second_y = top + (second.y - system.y) * (line_gap / settings.staff_space);
+                let upward = first.pitch.as_u8() < 71 && second.pitch.as_u8() < 71;
+                let offset = if upward {
+                    3.0 * line_gap
+                } else {
+                    -3.0 * line_gap
+                };
+                let _ = writeln!(
+                    content,
+                    "{:.1} {:.1} m {:.1} {:.1} l S",
+                    first.x,
+                    settings.page_height - (first_y + offset),
+                    second.x,
+                    settings.page_height - (second_y + offset)
+                );
+                if first.duration <= music_core::PPQ / 4 && second.duration <= music_core::PPQ / 4 {
+                    let _ = writeln!(
+                        content,
+                        "{:.1} {:.1} m {:.1} {:.1} l S",
+                        first.x,
+                        settings.page_height - (first_y + offset + 1.5),
+                        second.x,
+                        settings.page_height - (second_y + offset + 1.5)
+                    );
+                }
+            }
         }
         if let Some(staff) = staves.first()
             && let Some((_, system)) = staff.systems.get(page_index)
