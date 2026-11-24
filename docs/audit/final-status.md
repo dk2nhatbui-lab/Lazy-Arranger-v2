@@ -1,6 +1,6 @@
-# Final status (2026-11-23)
+# Final status (2026-11-24)
 
-Commit basis: the L6max device-mixer commit at round 467. Goal: C++ v1.0.0-beta.1 feature parity.
+Commit basis: audit-remediation work at round 467. Goal: C++ v1.0.0-beta.1 feature parity.
 **Parity is not claimed.** All 39 crosscheck rows are `partial`; none is
 `verified` in full, because several require material this environment does not
 have (hardware, proprietary formats, native plug-in editor support or model
@@ -8,13 +8,13 @@ services).
 
 ## Gate and CI
 
-- `cargo test --workspace`: **778 passed, 0 failed** (also 774/774 with one test thread before the L6max module tests).
+- `cargo test --workspace`: **796 passed, 0 failed**.
 - `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all`
   and rustdoc (warnings denied): clean.
-- Release build: 32.47 s; 648 release tests at the time; CLI demo and desktop
-  smoke recorded in `docs/audit/release.md`.
-- GitHub Actions, runs on `fbead10`, `9e3bfe0`, `d3b0199` and `752b1ca`:
-  ubuntu, macos and windows all green. The long Windows stack overflow is fixed
+- Release build and desktop smoke are recorded in `docs/audit/release.md`.
+- GitHub Actions: ubuntu, macos and windows green on `bacb607` and the following
+  audit-remediation commits. The earlier Linux/Windows failure was macOS-only
+  AU symbols plus target-specific Clippy warnings. The long Windows stack overflow is fixed
   (`5c98cc4`); evidence in `docs/audit/ci-windows-failures.md`.
 
 ## Verified areas (representative)
@@ -207,3 +207,19 @@ For the clef layout, choose either four measures per system without clefs
 - cpal output played audibly on Mac mini Speakers; a one-page score printed on the Brother printer.
 - Score marks window adds/removes dynamics and articulations at the playhead (`docs/audit/score-marks.png`).
 - Release bundle rebuilt after the L6max/marks work; app-bundle.png refreshed. With instruments powered down the status bar shows no MIDI inputs.
+
+## Audit remediation (Claude and Gemini)
+
+The two external audits were reviewed against HEAD. Fixed: non-macOS AU stubs,
+VST3 module/host lifetimes, failed-open path clearing, AU timestamp layout and
+action flags, shell/AI/dictation argument injection, MCP CSPRNG tokens and
+permissions, parser division/overflow panics, zero-PPQ MIDI, stereo WAV/reverb,
+device-rate playback, config-directory storage, clipped comp offsets, split
+clip lengths, duplicate loop ids, generated bass channel routing, XG System On,
+CC value zero, SF2 bounds, CASM multi-rule writing, MusicXML divisions, score
+track selection, loop offsets, stale playback, recording paths, update HTTPS and
+README/architecture-contract restoration.
+
+Still open: full all-track score, native plug-in editor windows, D-05/Xio sound
+editor pages, Korg PCG, L6max project/readback/transport, MCP path sandboxing,
+score-notation edge cases and some audio PDC/comp crossfade behaviour.
