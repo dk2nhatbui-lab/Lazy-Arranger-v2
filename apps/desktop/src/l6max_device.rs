@@ -52,7 +52,7 @@ pub fn parameter_cc(row: usize, channel: usize) -> Option<u8> {
 }
 
 /// Mutable mixer state shown by the window.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DeviceState {
     /// Ten parameter values per channel.
     pub values: [[u8; 10]; 8],
@@ -87,6 +87,25 @@ impl Default for DeviceState {
     }
 }
 
+/// Path for the persisted last-sent values.
+pub const STATE_PATH: &str = "l6max-device.json";
+
+/// Reads persisted values, or defaults.
+#[must_use]
+pub fn load(path: &std::path::Path) -> DeviceState {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+/// Writes the values, best effort.
+pub fn save(path: &std::path::Path, state: &DeviceState) {
+    if let Ok(text) = serde_json::to_string_pretty(state) {
+        let _ = std::fs::write(path, text);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,6 +121,20 @@ mod tests {
         assert_eq!(MUTES, [93, 94, 95, 102, 103, 104, 105, 106]);
         assert_eq!(MONO, [(4, 109), (5, 110)]);
         assert_eq!(USB, [(6, 113), (7, 114)]);
+    }
+
+    #[test]
+    fn values_round_trip_through_json() {
+        let mut state = DeviceState::default();
+        state.values[2][9] = 42;
+        state.mutes[4] = true;
+        state.modes[6] = true;
+        state.efx = 3;
+        state.compressor = true;
+        state.channel = 7;
+        let text = serde_json::to_string(&state).expect("json");
+        let back: DeviceState = serde_json::from_str(&text).expect("parse");
+        assert_eq!(back, state);
     }
 
     #[test]

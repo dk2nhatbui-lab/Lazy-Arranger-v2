@@ -1,6 +1,6 @@
 # Final status (2026-11-23)
 
-Commit basis: the L6max device-mixer commit at round 463. Goal: C++ v1.0.0-beta.1 feature parity.
+Commit basis: the L6max device-mixer commit at round 464. Goal: C++ v1.0.0-beta.1 feature parity.
 **Parity is not claimed.** All 39 crosscheck rows are `partial`; none is
 `verified` in full, because several require material this environment does not
 have (hardware, proprietary formats, native plug-in editor support or model
@@ -8,7 +8,7 @@ services).
 
 ## Gate and CI
 
-- `cargo test --workspace`: **776 passed, 0 failed** (also 774/774 with one test thread before the L6max module tests).
+- `cargo test --workspace`: **777 passed, 0 failed** (also 774/774 with one test thread before the L6max module tests).
 - `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all`
   and rustdoc (warnings denied): clean.
 - Release build: 32.47 s; 648 release tests at the time; CLI demo and desktop
@@ -202,3 +202,4 @@ For the clef layout, choose either four measures per system without clefs
 - Corrected stale audit text: VST3 parameter UI and automation target exist; native editors still do not.
 - Final hardware round: all five MIDI outputs accepted note and panic sends; a new note-triggered recorder captured **9 Launchkey notes**, **28 PSR-S970 notes**, **8 XioSynth notes**, **10 X-TOUCH pads**, and **1,118 Launchkey / 635 X-TOUCH control changes**. D-05 audio capture was inconclusive; audible output, printing and L6max control remain unverified (`docs/audit/hardware.md`).
 - L6max device mixer page sends the factory 8-channel CC map; the owner observed hardware CH1 mute from CC 93 (`docs/audit/l6max-device.png`).
+- L6max device values persist in l6max-device.json; hardware mute verified, readback absent.

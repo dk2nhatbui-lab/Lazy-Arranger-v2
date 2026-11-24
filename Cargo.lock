@@ -1588,6 +1588,7 @@ dependencies = [
  "plugins",
  "project",
  "score",
+ "serde",
  "serde_json",
  "smf",
  "style-formats",

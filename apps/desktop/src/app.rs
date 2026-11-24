@@ -1311,7 +1311,9 @@ impl ShellApp {
             midi_out_velocity: 100,
             midi_out_cc: 7,
             l6max_device_open: std::env::var("ARRANGER_L6DEVICE").is_ok(),
-            l6max_device: crate::l6max_device::DeviceState::default(),
+            l6max_device: crate::l6max_device::load(std::path::Path::new(
+                crate::l6max_device::STATE_PATH,
+            )),
             takes_open: std::env::var("ARRANGER_TAKES").is_ok(),
             xg_open: std::env::var("ARRANGER_XG").is_ok(),
             xg_parts: [[100, 64, 40, 0]; 16],
@@ -5546,7 +5548,13 @@ impl ShellApp {
             changes.push((crate::l6max_device::EFX_TYPE, 0));
             changes.push((crate::l6max_device::COMPRESSOR, 0));
         }
-        self.l6max_device = state;
+        if self.l6max_device != state {
+            crate::l6max_device::save(
+                std::path::Path::new(crate::l6max_device::STATE_PATH),
+                &state,
+            );
+            self.l6max_device = state;
+        }
         self.l6max_device_open = open;
         self.send_l6max_changes(&changes, scene);
     }
