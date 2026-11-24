@@ -156,6 +156,17 @@ pub fn export(song: &Song, title: &str) -> String {
                 }
             }
             if index == 0 {
+                for marker in song
+                    .markers
+                    .iter()
+                    .filter(|marker| marker.tick >= start && marker.tick < stop)
+                {
+                    out.push_str(&format!(
+                        "      <direction placement=\"above\"><direction-type><rehearsal>{}</rehearsal></direction-type><offset>{}</offset></direction>\n",
+                        escape(&marker.name),
+                        marker.tick - start
+                    ));
+                }
                 for mark in song
                     .marks
                     .iter()
@@ -575,6 +586,17 @@ mod tests {
         let xml = export(&song, "Frame");
         assert!(xml.contains("<frame-strings>6</frame-strings>"));
         assert!(xml.contains("<frame-note>"));
+    }
+
+    #[test]
+    fn section_markers_export_as_rehearsal_marks() {
+        let mut song = song();
+        song.markers.push(project::Marker {
+            tick: 0,
+            name: String::from("Intro"),
+        });
+        let xml = export(&song, "Markers");
+        assert!(xml.contains("<rehearsal>Intro</rehearsal>"), "{xml}");
     }
 
     #[test]

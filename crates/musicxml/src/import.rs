@@ -63,6 +63,21 @@ fn read_harmony(harmony: roxmltree::Node<'_, '_>) -> Option<music_core::Chord> {
     music_core::Chord::parse(&symbol).ok()
 }
 
+fn read_rehearsal(direction: roxmltree::Node<'_, '_>, tick: Tick) -> Option<project::Marker> {
+    let body = direction
+        .children()
+        .find(|node| node.has_tag_name("direction-type"))?;
+    let name = body
+        .children()
+        .find(|node| node.has_tag_name("rehearsal"))
+        .and_then(|node| node.text())?
+        .trim();
+    (!name.is_empty()).then(|| project::Marker {
+        tick,
+        name: name.to_string(),
+    })
+}
+
 fn read_mark(direction: roxmltree::Node<'_, '_>, tick: Tick) -> Option<project::song::Mark> {
     use project::song::{Articulation, Dynamic, Mark, MarkKind};
     let body = direction
@@ -266,10 +281,11 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                 .children()
                 .filter(|node| node.has_tag_name("direction"))
             {
-                if let Some(mark) = read_mark(
-                    direction,
-                    measure_start + offset_ticks(direction, divisions),
-                ) {
+                let tick = measure_start + offset_ticks(direction, divisions);
+                if let Some(marker) = read_rehearsal(direction, tick) {
+                    song.markers.push(marker);
+                }
+                if let Some(mark) = read_mark(direction, tick) {
                     song.marks.push(mark);
                 }
             }

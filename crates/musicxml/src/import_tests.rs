@@ -5,6 +5,28 @@ mod tests {
     use project::song::{Song, Track};
 
     #[test]
+    fn rehearsal_marks_round_trip_as_section_markers() {
+        let mut song = Song::new("Markers", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 960,
+            pitch: music_core::Pitch::from_name("C4").expect("valid"),
+            velocity: music_core::Velocity::new(100).expect("valid"),
+            channel: music_core::Channel::first(),
+        });
+        song.tracks.push(track);
+        song.markers.push(project::Marker {
+            tick: 0,
+            name: String::from("Intro"),
+        });
+        let imported = import(&export(&song, "Markers")).expect("import");
+        assert_eq!(imported.markers.len(), 1);
+        assert_eq!(imported.markers[0].name, "Intro");
+    }
+
+    #[test]
     fn slash_chord_bass_round_trips() {
         let mut song = Song::new("Slash", 120.0);
         let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");
