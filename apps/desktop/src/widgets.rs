@@ -256,6 +256,297 @@ fn darken(colour: Color32, amount: f32) -> Color32 {
     Color32::from_rgb(mix(colour.r()), mix(colour.g()), mix(colour.b()))
 }
 
+/// A round transport button drawn like v1's `RoundButton`.
+pub(crate) fn draw_track_icon(
+    ui: &egui::Ui,
+    rect: Rect,
+    name: &str,
+    program: Option<u8>,
+    audio: bool,
+    color: egui::Color32,
+) {
+    let lower = name.to_ascii_lowercase();
+    let has = |word: &str| lower.contains(word);
+    let icon = if audio {
+        "waveform"
+    } else if has("drum") || has("kit") || has("perc") {
+        "drums"
+    } else if has("guitar") {
+        "guitar"
+    } else if has("bass") {
+        "bass"
+    } else if has("brass") || has("trumpet") || has("trombone") || has("sax") || has("horn") {
+        "brass"
+    } else if has("piano") || has("keys") {
+        "piano"
+    } else if has("lead") || has("synth") || has("pad") || has("arp") {
+        "synth"
+    } else {
+        match program.unwrap_or(0) {
+            24..=31 => "guitar",
+            32..=39 => "bass",
+            56..=63 => "brass",
+            80..=87 => "synth",
+            0..=7 => "piano",
+            _ => "instrument",
+        }
+    };
+    let painter = ui.painter();
+    let c = rect.center();
+    let ink = theme::text_muted();
+    let stroke = egui::Stroke::new(1.4_f32, ink);
+    let line = |a: egui::Pos2, b: egui::Pos2| painter.line_segment([a, b], stroke);
+    match icon {
+        "drums" => {
+            painter.circle_stroke(egui::pos2(c.x - 3.0, c.y + 3.0), 4.5, stroke);
+            painter.circle_stroke(egui::pos2(c.x - 3.0, c.y + 3.0), 1.8, stroke);
+            let snare =
+                Rect::from_center_size(egui::pos2(c.x + 5.0, c.y + 2.0), egui::vec2(5.0, 3.5));
+            painter.rect_stroke(snare, 1.0, stroke, egui::StrokeKind::Inside);
+            line(
+                egui::pos2(snare.left(), snare.bottom()),
+                egui::pos2(snare.left(), c.y + 8.0),
+            );
+            line(
+                egui::pos2(snare.right(), snare.bottom()),
+                egui::pos2(snare.right(), c.y + 8.0),
+            );
+            line(
+                egui::pos2(c.x - 7.0, c.y - 8.0),
+                egui::pos2(c.x + 2.0, c.y - 8.0),
+            );
+            line(egui::pos2(c.x - 5.0, c.y - 8.0), egui::pos2(c.x, c.y + 1.0));
+        }
+        "guitar" => {
+            painter.circle_stroke(egui::pos2(c.x - 4.0, c.y + 4.0), 4.5, stroke);
+            painter.circle_stroke(egui::pos2(c.x + 0.5, c.y - 0.5), 3.5, stroke);
+            line(
+                egui::pos2(c.x + 1.0, c.y - 1.0),
+                egui::pos2(c.x + 9.0, c.y - 9.0),
+            );
+            painter.circle_filled(egui::pos2(c.x - 4.0, c.y + 4.0), 1.5, ink);
+        }
+        "bass" => {
+            painter.circle_stroke(egui::pos2(c.x - 4.0, c.y + 4.0), 5.0, stroke);
+            line(
+                egui::pos2(c.x - 1.0, c.y + 1.0),
+                egui::pos2(c.x + 8.0, c.y - 8.0),
+            );
+            painter.rect_filled(
+                Rect::from_center_size(egui::pos2(c.x + 8.5, c.y - 8.5), egui::vec2(3.0, 4.0)),
+                1.0,
+                ink,
+            );
+        }
+        "brass" => {
+            let points = vec![
+                egui::pos2(c.x - 9.0, c.y),
+                egui::pos2(c.x - 2.0, c.y + 1.0),
+                egui::pos2(c.x + 2.0, c.y + 5.0),
+                egui::pos2(c.x + 8.0, c.y + 6.0),
+                egui::pos2(c.x + 8.0, c.y - 5.0),
+                egui::pos2(c.x + 2.0, c.y - 3.0),
+                egui::pos2(c.x - 2.0, c.y + 1.0),
+            ];
+            painter.add(egui::Shape::line(points, stroke));
+            line(
+                egui::pos2(c.x - 1.0, c.y - 3.0),
+                egui::pos2(c.x - 1.0, c.y + 3.0),
+            );
+        }
+        "piano" => {
+            let keys = Rect::from_center_size(egui::pos2(c.x, c.y - 1.0), egui::vec2(15.0, 7.0));
+            painter.rect_stroke(keys, 1.0, stroke, egui::StrokeKind::Inside);
+            for index in 1..5 {
+                let x = keys.left() + keys.width() * index as f32 / 5.0;
+                line(egui::pos2(x, keys.top()), egui::pos2(x, keys.bottom()));
+            }
+            line(
+                egui::pos2(keys.left() + 2.0, keys.bottom()),
+                egui::pos2(keys.left() + 1.0, c.y + 9.0),
+            );
+            line(
+                egui::pos2(keys.right() - 2.0, keys.bottom()),
+                egui::pos2(keys.right() - 1.0, c.y + 9.0),
+            );
+        }
+        "synth" => {
+            let panel = Rect::from_center_size(c, egui::vec2(15.0, 10.0));
+            painter.rect_stroke(panel, 1.0, stroke, egui::StrokeKind::Inside);
+            for index in 0..3 {
+                painter.circle_stroke(
+                    egui::pos2(panel.left() + 3.0 + index as f32 * 4.0, panel.top() + 3.0),
+                    1.4,
+                    stroke,
+                );
+            }
+            line(
+                egui::pos2(panel.left() + 2.0, panel.bottom() - 2.0),
+                egui::pos2(panel.right() - 2.0, panel.bottom() - 2.0),
+            );
+        }
+        "waveform" => {
+            let heights = [4.0_f32, 8.0, 11.0, 6.0, 9.0];
+            for (index, height) in heights.iter().enumerate() {
+                let x = c.x - 8.0 + index as f32 * 4.0;
+                painter.rect_filled(
+                    Rect::from_min_max(
+                        egui::pos2(x, c.y - height / 2.0),
+                        egui::pos2(x + 2.5, c.y + height / 2.0),
+                    ),
+                    1.0,
+                    color,
+                );
+            }
+        }
+        _ => {
+            let keys = Rect::from_center_size(c, egui::vec2(14.0, 10.0));
+            painter.rect_stroke(keys, 1.0, stroke, egui::StrokeKind::Inside);
+            for index in 1..4 {
+                let x = keys.left() + keys.width() * index as f32 / 4.0;
+                line(egui::pos2(x, keys.top()), egui::pos2(x, keys.bottom()));
+            }
+            for index in 0..3 {
+                let x = keys.left() + 2.0 + index as f32 * 3.5;
+                painter.rect_filled(
+                    Rect::from_min_size(egui::pos2(x, keys.top()), egui::vec2(2.0, 5.0)),
+                    0.5,
+                    ink,
+                );
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn mixer_fader(
+    ui: &mut egui::Ui,
+    value: &mut f32,
+    min: f32,
+    max: f32,
+    height: f32,
+    color: egui::Color32,
+    label: &str,
+    default_value: f32,
+) -> bool {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(32.0, height), egui::Sense::click_and_drag());
+    let response =
+        response.on_hover_text(format!("{label}: drag (Shift fine), double-click to reset"));
+    let double_clicked = response.double_clicked();
+    let delta = ui.input(|input| input.pointer.delta().y);
+    let mut changed = false;
+    if double_clicked {
+        *value = default_value.clamp(min, max);
+        changed = true;
+    } else if response.dragged() && delta != 0.0 {
+        let scale = if ui.input(|input| input.modifiers.shift) {
+            0.25
+        } else {
+            1.0
+        };
+        *value = (*value - delta / height * (max - min) * scale).clamp(min, max);
+        changed = true;
+    }
+    let rect = egui::Rect::from_min_size(rect.min, egui::vec2(32.0, height));
+    let center_x = rect.center().x;
+    let track = egui::Rect::from_min_max(
+        egui::pos2(center_x - 2.0, rect.top() + 6.0),
+        egui::pos2(center_x + 2.0, rect.bottom() - 6.0),
+    );
+    ui.painter().rect_filled(track, 2.0, theme::raised());
+    let ratio = ((*value - min) / (max - min).max(0.0001)).clamp(0.0, 1.0);
+    let thumb_y = track.bottom() - ratio * track.height();
+    let filled = egui::Rect::from_min_max(
+        egui::pos2(center_x - 2.0, thumb_y),
+        egui::pos2(center_x + 2.0, track.bottom()),
+    );
+    ui.painter().rect_filled(filled, 2.0, color);
+    ui.painter()
+        .circle_filled(egui::pos2(center_x, thumb_y), 6.0, theme::raised());
+    ui.painter().circle_stroke(
+        egui::pos2(center_x, thumb_y),
+        6.0,
+        egui::Stroke::new(1.0_f32, theme::line()),
+    );
+    response.on_hover_text(label).clicked() || changed
+}
+
+pub(crate) fn painter_strip(ui: &mut egui::Ui, color: egui::Color32) {
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 3.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 1.0, color);
+}
+
+pub(crate) fn pan_label(pan: f32) -> String {
+    let value = pan.round() as i32;
+    if value == 64 {
+        String::from("C")
+    } else if value < 64 {
+        format!("L{}", 64 - value)
+    } else {
+        format!("R{}", value - 64)
+    }
+}
+
+pub(crate) fn mixer_knob(
+    ui: &mut egui::Ui,
+    value: &mut f32,
+    min: f32,
+    max: f32,
+    label: &str,
+    enabled: bool,
+) -> bool {
+    let size = egui::vec2(44.0, 46.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+    if enabled && response.dragged() {
+        let delta = ui.input(|input| input.pointer.delta().y);
+        *value = (*value - delta / 90.0 * (max - min)).clamp(min, max);
+    }
+    let changed = enabled && response.dragged() && ui.input(|input| input.pointer.delta().y != 0.0);
+    let center = egui::pos2(rect.center().x, rect.top() + 15.0);
+    let radius = 13.0;
+    let fill = if enabled {
+        theme::raised()
+    } else {
+        theme::panel()
+    };
+    ui.painter().circle_filled(center, radius, fill);
+    ui.painter()
+        .circle_stroke(center, radius, egui::Stroke::new(1.0_f32, theme::line()));
+    let ratio = ((*value - min) / (max - min).max(0.0001)).clamp(0.0, 1.0);
+    let angle = (-std::f32::consts::FRAC_PI_2 - 2.356) + ratio * 4.712;
+    let end = egui::pos2(
+        center.x + angle.cos() * (radius - 3.0),
+        center.y + angle.sin() * (radius - 3.0),
+    );
+    ui.painter().line_segment(
+        [center, end],
+        egui::Stroke::new(
+            2.0_f32,
+            if enabled {
+                theme::accent()
+            } else {
+                theme::text_dim()
+            },
+        ),
+    );
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.bottom() - 6.0),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(9.0),
+        theme::text_muted(),
+    );
+    let response = if enabled {
+        response.on_hover_text("Drag up or down")
+    } else {
+        response.on_hover_text("Chorus send is not routed")
+    };
+    let _ = response;
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
