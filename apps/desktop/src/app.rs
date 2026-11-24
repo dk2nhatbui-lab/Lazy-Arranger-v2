@@ -11822,6 +11822,7 @@ impl eframe::App for ShellApp {
                 let mut audio_fades: Option<(TrackId, Tick, Tick)> = None;
                 let mut audio_stretch: Option<(TrackId, bool)> = None;
                 let mut audio_normalize: Option<TrackId> = None;
+                let mut audio_remove: Option<TrackId> = None;
                 let mut score_status: Option<String> = None;
                 let entry_enabled_flag = self.score_entry;
                 let mut perform_chord: Option<music_core::Chord> = None;
@@ -11884,6 +11885,9 @@ impl eframe::App for ShellApp {
                                 if ui.button("Move back 1 beat").clicked() {
                                     let bar = project.song.time_signature.bar_ticks().max(1);
                                     audio_move = Some((*track_id, -(bar / 4)));
+                                }
+                                if ui.button("Remove audio").clicked() {
+                                    audio_remove = Some(*track_id);
                                 }
                                 if ui
                                     .button("Start at playhead")
@@ -12863,6 +12867,7 @@ impl eframe::App for ShellApp {
                     audio_fades,
                     audio_stretch,
                     audio_normalize,
+                    audio_remove,
                     score_status,
                     perform_chord,
                     lesson_next,
@@ -12885,6 +12890,7 @@ impl eframe::App for ShellApp {
             audio_fades,
             audio_stretch,
             audio_normalize,
+            audio_remove,
             score_status,
             perform_chord,
             lesson_next,
@@ -13017,6 +13023,12 @@ impl eframe::App for ShellApp {
         if let Some(track) = audio_normalize {
             match self.editor.normalize_audio(track, 0.9) {
                 Ok(path) => self.status = Some(format!("normalized to {}", path.display())),
+                Err(error) => self.status = Some(error),
+            }
+        }
+        if let Some(track) = audio_remove {
+            match self.editor.remove_audio(track) {
+                Ok(()) => self.status = Some(String::from("removed audio reference")),
                 Err(error) => self.status = Some(error),
             }
         }

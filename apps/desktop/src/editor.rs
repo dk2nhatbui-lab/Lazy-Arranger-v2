@@ -2157,6 +2157,22 @@ impl Editor {
         Ok(())
     }
 
+    /// Removes a track's audio reference.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the edit is rejected.
+    pub fn remove_audio(&mut self, track: TrackId) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::SetAudioRef {
+                track,
+                reference: None,
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Trims the front of a track's audio reference.
     ///
     /// # Errors
@@ -2912,6 +2928,28 @@ mod tests {
                 .map(|audio| audio.start),
             Some(0)
         );
+    }
+
+    #[test]
+    fn removing_an_audio_reference_is_undoable() {
+        let mut song = Song::new("Remove", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Audio");
+        track.audio = Some(project::song::AudioRef {
+            path: String::from("take.wav"),
+            start: 0,
+            length: 4 * music_core::PPQ,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
+        let track = TrackId::new(1).expect("track");
+        editor.remove_audio(track).expect("remove");
+        assert!(editor.song().tracks[0].audio.is_none());
+        assert!(editor.undo());
+        assert!(editor.song().tracks[0].audio.is_some());
     }
 
     #[test]
