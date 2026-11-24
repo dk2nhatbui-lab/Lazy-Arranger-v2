@@ -9076,11 +9076,42 @@ impl ShellApp {
             }
         });
         for bus in &mut buses {
+            let bus_meter = if self
+                .player
+                .as_ref()
+                .is_some_and(audio::player::Player::is_playing)
+            {
+                let position = self.player.as_ref().map_or(0, |player| player.frame() * 2);
+                self.stem_levels
+                    .iter()
+                    .filter(|(id, _)| {
+                        self.song().tracks.iter().any(|track| {
+                            track.id == *id
+                                && (track.bus == Some(bus.id) || track.send == Some(bus.id))
+                        })
+                    })
+                    .map(|(_, samples)| {
+                        audio::master::meter_at(samples, position, audio::SAMPLE_RATE as usize / 20)
+                    })
+                    .fold(audio::master::Meter::default(), |left, right| {
+                        audio::master::Meter {
+                            peak: left.peak.max(right.peak),
+                            rms: left.rms.max(right.rms),
+                        }
+                    })
+            } else {
+                audio::master::Meter::default()
+            };
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(format!("{} {}", bus.id, bus.name))
                         .size(10.0)
                         .color(theme::text_muted()),
+                );
+                ui.add(
+                    egui::ProgressBar::new(bus_meter.peak.clamp(0.0, 1.0))
+                        .desired_width(42.0)
+                        .text(format!("{:.0}%", bus_meter.peak * 100.0)),
                 );
                 if ui
                     .add(egui::Slider::new(&mut bus.volume, 0..=127).text("vol"))
