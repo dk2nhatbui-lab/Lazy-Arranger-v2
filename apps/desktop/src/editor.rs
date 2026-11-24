@@ -2139,7 +2139,22 @@ impl Editor {
             .project()
             .to_json_pretty()
             .map_err(|error| error.to_string())?;
-        std::fs::write(path, json).map_err(|error| format!("{}: {error}", path.display()))?;
+        let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+        std::fs::write(&temporary, json)
+            .map_err(|error| format!("{}: {error}", temporary.display()))?;
+        #[cfg(unix)]
+        std::fs::rename(&temporary, path).map_err(|error| {
+            let _ = std::fs::remove_file(&temporary);
+            format!("{}: {error}", path.display())
+        })?;
+        #[cfg(not(unix))]
+        {
+            let _ = std::fs::remove_file(path);
+            std::fs::rename(&temporary, path).map_err(|error| {
+                let _ = std::fs::remove_file(&temporary);
+                format!("{}: {error}", path.display())
+            })?;
+        }
         self.dirty = false;
         Ok(())
     }

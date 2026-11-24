@@ -603,7 +603,22 @@ impl Settings {
         for (key, value) in &self.extra {
             text.push_str(&format!("{} = {}\n", clean_line(key), clean_line(value)));
         }
-        std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+        let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+        std::fs::write(&temporary, text)
+            .map_err(|error| format!("{}: {error}", temporary.display()))?;
+        #[cfg(unix)]
+        std::fs::rename(&temporary, path).map_err(|error| {
+            let _ = std::fs::remove_file(&temporary);
+            format!("{}: {error}", path.display())
+        })?;
+        #[cfg(not(unix))]
+        {
+            let _ = std::fs::remove_file(path);
+            std::fs::rename(&temporary, path).map_err(|error| {
+                let _ = std::fs::remove_file(&temporary);
+                format!("{}: {error}", path.display())
+            })?;
+        }
         save_ai_key(path, &self.ai_api_key)
     }
 }
