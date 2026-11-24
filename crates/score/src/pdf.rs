@@ -823,6 +823,26 @@ pub fn to_full_pdf_with_frames(
                     let relative = (note.y - system.y) * (line_gap / settings.staff_space);
                     let note_y = top + relative;
                     let y = settings.page_height - note_y;
+                    let relative_space = (note.y - system.y) / settings.staff_space;
+                    let low = relative_space.floor() as i32;
+                    let ledgers: Vec<i32> = if low < 0 {
+                        (low..0).collect()
+                    } else if relative_space > 4.0 {
+                        (5..=low).collect()
+                    } else {
+                        Vec::new()
+                    };
+                    for step in ledgers {
+                        let ledger_y = top + step as f32 * line_gap;
+                        let _ = writeln!(
+                            content,
+                            "{:.1} {:.1} m {:.1} {:.1} l S",
+                            x - line_gap * 0.9,
+                            settings.page_height - ledger_y,
+                            x + line_gap * 0.9,
+                            settings.page_height - ledger_y
+                        );
+                    }
                     circle(&mut content, x, y, line_gap * 0.55);
                     if let Some(alter) = note.spelled.accidental {
                         let accidental = match alter {

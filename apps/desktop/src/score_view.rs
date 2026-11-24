@@ -688,6 +688,25 @@ pub fn show_full(
                 let note_x =
                     first_system.map_or(note.x, |first| score::full_score_x(system, first, note.x));
                 let x = page_rect.left() + note_x * scale;
+                let relative = (note.y - system.y) / settings.staff_space;
+                let low = relative.floor() as i32;
+                let ledgers: Vec<i32> = if low < 0 {
+                    (low..0).collect()
+                } else if relative > 4.0 {
+                    (5..=low).collect()
+                } else {
+                    Vec::new()
+                };
+                for step in ledgers {
+                    let ledger_y = top + step as f32 * line_gap * scale;
+                    painter.line_segment(
+                        [
+                            Pos2::new(x - line_gap * 0.9 * scale, ledger_y),
+                            Pos2::new(x + line_gap * 0.9 * scale, ledger_y),
+                        ],
+                        Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+                    );
+                }
                 painter.circle_filled(
                     Pos2::new(x, y),
                     line_gap * 0.55 * scale,
