@@ -1322,6 +1322,54 @@ mod tests {
     }
 
     #[test]
+    fn a_long_full_score_keeps_each_track_label_per_system() {
+        let mut song = Song::new("Duo", 120.0);
+        let mut piano = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        let mut bass = Track::new(TrackId::new(2).expect("valid"), "Bass");
+        for bar in 0..16 {
+            piano.notes.push(Note {
+                id: project::NoteId::new(bar + 1).expect("valid"),
+                start: i64::from(bar) * 4 * PPQ,
+                duration: PPQ,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+            bass.notes.push(Note {
+                id: project::NoteId::new(bar + 1).expect("valid"),
+                start: i64::from(bar) * 4 * PPQ,
+                duration: PPQ,
+                pitch: Pitch::from_name("C2").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(piano);
+        song.tracks.push(bass);
+        let settings = small();
+        let engraved = crate::engrave(&song, TrackId::new(1).expect("valid"), settings);
+        let systems = engraved
+            .pages
+            .iter()
+            .map(|page| page.systems.len())
+            .sum::<usize>()
+            .max(1);
+        let pdf = to_full_pdf(
+            &song,
+            settings,
+            "Duo",
+            &[
+                TrackId::new(1).expect("valid"),
+                TrackId::new(2).expect("valid"),
+            ],
+        );
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(text.matches("(Piano) Tj").count(), systems);
+        assert_eq!(text.matches("(Bass) Tj").count(), systems);
+        assert_eq!(page_count(&pdf), Some(systems.div_ceil(2)));
+    }
+
+    #[test]
     fn a_pdf_has_header_pages_and_trailer() {
         let pdf = to_pdf(&engraved(12, small()), small(), "Test score");
         assert!(pdf.starts_with(b"%PDF-1.4"));
