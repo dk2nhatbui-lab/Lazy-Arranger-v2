@@ -2257,36 +2257,46 @@ impl ShellApp {
             .iter()
             .map(|track| (track.id, track.name.clone()))
             .collect();
-        let actions: Vec<midi_devices::map::Action> = vec![
-            midi_devices::map::Action::Play,
-            midi_devices::map::Action::Stop,
-            midi_devices::map::Action::Undo,
-            midi_devices::map::Action::Scene(0),
-            midi_devices::map::Action::TrackFader(
-                tracks
-                    .first()
-                    .map_or_else(|| TrackId::new(1).expect("valid"), |(id, _)| *id),
-            ),
-            midi_devices::map::Action::Pad(38),
+        let mut actions: Vec<(midi_devices::map::Action, String)> = vec![
+            (midi_devices::map::Action::Play, String::from("play")),
+            (midi_devices::map::Action::Stop, String::from("stop")),
+            (midi_devices::map::Action::Undo, String::from("undo")),
+            (midi_devices::map::Action::Scene(0), String::from("scene 0")),
+            (midi_devices::map::Action::Pad(38), String::from("pad 38")),
         ];
+        if tracks.is_empty() {
+            let fallback = TrackId::new(1).expect("valid");
+            actions.push((
+                midi_devices::map::Action::TrackFader(fallback),
+                format!("fader {fallback}"),
+            ));
+        } else {
+            for (id, name) in &tracks {
+                actions.push((
+                    midi_devices::map::Action::TrackFader(*id),
+                    format!("fader: {name}"),
+                ));
+            }
+        }
         let mut open = self.midi_map_open;
+        let mut remove_control: Option<midi_devices::map::Control> = None;
         egui::Window::new("MIDI map")
             .open(&mut open)
-            .default_width(340.0)
+            .default_width(360.0)
             .show(context, |ui| {
                 let choice = self.midi_learn_choice.min(actions.len() - 1);
                 let mut chosen = choice;
                 egui::ComboBox::from_id_salt("midi-map-action")
-                    .selected_text(actions[choice].label())
+                    .selected_text(&actions[choice].1)
                     .show_ui(ui, |ui| {
-                        for (index, action) in actions.iter().enumerate() {
-                            ui.selectable_value(&mut chosen, index, action.label());
+                        for (index, (_, label)) in actions.iter().enumerate() {
+                            ui.selectable_value(&mut chosen, index, label);
                         }
                     });
                 self.midi_learn_choice = chosen;
                 ui.horizontal(|ui| {
                     if ui.button("Learn").clicked() {
-                        self.midi_learn = Some(midi_devices::map::Learn::begin(actions[chosen]));
+                        self.midi_learn = Some(midi_devices::map::Learn::begin(actions[chosen].0));
                         self.status = Some(String::from("waiting for a note or CC"));
                     }
                     if self.midi_learn.is_some() && ui.button("Cancel").clicked() {
@@ -2326,11 +2336,20 @@ impl ShellApp {
                     );
                 }
                 for binding in &self.midi_map.bindings {
-                    ui.label(format!(
-                        "{} = {}",
-                        binding.control_label(),
-                        binding.action.label()
-                    ));
+                    ui.horizontal(|ui| {
+                        ui.label(format!(
+                            "{} = {}",
+                            binding.control_label(),
+                            binding.action.label()
+                        ));
+                        if ui
+                            .small_button("×")
+                            .on_hover_text("Remove this binding")
+                            .clicked()
+                        {
+                            remove_control = Some(binding.control);
+                        }
+                    });
                 }
                 ui.label(
                     egui::RichText::new("Learn saves the map automatically.")
@@ -2338,6 +2357,11 @@ impl ShellApp {
                         .color(theme::text_dim()),
                 );
             });
+        if let Some(control) = remove_control {
+            self.midi_map.unbind(control);
+            let _ = std::fs::write("lazy-arranger-midi-map.txt", self.midi_map.to_text());
+            self.status = Some(String::from("MIDI binding removed"));
+        }
         self.midi_map_open = open;
     }
 

@@ -332,15 +332,26 @@ pub fn show(
         ui.allocate_painter(lane.size(), egui::Sense::click_and_drag());
     let lane = lane_response.rect;
     lane_painter.rect_filled(lane, 0.0, theme::lane());
+    lane_painter.line_segment(
+        [lane.left_top(), lane.right_top()],
+        egui::Stroke::new(1.0_f32, theme::line()),
+    );
+    lane_painter.text(
+        Pos2::new(lane.left() + 6.0, lane.center().y),
+        egui::Align2::LEFT_CENTER,
+        "Velocity",
+        egui::FontId::proportional(9.5),
+        theme::text_dim(),
+    );
     if let Some(track_id) = state.selected
         && let Some(track) = song.tracks.iter().find(|track| track.id == track_id)
     {
         for note in &track.notes {
             let x = geometry_hint(state, song, rect).x_at(note.start);
-            if x < lane.left() || x > lane.right() {
+            if x < lane.left() + 48.0 || x > lane.right() {
                 continue;
             }
-            let height = f32::from(note.velocity.as_u8()) / 127.0 * (lane.height() - 4.0);
+            let height = f32::from(note.velocity.as_u8()) / 127.0 * (lane.height() - 6.0);
             lane_painter.line_segment(
                 [
                     Pos2::new(x, lane.bottom() - 2.0),
@@ -515,6 +526,12 @@ pub fn show(
             ..RollOutcome::default()
         };
     }
+    if velocity.is_some() {
+        return RollOutcome {
+            velocity,
+            ..RollOutcome::default()
+        };
+    }
     let Some(pointer) = response.interact_pointer_pos() else {
         return RollOutcome::default();
     };
@@ -524,7 +541,7 @@ pub fn show(
             ..RollOutcome::default()
         };
     }
-    if response.clicked() && pointer.x < geometry.origin.x {
+    if response.clicked() && pointer.x < geometry.origin.x && pointer.y >= geometry.origin.y {
         return RollOutcome {
             preview: Some(geometry.pitch_at(pointer.y)),
             ..RollOutcome::default()
@@ -686,36 +703,58 @@ fn draw_ruler(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song
 }
 
 fn draw_grid(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, song: &Song) {
+    let grid_top = geometry.origin.y.max(rect.top());
+    let grid_left = geometry.origin.x.max(rect.left());
+    let count = ((rect.bottom() - grid_top) / geometry.row_height).ceil() as i32;
+    for offset in 0..count.clamp(0, 128) {
+        let pitch = i32::from(geometry.top_pitch) - offset;
+        if !(0..=127).contains(&pitch) {
+            continue;
+        }
+        let y = geometry.y_at(pitch as u8);
+        if y >= rect.bottom() {
+            break;
+        }
+        if matches!(pitch % 12, 1 | 3 | 6 | 8 | 10) {
+            painter.rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(grid_left, y),
+                    Pos2::new(rect.right(), (y + geometry.row_height).min(rect.bottom())),
+                ),
+                0.0,
+                theme::lane_alt().gamma_multiply(0.75),
+            );
+        }
+        if pitch % 12 == 0 {
+            let line_y = (y + geometry.row_height).min(rect.bottom());
+            painter.line_segment(
+                [
+                    Pos2::new(grid_left, line_y),
+                    Pos2::new(rect.right(), line_y),
+                ],
+                egui::Stroke::new(1.0_f32, theme::line()),
+            );
+        }
+    }
     let bar = song.time_signature.bar_ticks().max(1);
     let beat = song.time_signature.beat_ticks().max(1);
-    let width = geometry.ticks_per_point;
-    let first_bar = geometry.tick_at(rect.left()).div_euclid(bar);
+    let first_bar = geometry.tick_at(grid_left).div_euclid(bar);
     let last_bar = geometry.tick_at(rect.right()).div_euclid(bar);
     for index in first_bar..=last_bar {
         let tick = index * bar;
         let x = geometry.x_at(tick);
-        if x < rect.left() || x > rect.right() {
-            continue;
-        }
-        painter.line_segment(
-            [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
-            egui::Stroke::new(1.0_f32, theme::grid_bar()),
-        );
-        if width <= 24.0 {
-            painter.text(
-                Pos2::new(x + 4.0, rect.top() + 3.0),
-                egui::Align2::LEFT_TOP,
-                format!("{}", index + 1),
-                egui::FontId::proportional(10.0),
-                theme::text_dim(),
+        if x >= grid_left && x <= rect.right() {
+            painter.line_segment(
+                [Pos2::new(x, grid_top), Pos2::new(x, rect.bottom())],
+                egui::Stroke::new(1.0_f32, theme::grid_bar()),
             );
         }
         for beat_index in 1..i64::from(song.time_signature.numerator) {
             let beat_x = geometry.x_at(tick + beat_index * beat);
-            if beat_x > rect.left() && beat_x < rect.right() {
+            if beat_x > grid_left && beat_x < rect.right() {
                 painter.line_segment(
                     [
-                        Pos2::new(beat_x, rect.top()),
+                        Pos2::new(beat_x, grid_top),
                         Pos2::new(beat_x, rect.bottom()),
                     ],
                     egui::Stroke::new(1.0_f32, theme::grid_beat()),
@@ -829,6 +868,14 @@ fn draw_chord_lane(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry,
         0.0,
         theme::panel(),
     );
+    let spelling = {
+        let key = score::spelling::detect_key(song);
+        if key.signature().iter().any(|alter| *alter < 0) {
+            music_core::Spelling::Flat
+        } else {
+            music_core::Spelling::Sharp
+        }
+    };
     for event in &song.chords {
         let x = geometry.x_at(event.tick);
         if x < rect.left() || x > rect.right() - 6.0 {
@@ -837,7 +884,7 @@ fn draw_chord_lane(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry,
         painter.text(
             Pos2::new(x + 4.0, top + CHORD_LANE_HEIGHT * 0.5),
             egui::Align2::LEFT_CENTER,
-            event.chord.format(music_core::Spelling::Sharp),
+            event.chord.format(spelling),
             egui::FontId::proportional(10.0),
             theme::accent(),
         );
@@ -852,16 +899,14 @@ fn draw_track(
     colour: egui::Color32,
     selected: bool,
 ) {
-    let fill = if selected {
-        colour.gamma_multiply(0.95)
-    } else {
-        colour.gamma_multiply(0.65)
-    };
+    let base_alpha = if selected { 1.0_f32 } else { 0.65_f32 };
     for note in &track.notes {
         let note_rect = geometry.note_rect(note.start, note.duration, note.pitch.as_u8());
         if !rect.intersects(note_rect) {
             continue;
         }
+        let vel_shade = 0.55 + 0.45 * f32::from(note.velocity.as_u8()) / 127.0;
+        let fill = colour.gamma_multiply((base_alpha * vel_shade).clamp(0.25, 1.0));
         painter.rect_filled(note_rect, 0.0, fill);
         if selected {
             painter.rect_stroke(
@@ -877,50 +922,90 @@ fn draw_track(
 fn draw_playhead(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry, tick: Tick) {
     let x = geometry.x_at(tick);
     if x >= rect.left() && x <= rect.right() {
+        let color = theme::playhead();
+        painter.add(egui::Shape::convex_polygon(
+            vec![
+                Pos2::new(x - 4.0, rect.top()),
+                Pos2::new(x + 4.0, rect.top()),
+                Pos2::new(x, rect.top() + 6.0),
+            ],
+            color,
+            egui::Stroke::NONE,
+        ));
         painter.line_segment(
             [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
-            egui::Stroke::new(1.5_f32, theme::playhead()),
+            egui::Stroke::new(1.5_f32, color),
         );
     }
 }
 
+/// Rectangle for one piano key aligned to its pitch row in `geometry`.
+#[must_use]
+pub fn key_row_rect(left: f32, geometry: &RollGeometry, pitch: u8) -> Rect {
+    let black = matches!(pitch % 12, 1 | 3 | 6 | 8 | 10);
+    let width = if black { 30.0 } else { 46.0 };
+    Rect::from_min_size(
+        Pos2::new(left, geometry.y_at(pitch)),
+        Vec2::new(width, (geometry.row_height - 1.0).max(1.0)),
+    )
+}
+
 fn draw_keys(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry) {
+    let keys_top = geometry.origin.y.max(rect.top());
+    painter.rect_filled(
+        Rect::from_min_max(
+            Pos2::new(rect.left(), keys_top),
+            Pos2::new(geometry.origin.x, rect.bottom()),
+        ),
+        0.0,
+        theme::raised(),
+    );
     let top = geometry.top_pitch;
-    let count = ((rect.height() / geometry.row_height).ceil() as i32).clamp(1, 128);
-    for offset in 0..count {
+    let count = ((rect.bottom() - keys_top) / geometry.row_height).ceil() as i32 + 1;
+    for offset in 0..count.clamp(1, 128) {
         let pitch = i32::from(top) - offset;
         if !(0..=127).contains(&pitch) {
             continue;
         }
-        let y = rect.top() + offset as f32 * geometry.row_height;
-        let black = matches!(pitch % 12, 1 | 3 | 6 | 8 | 10);
+        let pitch_u8 = pitch as u8;
+        let key_rect = key_row_rect(rect.left(), geometry, pitch_u8);
+        if key_rect.top() < keys_top || key_rect.top() >= rect.bottom() {
+            continue;
+        }
+        let black = matches!(pitch_u8 % 12, 1 | 3 | 6 | 8 | 10);
         let colour = if black {
-            egui::Color32::from_rgb(0x2A, 0x2A, 0x2A)
+            egui::Color32::from_rgb(0x2A, 0x26, 0x22)
+        } else if theme::light() {
+            egui::Color32::from_rgb(0xFF, 0xFF, 0xFF)
         } else {
-            egui::Color32::from_rgb(0xE6, 0xE1, 0xD6)
+            egui::Color32::from_rgb(0xD8, 0xD2, 0xC6)
         };
-        let width = if black { 30.0 } else { 46.0 };
-        painter.rect_filled(
-            Rect::from_min_size(
-                Pos2::new(rect.left(), y),
-                Vec2::new(width, geometry.row_height - 1.0),
-            ),
-            0.0,
-            colour,
-        );
+        painter.rect_filled(key_rect, 0.0, colour);
     }
+    painter.line_segment(
+        [
+            Pos2::new(geometry.origin.x, keys_top),
+            Pos2::new(geometry.origin.x, rect.bottom()),
+        ],
+        egui::Stroke::new(1.0_f32, theme::line()),
+    );
 }
 
 fn draw_pitch_guide(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry) {
-    for (pitch, name) in [(60u8, "C4"), (72, "C5"), (48, "C3")] {
-        let y = geometry.y_at(pitch);
-        if y > rect.top() && y < rect.bottom() {
+    let keys_top = geometry.origin.y.max(rect.top());
+    for octave in 0..=8_i32 {
+        let pitch = (octave + 1) * 12;
+        if !(0..=127).contains(&pitch) {
+            continue;
+        }
+        let y = geometry.y_at(pitch as u8);
+        if y >= keys_top && y + geometry.row_height <= rect.bottom() {
             painter.text(
-                Pos2::new(rect.left() + 6.0, y + geometry.row_height * 0.5),
-                egui::Align2::LEFT_CENTER,
-                name,
-                egui::FontId::proportional(10.0),
-                theme::text_dim(),
+                Pos2::new(geometry.origin.x - 5.0, y + geometry.row_height * 0.5),
+                egui::Align2::RIGHT_CENTER,
+                format!("C{octave}"),
+                egui::FontId::proportional(9.0),
+                egui::Color32::from_rgb(0x4A, 0x44, 0x3B),
             );
         }
     }
@@ -1045,6 +1130,41 @@ mod tests {
         };
         too_far_out.clamp();
         assert_eq!(too_far_out.ticks_per_point, MAX_TICKS_PER_POINT);
+    }
+
+    #[test]
+    fn piano_keys_align_with_note_rows() {
+        let geometry = geometry();
+        for pitch in [36_u8, 48, 60, 61, 72, 84] {
+            let key = key_row_rect(0.0, &geometry, pitch);
+            let note = geometry.note_rect(0, 480, pitch);
+            assert!(
+                (key.top() - geometry.y_at(pitch)).abs() < f32::EPSILON,
+                "key for pitch {pitch} must start at geometry.y_at"
+            );
+            assert!(
+                note.top() >= key.top() && note.bottom() <= key.top() + geometry.row_height,
+                "note for pitch {pitch} must lie inside its key row"
+            );
+        }
+    }
+
+    #[test]
+    fn piano_roll_draws_without_panicking() {
+        let context = egui::Context::default();
+        let song = arranging::demo::demo_song();
+        let mut state = RollState {
+            selected: song.tracks.first().map(|track| track.id),
+            ..RollState::default()
+        };
+        let mut ran = false;
+        let _ = context.run(egui::RawInput::default(), |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                let _ = show(ui, &song, &mut state, 960, &[]);
+                ran = true;
+            });
+        });
+        assert!(ran);
     }
 }
 

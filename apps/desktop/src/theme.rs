@@ -112,6 +112,18 @@ palette!(
         Color32::from_rgb(0xbd, 0x55, 0x44)
     ),
     (
+        ok,
+        "Success, active solo, and healthy device status.",
+        Color32::from_rgb(0x91, 0xad, 0x7c),
+        Color32::from_rgb(0x51, 0x7d, 0x45)
+    ),
+    (
+        warning,
+        "Warning, active mute, and offline device status.",
+        Color32::from_rgb(0xdc, 0xa4, 0x5f),
+        Color32::from_rgb(0xb3, 0x76, 0x32)
+    ),
+    (
         timeline,
         "Timeline background.",
         Color32::from_rgb(0x0a, 0x0c, 0x0e),
@@ -324,8 +336,12 @@ mod tests {
         assert_eq!(background().to_array(), [0x0b, 0x0d, 0x0f, 0xff]);
         assert_eq!(accent().to_array(), [0xfc, 0x72, 0x56, 0xff]);
         assert_eq!(playhead().to_array(), [0xe7, 0xbd, 0x86, 0xff]);
+        assert_eq!(ok().to_array(), [0x91, 0xad, 0x7c, 0xff]);
+        assert_eq!(warning().to_array(), [0xdc, 0xa4, 0x5f, 0xff]);
         set_light(true);
         assert_eq!(background().to_array(), [0xe7, 0xe1, 0xd7, 0xff]);
+        assert_eq!(ok().to_array(), [0x51, 0x7d, 0x45, 0xff]);
+        assert_eq!(warning().to_array(), [0xb3, 0x76, 0x32, 0xff]);
         assert!(light());
         set_light(false);
         assert!(!light());

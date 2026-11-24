@@ -840,25 +840,58 @@ impl ShellApp {
                             reload_bars = Some(bars);
                         }
                     }
+                    ui.add_space(8.0);
+                    if ui
+                        .small_button("Clear all")
+                        .on_hover_text("Clear every row in the pattern")
+                        .clicked()
+                    {
+                        for row in 0..arranging::beat::ROWS.len() {
+                            self.beat_pattern.clear_row(row);
+                        }
+                    }
                 });
                 egui::ScrollArea::horizontal()
                     .id_salt("beat-grid")
                     .show(ui, |ui| {
                         for (row, (_, label)) in arranging::beat::ROWS.iter().enumerate() {
+                            let row_color = theme::track_colour(row);
                             ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(*label).size(10.0));
+                                ui.add_sized(
+                                    [44.0, 22.0],
+                                    egui::Label::new(
+                                        egui::RichText::new(*label)
+                                            .size(10.0)
+                                            .color(theme::text_muted()),
+                                    ),
+                                );
                                 let steps = self.beat_pattern.grid[row].len();
                                 for slot in 0..steps {
+                                    if slot > 0 && slot % 4 == 0 {
+                                        ui.add_space(5.0);
+                                    }
                                     let level = self.beat_pattern.grid[row][slot];
-                                    let text = if level == 0 {
-                                        String::from("·")
+                                    let (text, fill) = if level == 0 {
+                                        (String::from("·"), theme::raised())
+                                    } else if level < 85 {
+                                        (level.to_string(), row_color.gamma_multiply(0.32))
+                                    } else if level < 115 {
+                                        (level.to_string(), row_color.gamma_multiply(0.58))
                                     } else {
-                                        level.to_string()
+                                        (level.to_string(), row_color.gamma_multiply(0.88))
                                     };
-                                    if ui.small_button(text).clicked() {
+                                    if ui
+                                        .add_sized(
+                                            [24.0, 22.0],
+                                            egui::Button::new(egui::RichText::new(text).size(9.5))
+                                                .fill(fill),
+                                        )
+                                        .clicked()
+                                    {
                                         self.beat_pattern.cycle(row, slot);
                                     }
                                 }
+                                ui.add_space(5.0);
                                 let copied_row = self.beat_pattern.row(row).map(<[u8]>::to_vec);
                                 if ui.small_button("C").on_hover_text("Copy row").clicked() {
                                     self.beat_clipboard = copied_row;

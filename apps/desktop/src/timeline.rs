@@ -74,7 +74,19 @@ fn dragged_edit(drag: &ClipDrag, pointer_tick: Tick) -> ClipEdit {
 }
 const RULER_HEIGHT: f32 = 28.0;
 const CHORD_HEIGHT: f32 = 22.0;
-const LANE_HEIGHT: f32 = 64.0;
+/// Combined height of the bar ruler and chord lane above track row 0.
+pub const HEADER_HEIGHT: f32 = RULER_HEIGHT + CHORD_HEIGHT;
+/// Height of one track lane in the timeline (matches the sidebar track rows).
+pub const LANE_HEIGHT: f32 = 64.0;
+
+/// Computes the vertical Y coordinate for a note preview bar inside a lane.
+///
+/// Higher MIDI pitches map closer to the top of the lane (smaller Y).
+#[must_use]
+pub fn note_lane_y(top: f32, pitch: u8) -> f32 {
+    let offset = (f32::from(pitch) - 60.0) * 0.55;
+    (top + LANE_HEIGHT * 0.55 - offset).clamp(top + 6.0, top + LANE_HEIGHT - 8.0)
+}
 
 /// Palette color for a track lane.
 #[must_use]
@@ -92,6 +104,30 @@ pub fn show(
     follow_playhead: bool,
     waveforms: &HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
 ) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
+    show_with_loop(
+        ui,
+        song,
+        position,
+        selected,
+        zoom,
+        follow_playhead,
+        None,
+        waveforms,
+    )
+}
+
+/// Draws the timeline with an optional highlighted loop region.
+#[allow(clippy::too_many_arguments)]
+pub fn show_with_loop(
+    ui: &mut egui::Ui,
+    song: &Song,
+    position: Tick,
+    selected: Option<TrackId>,
+    zoom: f32,
+    follow_playhead: bool,
+    loop_region: Option<(Tick, Tick)>,
+    waveforms: &HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
+) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
     let bar = song.time_signature.bar_ticks().max(1);
     let bars = ((song.end_tick().max(bar * 8) + bar - 1) / bar).max(8);
     let width =
@@ -104,7 +140,15 @@ pub fn show(
         .auto_shrink([false, false])
         .show(ui, |ui| {
             result = draw(
-                ui, song, position, selected, width, drag_id, edit_id, waveforms,
+                ui,
+                song,
+                position,
+                selected,
+                width,
+                drag_id,
+                edit_id,
+                loop_region,
+                waveforms,
             );
             result.2 = ui.data_mut(|data| {
                 let edit = data.get_temp::<ClipEdit>(edit_id);
@@ -136,6 +180,7 @@ fn draw(
     width: f32,
     drag_id: egui::Id,
     edit_id: egui::Id,
+    loop_region: Option<(Tick, Tick)>,
     waveforms: &HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
 ) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
     let tracks = song.tracks.len().max(1);
@@ -172,13 +217,55 @@ fn draw(
         theme::panel(),
     );
 
+    let beat = song.time_signature.beat_ticks().max(1);
+    if let Some((loop_start, loop_end)) = loop_region
+        && loop_end > loop_start
+    {
+        let left = x_for(loop_start.max(0)).clamp(content.left(), content.right());
+        let right = x_for(loop_end.min(end)).clamp(content.left(), content.right());
+        if right > left {
+            painter.rect_filled(
+                Rect::from_min_max(
+                    pos2(left, rect.top()),
+                    pos2(right, rect.top() + RULER_HEIGHT),
+                ),
+                0.0,
+                theme::accent().gamma_multiply(0.20),
+            );
+            painter.line_segment(
+                [pos2(left, rect.top() + 1.0), pos2(right, rect.top() + 1.0)],
+                Stroke::new(2.0_f32, theme::accent()),
+            );
+            painter.rect_filled(
+                Rect::from_min_max(
+                    pos2(left, rect.top() + RULER_HEIGHT + CHORD_HEIGHT),
+                    pos2(right, rect.bottom()),
+                ),
+                0.0,
+                theme::accent().gamma_multiply(0.05),
+            );
+        }
+    }
+
     let mut tick = 0;
     while tick <= end {
         let x = x_for(tick);
         painter.line_segment(
             [pos2(x, rect.top() + RULER_HEIGHT), pos2(x, rect.bottom())],
-            Stroke::new(1.0_f32, theme::line().gamma_multiply(0.55)),
+            Stroke::new(1.0_f32, theme::grid_bar()),
         );
+        let mut beat_tick = tick + beat;
+        while beat_tick < tick + bar && beat_tick <= end {
+            let bx = x_for(beat_tick);
+            painter.line_segment(
+                [
+                    pos2(bx, rect.top() + RULER_HEIGHT + CHORD_HEIGHT),
+                    pos2(bx, rect.bottom()),
+                ],
+                Stroke::new(1.0_f32, theme::grid_beat()),
+            );
+            beat_tick += beat;
+        }
         let number = tick / bar + 1;
         painter.text(
             pos2(x + 4.0, rect.top() + 5.0),
@@ -188,6 +275,25 @@ fn draw(
             theme::text_muted(),
         );
         tick += bar;
+    }
+    for marker in &song.markers {
+        if marker.tick > end {
+            continue;
+        }
+        let mx = x_for(marker.tick);
+        painter.line_segment(
+            [pos2(mx, rect.top()), pos2(mx, rect.top() + RULER_HEIGHT)],
+            Stroke::new(1.5_f32, theme::accent()),
+        );
+        if !marker.name.is_empty() {
+            painter.text(
+                pos2(mx + 4.0, rect.top() + 15.0),
+                Align2::LEFT_TOP,
+                &marker.name,
+                FontId::proportional(9.5),
+                theme::accent(),
+            );
+        }
     }
     let spelling = {
         let key = score::spelling::detect_key(song);
@@ -336,11 +442,10 @@ fn draw(
             }
             let x = x_for(note.start);
             let note_width = (x_for(note.start + note.duration).max(x + 2.0) - x).max(2.0);
-            let offset = (f32::from(note.pitch.as_u8()) - 60.0) * 0.55;
-            let y = (top + LANE_HEIGHT * 0.55 + offset).clamp(top + 8.0, top + LANE_HEIGHT - 8.0);
+            let y = note_lane_y(top, note.pitch.as_u8());
             painter.rect_filled(
                 Rect::from_min_size(pos2(x, y), vec2(note_width.min(80.0), 3.0)),
-                1.0,
+                0.0,
                 color.gamma_multiply(0.95),
             );
         }
@@ -416,12 +521,22 @@ fn draw(
     }
 
     let playhead_x = x_for(position);
+    let playhead_color = theme::playhead();
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            pos2(playhead_x - 5.0, rect.top()),
+            pos2(playhead_x + 5.0, rect.top()),
+            pos2(playhead_x, rect.top() + 8.0),
+        ],
+        playhead_color,
+        Stroke::NONE,
+    ));
     painter.line_segment(
         [
-            pos2(playhead_x, rect.top() + RULER_HEIGHT),
+            pos2(playhead_x, rect.top()),
             pos2(playhead_x, rect.bottom()),
         ],
-        Stroke::new(1.5_f32, theme::recording()),
+        Stroke::new(1.5_f32, playhead_color),
     );
     let mut outcome = RollOutcome::default();
     let mut selected_track = clicked_track;
@@ -472,6 +587,16 @@ mod tests {
     }
 
     #[test]
+    fn higher_pitch_draws_higher_in_lane() {
+        let top = 100.0;
+        let low_y = note_lane_y(top, 48);
+        let mid_y = note_lane_y(top, 60);
+        let high_y = note_lane_y(top, 72);
+        assert!(high_y < mid_y, "high {high_y} should be above mid {mid_y}");
+        assert!(mid_y < low_y, "mid {mid_y} should be above low {low_y}");
+    }
+
+    #[test]
     fn the_timeline_draws_without_panicking() {
         let context = egui::Context::default();
         let mut ran = false;
@@ -479,6 +604,16 @@ mod tests {
             egui::CentralPanel::default().show(context, |ui| {
                 let song = arranging::demo::demo_song();
                 let _ = show(ui, &song, 0, None, 1.0, false, &HashMap::new());
+                let _ = show_with_loop(
+                    ui,
+                    &song,
+                    960,
+                    None,
+                    1.0,
+                    false,
+                    Some((0, 3840)),
+                    &HashMap::new(),
+                );
                 ran = true;
             });
         });
