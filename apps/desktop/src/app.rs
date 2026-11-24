@@ -3368,29 +3368,23 @@ impl ShellApp {
                         && ui.input(|input| input.key_pressed(egui::Key::Enter));
                     if ui
                         .button("Dictate")
-                        .on_hover_text("Record 5 s and run the Whisper command from Settings")
+                        .on_hover_text(
+                            "Record 5 s (16 kHz mono WAV) and run local Whisper / Moonshine STT",
+                        )
                         .clicked()
                     {
-                        if self.settings.speech_command.trim().is_empty() {
-                            self.status = Some(String::from(
-                                "set a Whisper command in Settings first",
-                            ));
-                        } else {
-                            let command = self.settings.speech_command.clone();
-                            let (sender, receiver) = std::sync::mpsc::channel();
-                            self.dictation_pending = Some(receiver);
-                            self.status = Some(String::from("listening for 5 s…"));
-                            std::thread::spawn(move || {
-                                let result = crate::dictate::record_to_wav(5.0)
-                                    .and_then(|path| {
-                                        let text =
-                                            crate::dictate::transcribe(&path, &command);
-                                        let _ = std::fs::remove_file(path);
-                                        text
-                                    });
-                                let _ = sender.send(result);
+                        let command = self.settings.speech_command.clone();
+                        let (sender, receiver) = std::sync::mpsc::channel();
+                        self.dictation_pending = Some(receiver);
+                        self.status = Some(String::from("listening for 5 s…"));
+                        std::thread::spawn(move || {
+                            let result = crate::dictate::record_to_wav(5.0).and_then(|path| {
+                                let text = crate::dictate::transcribe(&path, &command);
+                                let _ = std::fs::remove_file(path);
+                                text
                             });
-                        }
+                            let _ = sender.send(result);
+                        });
                     }
                     if (ui.button("Send").clicked() || enter) && !self.assistant_input.is_empty() {
                         let input = self.assistant_input.trim().to_string();
@@ -3468,7 +3462,8 @@ impl ShellApp {
                     egui::RichText::new(
                         "With an AI endpoint or local assistant command set in Settings, replies come from that model or CLI; \
                          a `tool ...` reply runs one app tool. Otherwise local commands over \
-                         the same tools are used. Speech out uses macOS say; speech input is not implemented.",
+                         the same tools are used. Speech supports local System / Kokoro-82M / KittenTTS / Piper TTS and \
+                         whisper.cpp / sherpa-onnx Moonshine 16 kHz STT (configure in Settings).",
                     )
                     .size(9.0)
                     .color(theme::text_dim()),
@@ -10044,24 +10039,58 @@ impl ShellApp {
                             .desired_width(340.0),
                     );
                     ui.label(
-                        egui::RichText::new("Speak command (use {text})")
+                        egui::RichText::new("Speak preset or command (use {text})")
                             .size(11.0)
                             .color(theme::text_muted()),
                     );
+                    ui.horizontal_wrapped(|ui| {
+                        for preset in [
+                            crate::speech::TtsPreset::Auto,
+                            crate::speech::TtsPreset::System,
+                            crate::speech::TtsPreset::Kokoro,
+                            crate::speech::TtsPreset::Kitten,
+                            crate::speech::TtsPreset::Piper,
+                        ] {
+                            if ui.small_button(preset.label()).clicked() {
+                                self.settings.speak_command =
+                                    String::from(preset.setting_value());
+                            }
+                        }
+                    });
                     ui.add(
                         egui::TextEdit::singleline(&mut self.settings.speak_command)
-                            .hint_text("kokoro-tts {text}")
+                            .hint_text("auto | kokoro | kitten | piper | custom {text}")
                             .desired_width(340.0),
                     );
                     ui.label(
-                        egui::RichText::new("Whisper command (use {file})")
+                        egui::RichText::new("Dictate STT preset or command (use {file})")
                             .size(11.0)
                             .color(theme::text_muted()),
                     );
+                    ui.horizontal_wrapped(|ui| {
+                        let dir = crate::dictate::models_dir();
+                        for preset in [
+                            crate::dictate::SttPreset::Auto,
+                            crate::dictate::SttPreset::WhisperCpp,
+                            crate::dictate::SttPreset::SherpaMoonshine,
+                        ] {
+                            if ui.small_button(preset.label()).clicked() {
+                                self.settings.speech_command = preset.template(&dir);
+                            }
+                        }
+                    });
                     ui.add(
                         egui::TextEdit::singleline(&mut self.settings.speech_command)
-                            .hint_text("whisper-cli -f {file} -nt")
+                            .hint_text("auto | whisper-cli -m model.bin -f {file} -nt")
                             .desired_width(340.0),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Offline models dir: {}",
+                            crate::dictate::models_dir().display()
+                        ))
+                        .size(9.5)
+                        .color(theme::text_dim()),
                     );
                     if ui.button("Save settings").clicked() {
                         match self.settings.save(&crate::settings::Settings::path()) {

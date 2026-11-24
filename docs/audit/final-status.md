@@ -7,7 +7,7 @@ plug-in editor support or model services).
 
 ## Gate and CI
 
-- `cargo test --workspace`: **916 passed, 0 failed** (including all 5 VST3 test-plugin fixture tests in `plugin-host` and `audio`).
+- `cargo test --workspace`: **923 passed, 0 failed** (including all 5 VST3 test-plugin fixture tests in `plugin-host` and `audio`).
 - `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all`
   and rustdoc (warnings denied): clean.
 - Release bundle builds; the app launches; the bundled scanner returns R0Verb
@@ -63,8 +63,12 @@ and tutorial; background rendering for Cecilia previews, waveforms and playback.
    (keeping Latin-1 scores lightweight with `/F1` Helvetica). Bundling an OFL
    font inside the release artefact for font-less containers remains optional.
 6. **AI/speech input** — the assistant is a local rule engine with an optional
-   OpenAI-compatible endpoint; live speech input needs a model and microphone
-   permission and is optional.
+   OpenAI-compatible endpoint or local assistant CLI; local offline speech now
+   supports 16 kHz mono WAV microphone dictation with auto-detected `whisper.cpp`
+   / `sherpa-onnx` Moonshine STT and `System` / `Kokoro-82M` / `KittenTTS` /
+   `Piper` TTS presets in Settings. No model weights are bundled in the repo,
+   and live neural-model inference remains unverified until binaries/weights are
+   installed under `<data_dir>/models`.
 7. **Hardware acceptance** — earlier L6max CC, MIDI send and print visibility
    tests are documented. The hardware is powered down, so key capture, audible
    output, transport response, monitoring latency and actual print jobs remain
