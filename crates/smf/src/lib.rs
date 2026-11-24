@@ -20,7 +20,7 @@ use midly::{
 };
 use music_core::{Channel, PPQ, Pitch, TempoChange, TempoMap, Tick, TimeSignature, Velocity};
 use project::ids::{Marker, NoteId, TrackId};
-use project::song::{BankSelect, Note, Song, Track};
+use project::song::{BankSelect, KeySignature, Note, Song, Track};
 use thiserror::Error;
 
 pub mod keyboard;
@@ -138,6 +138,16 @@ pub fn encode(song: &Song) -> Result<Vec<u8>, SmfError> {
             8,
         )),
     );
+    if let Some(key) = song.key {
+        conductor.push(
+            0,
+            1,
+            TrackEventKind::Meta(MetaMessage::KeySignature(
+                key_fifths(key.tonic, key.minor),
+                key.minor,
+            )),
+        );
+    }
     for change in song.tempo_map.changes() {
         conductor.push(
             change.tick,
@@ -267,6 +277,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
 
     let mut tempo_changes: Vec<TempoChange> = Vec::new();
     let mut time_signature: Option<TimeSignature> = None;
+    let mut key_signature: Option<KeySignature> = None;
     let mut markers: Vec<Marker> = Vec::new();
     let mut tracks: Vec<Track> = Vec::new();
     let mut next_track_id: u32 = 1;
@@ -326,6 +337,11 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
                         }
                         let bpm = 60_000_000.0 / f64::from(micros);
                         tempo_changes.push(TempoChange { tick, bpm });
+                    }
+                    MetaMessage::KeySignature(fifths, minor) => {
+                        if key_signature.is_none() {
+                            key_signature = Some(key_from_fifths(i32::from(fifths), minor));
+                        }
                     }
                     MetaMessage::TimeSignature(numerator, power, _, _) => {
                         let denominator = 1u8.checked_shl(u32::from(power)).unwrap_or(0);
@@ -425,7 +441,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
         name: String::new(),
         tempo_map,
         time_signature: time_signature.unwrap_or_default(),
-        key: None,
+        key: key_signature,
         tracks,
         chords: Vec::new(),
         arranger: Vec::new(),
@@ -433,6 +449,55 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
         extra: Default::default(),
     };
     Ok((song, report))
+}
+
+fn key_fifths(tonic: music_core::PitchClass, minor: bool) -> i8 {
+    let major = if minor {
+        (tonic.as_u8() + 3) % 12
+    } else {
+        tonic.as_u8()
+    };
+    match major {
+        0 => 0,
+        7 => 1,
+        2 => 2,
+        9 => 3,
+        4 => 4,
+        11 => 5,
+        6 => 6,
+        1 => 7,
+        5 => -1,
+        10 => -2,
+        3 => -3,
+        8 => -4,
+        _ => 0,
+    }
+}
+
+fn key_from_fifths(fifths: i32, minor: bool) -> KeySignature {
+    let major = match fifths.clamp(-7, 7) {
+        0 => 0,
+        1 => 7,
+        2 => 2,
+        3 => 9,
+        4 => 4,
+        5 => 11,
+        6 => 6,
+        7 => 1,
+        -1 => 5,
+        -2 => 10,
+        -3 => 3,
+        -4 => 8,
+        -5 => 1,
+        -6 => 6,
+        -7 => 11,
+        _ => 0,
+    };
+    let tonic = if minor { (major + 9) % 12 } else { major };
+    KeySignature {
+        tonic: music_core::PitchClass::new(tonic),
+        minor,
+    }
 }
 
 fn close_note(
@@ -676,6 +741,21 @@ mod tests {
         assert_eq!(back.tempo_map.changes().len(), 2);
         assert!((back.tempo_map.bpm_at(0) - 120.0).abs() < 0.001);
         assert!((back.tempo_map.bpm_at(1920) - 75.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn selected_keys_survive_the_round_trip() {
+        use music_core::PitchClass;
+        let mut song = example_song();
+        song.key = Some(KeySignature {
+            tonic: PitchClass::new(9),
+            minor: true,
+        });
+        let bytes = encode(&song).expect("encode");
+        let (back, _) = decode(&bytes).expect("decode");
+        let key = back.key.expect("key");
+        assert_eq!(key.tonic.as_u8(), 9);
+        assert!(key.minor);
     }
 
     #[test]
