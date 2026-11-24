@@ -72,6 +72,27 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
     let mut track_ids: HashSet<u32> = HashSet::new();
     for (track_index, track) in song.tracks.iter().enumerate() {
         let track_path = format!("song.tracks[{track_index}]");
+        if track.program.is_some_and(|program| program > 127)
+            || track
+                .bank
+                .is_some_and(|bank| bank.msb > 127 || bank.lsb > 127)
+        {
+            issues.push(issue(
+                Severity::Error,
+                format!("{track_path}.program"),
+                String::from("program and bank values must be 0..=127"),
+            ));
+        }
+        let mut plugin_ids = HashSet::new();
+        for plugin in &track.plugins {
+            if !plugin_ids.insert(plugin.id) {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.plugins"),
+                    format!("duplicate plug-in id {}", plugin.id),
+                ));
+            }
+        }
         if track.volume > 127 || track.pan > 127 || track.send_level > 127 {
             issues.push(issue(
                 Severity::Error,
@@ -342,6 +363,57 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
         }
     }
 
+    let mut bus_ids = HashSet::new();
+    for (bus_index, bus) in song.buses.iter().enumerate() {
+        if !bus_ids.insert(bus.id) {
+            issues.push(issue(
+                Severity::Error,
+                format!("song.buses[{bus_index}].id"),
+                format!("duplicate bus id {}", bus.id),
+            ));
+        }
+        if bus.volume > 127 || bus.pan > 127 {
+            issues.push(issue(
+                Severity::Error,
+                format!("song.buses[{bus_index}]"),
+                String::from("bus volume and pan must be 0..=127"),
+            ));
+        }
+        let mut plugin_ids = HashSet::new();
+        for plugin in &bus.plugins {
+            if !plugin_ids.insert(plugin.id) {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("song.buses[{bus_index}].plugins"),
+                    format!("duplicate plug-in id {}", plugin.id),
+                ));
+            }
+        }
+    }
+    let mut master_plugins = HashSet::new();
+    for plugin in &song.master_plugins {
+        if !master_plugins.insert(plugin.id) {
+            issues.push(issue(
+                Severity::Error,
+                "song.master_plugins",
+                format!("duplicate plug-in id {}", plugin.id),
+            ));
+        }
+    }
+    for (track_index, track) in song.tracks.iter().enumerate() {
+        for (label, bus) in [("bus", track.bus), ("send", track.send)] {
+            if let Some(id) = bus
+                && !bus_ids.contains(&id)
+            {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("song.tracks[{track_index}].{label}"),
+                    format!("unknown bus {id}"),
+                ));
+            }
+        }
+    }
+
     let mut previous_chord_tick: Option<Tick> = None;
     for (index, event) in song.chords.iter().enumerate() {
         let path = format!("song.chords[{index}].tick");
@@ -521,6 +593,28 @@ mod tests {
                 .iter()
                 .any(|issue| issue.message.contains("overlaps another note")),
             "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn catches_duplicate_buses_and_dangling_routing() {
+        use crate::song::Bus;
+        let mut song = Song::new("x", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "t");
+        track.bus = Some(9);
+        song.tracks.push(track);
+        song.buses.push(Bus::new(1, "A"));
+        song.buses.push(Bus::new(1, "B"));
+        let issues = validate(&ProjectFile::new(song));
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.message.contains("duplicate bus id"))
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.message.contains("unknown bus 9"))
         );
     }
 
