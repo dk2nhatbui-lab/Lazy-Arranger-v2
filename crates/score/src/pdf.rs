@@ -175,11 +175,21 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                         measure.number
                     );
                     for x in [measure.x, measure.x_end] {
+                        let bar_top = if engraved.percussion {
+                            top - 2.0 * settings.staff_space - 0.5
+                        } else {
+                            top - 0.5
+                        };
+                        let bar_bottom = if engraved.percussion {
+                            top - 2.0 * settings.staff_space + 0.5
+                        } else {
+                            bottom + 0.5
+                        };
                         let _ = writeln!(
                             content,
                             "{x:.1} {:.1} m {x:.1} {:.1} l S",
-                            settings.page_height - top - 0.5,
-                            settings.page_height - bottom + 0.5
+                            settings.page_height - bar_top,
+                            settings.page_height - bar_bottom
                         );
                     }
                 }
