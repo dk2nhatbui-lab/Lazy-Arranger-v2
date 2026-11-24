@@ -9875,6 +9875,9 @@ impl ShellApp {
                 if index + 1 < self.song().tracks.len() && ui.small_button("↓").clicked() {
                     let _ = self.editor.move_track(id, index + 1);
                 }
+                if ui.small_button("Dup").clicked() {
+                    let _ = self.editor.duplicate_track(id);
+                }
                 ui.label(
                     egui::RichText::new(if name.is_empty() { "untitled" } else { &name })
                         .size(11.0),

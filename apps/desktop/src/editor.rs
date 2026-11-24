@@ -1143,12 +1143,12 @@ impl Editor {
         Ok(())
     }
 
-    /// Duplicates an audio track, including takes and comps, as a new track.
+    /// Duplicates a track, with fresh note and clip identifiers.
     ///
     /// # Errors
     ///
     /// Returns a message when the track is unknown or the insert is rejected.
-    pub fn duplicate_audio_track(&mut self, track: TrackId) -> Result<TrackId, String> {
+    pub fn duplicate_track(&mut self, track: TrackId) -> Result<TrackId, String> {
         let source = self
             .song()
             .tracks
@@ -1163,11 +1163,26 @@ impl Editor {
         let mut copy = source;
         copy.id = id;
         copy.name = format!("{} copy", copy.name);
+        for (index, note) in copy.notes.iter_mut().enumerate() {
+            note.id = project::NoteId::new(index as u32 + 1).map_err(|error| error.to_string())?;
+        }
+        for (index, clip) in copy.clips.iter_mut().enumerate() {
+            clip.id = project::ClipId::new(index as u32 + 1).map_err(|error| error.to_string())?;
+        }
         self.session
             .apply(app_commands::Command::InsertTrack { track: copy })
             .map_err(|error| error.to_string())?;
         self.dirty = true;
         Ok(id)
+    }
+
+    /// Duplicates an audio track, including takes and comps, as a new track.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the insert is rejected.
+    pub fn duplicate_audio_track(&mut self, track: TrackId) -> Result<TrackId, String> {
+        self.duplicate_track(track)
     }
 
     /// Sets the song meter.
@@ -3247,6 +3262,25 @@ mod tests {
         assert_eq!(editor.song().lyrics.len(), 1);
         assert!(editor.undo());
         assert_eq!(editor.song().lyrics.len(), 2);
+    }
+
+    #[test]
+    fn a_midi_track_can_be_duplicated() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        let before = editor.song().tracks[0].notes.len();
+        let id = editor.duplicate_track(track).expect("duplicate");
+        let copy = editor
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == id)
+            .expect("copy");
+        assert_eq!(copy.notes.len(), before);
+        assert!(copy.notes.iter().all(|note| note.id.get() >= 1));
+        assert!(copy.name.ends_with("copy"));
+        assert!(editor.undo());
+        assert!(editor.song().tracks.iter().all(|entry| entry.id != id));
     }
 
     #[test]

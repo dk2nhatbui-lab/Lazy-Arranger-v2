@@ -1176,6 +1176,15 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "duplicate_track",
+            description: "Duplicate a track with fresh note and clip ids.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}},
+                "required": ["track"]
+            }),
+        },
+        Tool {
             name: "move_track",
             description: "Move a track to a zero-based position.",
             input_schema: json!({
@@ -1385,6 +1394,34 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             let track = track_argument(arguments)?;
             session.apply(Command::RemoveTrack { track })?;
             Ok(json!({"removed": track.get()}))
+        }
+        "duplicate_track" => {
+            let track = track_argument(arguments)?;
+            let source = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .cloned()
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
+            let id = session
+                .next_track_id()
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            let mut copy = source;
+            copy.id = id;
+            copy.name = format!("{} copy", copy.name);
+            for (index, note) in copy.notes.iter_mut().enumerate() {
+                note.id = project::NoteId::new(index as u32 + 1)
+                    .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            }
+            for (index, clip) in copy.clips.iter_mut().enumerate() {
+                clip.id = project::ClipId::new(index as u32 + 1)
+                    .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            }
+            session
+                .apply(Command::InsertTrack { track: copy })
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            Ok(json!({"track": id.get()}))
         }
         "move_track" => {
             let track = track_argument(arguments)?;
@@ -4223,7 +4260,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 109);
+        assert_eq!(tools().len(), 110);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
