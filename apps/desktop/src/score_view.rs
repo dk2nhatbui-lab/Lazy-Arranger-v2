@@ -1660,6 +1660,15 @@ mod tests {
         }
         assert!(texts.iter().any(|text| text == "1 / 2"), "{texts:?}");
         assert!(texts.iter().any(|text| text == "Piano"));
+        let mut playheads = 0;
+        for clipped in &output.shapes {
+            count_stroke(
+                &clipped.shape,
+                Color32::from_rgb(0xD0, 0x30, 0x30),
+                &mut playheads,
+            );
+        }
+        assert!(playheads >= 1, "full score playhead");
     }
 
     #[test]
