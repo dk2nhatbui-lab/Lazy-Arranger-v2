@@ -329,7 +329,7 @@ pub fn show_full(
     title: &str,
     state: &mut ScoreState,
     position: music_core::Tick,
-) -> usize {
+) -> (usize, Option<music_core::Tick>) {
     let settings = Settings::default();
     let systems_per_page = 2;
     let total_systems = tracks
@@ -762,7 +762,41 @@ pub fn show_full(
         Color32::from_rgb(0x50, 0x50, 0x50),
     );
     let _ = position;
-    page_count
+    let seek = response
+        .interact_pointer_pos()
+        .filter(|_| response.clicked())
+        .and_then(|point| {
+            if !page_rect.contains(point) {
+                return None;
+            }
+            let slot_height = (roster as f32 * span + 12.0) * scale;
+            let slot = (((point.y - top0) / slot_height).floor() as usize)
+                .min(systems_per_page.saturating_sub(1));
+            let system_index = page_index * systems_per_page + slot;
+            let system = tracks
+                .first()?
+                .1
+                .pages
+                .iter()
+                .flat_map(|page| page.systems.iter())
+                .nth(system_index)?;
+            tick_at_system_x(system, (point.x - page_rect.left()) / scale)
+        });
+    (page_count, seek)
+}
+
+fn tick_at_system_x(system: &score::System, x: f32) -> Option<music_core::Tick> {
+    for measure in &system.measures {
+        if x >= measure.x && x <= measure.x_end {
+            let ratio = if measure.length > 0 && measure.x_end > measure.x {
+                ((x - measure.x) / (measure.x_end - measure.x)).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            return Some(measure.start + (measure.length as f32 * ratio) as i64);
+        }
+    }
+    None
 }
 
 /// Draws a Cecilia preview page, scaled to the score viewport.
@@ -1639,6 +1673,18 @@ mod tests {
             collect_text(&clipped.shape, &mut texts);
         }
         assert!(texts.iter().any(|text| text == "2"), "{texts:?}");
+    }
+
+    #[test]
+    fn a_point_maps_to_a_tick_in_the_system() {
+        let song = score_song();
+        let engraved = score::engrave(&song, TrackId::new(1).expect("valid"), Settings::default());
+        let system = &engraved.pages[0].systems[0];
+        let measure = &system.measures[0];
+        let tick = tick_at_system_x(system, measure.x).expect("start");
+        assert_eq!(tick, measure.start);
+        let middle = tick_at_system_x(system, (measure.x + measure.x_end) / 2.0).expect("middle");
+        assert!(middle > measure.start && middle < measure.start + measure.length);
     }
 
     #[test]

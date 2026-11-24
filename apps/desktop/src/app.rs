@@ -12821,7 +12821,7 @@ impl eframe::App for ShellApp {
                                 Vec::new()
                             };
                             let outcome = if self.score_all_tracks {
-                                let count = crate::score_view::show_full(
+                                let (count, seek) = crate::score_view::show_full(
                                     ui,
                                     &full_tracks,
                                     self.score_page,
@@ -12830,6 +12830,9 @@ impl eframe::App for ShellApp {
                                     &mut self.score_state,
                                     position,
                                 );
+                                if let Some(tick) = seek {
+                                    self.position = tick;
+                                }
                                 self.score_page = self.score_page.min(count.saturating_sub(1));
                                 self.score_state.cecilia_page_count = count;
                                 crate::score_view::ScoreOutcome::default()
