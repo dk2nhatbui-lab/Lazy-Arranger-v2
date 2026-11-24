@@ -1004,6 +1004,7 @@ pub struct ShellApp {
     score_full_frames: bool,
     score_full_hidden: std::collections::HashSet<TrackId>,
     score_full_cache: Option<(u64, Vec<(String, score::Engraved)>)>,
+    pending_clip_add: Option<(TrackId, Tick, Tick)>,
     patch_open: bool,
     patch_track: Option<TrackId>,
     patch_draft: Option<project::song::Patch>,
@@ -1369,6 +1370,7 @@ impl ShellApp {
                 || initial_score_frames,
             score_full_hidden: std::collections::HashSet::new(),
             score_full_cache: None,
+            pending_clip_add: None,
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
             patch_track: None,
             patch_draft: None,
@@ -12269,6 +12271,22 @@ impl eframe::App for ShellApp {
                                 self.waveform_position,
                             );
                         }
+                        if timeline_mode {
+                            ui.horizontal(|ui| {
+                                if let Some(track) = roll.selected
+                                    && ui
+                                        .button("Add clip")
+                                        .on_hover_text("Add a one-bar clip at the playhead")
+                                        .clicked()
+                                {
+                                    self.pending_clip_add = Some((
+                                        track,
+                                        position,
+                                        project.song.time_signature.bar_ticks().max(1),
+                                    ));
+                                }
+                            });
+                        }
                         let selected_clips = self.selected_clips.clone();
                         let (outcome, timeline_track, clip_edit) = if timeline_mode {
                             crate::timeline::show(
@@ -13370,6 +13388,12 @@ impl eframe::App for ShellApp {
             && let Err(error) = self.editor.merge_automation(track, lane)
         {
             self.status = Some(error);
+        }
+        if let Some((track, start, length)) = self.pending_clip_add.take() {
+            match self.editor.add_clip(track, start, length) {
+                Ok(()) => self.status = Some(String::from("clip added")),
+                Err(error) => self.status = Some(error),
+            }
         }
         if !self.shown {
             self.shown = true;
