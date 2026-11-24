@@ -195,6 +195,73 @@ fn load_reference_audio(reference: &project::song::AudioRef) -> Option<RenderedA
 }
 
 /// Mixes one audio reference into a track buffer with offset, stretch and fades.
+fn stretch_interleaved(input: &[f32], target_frames: usize) -> Vec<f32> {
+    const FRAME: usize = 1_024;
+    const HOP: usize = 512;
+    const SEARCH: usize = 128;
+    let source_frames = input.len() / 2;
+    if source_frames < 16 || target_frames == 0 {
+        return vec![0.0; target_frames * 2];
+    }
+    let ratio = source_frames as f64 / target_frames as f64;
+    let mut output = vec![0.0_f32; target_frames * 2];
+    let mut previous = vec![0.0_f32; HOP.min(source_frames) * 2];
+    let mut has_previous = false;
+    let mut out_frame = 0_usize;
+    while out_frame < target_frames {
+        let nominal = (out_frame as f64 * ratio).round() as usize;
+        let mut best_start = nominal.min(source_frames.saturating_sub(1));
+        if has_previous {
+            let mut best = f64::MIN;
+            let span = SEARCH.min(nominal);
+            for offset in 0..=span * 2 {
+                let candidate = nominal.saturating_sub(span).saturating_add(offset);
+                let available = source_frames.saturating_sub(candidate);
+                let length = HOP.min(available).min(previous.len() / 2);
+                if length == 0 {
+                    continue;
+                }
+                let mut score = 0.0_f64;
+                for index in 0..length {
+                    score +=
+                        f64::from(previous[index * 2]) * f64::from(input[(candidate + index) * 2]);
+                }
+                if score > best {
+                    best = score;
+                    best_start = candidate;
+                }
+            }
+        }
+        let available = source_frames.saturating_sub(best_start);
+        let length = FRAME
+            .min(available)
+            .min(target_frames.saturating_sub(out_frame));
+        if length == 0 {
+            break;
+        }
+        let current = &input[best_start * 2..(best_start + length) * 2];
+        let overlap = if has_previous { HOP.min(length) } else { 0 };
+        for index in 0..overlap {
+            let weight = index as f32 / HOP as f32;
+            output[(out_frame + index) * 2] =
+                previous[index * 2] * (1.0 - weight) + current[index * 2] * weight;
+            output[(out_frame + index) * 2 + 1] =
+                previous[index * 2 + 1] * (1.0 - weight) + current[index * 2 + 1] * weight;
+        }
+        for index in overlap..length {
+            output[(out_frame + index) * 2] = current[index * 2];
+            output[(out_frame + index) * 2 + 1] = current[index * 2 + 1];
+        }
+        let tail_start = length.saturating_sub(HOP);
+        previous.clear();
+        previous.extend_from_slice(&current[tail_start * 2..]);
+
+        has_previous = true;
+        out_frame += HOP;
+    }
+    output
+}
+
 fn mix_audio_reference(
     song: &Song,
     track: &project::song::Track,
@@ -224,11 +291,10 @@ fn mix_audio_reference(
     if source_frames == 0 {
         return;
     }
-    let ratio = if reference.stretch {
-        source_frames as f64 / target_frames as f64
-    } else {
-        f64::from(source.sample_rate.max(1)) / rate
-    };
+    let stretched = reference
+        .stretch
+        .then(|| stretch_interleaved(&source.samples[source_start * 2..], target_frames));
+    let ratio = f64::from(source.sample_rate.max(1)) / rate;
     let fade_in = if reference.fade_in > 0 {
         song.tempo_map.duration_seconds(
             reference.start,
@@ -260,7 +326,7 @@ fn mix_audio_reference(
             (left_gain, right_gain) = gains_at(track, tick);
         }
         let source_position = source_start + (frame as f64 * ratio).round() as usize;
-        if source_position >= source.frames() {
+        if stretched.is_none() && source_position >= source.frames() {
             break;
         }
         let mut gain = 1.0_f64;
@@ -271,8 +337,16 @@ fn mix_audio_reference(
             gain = gain.min(((target_frames.saturating_sub(frame)) as f64 / fade_out).min(1.0));
         }
         let gain = gain as f32 * clip_gain;
-        let left = source.samples[source_position * 2] * left_gain * gain;
-        let right = source.samples[source_position * 2 + 1] * right_gain * gain;
+        let (sample_left, sample_right) = if let Some(stretched) = &stretched {
+            (stretched[frame * 2], stretched[frame * 2 + 1])
+        } else {
+            (
+                source.samples[source_position * 2],
+                source.samples[source_position * 2 + 1],
+            )
+        };
+        let left = sample_left * left_gain * gain;
+        let right = sample_right * right_gain * gain;
         track_buffer[target * 2] += left;
         track_buffer[target * 2 + 1] += right;
     }
@@ -1929,6 +2003,28 @@ mod tests {
             rendered.samples[frame * 2] > 0.6,
             "the source ramp is stretched over the clip"
         );
+    }
+
+    #[test]
+    fn time_stretch_keeps_the_pitch() {
+        let rate = 48_000_u32;
+        let mut input = Vec::with_capacity(rate as usize * 2);
+        for frame in 0..rate as usize {
+            let time = frame as f64 / f64::from(rate);
+            let value = (std::f64::consts::TAU * 440.0 * time).sin() as f32 * 0.5;
+            input.extend_from_slice(&[value, value]);
+        }
+        let target = rate as usize * 2;
+        let stretched = stretch_interleaved(&input, target);
+        assert_eq!(stretched.len(), target * 2);
+        let middle = rate as usize / 2;
+        let mono: Vec<f32> = stretched[middle * 2..(middle + 2_048) * 2]
+            .iter()
+            .step_by(2)
+            .copied()
+            .collect();
+        let pitch = crate::analysis::detect_pitch(&mono, rate).expect("pitch");
+        assert!((pitch - 440.0).abs() < 5.0, "pitch was {pitch}");
     }
 
     #[test]
