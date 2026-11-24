@@ -897,7 +897,7 @@ fn the_tool_windows_draw_without_panicking() {
     app.file_path_input = String::from("");
     app.print_dialog = true;
     app.about_open = true;
-    app.assistant_open = true;
+    app.assistant.open = true;
     app.audio_chords_open = true;
     app.audio_style_open = true;
     app.bus_fx_open = true;

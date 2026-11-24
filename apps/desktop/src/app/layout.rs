@@ -349,7 +349,7 @@ impl ShellApp {
                     egui::Color32::WHITE,
                 );
                 if ai_response.on_hover_text("Open the assistant").clicked() {
-                    self.assistant_open = true;
+                    self.assistant.open = true;
                 }
                 let title = Self::window_title(&self.song().name, self.editor.dirty());
                 context.send_viewport_cmd(egui::ViewportCommand::Title(title));
@@ -603,7 +603,7 @@ impl ShellApp {
                                 ui.close_menu();
                             }
                             if ui.button("Assistant").clicked() {
-                                self.assistant_open = true;
+                                self.assistant.open = true;
                                 ui.close_menu();
                             }
                             if ui.button("MIDI map").clicked() {

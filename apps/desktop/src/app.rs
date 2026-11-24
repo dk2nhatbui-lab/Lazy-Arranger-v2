@@ -24,6 +24,7 @@ mod layout;
 mod mixer;
 mod style;
 
+use assistant::AssistantState;
 use devices::{
     D05State, L6MaxState, PsrState, XgState, load_device_profiles, load_l6_scenes, load_psr_regs,
 };
@@ -769,14 +770,10 @@ pub struct ShellApp {
     pad_path: String,
     pad_player: Option<audio::player::Player>,
     pad_selected: Option<u8>,
-    assistant_open: bool,
-    assistant_input: String,
-    assistant_log: Vec<String>,
+    assistant: AssistantState,
     ai_pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
-    assistant_tool_rounds: usize,
     window_size: egui::Vec2,
     window_pos: Option<egui::Pos2>,
-    assistant_proposal: Option<AssistantProposal>,
     available_update: Option<crate::update::Release>,
     update_download: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>>,
     downloaded_update: Option<std::path::PathBuf>,
@@ -1130,17 +1127,19 @@ impl ShellApp {
             pad_path: String::new(),
             pad_player: None,
             pad_selected: None,
-            assistant_open: initial_window == "assistant",
-            assistant_input: String::new(),
-            assistant_log: Vec::new(),
+            assistant: AssistantState {
+                open: initial_window == "assistant",
+                input: String::new(),
+                log: Vec::new(),
+                tool_rounds: 0,
+                proposal: None,
+            },
             ai_pending: None,
-            assistant_tool_rounds: 0,
             window_size: egui::vec2(settings.window_width, settings.window_height),
             window_pos: match (settings.window_x, settings.window_y) {
                 (Some(x), Some(y)) => Some(egui::pos2(x, y)),
                 _ => None,
             },
-            assistant_proposal: None,
             available_update: None,
             update_download: None,
             downloaded_update: None,
@@ -2042,10 +2041,10 @@ impl ShellApp {
         if let Some(receiver) = &self.dictation_pending {
             match receiver.try_recv() {
                 Ok(Ok(text)) => {
-                    self.assistant_input = text.clone();
+                    self.assistant.input = text.clone();
                     self.status = Some(String::from("dictation ready"));
                     self.dictation_pending = None;
-                    self.assistant_open = true;
+                    self.assistant.open = true;
                 }
                 Ok(Err(error)) => {
                     self.status = Some(format!("dictation: {error}"));
