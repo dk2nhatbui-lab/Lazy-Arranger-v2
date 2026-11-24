@@ -138,6 +138,9 @@ pub fn detect_key(song: &Song) -> Key {
                     score += i64::try_from(*weight).unwrap_or(0);
                 }
             }
+            // Prefer a key whose tonic is present; this breaks the tie with
+            // its relative major/minor, whose scale uses the same notes.
+            score += 2 * i64::try_from(histogram[usize::from(tonic)]).unwrap_or(0);
             if score > best_score {
                 best_score = score;
                 best = Key {
@@ -351,6 +354,14 @@ mod tests {
         let key = detect_key(&notes);
         assert_eq!(key.tonic.as_u8(), 0);
         assert!(!key.minor);
+        let e_flat = song_with(&["D#4", "G4", "A#4", "D#5"]);
+        assert_eq!(
+            detect_key(&e_flat),
+            Key {
+                tonic: PitchClass::new(3),
+                minor: false
+            }
+        );
         let _ = ProjectFile::new(notes);
     }
 }
