@@ -1212,54 +1212,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             bpm,
             drums,
         } => {
-            let decoded = audio::decode::decode_mono(&wav).or_else(|_| {
-                let bytes =
-                    fs::read(&wav).map_err(|error| format!("{}: {error}", wav.display()))?;
-                audio::wav::decode_mono(&bytes)
-            })?;
-            let detected = if drums {
-                audio::analysis::to_drums(&decoded.samples, decoded.sample_rate)
-            } else {
-                audio::analysis::to_midi(&decoded.samples, decoded.sample_rate)
-            };
-            if detected.is_empty() {
-                return Err(String::from("no notes detected").into());
-            }
-            let mut song = Song::new(
-                wav.file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .unwrap_or("Audio transcription"),
-                bpm,
-            );
-            let mut track = project::song::Track::new(
-                project::TrackId::new(1).map_err(|error| error.to_string())?,
-                if drums { "Drums" } else { "Melody" },
-            );
-            let channel = if drums { 9_u8 } else { 0_u8 };
-            for (index, note) in detected.iter().enumerate() {
-                let (start, duration) = audio::analysis::as_ticks(note, bpm);
-                track.notes.push(project::song::Note {
-                    id: project::NoteId::new(index as u32 + 1)
-                        .map_err(|error| error.to_string())?,
-                    start,
-                    duration: duration.max(1),
-                    pitch: music_core::Pitch::new(note.pitch).map_err(|error| error.to_string())?,
-                    velocity: music_core::Velocity::new(
-                        (note.level * 127.0).clamp(1.0, 127.0) as u8
-                    )
-                    .map_err(|error| error.to_string())?,
-                    channel: music_core::Channel::new(channel)
-                        .map_err(|error| error.to_string())?,
-                });
-            }
-            song.tracks.push(track);
+            let song = audio_midi_song(&wav, bpm, drums)?;
             let bytes = smf::encode(&song)?;
             fs::write(&out, &bytes)
                 .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            let notes = song.tracks.first().map_or(0, |track| track.notes.len());
             println!(
                 "wrote {}: {} note(s), {} byte(s)",
                 out.display(),
-                detected.len(),
+                notes,
                 bytes.len()
             );
             Ok(())
@@ -2924,6 +2885,46 @@ fn mcp_call(
     Ok(())
 }
 
+fn audio_midi_song(wav: &std::path::Path, bpm: f64, drums: bool) -> Result<Song, String> {
+    let decoded = audio::decode::decode_mono(wav).or_else(|_| {
+        let bytes = fs::read(wav).map_err(|error| format!("{}: {error}", wav.display()))?;
+        audio::wav::decode_mono(&bytes)
+    })?;
+    let detected = if drums {
+        audio::analysis::to_drums(&decoded.samples, decoded.sample_rate)
+    } else {
+        audio::analysis::to_midi(&decoded.samples, decoded.sample_rate)
+    };
+    if detected.is_empty() {
+        return Err(String::from("no notes detected"));
+    }
+    let mut song = Song::new(
+        wav.file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("Audio transcription"),
+        bpm,
+    );
+    let mut track = project::song::Track::new(
+        project::TrackId::new(1).map_err(|error| error.to_string())?,
+        if drums { "Drums" } else { "Melody" },
+    );
+    let channel = if drums { 9_u8 } else { 0_u8 };
+    for (index, note) in detected.iter().enumerate() {
+        let (start, duration) = audio::analysis::as_ticks(note, bpm);
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(index as u32 + 1).map_err(|error| error.to_string())?,
+            start,
+            duration: duration.max(1),
+            pitch: music_core::Pitch::new(note.pitch).map_err(|error| error.to_string())?,
+            velocity: music_core::Velocity::new((note.level * 127.0).clamp(1.0, 127.0) as u8)
+                .map_err(|error| error.to_string())?,
+            channel: music_core::Channel::new(channel).map_err(|error| error.to_string())?,
+        });
+    }
+    song.tracks.push(track);
+    Ok(song)
+}
+
 fn audio_chords_json(
     wav: &std::path::Path,
     bpm: f64,
@@ -3648,6 +3649,32 @@ mod tests {
     #[test]
     fn the_command_tree_is_valid() {
         on_a_large_stack(|| Cli::command().debug_assert());
+    }
+
+    #[test]
+    fn audio_midi_song_transcribes_a_tone() {
+        let rate = 48_000_u32;
+        let mut samples = vec![0.0_f32; rate as usize];
+        for (index, sample) in samples.iter_mut().enumerate() {
+            let time = index as f32 / rate as f32;
+            *sample = (std::f32::consts::TAU * 440.0 * time).sin() * 0.5;
+        }
+        let path =
+            std::env::temp_dir().join(format!("lazy-arranger-cli-midi-{}.wav", std::process::id()));
+        std::fs::write(
+            &path,
+            audio::RenderedAudio {
+                samples,
+                sample_rate: rate,
+            }
+            .to_wav32f(),
+        )
+        .expect("wav");
+        let song = audio_midi_song(&path, 120.0, false).expect("midi");
+        let _ = std::fs::remove_file(&path);
+        assert!(!song.tracks.is_empty());
+        assert!(!song.tracks[0].notes.is_empty());
+        assert_eq!(song.tracks[0].notes[0].channel.zero_based(), 0);
     }
 
     #[test]
