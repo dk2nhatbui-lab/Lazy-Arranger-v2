@@ -274,6 +274,15 @@ mod tests {
     }
 
     #[test]
+    fn follow_up_rounds_are_bounded() {
+        assert!(can_follow_up(true, 1, 0));
+        assert!(can_follow_up(true, 2, 2));
+        assert!(!can_follow_up(true, 1, 3));
+        assert!(!can_follow_up(true, 0, 0));
+        assert!(!can_follow_up(false, 1, 0));
+    }
+
+    #[test]
     fn history_precedes_the_new_prompt() {
         let history = vec![
             (String::from("user"), String::from("earlier question")),
