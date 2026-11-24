@@ -4,12 +4,14 @@ set -eu
 cd "$(dirname "$0")/.."
 
 ./scripts/rust.sh build --release -p lazy-arranger-desktop
+./scripts/rust.sh build --release -p plugin-host --bin lazy-arranger-plugin-scan
 
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 APP="dist/Lazy Arranger Midi DAW.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp target/release/lazy-arranger-desktop "$APP/Contents/MacOS/lazy-arranger-desktop"
+cp target/release/lazy-arranger-plugin-scan "$APP/Contents/MacOS/lazy-arranger-plugin-scan"
 cp apps/desktop/assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'

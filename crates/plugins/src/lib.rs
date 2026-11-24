@@ -339,29 +339,39 @@ fn scan_vst3_isolated(path: &Path) -> Result<Vec<ScannedClass>, ()> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|_| ())?;
+    let mut stdout = child.stdout.take().ok_or(())?;
+    let reader = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        let _ = stdout.read_to_end(&mut bytes);
+        bytes
+    });
     let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(status)) => break status,
             Ok(None) => {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
+                    let _ = reader.join();
                     return Err(());
                 }
                 std::thread::sleep(Duration::from_millis(10));
             }
             Err(_) => {
                 let _ = child.kill();
+                let _ = child.wait();
+                let _ = reader.join();
                 return Err(());
             }
         }
-    }
-    let output = child.wait_with_output().map_err(|_| ())?;
-    if !output.status.success() {
+    };
+    let stdout = reader.join().map_err(|_| ())?;
+    if !status.success() {
         return Err(());
     }
-    serde_json::from_slice(&output.stdout).map_err(|_| ())
+    serde_json::from_slice(&stdout).map_err(|_| ())
 }
 
 fn found_from_classes(path: &Path, classes: Vec<ScannedClass>) -> Vec<FoundPlugin> {
@@ -392,22 +402,9 @@ fn vst3_plugins(path: &Path, failed: &mut Vec<PathBuf>) -> Vec<FoundPlugin> {
                 return Vec::new();
             }
         }
-    } else if let Ok(classes) = plugin_host::scan_vst3(path)
-        && !classes.is_empty()
-    {
-        return classes
-            .into_iter()
-            .map(|class| FoundPlugin {
-                name: class.name,
-                vendor: class.vendor,
-                version: class.version,
-                identifier: class.cid,
-                role: role_from_text(&class.subcategories),
-                path: path.to_path_buf(),
-                format: Format::Vst3,
-            })
-            .collect();
     }
+    // Without the isolated helper, read only the bundle's JSON metadata. Do not
+    // load the module in-process just to enumerate it.
     let moduleinfo = path
         .join("Contents")
         .join("Resources")
