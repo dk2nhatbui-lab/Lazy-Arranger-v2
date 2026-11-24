@@ -187,6 +187,12 @@ impl ScoreState {
             }
             return;
         }
+        if self.cecilia_pending.is_some() {
+            // Keep at most one engraver running; the latest key starts after it
+            // finishes instead of spawning a worker per edit.
+            context.request_repaint_after(std::time::Duration::from_millis(100));
+            return;
+        }
         let song = song.clone();
         let title = title.to_string();
         let (sender, receiver) = std::sync::mpsc::channel();
