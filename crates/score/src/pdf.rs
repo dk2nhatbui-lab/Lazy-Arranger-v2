@@ -470,6 +470,11 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
     finish_pdf(objects, title)
 }
 
+fn is_percussion(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.contains("drum") || lower.contains("kit") || lower.contains("perc")
+}
+
 struct FullStaff {
     name: String,
     systems: Vec<(usize, crate::System)>,
@@ -682,6 +687,8 @@ pub fn to_full_pdf_with_frames(
                     measure.start.saturating_add(measure.length)
                 });
                 let top = slot_top + staff_index as f32 * span;
+                let vertical_limit = 60.0;
+                let percussion = is_percussion(&staff.name);
                 for line in 0..5 {
                     let y = settings.page_height - (top + line as f32 * line_gap);
                     let _ = writeln!(
@@ -774,7 +781,7 @@ pub fn to_full_pdf_with_frames(
                 }
                 if staff_index == 0 && frames {
                     for frame in staff.frames.iter().filter(|frame| {
-                        frame.page == *page && frame.x >= first_x && frame.x <= last_x
+                        frame.page == *page && frame.tick >= first_tick && frame.tick < last_tick
                     }) {
                         let x = first_system
                             .map_or(frame.x, |sys| crate::full_score_x(system, sys, frame.x));
@@ -832,7 +839,7 @@ pub fn to_full_pdf_with_frames(
                         );
                     }
                     for chord in staff.chords.iter().filter(|chord| {
-                        chord.page == *page && chord.x >= first_x && chord.x <= last_x
+                        chord.page == *page && chord.tick >= first_tick && chord.tick < last_tick
                     }) {
                         let x = first_system
                             .map_or(chord.x, |sys| crate::full_score_x(system, sys, chord.x));
@@ -854,11 +861,17 @@ pub fn to_full_pdf_with_frames(
                     let x = first_system
                         .map_or(note.x, |first| crate::full_score_x(system, first, note.x));
                     let relative = (note.y - system.y) * (line_gap / settings.staff_space);
-                    let note_y = top + relative;
+                    let note_y = if percussion {
+                        top + 2.0 * line_gap
+                    } else {
+                        top + relative
+                    };
                     let y = settings.page_height - note_y;
                     let relative_space = (note.y - system.y) / settings.staff_space;
                     let low = relative_space.floor() as i32;
-                    let ledgers: Vec<i32> = if low < 0 {
+                    let ledgers: Vec<i32> = if percussion {
+                        Vec::new()
+                    } else if low < 0 {
                         (low..0).collect()
                     } else if relative_space > 4.0 {
                         (5..=low).collect()
@@ -876,7 +889,23 @@ pub fn to_full_pdf_with_frames(
                             settings.page_height - ledger_y
                         );
                     }
-                    circle(&mut content, x, y, line_gap * 0.55);
+                    if percussion {
+                        let radius = line_gap * 0.55;
+                        let _ = writeln!(
+                            content,
+                            "{:.1} {:.1} m {:.1} {:.1} l S {:.1} {:.1} m {:.1} {:.1} l S",
+                            x - radius,
+                            y - radius,
+                            x + radius,
+                            y + radius,
+                            x - radius,
+                            y + radius,
+                            x + radius,
+                            y - radius
+                        );
+                    } else {
+                        circle(&mut content, x, y, line_gap * 0.55);
+                    }
                     if let Some(alter) = note.spelled.accidental {
                         let accidental = match alter {
                             1 => "#",
@@ -992,7 +1021,10 @@ pub fn to_full_pdf_with_frames(
                     }
                 }
                 for slur in staff.slurs.iter().filter(|slur| {
-                    slur.page == *page && slur.start_x >= first_x && slur.start_x <= last_x
+                    slur.page == *page
+                        && slur.start_x >= first_x
+                        && slur.start_x <= last_x
+                        && (slur.y - system.y).abs() < vertical_limit
                 }) {
                     let y = settings.page_height
                         - (top + (slur.y - system.y) * (line_gap / settings.staff_space));
@@ -1013,7 +1045,10 @@ pub fn to_full_pdf_with_frames(
                     );
                 }
                 for tie in staff.ties.iter().filter(|tie| {
-                    tie.page == *page && tie.start_x >= first_x && tie.start_x <= last_x
+                    tie.page == *page
+                        && tie.start_x >= first_x
+                        && tie.start_x <= last_x
+                        && (tie.y - system.y).abs() < vertical_limit
                 }) {
                     let y = settings.page_height
                         - (top + (tie.y - system.y) * (line_gap / settings.staff_space));
@@ -1035,7 +1070,10 @@ pub fn to_full_pdf_with_frames(
                     );
                 }
                 for tuplet in staff.tuplets.iter().filter(|tuplet| {
-                    tuplet.page == *page && tuplet.start_x >= first_x && tuplet.start_x <= last_x
+                    tuplet.page == *page
+                        && tuplet.start_x >= first_x
+                        && tuplet.start_x <= last_x
+                        && (tuplet.y - system.y).abs() < vertical_limit
                 }) {
                     let y = settings.page_height
                         - (top + (tuplet.y - system.y) * (line_gap / settings.staff_space));

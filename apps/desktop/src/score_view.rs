@@ -241,15 +241,9 @@ pub fn preview_cursor_x(
     None
 }
 
-fn short_track_name(name: &str) -> String {
-    if name.is_empty() {
-        return String::from("Track");
-    }
-    let mut short: String = name.chars().take(5).collect();
-    if name.chars().count() > 5 {
-        short.push_str("..");
-    }
-    short
+fn is_percussion(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.contains("drum") || lower.contains("kit") || lower.contains("perc")
 }
 
 /// Cheap content hash for caching an all-track engraving.
@@ -481,6 +475,8 @@ pub fn show_full(
                 measure.start.saturating_add(measure.length)
             });
             let top = slot_top + index as f32 * span * scale;
+            let vertical_limit = 60.0;
+            let percussion = is_percussion(name);
             for line in 0..5 {
                 let y = top + line as f32 * line_gap * scale;
                 painter.line_segment(
@@ -488,12 +484,16 @@ pub fn show_full(
                     Stroke::new(0.6_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
                 );
             }
+            let label: String = name.chars().take(18).collect();
             painter.text(
-                Pos2::new(page_rect.left() + 4.0, top + 2.0 * line_gap * scale),
+                Pos2::new(
+                    page_rect.right() + 6.0 * scale,
+                    top + 2.0 * line_gap * scale,
+                ),
                 egui::Align2::LEFT_CENTER,
-                short_track_name(name),
+                label,
                 egui::FontId::proportional(7.0 * zoom),
-                Color32::from_rgb(0x40, 0x40, 0x40),
+                Color32::from_rgb(0xC8, 0xC8, 0xC8),
             );
             let average = if engraved.notes.is_empty() {
                 60.0
@@ -511,7 +511,15 @@ pub fn show_full(
             } else {
                 state.clef_treble.as_ref()
             };
-            if let Some(texture) = texture {
+            if percussion {
+                painter.text(
+                    Pos2::new(page_rect.left() + 2.0 * scale, top + 2.0 * line_gap * scale),
+                    egui::Align2::LEFT_CENTER,
+                    "perc.",
+                    egui::FontId::proportional(7.0 * zoom),
+                    Color32::from_rgb(0x20, 0x20, 0x20),
+                );
+            } else if let Some(texture) = texture {
                 let image = if bass {
                     score::clef::bass()
                 } else {
@@ -560,7 +568,7 @@ pub fn show_full(
             }
             if frames && index == 0 {
                 for frame in engraved.frames.iter().filter(|frame| {
-                    frame.page == source_page && frame.x >= first_x && frame.x <= last_x
+                    frame.page == source_page && frame.tick >= first_tick && frame.tick < last_tick
                 }) {
                     let x = page_rect.left()
                         + first_system
@@ -651,7 +659,7 @@ pub fn show_full(
             }
             if index == 0 {
                 for chord in engraved.chord_symbols.iter().filter(|chord| {
-                    chord.page == source_page && chord.x >= first_x && chord.x <= last_x
+                    chord.page == source_page && chord.tick >= first_tick && chord.tick < last_tick
                 }) {
                     let x = page_rect.left()
                         + first_system
@@ -719,13 +727,19 @@ pub fn show_full(
                 {
                     continue;
                 }
-                let y = top + (note.y - system.y) * (line_gap / settings.staff_space) * scale;
+                let y = if percussion {
+                    top + 2.0 * line_gap * scale
+                } else {
+                    top + (note.y - system.y) * (line_gap / settings.staff_space) * scale
+                };
                 let note_x =
                     first_system.map_or(note.x, |first| score::full_score_x(system, first, note.x));
                 let x = page_rect.left() + note_x * scale;
                 let relative = (note.y - system.y) / settings.staff_space;
                 let low = relative.floor() as i32;
-                let ledgers: Vec<i32> = if low < 0 {
+                let ledgers: Vec<i32> = if percussion {
+                    Vec::new()
+                } else if low < 0 {
                     (low..0).collect()
                 } else if relative > 4.0 {
                     (5..=low).collect()
@@ -742,11 +756,26 @@ pub fn show_full(
                         Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
                     );
                 }
-                painter.circle_filled(
-                    Pos2::new(x, y),
-                    line_gap * 0.55 * scale,
-                    Color32::from_rgb(0x10, 0x10, 0x10),
-                );
+                let ink = Color32::from_rgb(0x10, 0x10, 0x10);
+                if percussion {
+                    let radius = line_gap * 0.55 * scale;
+                    painter.line_segment(
+                        [
+                            Pos2::new(x - radius, y - radius),
+                            Pos2::new(x + radius, y + radius),
+                        ],
+                        Stroke::new(1.0_f32, ink),
+                    );
+                    painter.line_segment(
+                        [
+                            Pos2::new(x - radius, y + radius),
+                            Pos2::new(x + radius, y - radius),
+                        ],
+                        Stroke::new(1.0_f32, ink),
+                    );
+                } else {
+                    painter.circle_filled(Pos2::new(x, y), line_gap * 0.55 * scale, ink);
+                }
                 for dot in 0..note.dots {
                     painter.circle_filled(
                         Pos2::new(x + line_gap * (1.0 + f32::from(dot) * 0.8) * scale, y),
@@ -836,7 +865,10 @@ pub fn show_full(
                 }
             }
             for slur in engraved.slurs.iter().filter(|slur| {
-                slur.page == source_page && slur.start_x >= first_x && slur.start_x <= last_x
+                slur.page == source_page
+                    && slur.start_x >= first_x
+                    && slur.start_x <= last_x
+                    && (slur.y - system.y).abs() < vertical_limit
             }) {
                 let y = top + (slur.y - system.y) * (line_gap / settings.staff_space) * scale;
                 let start = page_rect.left()
@@ -856,7 +888,11 @@ pub fn show_full(
                     Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
                 ));
             }
-            for tie in engraved.ties.iter().filter(|tie| tie.page == source_page) {
+            for tie in engraved
+                .ties
+                .iter()
+                .filter(|tie| tie.page == source_page && (tie.y - system.y).abs() < vertical_limit)
+            {
                 let y = top + (tie.y - system.y) * (line_gap / settings.staff_space) * scale;
                 let start = page_rect.left()
                     + first_system.map_or(tie.start_x, |sys| {
@@ -876,7 +912,10 @@ pub fn show_full(
                 ));
             }
             for tuplet in engraved.tuplets.iter().filter(|tuplet| {
-                tuplet.page == source_page && tuplet.start_x >= first_x && tuplet.start_x <= last_x
+                tuplet.page == source_page
+                    && tuplet.start_x >= first_x
+                    && tuplet.start_x <= last_x
+                    && (tuplet.y - system.y).abs() < vertical_limit
             }) {
                 let y = top + (tuplet.y - system.y) * (line_gap / settings.staff_space) * scale;
                 let start = page_rect.left()
@@ -1895,6 +1934,67 @@ mod tests {
             collect_text(&clipped.shape, &mut texts);
         }
         assert!(texts.iter().any(|text| text == "Intro"));
+    }
+
+    #[test]
+    fn full_score_draws_each_chord_once() {
+        use project::song::{ChordEvent, Note, Song, Track};
+        let mut song = Song::new("Chords", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");
+        for bar in 0..8 {
+            track.notes.push(Note {
+                id: project::NoteId::new(bar + 1).expect("valid"),
+                start: music_core::PPQ * 4 * i64::from(bar),
+                duration: music_core::PPQ * 4,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+            song.chords.push(ChordEvent {
+                tick: music_core::PPQ * 4 * i64::from(bar),
+                chord: music_core::Chord::parse("C").expect("valid"),
+            });
+        }
+        song.tracks.push(track);
+        let engraved = score::engrave(
+            &song,
+            project::TrackId::new(1).expect("valid"),
+            Settings::default(),
+        );
+        let tracks = vec![(String::from("Piano"), engraved)];
+        let context = egui::Context::default();
+        let mut state = ScoreState::default();
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0))),
+                ..egui::RawInput::default()
+            },
+            |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    let _ = show_full(
+                        ui,
+                        &tracks,
+                        0,
+                        1.0,
+                        "Chords",
+                        &mut state,
+                        0,
+                        false,
+                        120.0,
+                        &[],
+                    );
+                });
+            },
+        );
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            collect_text(&clipped.shape, &mut texts);
+        }
+        assert_eq!(
+            texts.iter().filter(|text| text.as_str() == "C").count(),
+            8,
+            "one chord text per bar"
+        );
     }
 
     #[test]

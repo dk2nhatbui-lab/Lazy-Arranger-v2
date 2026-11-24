@@ -101,6 +101,8 @@ pub struct Beam {
 /// A chord symbol above the staff.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChordSymbol {
+    /// Tick of the chord.
+    pub tick: Tick,
     /// Page holding the symbol.
     pub page: usize,
     /// Left edge.
@@ -114,6 +116,8 @@ pub struct ChordSymbol {
 /// A guitar chord frame above the staff.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChordFrame {
+    /// Tick of the chord.
+    pub tick: Tick,
     /// Page holding the frame.
     pub page: usize,
     /// Left edge.
@@ -456,6 +460,7 @@ fn placed_chord_symbols(song: &Song, pages: &[Page], settings: Settings) -> Vec<
                         }
                         last.insert(key, x);
                         placed = Some(ChordSymbol {
+                            tick: event.tick,
                             page: page_index,
                             x,
                             y: if frame {
@@ -504,6 +509,7 @@ fn placed_frames(song: &Song, pages: &[Page], settings: Settings) -> Vec<ChordFr
                         }
                         last.insert(key, x);
                         placed = Some(ChordFrame {
+                            tick: event.tick,
                             page: page_index,
                             x,
                             y: system.y - 5.0 * settings.staff_space,
