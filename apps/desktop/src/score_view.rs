@@ -256,10 +256,16 @@ pub fn show_preview(
         .clamp(0.15, 1.0);
     let page_rect = page_rect(response.rect.center(), settings, fit * zoom);
     painter.rect_filled(page_rect, 0.0, Color32::WHITE);
+    let mut image_rect = page_rect;
     if let Some(texture) = state.cecilia_pages.get(page) {
+        let size = texture.size_vec2();
+        if size.x > 0.0 && size.y > 0.0 {
+            let scale = (page_rect.width() / size.x).min(page_rect.height() / size.y);
+            image_rect = egui::Rect::from_center_size(page_rect.center(), size * scale);
+        }
         painter.image(
             texture.id(),
-            page_rect,
+            image_rect,
             egui::Rect::from_min_max(egui::Pos2::ZERO, egui::Pos2::new(1.0, 1.0)),
             Color32::WHITE,
         );
@@ -278,11 +284,11 @@ pub fn show_preview(
         (entry_cursor, Color32::from_rgb(0x30, 0x60, 0xd0)),
     ] {
         let Some(tick) = tick else { continue };
-        if let Some(x) = preview_cursor_x(engraved, page, tick, page_rect, settings) {
+        if let Some(x) = preview_cursor_x(engraved, page, tick, image_rect, settings) {
             painter.line_segment(
                 [
-                    egui::pos2(x, page_rect.top()),
-                    egui::pos2(x, page_rect.bottom()),
+                    egui::pos2(x, image_rect.top()),
+                    egui::pos2(x, image_rect.bottom()),
                 ],
                 egui::Stroke::new(1.5_f32, color),
             );
