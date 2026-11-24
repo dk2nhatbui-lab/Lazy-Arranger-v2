@@ -11817,6 +11817,7 @@ impl eframe::App for ShellApp {
                 let mut clicked = None;
                 let mut automation_edit: Option<(TrackId, project::song::Automation)> = None;
                 let mut audio_trim: Option<(TrackId, Tick)> = None;
+                let mut audio_move: Option<(TrackId, Tick)> = None;
                 let mut audio_length: Option<(TrackId, Tick)> = None;
                 let mut audio_fades: Option<(TrackId, Tick, Tick)> = None;
                 let mut audio_stretch: Option<(TrackId, bool)> = None;
@@ -11875,6 +11876,10 @@ impl eframe::App for ShellApp {
                                 if ui.button("Trim 1 beat").clicked() {
                                     let bar = project.song.time_signature.bar_ticks().max(1);
                                     audio_trim = Some((*track_id, bar / 4));
+                                }
+                                if ui.button("Move 1 beat").clicked() {
+                                    let bar = project.song.time_signature.bar_ticks().max(1);
+                                    audio_move = Some((*track_id, bar / 4));
                                 }
                                 if ui
                                     .button("Start at playhead")
@@ -12849,6 +12854,7 @@ impl eframe::App for ShellApp {
                     clicked,
                     automation_edit,
                     audio_trim,
+                    audio_move,
                     audio_length,
                     audio_fades,
                     audio_stretch,
@@ -12870,6 +12876,7 @@ impl eframe::App for ShellApp {
             clicked,
             automation_edit,
             audio_trim,
+            audio_move,
             audio_length,
             audio_fades,
             audio_stretch,
@@ -12987,6 +12994,11 @@ impl eframe::App for ShellApp {
             } else {
                 self.status = Some(format!("trimmed {delta} tick(s)"));
             }
+        }
+        if let Some((track, delta)) = audio_move
+            && let Err(error) = self.editor.move_audio(track, delta)
+        {
+            self.status = Some(error);
         }
         if let Some((track, fade_in, fade_out)) = audio_fades
             && let Err(error) = self.editor.set_audio_fades(track, fade_in, fade_out)

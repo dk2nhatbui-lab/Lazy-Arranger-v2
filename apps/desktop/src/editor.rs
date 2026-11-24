@@ -2132,6 +2132,31 @@ impl Editor {
         Ok(copied)
     }
 
+    /// Moves an audio reference along the timeline by `delta` ticks.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track has no audio or the edit is rejected.
+    pub fn move_audio(&mut self, track: TrackId, delta: Tick) -> Result<(), String> {
+        let reference = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.audio.clone())
+            .ok_or_else(|| String::from("track has no audio reference"))?;
+        let mut reference = reference;
+        reference.start = reference.start.saturating_add(delta).max(0);
+        self.session
+            .apply(app_commands::Command::SetAudioRef {
+                track,
+                reference: Some(reference),
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Trims the front of a track's audio reference.
     ///
     /// # Errors
@@ -2842,6 +2867,40 @@ mod tests {
                 .expect("audio")
                 .path
                 .contains("lazy-arranger-record-take")
+        );
+    }
+
+    #[test]
+    fn moving_an_audio_reference_is_undoable() {
+        let mut song = Song::new("Move", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Audio");
+        track.audio = Some(project::song::AudioRef {
+            path: String::from("take.wav"),
+            start: 0,
+            length: 4 * music_core::PPQ,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        song.tracks.push(track);
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("editor");
+        let track = TrackId::new(1).expect("track");
+        editor.move_audio(track, music_core::PPQ).expect("move");
+        assert_eq!(
+            editor.song().tracks[0]
+                .audio
+                .as_ref()
+                .map(|audio| audio.start),
+            Some(music_core::PPQ)
+        );
+        assert!(editor.undo());
+        assert_eq!(
+            editor.song().tracks[0]
+                .audio
+                .as_ref()
+                .map(|audio| audio.start),
+            Some(0)
         );
     }
 
