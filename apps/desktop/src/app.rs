@@ -2561,15 +2561,20 @@ impl ShellApp {
         });
     }
 
-    fn draw_waveform(ui: &mut egui::Ui, peaks: &[audio::waveform::Peak], zoom: f32, position: f32) {
+    fn draw_waveform(
+        ui: &mut egui::Ui,
+        peaks: &[audio::waveform::Peak],
+        zoom: f32,
+        position: f32,
+    ) -> Option<f32> {
         let (response, painter) = ui.allocate_painter(
             egui::Vec2::new(ui.available_width(), 44.0),
-            egui::Sense::hover(),
+            egui::Sense::click(),
         );
         let rect = response.rect;
         painter.rect_filled(rect, 0.0, theme::lane());
         if peaks.is_empty() {
-            return;
+            return None;
         }
         let centre = rect.center().y;
         let height = rect.height() * 0.45;
@@ -2592,6 +2597,12 @@ impl ShellApp {
             ],
             egui::Stroke::new(0.5_f32, theme::line()),
         );
+        let click = response
+            .interact_pointer_pos()
+            .filter(|_| response.clicked())?;
+        let fraction = ((click.x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
+        let index = start as f32 + fraction * (end.saturating_sub(start)) as f32;
+        Some((index / peaks.len() as f32).clamp(0.0, 1.0))
     }
 
     /// Opens the configured keyboard once and applies mapped controls.
@@ -12264,12 +12275,25 @@ impl eframe::App for ShellApp {
                                         .fixed_decimals(2),
                                 );
                             });
-                            Self::draw_waveform(
-                                ui,
-                                peaks,
-                                self.waveform_zoom,
-                                self.waveform_position,
-                            );
+                            if let Some(fraction) =
+                                Self::draw_waveform(
+                                    ui,
+                                    peaks,
+                                    self.waveform_zoom,
+                                    self.waveform_position,
+                                )
+                                && let Some(reference) = project
+                                    .song
+                                    .tracks
+                                    .iter()
+                                    .find(|track| track.id == *track_id)
+                                    .and_then(|track| track.audio.as_ref())
+                            {
+                                seek = Some(
+                                    reference.start
+                                        + (reference.length as f32 * fraction) as i64,
+                                );
+                            }
                         }
                         if timeline_mode {
                             ui.horizontal(|ui| {
