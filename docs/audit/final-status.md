@@ -1,225 +1,71 @@
 # Final status (2026-11-24)
 
-Commit basis: audit-remediation work at round 467. Goal: C++ v1.0.0-beta.1 feature parity.
-**Parity is not claimed.** All 39 crosscheck rows are `partial`; none is
-`verified` in full, because several require material this environment does not
-have (hardware, proprietary formats, native plug-in editor support or model
-services).
+Commit basis: audit-remediation work at round 500. Goal: C++ v1.0.0-beta.1 feature parity.
+**Parity is not claimed.** All 39 crosscheck rows remain `partial`; several need
+material this environment does not have (hardware, proprietary formats, native
+plug-in editor support or model services).
 
 ## Gate and CI
 
 - `cargo test --workspace`: **818 passed, 0 failed**.
 - `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all`
   and rustdoc (warnings denied): clean.
-- Release build and desktop smoke are recorded in `docs/audit/release.md`.
-- GitHub Actions: ubuntu, macos and windows green on `bacb607` and the following
-  audit-remediation commits. The earlier Linux/Windows failure was macOS-only
-  AU symbols plus target-specific Clippy warnings. The long Windows stack overflow is fixed
-  (`5c98cc4`); evidence in `docs/audit/ci-windows-failures.md`.
+- Release bundle builds; the app launches; the bundled scanner returns R0Verb
+  metadata from the installed VST3.
+- GitHub Actions: ubuntu, macos and windows have been green through the
+  audit-remediation series; the newest pushes were still draining at this
+  snapshot. Earlier platform failures and their fixes are recorded in
+  `docs/audit/ci-windows-failures.md`.
 
 ## Verified areas (representative)
 
-Project schema v20 (program + bank select), migrations, undo/validation; style
-parse/import/write with SFF1/SFF2, programs and bank select; score engraving
-(ties, beams, tuplets, rests, dots, slurs, percussion, lyrics, chords, frames,
-spacing, meter, measure numbers, PDF/canvas/print dialog); audio render, SF2,
-mixer with buses/sends/master reverb/chorus/meters, stems/freeze, float WAV;
-MIDI maps/learn/Launchkey preset/panic builders; arrangements, grooves, forms,
-theory/lessons; MCP server with 93 tools; five-view egui shell with eight
-languages, persistent right inspector, bottom mixer and a Cecilia Score tab; the Score view uses Cecilia 0.51, Kids Mode, named songs and tutorial.
+Project schema v20 (program + bank select), migrations, undo and validation
+(notes, clips, audio takes/comps, buses, plug-ins, routing, automation, marks
+and lyrics); style parse/import/write with SFF1/SFF2, section ordering, programs
+and bank select; score engraving (ties, beams, tuplets, rests, dots, slurs,
+percussion, lyrics, chords, guitar frames, spacing, meter, measure numbers,
+PDF/canvas/print dialog, Latin-1 PDF text); audio render, SF2 with presets,
+mixer buses/sends/master reverb/chorus/meters, stems and freeze; MIDI maps,
+learn, Launchkey preset and panic builders; arrangements, grooves, forms,
+theory and lessons; MCP server with **102 tools**, token socket and project-root
+write sandbox; five-view egui shell with eight languages, Kids Mode, named songs
+and tutorial; background rendering for Cecilia previews, waveforms and playback.
 
 ## Concrete blockers to full parity
 
-These are not ordinary bugs; each needs an asset, format, model or product
-decision that is absent here.
-
-1. **Plugin hosting/processing/editors** — 21 AU/VST3 bundles are installed; the manager reads AU Info.plist and VST3 moduleinfo metadata, caches the catalog and lists it in the My Plug-Ins browser. No binary loading or host integration exists yet (needs an isolated unsafe FFI crate). The UAD
-   `.lunacomponent` files used by Luna are proprietary and are not AU/VST3, so
-   they cannot be loaded without UA's host. Hosting/editors remain a project.
-2. **Korg PCG program/combi decoding and L6max project/mixer page** — the Pa5X
-   user manual describes imports but does not specify the PCG binary layout, and
-   no PCG/L6max project fixture was supplied; only recognition/scans exist.
-3. **SoundFont modulators** — SF3 is out of scope by request; SF2 is supported.
-   Modulator semantics remain unverified.
-4. **AI/speech input (optional)** — the assistant is a local rule engine and
-   speech output uses macOS `say`. Live speech input needs a speech model and
-   microphone permission; it is optional, not required for the current scope.
-5. **Hardware acceptance (partial)** — MIDI ports/sends and a PSR-S970 send were
-   exercised, and printers are visible; key capture, audible output, monitoring
-   latency and actual print jobs remain unverified. See `docs/audit/hardware.md`.
-6. **Key-signature layout** — G/F clefs are now drawn on canvas and PDF without
-   changing the four-measure system. A key-signature gutter still needs a
-   product decision: it would force three measures per system on the current
-   595 pt page (four measures use 496 of 499 pt).
+1. **Native plug-in editors** — VST3/AU scanning, hosting, processing, parameter
+   enumeration and opaque state work. No native editor window exists for either
+   format, and no stable header/plugin fixture was supplied to test one.
+2. **Korg PCG and L6max project files** — the Pa5X manual does not specify the
+   PCG binary layout, and no PCG/L6max project fixture was supplied. The L6max
+   device page sends the documented CC map and transport bytes; project readback
+   and device feedback remain unverified.
+3. **Full multi-track score** — the Score view and PDF engrave one track (or one
+   grand staff). A simultaneous all-track full score is not implemented.
+4. **SF3** — SF2 is supported; SF3 compressed samples are out of scope by request.
+5. **PDF CJK text** — WinAnsi covers Latin-1; unsupported scripts render as `?`.
+6. **AI/speech input** — the assistant is a local rule engine with an optional
+   OpenAI-compatible endpoint; live speech input needs a model and microphone
+   permission and is optional.
+7. **Hardware acceptance** — earlier L6max CC, MIDI send and print visibility
+   tests are documented. The hardware is powered down, so key capture, audible
+   output, transport response, monitoring latency and actual print jobs remain
+   unverified in this snapshot. See `docs/audit/hardware.md`.
 
 ## Scoped limitations that remain implementable
 
-Take comping (scoped model/UI), destructive waveform editing and broader vertical rest collision avoidance are implementable with more rounds, but they do not remove the blockers above and
-were not forced speculatively.
+Native plug-in editors, full multi-track scoring, destructive waveform editing,
+broader vertical rest collision avoidance and CJK font embedding are
+implementable with more rounds, but none removes the blockers above without the
+missing fixtures or product decisions.
 
 ## How to resume
 
-Provide one or more of: a VST3/AU host harness and test plugins; Korg PCG and
-L6max project fixtures/specs; an SF3 fixture or decoder budget; an AI/speech
-endpoint with credentials and permitted models; or the hardware listed above.
-For the clef layout, choose either four measures per system without clefs
-(current) or three measures per system with a clef/key gutter.
+Provide one or more of: a VST3/AU editor fixture and platform harness; Korg PCG
+and L6max project fixtures/specs; an SF3 fixture or decoder budget; a CJK font
+choice; an AI/speech endpoint with credentials; or the hardware powered on.
 
-- Audio decode now covers WAV and symphonia formats (FLAC/MP3/M4A/AIFF/OGG); compressed references mix and draw peaks.
-- A generic Synth patch window edits waveform, ADSR and brightness as one undoable command (`docs/audit/synth-patch.png`); device-specific D-05/XioSynth/S970 panels remain absent.
-- AU parameter enumeration and setting work in `plugin-host` (Apple AU readback test); no parameter UI or project persistence yet.
-- AU parameters can be edited in a generic window, applied with Defaults, and saved as `id=value;` slot state that the render restores; VST3 parameter automation is absent.
-- VST3 state can be captured from the Mixer into base64 slot state and restored during render; AU parameters have a generic editor and persisted state.
-- VST3 class scans run in an isolated helper with a five-second timeout; the in-process path remains as a fallback when the helper is not packaged.
-- AU instruments are routed into track render: a track with a non-bypassed AU instrument slot renders its notes through DLSMusicDevice (ignored wet/dry test); VST3 instruments are hosted and routed through track render; the local test synth renders audible track notes.
-- AU instrument note events carry sample offsets inside 512-frame blocks; block-boundary scheduling remains the resolution limit.
-- The AU parameter window opens instruments too; DLSMusicDevice exposes editable parameters and slot state.
-- MIDI recording supports an audible 0–2 bar count-in and appends to a record-armed track (R in the track row) or inserts a new track when none is armed; a header record button starts the same capture; the same audible count-in precedes audio-input capture, which replaces the record-armed track's audio reference or inserts a new audio track.
-- Shortcut editor detects duplicate bindings and has Reset defaults; six bindings remain editable.
-- Plugin scanning runs on a worker thread; Rescan/Scan controls disable while scanning and the cache is saved when the worker returns.
-- Settings lists audio input devices and persists a preferred input; audio capture uses it with a default fallback.
-- Input monitoring restarts when the preferred audio input changes; it uses the named device or the default.
-- `style-from-clips` writes a one-section SFF from project tracks; the demo produced 4 parts/21 notes and re-imported as Main A.
-- `style-from-clips --from-markers` splits the demo into A/B sections and writes a re-readable SFF; default channel rules only.
-- MCP `style_from_clips` writes the same multi-section SFF as the CLI; registry is 94 tools.
-- Windows > Style from clips exposes the writer in the desktop app (`docs/audit/style-clips.png`).
-- Plugin slots can be reordered up/down through one undoable command.
-- Master effect slots run after the bus sum (capture `docs/audit/master-effects.png`); bus effect chains are still absent.
-- Buses carry effect chains (`Bus.plugins`), applied to the bus sum; the Bus effects window edits them.
-- A basic Style rules window edits destination channel, written root/type, NTR/NTT, held-note RTR, bass and note limits in the export draft.
-- Track/bus plug-in chains apply reported latency compensation; the local test VST3 gain fixture reports 32 samples and the delayed/dry track alignment test passes.
-- VST3 parameter changes use an `IParameterChanges` queue; a generic window edits them and saves state, but no installed VST3 exposes parameters, so it is unverified.
-- Windows > MIDI out sends program changes, bank select, CC, test notes, chords and panic to a selected output, persists the output choice (capture `docs/audit/midi-out.png`); sends remain hardware-unverified.
-- Failed isolated VST3 scans are blocklisted persistently and shown/clearable in My Plug-Ins.
-- Style from clips has Audition/Stop, compiling the section(s) to a temporary song and playing it.
-- Beat view offers 1/2/4-bar patterns in a horizontal scroller.
-- `style-from-audio` writes a one-part style from monophonic detected notes; `--chord auto` picks the strongest chroma chord, and the source chord is persisted in the written rules. `--split-parts` produces Bass and Chord 1 parts; `--section-bars` splits into uniform sections with clipped notes. No analysis-driven sections, stems or match scoring.
-- Style from audio is shared by CLI, MCP and a desktop dialog (`docs/audit/style-from-audio.png`); an optional onset/band-energy Drums part and onset-spacing tempo detection are heuristics, not stem separation; 95 MCP tools.
-- Groove templates can be extracted from audio (`groove-from-audio`, MCP `groove_from_audio`); fixed multi-bar extraction offsets. 96 MCP tools.
-- Audio tags are a model-free heuristic (drums/bass/pad/melodic); 97 MCP tools.
-- Language offers System default, resolved from LC_ALL/LC_MESSAGES/LANG.
-- Track plug-in parameter automation lanes render block-by-block; VST3 test gain verifies 0→127 gain; an ignored Apple dynamics test verifies AU min/max mapping. The AU/VST3 parameter windows can set the automation target with A. Bus/master lanes remain absent.
-- About box, device-profiles folder and YAML profile picker added; profiles supply keyboard-export programs and CC controls in a generic Device editor. Update channel still unconfigured; CC sends are hardware-unverified.
-- Groove library window lists/loads/applies `.groove` files with timing and accent sliders (`docs/audit/groove-library.png`).
-- L6max take scan supports per-take selection; no mixer page/transport or project parsing.
-- MIDI out sends transport realtime messages; Device editor can send SysEx; both hardware-unverified.
-- UI pass started: C++-style square transport, light tabs, Mixer toggle, Ask AI and resizable left/right/mixer panels.
-- Timeline lane view added as the Arrange default, with a Piano roll toggle (`docs/audit/ui-timeline.png`).
-- UI pass: Tracks header with add, C++-style mixer strips with knobs/faders, resizable panels, song rename in the inspector (`docs/audit/ui-mixer.png`).
-- UI pass: instrument icons in track rows, right-aligned track flags, master fader pinned to the mixer's far right, song title in the window bar (`docs/audit/ui-master.png`).
-- Track icons mirror the C++ `Icons.h` geometry and `TimelineViews.cpp` mapping; GM program names/picker added.
-- Wider default window reveals the CoreAudio/zoom cluster; inspector program picker and Audio/MIDI settings button; `docs/audit/ui-wide.png`.
-- UI pass: wider default window, editable inspector track name, patch text in track rows, Chords-on line (`docs/audit/ui-wide.png`).
-- Added Drums and Map tabs; right inspector keeps an inline assistant chat at the bottom (`docs/audit/ui-chat-panel.png`).
-- Metronome uses the C++-style vector icon and has an accent slider backed by `metronome::mix_accent` (`docs/audit/ui-metronome.png`).
-- Transport uses vector icons instead of glyph text (`docs/audit/ui-transport.png`).
-- Right inspector now spans the full height; mixer ends at its edge so the master fader no longer sits under the inspector; chat pinned to the panel bottom (`docs/audit/ui-chat-panel.png`).
-- Mixer faders use one fixed-height custom widget for tracks and master; tooltips delay 0.6 s (`docs/audit/ui-master-fader.png`).
-- Inspector channel picker moves all track notes to a channel as one undoable edit (`docs/audit/ui-channel.png`).
-- Timeline scrolls in both directions, follows the playhead while playing, and header +/- zooms it (`docs/audit/ui-timeline-scroll.png`).
-- Mixer meters follow active notes at the playhead; master meter takes the loudest track (`docs/audit/ui-meters.png`).
-- Undo glyph redrawn as a left arrow with a curved tail (`docs/audit/ui-undo.png`).
-- Tracks default to the first row; M/S/R clicks no longer change row selection; inspector key has Find.
-- Transport uses green play, red record and an undo arrow rotated 10° CCW (`docs/audit/ui-transport-colors.png`).
-- Kids Mode is full-window Perform with a minimal header: any key, click or MIDI message plays; an optional toggle auditions held keys, loops, and auto-pauses after the configured delay; undo arrow now points 45° CCW (`docs/audit/ui-kids.png`, `docs/audit/ui-undo45.png`).
-- PSR-S970 remote panel sends voice/CC/chord auditions; hardware sends remain unverified (`docs/audit/psr-remote.png`).
-- Light palette and track colours now use the C++ Studio Paper token values (`docs/audit/ui-cpp-theme.png`).
-- Audio output device can be selected and is used by the playback player.
-- Audio settings choose output device and fixed buffer; inspector shows sample rate/frames/latency when playing (`docs/audit/audio-settings.png`).
-- Track rows use 60 px C++ spacing (`docs/audit/ui-track-rows.png`).
-- PSR panel has eight persisted registration slots; hardware unverified.
-- XioSynth and D-05 profile files seed the profiles folder and expose CC controls in the Device editor; hardware unverified.
-- Track list scrolls vertically when the sidebar is full.
-- Timeline view has no extra toolbar; the Piano roll switch sits in the status bar (`docs/audit/ui-no-toolbar.png`).
-- Assistant supports an optional OpenAI-compatible endpoint with background request with chat history, one `tool` reply and Apply/Cancel proposal cards for changes; local fallback kept (`docs/audit/ai-settings.png`); external endpoint unverified.
-- Timeline lanes fill the panel; track names live only in the sidebar (`docs/audit/ui-no-labels.png`).
-- Timeline clips drag to move or resize on a 1/16 grid with a live ghost preview.
-- Settings can auto-open all MIDI inputs; no hardware verification yet.
-- Check for updates reads the GitHub latest release and compares versions; Open release page, Download to ~/Downloads and Skip this version; no install; external endpoint unverified.
-- Style file player loads a Yamaha style and auditions selected sections at an entered chord with optional loop; new section selections and chord pads queue at the next bar; held MIDI notes are recognised as chord changes; fills return to the main section and endings stop looping (`docs/audit/style-file.png`).
-- Window title and About use the C++ app name "Lazy Arranger Midi DAW".
-- Timeline draws labelled audio-reference blocks with cached waveform peaks (`docs/audit/ui-timeline-waveform.png`); the lane peak map covers the whole file, not the trimmed offset.
-- Master strip uses the same custom fader height and a live player meter (`docs/audit/ui-master-meter.png`).
-- Status bar reports MIDI inputs; metronome dots follow the meter numerator; meters read empty while stopped (`docs/audit/ui-metronome-dots.png`).
-- Inspector edits song meter from a picker (`docs/audit/ui-meter-edit.png`).
-- Timeline chord lane follows the detected key's sharp/flat signature.
-- L6max import mutes a master/mix take; test covers it.
-- Held MIDI notes show the recognised chord in Perform and the Inspector; hardware-unverified.
-- Assistant Dictate records 5 s and transcribes through a configurable Whisper command; microphone/model unverified (`docs/audit/dictate.png`).
-- Assistant can call a local CLI template with {prompt}; after Apply it sends the tool result back for a short summary. Mock-command tested.
-- Seeded profiles include PSR-S970, generic GS/XG and Korg Pa; an input or output port name auto-selects a matching profile.
-- Device editor sends all controls and saves/loads `.syx` dumps (`docs/audit/device-dump.png`); hardware unverified.
-- Timeline lane height is 64 px, closer to the C++ layout (`docs/audit/ui-lane-height.png`).
-- Chords from audio window recognises WAV segments in a background thread and writes them as one undoable chord set (`docs/audit/audio-chords.png`, synthetic C major recognised).
-- Score view draws an accent playback cursor at the transport position (`docs/audit/score-cursor.png`).
-- Video import extracts a mono 48 kHz WAV with FFmpeg; extraction test creates a 1 s MP4.
-- Input monitoring and recording use the chosen channel or mono mix (`docs/audit/audio-settings.png`); hardware unverified.
-- Bus/master VST3 slots capture/clear state; no capture hardware fixture.
-- Generate part window exposes all seven rule-based generators with a seed (`docs/audit/generate-part.png`).
-- Sidebar has New/Open/Save/Save-as buttons (`docs/audit/ui-file-buttons.png`).
-- L6max mixer page controls imported takes with persisted A-D scenes, Reset and Compact; EQ/MONO/USB/device pages absent (`docs/audit/l6max-mixer.png`).
-- Mixer faders support Shift fine adjust and double-click reset.
-- MIDI monitor keeps two minutes of timestamped messages (`docs/audit/midi-monitor.png`); hardware unverified.
-- Mixer shows bus strips with pan, fader, mute/solo and meters; mute and solo are render-tested (`docs/audit/ui-bus-strips.png`).
-- Inspector edits track bus, send and send level (`docs/audit/ui-routing.png`).
-- MIDI out window has a 16-channel check button; hardware unverified.
-- Kids circle pulse respects the reduced-motion setting.
-- Audio trim row can set the front or end at the playhead (`docs/audit/ui-audio-trim.png`).
-- Smoke test draws 31 tool windows, including an audio track with a take and comp span in one egui frame without panicking.
-- Score note entry accepts computer-keyboard A-W-S-E-D-F-T-G-Y-H-U-J at the playhead with octave and note-length pickers, dotted notes, rests and an entry cursor; mapping/length tested.
-- Bundle includes AppIcon.icns derived from the runtime icon asset.
-- Style from link downloads yt-dlp audio and opens Style from audio; network unverified (`docs/audit/style-link.png`).
-- Inline Drums view and floating Beat editor have previous/next bar navigation (`docs/audit/beat-nav.png`).
-- Controllers window loads a Launchkey mixer preset (CC 21-28 -> faders 1-8); hardware unverified (`docs/audit/controllers.png`).
-- Assistant speech can use a custom {text} command (e.g. Kokoro/Piper) instead of say; mock-tested.
-- XG part mixer sends 16-part volume/pan/reverb/chorus CCs; hardware unverified (`docs/audit/xg-mixer.png`).
-- Audio references are mixed in the offline render and cpal playback with start/offset/fades/stretch; render and bounce tests cover it.
-- Audio refs now follow bus routing and track volume before bus/master plug-ins; render test covers the routed silence.
-- Compressed audio decode now preserves stereo; WAV already did, and audio refs use both.
-- Audio references follow volume/pan automation in 64-frame blocks; a zero-volume lane test covers it.
-- Sends are applied once after track plug-ins, so audio references feed sends and send lanes move in 64-frame blocks.
-- Mixer strips no longer show a dead second send knob; only the wired Rev/send knob and pan remain.
-- Removed the second post-render audio mix: playback/bounce now check references without mixing them twice.
-- MCP get_buses/set_buses expose bus mute and solo; the bus test covers both.
-- A small helper test covers the score-typing focus rule. Score note typing suppresses the letter shortcuts (D/F/T/Y/H/J/K/G/N) that overlap the A-J note row.
-- Update section offers Open download for the downloaded asset; install remains manual.
-- Score note entry draws its cursor as a blue line (vector editor); a canvas-shape test checks the stroke (`docs/audit/score-entry-cursor.png`).
-- Mixer/bus meters use cached waveform peaks for audio tracks (approximate by clip fraction); waveform caching now runs in every view.
-- Audio-reference offset is render-tested against a half-silent source.
-- Audio-reference stretch is render-tested with a ramp source.
-- Audio takes can be auditioned and stopped, mark the active take, and can be stored, used and removed from a small window opened by the trim-row Takes button or the Windows menu; recording auto-stores the replaced take and restores both active and takes in one undo (`docs/audit/audio-takes.png`).
-- MCP get_audio_ref reports stored takes and set_audio_ref accepts them; a registry/handler coverage test now fails if a tool has no match arm.
-- Stored audio takes round-trip through JSON; a project without the field loads an empty list.
-- Release bundle was rebuilt and launched after the audio fixes; capture `docs/audit/app-bundle.png`.
-- Settings round-trip test now covers the Whisper and custom speech command templates.
-- Controllers window can clear every MIDI binding and rewrite the map file.
-- Full workspace suite also passes with one test thread (770/770), so no test-order dependency was observed.
-- Stem render test covers an audio-only track.
-- MCP get_audio_ref reports comp spans and set_audio_ref accepts them.
-- Validation rejects empty take paths, out-of-range take fades, unknown comp takes, non-positive comp lengths and overlapping comps.
-- Timeline draws comp-span boundaries on the audio block (`docs/audit/audio-comps-timeline.png`).
-- `scripts/check.sh` runs fmt, clippy, the workspace suite and rustdoc; all gates pass.
-- Corrected stale audit text: VST3 parameter UI and automation target exist; native editors still do not.
-- Final hardware round: all five MIDI outputs accepted note and panic sends; a new note-triggered recorder captured **9 Launchkey notes**, **28 PSR-S970 notes**, **8 XioSynth notes**, **10 X-TOUCH pads**, and **1,118 Launchkey / 635 X-TOUCH control changes**. D-05 audio capture was inconclusive; cpal playback and a printed score page were verified, while L6max readback/transport remain unverified (`docs/audit/hardware.md`).
-- L6max device mixer page sends the factory 8-channel CC map; the owner observed hardware CH1 mute from CC 93 (`docs/audit/l6max-device.png`).
-- L6max device values persist in l6max-device.json; hardware mute verified, readback absent.
-- Audio input channel picker covers Mix or CH1-CH16; MIDI panic now records the five verified outputs.
-- cpal output played audibly on Mac mini Speakers; a one-page score printed on the Brother printer.
-- Score marks window adds/removes dynamics and articulations at the playhead (`docs/audit/score-marks.png`).
-- Release bundle rebuilt after the L6max/marks work; app-bundle.png refreshed. With instruments powered down the status bar shows no MIDI inputs.
-
-## Audit remediation (Claude and Gemini)
-
-The two external audits were reviewed against HEAD. Fixed: non-macOS AU stubs,
-VST3 module/host lifetimes, failed-open path clearing, AU timestamp layout and
-action flags, shell/AI/dictation argument injection, MCP CSPRNG tokens and
-permissions, parser division/overflow panics, zero-PPQ MIDI, stereo WAV/reverb,
-device-rate playback, config-directory storage, clipped comp offsets, split
-clip lengths, duplicate loop ids, generated bass channel routing, XG System On,
-CC value zero, SF2 bounds, CASM multi-rule writing, MusicXML divisions, score
-track selection, loop offsets, stale playback, recording paths, update HTTPS and
-README/architecture-contract restoration.
-
-Still open: full all-track score, native plug-in editor windows, D-05/Xio sound
-editor pages, Korg PCG, L6max project/readback/transport, MCP path sandboxing,
-score-notation edge cases and some audio PDC/comp crossfade behaviour.
+- The device editor sends profile CC controls and SysEx dumps; D-05/XioSynth
+  sound pages remain generic, not device-specific.
+- Take comping, buses, automation, plug-in state and freeze have model, command,
+  MCP and UI coverage; real plugin editor windows do not.
