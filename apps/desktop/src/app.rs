@@ -1299,7 +1299,7 @@ impl ShellApp {
             score_grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
             score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err()
                 && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
-            score_all_tracks: false,
+            score_all_tracks: std::env::var("ARRANGER_SCORE_ALL").is_ok(),
             score_full_hidden: std::collections::HashSet::new(),
             score_full_cache: None,
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
