@@ -578,7 +578,7 @@ pub fn to_full_pdf(
     let roster = staves.len().max(1);
     let available = (settings.page_height - 2.0 * settings.margin - 36.0).max(24.0);
     let span = (available / (systems_per_page * roster) as f32).max(12.0);
-    let line_gap = ((span - 4.0) / 4.0).clamp(1.5, settings.staff_space);
+    let line_gap = ((span - 4.0) / 4.0).clamp(1.5, settings.staff_space * 1.5);
     for (page_index, _) in (0..page_count).enumerate() {
         let mut content = String::new();
         let _ = writeln!(

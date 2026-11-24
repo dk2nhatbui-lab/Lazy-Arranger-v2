@@ -413,7 +413,7 @@ pub fn show_full(
     let roster = tracks.len().max(1);
     let available = (settings.page_height - 2.0 * settings.margin - 36.0).max(24.0);
     let span = (available / (systems_per_page * roster) as f32).max(12.0);
-    let line_gap = ((span - 4.0) / 4.0).clamp(1.5, settings.staff_space);
+    let line_gap = ((span - 4.0) / 4.0).clamp(1.5, settings.staff_space * 1.5);
     let left = page_rect.left() + settings.margin * scale;
     let right = page_rect.right() - settings.margin * scale;
     let top0 = page_rect.top() + (settings.margin + 12.0) * scale;
