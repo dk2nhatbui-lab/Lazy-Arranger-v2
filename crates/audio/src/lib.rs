@@ -2075,6 +2075,27 @@ mod tests {
     }
 
     #[test]
+    fn time_stretch_compresses_without_changing_pitch() {
+        let rate = 48_000_u32;
+        let mut input = Vec::with_capacity(rate as usize * 4);
+        for frame in 0..rate as usize * 2 {
+            let time = frame as f64 / f64::from(rate);
+            let value = (std::f64::consts::TAU * 440.0 * time).sin() as f32 * 0.5;
+            input.extend_from_slice(&[value, value]);
+        }
+        let target = rate as usize;
+        let stretched = stretch_interleaved(&input, target);
+        assert_eq!(stretched.len(), target * 2);
+        let mono: Vec<f32> = stretched[10_000 * 2..(10_000 + 2_048) * 2]
+            .iter()
+            .step_by(2)
+            .copied()
+            .collect();
+        let pitch = crate::analysis::detect_pitch(&mono, rate).expect("pitch");
+        assert!((pitch - 440.0).abs() < 5.0, "pitch was {pitch}");
+    }
+
+    #[test]
     fn audio_reference_offset_skips_the_source_start() {
         use project::song::{AudioRef, Track};
         let mut song = Song::new("Audio", 120.0);
