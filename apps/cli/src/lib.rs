@@ -163,6 +163,20 @@ enum Commands {
         #[arg(long, default_value_t = 0.9)]
         peak: f32,
     },
+    /// Trim a WAV file to a time window.
+    WavTrim {
+        /// Input `.wav` file.
+        wav: PathBuf,
+        /// Output `.wav` path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Start seconds.
+        #[arg(long, default_value_t = 0.0)]
+        start: f32,
+        /// End seconds; omitted keeps the tail.
+        #[arg(long)]
+        end: Option<f32>,
+    },
     /// Apply linear fade-in and fade-out to a WAV file.
     WavFade {
         /// Input `.wav` file.
@@ -2150,6 +2164,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
         Commands::WavGain { wav, out, db } => wav_edit(&wav, &out, Some(db), 0.0),
         Commands::WavNormalize { wav, out, peak } => wav_edit(&wav, &out, None, peak),
+        Commands::WavTrim {
+            wav,
+            out,
+            start,
+            end,
+        } => {
+            let bytes = fs::read(&wav)?;
+            let mut audio = audio::wav::decode_stereo(&bytes)?;
+            audio::edit::trim(&mut audio, start, end);
+            fs::write(&out, audio.to_wav32f())?;
+            println!("wrote {}", out.display());
+            Ok(())
+        }
         Commands::WavFade {
             wav,
             out,
@@ -3779,6 +3806,37 @@ mod tests {
                         assert_eq!(out, std::path::PathBuf::from("out.wav"));
                     }
                     _ => panic!("wav-reverse"),
+                }
+            })
+            .expect("thread")
+            .join()
+            .expect("join");
+    }
+
+    #[test]
+    fn wav_trim_accepts_a_window() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                use clap::Parser;
+                let cli = Cli::try_parse_from([
+                    "lazy-arranger",
+                    "wav-trim",
+                    "in.wav",
+                    "--out",
+                    "out.wav",
+                    "--start",
+                    "0.25",
+                    "--end",
+                    "2.5",
+                ])
+                .expect("parse");
+                match cli.command {
+                    Commands::WavTrim { start, end, .. } => {
+                        assert!((start - 0.25).abs() < 1.0e-6);
+                        assert!((end.expect("end") - 2.5).abs() < 1.0e-6);
+                    }
+                    _ => panic!("wav-trim"),
                 }
             })
             .expect("thread")

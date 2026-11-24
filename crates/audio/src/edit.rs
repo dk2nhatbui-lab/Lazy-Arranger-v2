@@ -11,6 +11,20 @@ pub fn gain(audio: &mut RenderedAudio, decibels: f32) -> f32 {
     factor
 }
 
+/// Trims frames before `start` and after `end` (both in seconds).
+pub fn trim(audio: &mut RenderedAudio, start: f32, end: Option<f32>) {
+    let frames = audio.samples.len() / 2;
+    if frames == 0 {
+        return;
+    }
+    let rate = f64::from(audio.sample_rate).max(1.0);
+    let first = ((f64::from(start.max(0.0)) * rate).round() as usize).min(frames);
+    let last = end.map_or(frames, |end| {
+        ((f64::from(end.max(0.0)) * rate).round() as usize).clamp(first, frames)
+    });
+    audio.samples = audio.samples[first * 2..last * 2].to_vec();
+}
+
 /// Applies linear fade-in and fade-out ramps in seconds.
 pub fn fade(audio: &mut RenderedAudio, fade_in: f32, fade_out: f32) {
     let frames = audio.samples.len() / 2;
@@ -81,6 +95,13 @@ mod tests {
         let factor = gain(&mut audio, 6.0);
         assert!((factor - 1.995_262).abs() < 0.001);
         assert!((audio.samples[0] - 0.997_631).abs() < 0.001);
+    }
+
+    #[test]
+    fn trim_keeps_the_requested_window() {
+        let mut audio = buffer(vec![0.1, 0.1, 0.2, 0.2, 0.3, 0.3, 0.4, 0.4]);
+        trim(&mut audio, 1.0 / 48_000.0, Some(3.0 / 48_000.0));
+        assert_eq!(audio.samples, vec![0.2, 0.2, 0.3, 0.3]);
     }
 
     #[test]
