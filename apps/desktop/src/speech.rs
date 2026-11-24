@@ -114,7 +114,8 @@ mod tests {
     fn a_custom_speech_command_is_used() {
         assert!(speak_with("hello", "true").is_ok());
         assert!(speak_with("", "false").is_ok());
-        assert!(speak_with("hello", "").is_ok());
+        // Do not test the empty-template fallback: on macOS it starts `say`
+        // and makes the test suite audible.
     }
 
     #[test]
