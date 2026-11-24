@@ -1122,6 +1122,11 @@ impl ShellApp {
             ),
             egui::TextureOptions::LINEAR,
         );
+        let initial_key = project.song.key.map_or_else(
+            || score::spelling::detect_key(&project.song).tonic,
+            |key| key.tonic,
+        );
+        let initial_minor = project.song.key.is_some_and(|key| key.minor);
         let editor = match Editor::new(project) {
             Ok(editor) => editor,
             Err(_) => Editor::new(demo_project()).expect("the demo project is valid"),
@@ -1155,7 +1160,7 @@ impl ShellApp {
             chord_dialog_target: 0,
             reharmonize_dialog: false,
             chord_input: String::from("Am F C G"),
-            key: music_core::PitchClass::new(0),
+            key: initial_key,
             status: None,
             doctor_dialog: false,
             doctor_proposals: Vec::new(),
@@ -1174,7 +1179,7 @@ impl ShellApp {
             song_name_input,
             markers_open: initial_window == "markers",
             theory_open: initial_window == "theory",
-            theory_minor: false,
+            theory_minor: initial_minor,
             songs_open: initial_window == "songs",
             lessons_open: initial_window == "lessons",
             lesson_kind: music_core::lesson::LessonKind::ChordQuality,
@@ -11206,6 +11211,11 @@ impl ShellApp {
                         return;
                     }
                 }
+                self.key = self.song().key.map_or_else(
+                    || score::spelling::detect_key(self.song()).tonic,
+                    |key| key.tonic,
+                );
+                self.theory_minor = self.song().key.is_some_and(|key| key.minor);
                 self.selected_note = None;
                 self.selected_clip = None;
                 self.selected_clips.clear();
