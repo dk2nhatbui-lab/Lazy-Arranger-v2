@@ -2191,77 +2191,7 @@ impl Editor {
     ///
     /// Returns a message when the track has no audio or `at` is outside it.
     pub fn split_audio(&mut self, track: TrackId, at: Tick) -> Result<(), String> {
-        let entry = self
-            .song()
-            .tracks
-            .iter()
-            .find(|entry| entry.id == track)
-            .ok_or_else(|| String::from("unknown track"))?;
-        let active = entry
-            .audio
-            .clone()
-            .ok_or_else(|| String::from("track has no audio reference"))?;
-        let mut takes = entry.takes.clone();
-        let mut comps = entry.comps.clone();
-        if comps.is_empty() {
-            let end = active.start.saturating_add(active.length);
-            if at <= active.start || at >= end {
-                return Err(String::from("split point must be inside the audio"));
-            }
-            let left = active.clone();
-            let mut right = active.clone();
-            right.offset = right.offset.saturating_add(at.saturating_sub(active.start));
-            right.start = at;
-            right.length = end.saturating_sub(at);
-            let left_take = takes.len();
-            takes.push(left);
-            let right_take = takes.len();
-            takes.push(right);
-            comps = vec![
-                project::song::AudioComp {
-                    take: left_take,
-                    start: active.start,
-                    length: at.saturating_sub(active.start),
-                },
-                project::song::AudioComp {
-                    take: right_take,
-                    start: at,
-                    length: end.saturating_sub(at),
-                },
-            ];
-        } else {
-            let index = comps
-                .iter()
-                .position(|comp| at > comp.start && at < comp.start.saturating_add(comp.length))
-                .ok_or_else(|| String::from("split point must be inside a comp"))?;
-            let comp = comps[index];
-            let Some(take) = takes.get(comp.take).cloned() else {
-                return Err(String::from("comp refers to a missing take"));
-            };
-            let offset = at.saturating_sub(comp.start);
-            let mut right_take = take.clone();
-            right_take.offset = right_take.offset.saturating_add(offset);
-            right_take.start = at;
-            right_take.length = right_take.length.saturating_sub(offset).max(1);
-            let right_index = takes.len();
-            takes.push(right_take);
-            comps[index].length = offset.max(1);
-            comps.insert(
-                index + 1,
-                project::song::AudioComp {
-                    take: right_index,
-                    start: at,
-                    length: comp.length.saturating_sub(offset).max(1),
-                },
-            );
-        }
-        self.session
-            .apply(app_commands::Command::SetAudioStateFull {
-                track,
-                reference: Some(active),
-                takes,
-                comps,
-            })
+        app_commands::audio_ref::split(&mut self.session, track, at)
             .map_err(|error| error.to_string())?;
         self.dirty = true;
         Ok(())

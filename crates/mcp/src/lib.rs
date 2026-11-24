@@ -695,6 +695,18 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "split_audio",
+            description: "Split an audio reference or comp at a tick.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "tick": {"type": "integer"}
+                },
+                "required": ["track", "tick"]
+            }),
+        },
+        Tool {
             name: "get_tracks",
             description: "List tracks with mix and routing state.",
             input_schema: json!({"type": "object"}),
@@ -2562,6 +2574,29 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "comps": track.comps.iter().map(audio_comp_json).collect::<Vec<_>>()
             }))
         }
+        "split_audio" => {
+            let track = track_argument(arguments)?;
+            let tick = arguments
+                .get("tick")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| ToolError::Arguments(String::from("tick is required")))?;
+            app_commands::audio_ref::split(session, track, tick)
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            let entry = session
+                .song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .ok_or_else(|| ToolError::Arguments(String::from("unknown track")))?;
+            Ok(json!({
+                "takes": entry.takes.len(),
+                "comps": entry.comps.iter().map(|comp| json!({
+                    "take": comp.take,
+                    "start": comp.start,
+                    "length": comp.length
+                })).collect::<Vec<_>>()
+            }))
+        }
         "get_tracks" => Ok(json!({
             "tracks": session.song().tracks.iter().map(|track| json!({
                 "id": track.id.get(),
@@ -4060,7 +4095,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 105);
+        assert_eq!(tools().len(), 106);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
@@ -4591,6 +4626,13 @@ mod tests {
         assert_eq!(length, 960);
         assert_eq!(takes, 1);
         assert_eq!(comps, 1);
+        let split = call(
+            &mut session,
+            "split_audio",
+            &json!({"track": 1, "tick": 240}),
+        )
+        .expect("split");
+        assert_eq!(split["comps"].as_array().map(Vec::len), Some(2));
         call(&mut session, "set_audio_ref", &json!({"track": 1})).expect("clear");
         assert!(session.song().tracks[0].audio.is_none());
         let _ = track;
