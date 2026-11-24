@@ -1167,8 +1167,8 @@ fn short_track_name(name: &str) -> String {
     if name.is_empty() {
         return String::from("Track");
     }
-    let mut short: String = name.chars().take(8).collect();
-    if name.chars().count() > 8 {
+    let mut short: String = name.chars().take(5).collect();
+    if name.chars().count() > 5 {
         short.push_str("..");
     }
     short
