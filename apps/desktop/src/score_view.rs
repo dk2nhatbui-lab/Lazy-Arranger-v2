@@ -331,6 +331,7 @@ pub fn show_full(
     state: &mut ScoreState,
     position: music_core::Tick,
     frames: bool,
+    bpm: f64,
 ) -> (usize, Option<music_core::Tick>) {
     let settings = Settings::default();
     let systems_per_page = 2;
@@ -402,7 +403,7 @@ pub fn show_full(
             ),
             egui::Align2::RIGHT_TOP,
             format!(
-                "{} {} · {}/{}",
+                "{} {} · {}/{} · {bpm:.0} BPM",
                 engraved.key.tonic.name_sharp(),
                 if engraved.key.minor { "minor" } else { "major" },
                 engraved.time_signature.numerator,
@@ -1701,7 +1702,7 @@ mod tests {
             },
             |context| {
                 egui::CentralPanel::default().show(context, |ui| {
-                    let _ = show_full(ui, &tracks, 0, 1.0, "Full", &mut state, 0, false);
+                    let _ = show_full(ui, &tracks, 0, 1.0, "Full", &mut state, 0, false, 120.0);
                 });
             },
         );
@@ -1740,7 +1741,7 @@ mod tests {
             },
             |context| {
                 egui::CentralPanel::default().show(context, |ui| {
-                    let _ = show_full(ui, &tracks, 0, 1.0, "Long", &mut state, 0, false);
+                    let _ = show_full(ui, &tracks, 0, 1.0, "Long", &mut state, 0, false, 120.0);
                 });
             },
         );

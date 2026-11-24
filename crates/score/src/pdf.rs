@@ -615,11 +615,12 @@ pub fn to_full_pdf_with_frames(
         if let Some(staff) = staves.first() {
             let _ = writeln!(
                 content,
-                "BT /F1 8 Tf {x:.1} {y:.1} Td ({} {} / {}/{}) Tj ET",
+                "BT /F1 8 Tf {x:.1} {y:.1} Td ({} {} / {}/{} · {:.0} BPM) Tj ET",
                 staff.key.tonic.name_sharp(),
                 if staff.key.minor { "minor" } else { "major" },
                 staff.time_signature.numerator,
                 staff.time_signature.denominator,
+                song.tempo_map.bpm_at(0),
                 x = settings.page_width - settings.margin - 80.0,
                 y = settings.page_height - settings.margin
             );

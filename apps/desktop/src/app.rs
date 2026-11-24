@@ -13185,6 +13185,7 @@ impl eframe::App for ShellApp {
                                     &mut self.score_state,
                                     position,
                                     self.score_full_frames,
+                                    project.song.tempo_map.bpm_at(position),
                                 );
                                 if let Some(tick) = score_seek {
                                     seek = Some(tick);
