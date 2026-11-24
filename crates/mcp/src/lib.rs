@@ -896,6 +896,20 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "audio_to_midi",
+            description: "Transcribe monophonic audio to melody or drum notes.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "audio": {"type": "string"},
+                    "bpm": {"type": "number"},
+                    "mode": {"type": "string"},
+                    "level": {"type": "integer"}
+                },
+                "required": ["audio"]
+            }),
+        },
+        Tool {
             name: "audio_tags",
             description: "Guess an instrument family from monophonic audio.",
             input_schema: json!({
@@ -3082,6 +3096,52 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "parts": style.sections.first().map_or(0, |entry| entry.parts.len())
             }))
         }
+        "audio_to_midi" => {
+            let audio_path = arguments
+                .get("audio")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::Arguments(String::from("audio is required")))?;
+            let bpm = arguments
+                .get("bpm")
+                .and_then(Value::as_f64)
+                .unwrap_or_else(|| session.song().tempo_map.bpm_at(0))
+                .max(1.0);
+            let drums = arguments
+                .get("mode")
+                .and_then(Value::as_str)
+                .is_some_and(|mode| mode == "drums");
+            let minimum = arguments
+                .get("level")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let decoded = audio::decode::decode_mono(std::path::Path::new(audio_path))
+                .or_else(|_| {
+                    let bytes = std::fs::read(audio_path)
+                        .map_err(|error| format!("{audio_path}: {error}"))?;
+                    audio::wav::decode_mono(&bytes)
+                })
+                .map_err(ToolError::Arguments)?;
+            let detected = if drums {
+                audio::analysis::to_drums(&decoded.samples, decoded.sample_rate)
+            } else {
+                audio::analysis::to_midi(&decoded.samples, decoded.sample_rate)
+            };
+            let channel = if drums { 9 } else { 0 };
+            let notes: Vec<Value> = detected
+                .iter()
+                .filter(|note| f64::from(note.level) >= minimum)
+                .map(|note| {
+                    let (start, duration) = audio::analysis::as_ticks(note, bpm);
+                    json!({
+                        "start": start,
+                        "duration": duration.max(1),
+                        "pitch": note.pitch,
+                        "channel": channel
+                    })
+                })
+                .collect();
+            Ok(json!({"notes": notes, "bpm": bpm, "mode": if drums { "drums" } else { "melody" }}))
+        }
         "audio_tags" => {
             let audio_path = arguments
                 .get("audio")
@@ -3934,7 +3994,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 103);
+        assert_eq!(tools().len(), 104);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
@@ -4338,6 +4398,38 @@ mod tests {
         }
         assert_eq!(exported["stems"], 1);
         let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn audio_to_midi_tool_returns_melody_notes() {
+        let mut session = session_with_track();
+        let path =
+            std::env::temp_dir().join(format!("lazy-arranger-mcp-midi-{}.wav", std::process::id()));
+        let rate = 48_000_u32;
+        let mut samples = vec![0.0_f32; rate as usize];
+        for (index, sample) in samples.iter_mut().enumerate() {
+            let time = index as f32 / rate as f32;
+            *sample = (std::f32::consts::TAU * 440.0 * time).sin() * 0.5;
+        }
+        let wav = audio::RenderedAudio {
+            samples,
+            sample_rate: rate,
+        }
+        .to_wav();
+        std::fs::write(&path, wav).expect("wav");
+        let result = call(
+            &mut session,
+            "audio_to_midi",
+            &json!({"audio": path.display().to_string(), "bpm": 120.0}),
+        )
+        .expect("transcribe");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(result["mode"], "melody");
+        assert!(
+            result["notes"]
+                .as_array()
+                .is_some_and(|notes| !notes.is_empty())
+        );
     }
 
     #[test]
