@@ -1117,6 +1117,7 @@ pub struct ShellApp {
     sf2_path: String,
     sf2_bank: u16,
     sf2_program: u16,
+    sf2_presets: Vec<(u16, u16, String)>,
     plugins_open: bool,
     plugin_search: String,
     plugin_filter: Option<plugins::Format>,
@@ -1492,6 +1493,7 @@ impl ShellApp {
             sf2_path: String::new(),
             sf2_bank: 0,
             sf2_program: 0,
+            sf2_presets: Vec::new(),
             plugins_open: initial_window == "plugins",
             plugin_search: String::new(),
             plugin_filter: None,
@@ -9792,7 +9794,47 @@ impl ShellApp {
                     ui.add(egui::DragValue::new(&mut self.sf2_bank).range(0..=16383));
                     ui.label("program");
                     ui.add(egui::DragValue::new(&mut self.sf2_program).range(0..=127));
+                    if ui.button("Presets").clicked() {
+                        let path = self.sf2_path.trim().to_string();
+                        match std::fs::read(&path)
+                            .map_err(|error| format!("{path}: {error}"))
+                            .and_then(|bytes| {
+                                audio::soundfont::parse(&bytes)
+                                    .map_err(|error| format!("{path}: {error}"))
+                            }) {
+                            Ok(font) => {
+                                self.sf2_presets = font
+                                    .presets
+                                    .iter()
+                                    .map(|preset| {
+                                        (preset.bank, preset.program, preset.name.clone())
+                                    })
+                                    .collect();
+                                self.status = Some(format!("{} preset(s)", self.sf2_presets.len()));
+                            }
+                            Err(error) => self.status = Some(error),
+                        }
+                    }
                 });
+                if !self.sf2_presets.is_empty() {
+                    let selected = format!("{}:{}", self.sf2_bank, self.sf2_program);
+                    egui::ComboBox::from_id_salt("sf2-preset")
+                        .selected_text(selected)
+                        .show_ui(ui, |ui| {
+                            for (bank, program, name) in self.sf2_presets.clone() {
+                                if ui
+                                    .selectable_label(
+                                        self.sf2_bank == bank && self.sf2_program == program,
+                                        format!("{name} ({bank}:{program})"),
+                                    )
+                                    .clicked()
+                                {
+                                    self.sf2_bank = bank;
+                                    self.sf2_program = program;
+                                }
+                            }
+                        });
+                }
                 let current = self
                     .song()
                     .tracks
