@@ -716,11 +716,36 @@ impl ShellApp {
         ))
     }
 
+    fn audition_groove(
+        &mut self,
+        track_id: TrackId,
+        groove: &arranging::groove::Groove,
+        amounts: arranging::groove::Amounts,
+        after: bool,
+    ) {
+        let mut song = self.editor.project().song.clone();
+        if after && let Some(track) = song.tracks.iter_mut().find(|entry| entry.id == track_id) {
+            track.notes = arranging::groove::apply(&track.notes, groove, amounts);
+        }
+        let rendered = audio::render(&song, audio::SAMPLE_RATE);
+        self.audition_player = audio::player::Player::new(rendered).ok();
+        if let Some(player) = &self.audition_player {
+            player.play();
+        }
+        self.status = Some(String::from(if after {
+            "groove audition: after"
+        } else {
+            "groove audition: before"
+        }));
+    }
+
     pub(super) fn groove_window(&mut self, context: &egui::Context) {
         if !self.groove_open {
             return;
         }
         let mut open = self.groove_open;
+        let mut audition: Option<bool> = None;
+        let mut stop_audition = false;
         egui::Window::new("Groove library")
             .open(&mut open)
             .resizable(false)
@@ -766,7 +791,29 @@ impl ShellApp {
                         .color(theme::text_dim()),
                     );
                 }
-                if ui.button("Apply to selected track").clicked()
+                let can_preview = self.groove_loaded.is_some() && self.roll.selected.is_some();
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(can_preview, egui::Button::new("Play before"))
+                        .on_hover_text("Audition the song before applying this groove")
+                        .clicked()
+                    {
+                        audition = Some(false);
+                    }
+                    if ui
+                        .add_enabled(can_preview, egui::Button::new("Play after"))
+                        .on_hover_text("Audition the selected track with this groove applied")
+                        .clicked()
+                    {
+                        audition = Some(true);
+                    }
+                    if self.audition_player.is_some() && ui.button("Stop").clicked() {
+                        stop_audition = true;
+                    }
+                });
+                if ui
+                    .add_enabled(can_preview, egui::Button::new("Apply to selected track"))
+                    .clicked()
                     && let Some(groove) = &self.groove_loaded
                     && let Some(track) = self.roll.selected
                 {
@@ -782,6 +829,22 @@ impl ShellApp {
                     }
                 }
             });
+        if stop_audition {
+            if let Some(player) = self.audition_player.take() {
+                player.stop();
+                player.release();
+            }
+            self.status = Some(String::from("groove audition stopped"));
+        } else if let Some(after) = audition
+            && let Some(groove) = self.groove_loaded.clone()
+            && let Some(track) = self.roll.selected
+        {
+            let amounts = arranging::groove::Amounts {
+                timing: self.groove_timing,
+                accents: self.groove_accents,
+            };
+            self.audition_groove(track, &groove, amounts, after);
+        }
         self.groove_open = open;
     }
 

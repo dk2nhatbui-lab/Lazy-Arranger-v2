@@ -309,6 +309,17 @@ pub fn drag_result(
     }
 }
 
+/// Human-readable pitch name with octave (e.g. `60` -> `"C4"`).
+#[must_use]
+pub fn pitch_name(pitch: u8) -> String {
+    const NAMES: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
+    let name = NAMES[usize::from(pitch % 12)];
+    let octave = i32::from(pitch / 12) - 1;
+    format!("{name}{octave}")
+}
+
 /// Draws the roll and handles zoom, scroll and note drags.
 pub fn show(
     ui: &mut Ui,
@@ -493,8 +504,44 @@ pub fn show(
         let selected = state.selected == Some(track.id);
         draw_track(&painter, content, &geometry, track, colour, selected);
     }
+    if let Some(drag) = state.drag
+        && let Some(pointer) = ui.input(|input| input.pointer.latest_pos())
+    {
+        let (start, pitch, duration) = drag_result(
+            drag.mode,
+            drag.anchor,
+            pointer,
+            f64::from(state.ticks_per_point),
+            geometry.row_height,
+            DragOrigin {
+                start: drag.start,
+                pitch: drag.pitch,
+                duration: drag.duration,
+            },
+            state.snap,
+        );
+        let ghost = geometry.note_rect(start, duration, pitch);
+        painter.rect_filled(ghost, 0.0, theme::accent().gamma_multiply(0.32));
+        painter.rect_stroke(
+            ghost,
+            0.0,
+            egui::Stroke::new(1.5_f32, theme::accent()),
+            egui::StrokeKind::Inside,
+        );
+        painter.text(
+            Pos2::new(ghost.left() + 3.0, ghost.center().y),
+            egui::Align2::LEFT_CENTER,
+            pitch_name(pitch),
+            egui::FontId::proportional(9.0),
+            theme::text(),
+        );
+    }
+    let hovered_key = response
+        .hover_pos()
+        .filter(|pos| pos.x < geometry.origin.x && pos.y >= geometry.origin.y)
+        .map(|pos| geometry.pitch_at(pos.y));
     draw_playhead(&painter, content, &geometry, playhead);
-    draw_keys(&painter, content, &geometry);
+    draw_keys(&painter, content, &geometry, hovered_key);
     draw_pitch_guide(&painter, content, &geometry);
 
     if response.drag_stopped()
@@ -916,6 +963,15 @@ fn draw_track(
                 egui::StrokeKind::Inside,
             );
         }
+        if note_rect.width() >= 28.0 && geometry.row_height >= 9.0 {
+            painter.text(
+                Pos2::new(note_rect.left() + 3.0, note_rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                pitch_name(note.pitch.as_u8()),
+                egui::FontId::proportional((geometry.row_height - 1.5).clamp(7.5, 10.5)),
+                theme::accent_text(),
+            );
+        }
     }
 }
 
@@ -950,7 +1006,12 @@ pub fn key_row_rect(left: f32, geometry: &RollGeometry, pitch: u8) -> Rect {
     )
 }
 
-fn draw_keys(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry) {
+fn draw_keys(
+    painter: &egui::Painter,
+    rect: Rect,
+    geometry: &RollGeometry,
+    hovered_key: Option<u8>,
+) {
     let keys_top = geometry.origin.y.max(rect.top());
     painter.rect_filled(
         Rect::from_min_max(
@@ -973,7 +1034,9 @@ fn draw_keys(painter: &egui::Painter, rect: Rect, geometry: &RollGeometry) {
             continue;
         }
         let black = matches!(pitch_u8 % 12, 1 | 3 | 6 | 8 | 10);
-        let colour = if black {
+        let colour = if hovered_key == Some(pitch_u8) {
+            theme::accent()
+        } else if black {
             egui::Color32::from_rgb(0x2A, 0x26, 0x22)
         } else if theme::light() {
             egui::Color32::from_rgb(0xFF, 0xFF, 0xFF)
@@ -1165,6 +1228,15 @@ mod tests {
             });
         });
         assert!(ran);
+    }
+
+    #[test]
+    fn pitch_names_match_standard_midi_octaves() {
+        assert_eq!(pitch_name(60), "C4");
+        assert_eq!(pitch_name(61), "C#4");
+        assert_eq!(pitch_name(69), "A4");
+        assert_eq!(pitch_name(36), "C2");
+        assert_eq!(pitch_name(0), "C-1");
     }
 }
 
