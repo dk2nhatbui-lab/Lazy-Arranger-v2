@@ -3217,6 +3217,15 @@ impl ShellApp {
                 self.selected_chord = None;
                 self.stem_levels.clear();
                 self.position = 0;
+                self.key = self.song().key.map_or_else(
+                    || score::spelling::detect_key(self.song()).tonic,
+                    |key| key.tonic,
+                );
+                self.theory_minor = self.song().key.is_some_and(|key| key.minor);
+                self.score_full_hidden.clear();
+                self.score_full_cache = None;
+                self.score_track = None;
+                self.score_page = 0;
                 self.song_name_input = self.song().name.clone();
                 self.status = Some(format!("loaded {label}"));
                 self.load_error = None;
