@@ -449,6 +449,9 @@ impl IBStreamTrait for MemoryStream {
         let Ok(mut state) = self.state.lock() else {
             return vst3::Steinberg::kResultFalse;
         };
+        if bytes_read.is_null() || (buffer.is_null() && num_bytes > 0) {
+            return vst3::Steinberg::kInvalidArgument;
+        }
         let available = state.bytes.len().saturating_sub(state.position);
         let count = usize::try_from(num_bytes.max(0))
             .unwrap_or(0)
@@ -478,8 +481,15 @@ impl IBStreamTrait for MemoryStream {
         let Ok(mut state) = self.state.lock() else {
             return vst3::Steinberg::kResultFalse;
         };
+        if bytes_written.is_null() || (buffer.is_null() && num_bytes > 0) {
+            return vst3::Steinberg::kInvalidArgument;
+        }
         let count = usize::try_from(num_bytes.max(0)).unwrap_or(0);
-        let bytes = unsafe { std::slice::from_raw_parts(buffer.cast::<u8>(), count) };
+        let bytes = if count == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(buffer.cast::<u8>(), count) }
+        };
         let end = state.position.saturating_add(count);
         if end > state.bytes.len() {
             state.bytes.resize(end, 0);
@@ -504,9 +514,12 @@ impl IBStreamTrait for MemoryStream {
             _ => return vst3::Steinberg::kResultFalse,
         };
         let target = base.saturating_add(position).max(0);
-        state.position = usize::try_from(target).unwrap_or(usize::MAX);
+        let Ok(target) = usize::try_from(target) else {
+            return vst3::Steinberg::kResultFalse;
+        };
+        state.position = target;
         if !result.is_null() {
-            unsafe { *result = target };
+            unsafe { *result = i64::try_from(target).unwrap_or(i64::MAX) };
         }
         kResultOk
     }
