@@ -42,6 +42,20 @@ impl View {
         }
     }
 
+    /// Stable name used by settings.
+    #[must_use]
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Perform => "perform",
+            Self::Arrange => "arrange",
+            Self::Drums => "drums",
+            Self::Loops => "loops",
+            Self::Score => "score",
+            Self::Map => "map",
+            Self::Mix => "mix",
+        }
+    }
+
     /// Every view, in tab order.
     const ALL: [Self; 5] = [
         Self::Arrange,
@@ -1127,6 +1141,7 @@ pub struct ShellApp {
     synth: arranging::SynthSpec,
     project_path: Option<PathBuf>,
     view: View,
+    last_view: View,
     roll: RollState,
     playing: bool,
     position: Tick,
@@ -1167,6 +1182,7 @@ impl ShellApp {
             std::env::var("ARRANGER_VIEW")
                 .ok()
                 .and_then(|value| View::parse(&value))
+                .or_else(|| View::parse(&settings.view))
                 .unwrap_or(View::Arrange)
         };
         theme::set_light(settings.light_theme);
@@ -1495,6 +1511,7 @@ impl ShellApp {
             synth: arranging::SynthSpec::default(),
             project_path,
             view: initial_view,
+            last_view: initial_view,
             roll,
             playing: false,
             position: 0,
@@ -11780,6 +11797,11 @@ impl std::fmt::Debug for ShellApp {
 
 impl eframe::App for ShellApp {
     fn update(&mut self, context: &Context, frame: &mut eframe::Frame) {
+        if self.view != self.last_view {
+            self.last_view = self.view;
+            self.settings.view = self.view.as_str().to_string();
+            let _ = self.settings.save(&crate::settings::Settings::path());
+        }
         self.sync_monitor();
         self.poll_render(context);
         let _ = frame;

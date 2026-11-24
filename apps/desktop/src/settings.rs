@@ -185,6 +185,8 @@ pub struct Settings {
     pub lesson_kind: usize,
     /// Follow playback pages in the full score.
     pub score_follow: bool,
+    /// Last main view name.
+    pub view: String,
     /// Preferred MIDI input name, when set.
     pub keyboard: Option<String>,
     /// Listen to every MIDI input, not only `keyboard`.
@@ -275,6 +277,7 @@ impl Default for Settings {
             lesson_pack: None,
             lesson_kind: 0,
             score_follow: true,
+            view: String::from("arrange"),
             keyboard: None,
             auto_inputs: false,
             audio_input: None,
@@ -446,6 +449,7 @@ impl Settings {
                     settings.lesson_kind = value.parse::<usize>().unwrap_or(0).min(2);
                 }
                 "score_follow" => settings.score_follow = value == "true",
+                "view" => settings.view = value.to_string(),
                 "auto_inputs" => settings.auto_inputs = value == "true",
                 "keyboard" => {
                     settings.keyboard = if value.is_empty() {
@@ -562,6 +566,7 @@ impl Settings {
         }
         text.push_str(&format!("lesson_kind = {}\n", self.lesson_kind));
         text.push_str(&format!("score_follow = {}\n", self.score_follow));
+        text.push_str(&format!("view = {}\n", clean_line(&self.view)));
         if let Some(keyboard) = &self.keyboard {
             text.push_str(&format!("keyboard = {}\n", clean_line(keyboard)));
         }
@@ -715,6 +720,7 @@ mod tests {
             lesson_pack: Some(1),
             lesson_kind: 2,
             score_follow: false,
+            view: String::from("score"),
             keyboard: Some(String::from("PSR-S970")),
             auto_inputs: true,
             audio_input: Some(String::from("Camo Microphone")),
