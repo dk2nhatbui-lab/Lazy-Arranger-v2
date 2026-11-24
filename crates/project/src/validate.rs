@@ -581,6 +581,7 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
         ));
     }
 
+    let mut previous_mark_tick = None;
     for (index, mark) in song.marks.iter().enumerate() {
         if mark.tick < 0 {
             issues.push(issue(
@@ -589,7 +590,18 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
                 String::from("negative mark tick"),
             ));
         }
+        if let Some(previous) = previous_mark_tick
+            && mark.tick < previous
+        {
+            issues.push(issue(
+                Severity::Error,
+                format!("song.marks[{index}].tick"),
+                String::from("marks are not sorted by tick"),
+            ));
+        }
+        previous_mark_tick = Some(mark.tick);
     }
+    let mut previous_lyric_tick = None;
     for (index, lyric) in song.lyrics.iter().enumerate() {
         if lyric.tick < 0 {
             issues.push(issue(
@@ -598,6 +610,22 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
                 String::from("negative lyric tick"),
             ));
         }
+        if let Some(previous) = previous_lyric_tick {
+            if lyric.tick == previous {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("song.lyrics[{index}].tick"),
+                    String::from("two lyrics at the same tick"),
+                ));
+            } else if lyric.tick < previous {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("song.lyrics[{index}].tick"),
+                    String::from("lyrics are not sorted by tick"),
+                ));
+            }
+        }
+        previous_lyric_tick = Some(lyric.tick);
     }
     issues
 }
@@ -674,6 +702,39 @@ mod tests {
                 .iter()
                 .any(|issue| issue.message.contains("overlaps another note")),
             "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn catches_unsorted_marks_and_duplicate_lyrics() {
+        use crate::song::{Articulation, LyricEvent, Mark, MarkKind};
+        let mut song = Song::new("x", 120.0);
+        song.marks.push(Mark {
+            tick: 960,
+            kind: MarkKind::Articulation(Articulation::Accent),
+        });
+        song.marks.push(Mark {
+            tick: 0,
+            kind: MarkKind::Articulation(Articulation::Fermata),
+        });
+        song.lyrics.push(LyricEvent {
+            tick: 0,
+            text: String::from("a"),
+        });
+        song.lyrics.push(LyricEvent {
+            tick: 0,
+            text: String::from("b"),
+        });
+        let issues = validate(&ProjectFile::new(song));
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.message.contains("marks are not sorted"))
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.message.contains("two lyrics"))
         );
     }
 
