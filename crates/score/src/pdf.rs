@@ -478,6 +478,7 @@ struct FullStaff {
     tuplets: Vec<crate::Tuplet>,
     chords: Vec<crate::ChordSymbol>,
     lyrics: Vec<crate::Lyric>,
+    marks: Vec<crate::PlacedMark>,
 }
 
 /// Writes an all-track full score to PDF bytes.
@@ -519,6 +520,7 @@ pub fn to_full_pdf(
             tuplets: engraved.tuplets,
             chords: engraved.chord_symbols,
             lyrics: engraved.lyrics,
+            marks: engraved.marks,
         });
     }
     if staves.is_empty() {
@@ -530,6 +532,7 @@ pub fn to_full_pdf(
             tuplets: Vec::new(),
             chords: Vec::new(),
             lyrics: Vec::new(),
+            marks: Vec::new(),
         });
     }
     let page_count = staves
@@ -704,6 +707,25 @@ pub fn to_full_pdf(
                         "BT /F1 7 Tf {x:.1} {:.1} Td ({}) Tj ET",
                         settings.page_height - y,
                         escape(&lyric.text)
+                    );
+                }
+            }
+            if staff_index == 0 {
+                for mark in staff.marks.iter().filter(|mark| mark.page == *page) {
+                    let x =
+                        first_system.map_or(mark.x, |sys| crate::full_score_x(system, sys, mark.x));
+                    let y = top + (mark.y - system.y) * (line_gap / settings.staff_space);
+                    let text = match mark.kind {
+                        project::song::MarkKind::Dynamic(dynamic) => dynamic.text().to_string(),
+                        project::song::MarkKind::Articulation(articulation) => {
+                            format!("{articulation:?}").to_lowercase()
+                        }
+                    };
+                    let _ = writeln!(
+                        content,
+                        "BT /F1 7 Tf {x:.1} {:.1} Td ({}) Tj ET",
+                        settings.page_height - y,
+                        escape(&text)
                     );
                 }
             }
@@ -1147,6 +1169,10 @@ mod tests {
             tick: 0,
             text: String::from("la"),
         });
+        song.marks.push(project::song::Mark {
+            tick: 0,
+            kind: project::song::MarkKind::Dynamic(project::song::Dynamic::F),
+        });
         for (index, name) in [(1_u32, "Piano"), (2, "Bass")] {
             let mut track = Track::new(TrackId::new(index).expect("valid"), name);
             track.notes.push(Note {
@@ -1169,6 +1195,7 @@ mod tests {
         assert!(text.contains("(Bass) Tj"));
         assert!(text.contains("(C) Tj"));
         assert!(text.contains("(la) Tj"));
+        assert!(text.contains("(f) Tj"));
         assert!(text.contains("/ClefTreble"), "clef image resource");
         assert!(
             text.contains("(#) Tj") || text.contains("(b) Tj"),

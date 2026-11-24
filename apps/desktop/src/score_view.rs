@@ -497,6 +497,31 @@ pub fn show_full(
                 );
             }
         }
+        if index == 0 {
+            for mark in engraved
+                .marks
+                .iter()
+                .filter(|mark| mark.page == source_page)
+            {
+                let x = page_rect.left()
+                    + first_system.map_or(mark.x, |sys| score::full_score_x(system, sys, mark.x))
+                        * zoom;
+                let y = top + (mark.y - system.y) * (line_gap / settings.staff_space) * zoom;
+                let text = match mark.kind {
+                    project::song::MarkKind::Dynamic(dynamic) => dynamic.text().to_string(),
+                    project::song::MarkKind::Articulation(articulation) => {
+                        format!("{articulation:?}").to_lowercase()
+                    }
+                };
+                painter.text(
+                    Pos2::new(x, y),
+                    egui::Align2::LEFT_CENTER,
+                    text,
+                    egui::FontId::proportional(7.0 * zoom),
+                    Color32::from_rgb(0x20, 0x20, 0x20),
+                );
+            }
+        }
         for note in engraved
             .notes
             .iter()
