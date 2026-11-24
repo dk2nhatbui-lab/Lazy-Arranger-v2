@@ -1,8 +1,8 @@
 //! Yamaha-style SysEx parameter changes.
 //!
-//! The builder is generic: a device number, a three-byte address, a data block
-//! and the standard 7-bit checksum. `xg_on` is the one well-known message this
-//! build sends; device-specific editor dumps are not implemented.
+//! Yamaha parameter changes have no checksum; only bulk dumps do. The builder
+//! emits the parameter-change form, and [`checksum`] is available for bulk
+//! dumps that need it. `xg_on` is the one well-known message this build sends.
 
 /// The 7-bit checksum Yamaha uses: the address and data bytes summed, then
 /// negated within the 7-bit range.
@@ -27,7 +27,7 @@ pub struct ParameterChange {
 }
 
 impl ParameterChange {
-    /// Builds the checksummed message from the start byte to `F7`.
+    /// Builds the parameter-change message from `F0` to `F7`.
     ///
     /// # Errors
     ///
@@ -47,7 +47,6 @@ impl ParameterChange {
         let mut bytes = vec![0xf0, 0x43, 0x10 | self.device, 0x4c];
         bytes.extend_from_slice(&self.address);
         bytes.extend_from_slice(&self.data);
-        bytes.push(checksum(self.address, &self.data));
         bytes.push(0xf7);
         Ok(bytes)
     }
@@ -70,18 +69,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_checksum_matches_the_xg_on_example() {
+    fn xg_on_is_the_nine_byte_parameter_change() {
         assert_eq!(checksum([0x00, 0x00, 0x7e], &[0x00]), 2);
-        assert_eq!(checksum([0x08, 0x00, 0x00], &[0x40]), 56);
         assert_eq!(
             xg_on(0),
-            vec![0xf0, 0x43, 0x10, 0x4c, 0x00, 0x00, 0x7e, 0x00, 0x02, 0xf7]
+            vec![0xf0, 0x43, 0x10, 0x4c, 0x00, 0x00, 0x7e, 0x00, 0xf7]
         );
         assert_eq!(xg_on(3)[2], 0x13);
     }
 
     #[test]
-    fn messages_carry_the_checksum_and_end_byte() {
+    fn messages_have_no_checksum_and_end_with_f7() {
         let message = ParameterChange {
             device: 1,
             address: [0x08, 0x00, 0x00],
@@ -90,8 +88,9 @@ mod tests {
         let bytes = message.to_bytes().expect("message");
         assert_eq!(bytes.first(), Some(&0xf0));
         assert_eq!(bytes.last(), Some(&0xf7));
-        assert_eq!(bytes.len(), 4 + 3 + 1 + 1 + 1);
-        assert_eq!(bytes[8], checksum([0x08, 0x00, 0x00], &[0x40]));
+        assert_eq!(bytes.len(), 4 + 3 + 1 + 1);
+        assert_eq!(bytes[7], 0x40);
+        assert_eq!(bytes[8], 0xf7);
         assert!(
             ParameterChange {
                 device: 16,

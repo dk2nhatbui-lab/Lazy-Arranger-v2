@@ -247,11 +247,12 @@ impl Player {
             cpal::BufferSize::Fixed(frames) => Some(frames),
             cpal::BufferSize::Default => None,
         };
+        let mut scratch = Vec::with_capacity(8192);
         let stream = match sample_format {
             cpal::SampleFormat::F32 => device.build_output_stream(
                 &stream_config,
                 move |output: &mut [f32], _| {
-                    if let Ok(mut state) = shared.lock() {
+                    if let Ok(mut state) = shared.try_lock() {
                         state.fill(output);
                     } else {
                         output.fill(0.0);
@@ -263,11 +264,11 @@ impl Player {
             cpal::SampleFormat::I16 => device.build_output_stream(
                 &stream_config,
                 move |output: &mut [i16], _| {
-                    let mut scratch = vec![0.0_f32; output.len()];
-                    if let Ok(mut state) = shared.lock() {
+                    scratch.resize(output.len(), 0.0);
+                    if let Ok(mut state) = shared.try_lock() {
                         state.fill(&mut scratch);
                     }
-                    for (slot, value) in output.iter_mut().zip(scratch) {
+                    for (slot, value) in output.iter_mut().zip(scratch.iter().copied()) {
                         *slot = (value.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
                     }
                 },

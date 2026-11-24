@@ -417,6 +417,12 @@ pub fn record_to_song_after(
     track_name: &str,
     wait_for_note: bool,
 ) -> Result<(Song, Vec<CapturedNote>, CaptureStats), DeviceError> {
+    if !seconds.is_finite() {
+        return Err(DeviceError::Project(String::from(
+            "recording length must be finite",
+        )));
+    }
+    let seconds = seconds.clamp(0.0, 86_400.0);
     let (sender, receiver) = channel::<(u64, MidiMessage)>();
     let input =
         MidiInput::new("lazy-arranger").map_err(|err| DeviceError::Init(err.to_string()))?;
@@ -458,16 +464,22 @@ pub fn record_to_song_after(
     };
     let mut capture = NoteCapture::new();
     let mut waiting = wait_for_note;
+    let mut origin = None;
     while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
         match receiver.recv_timeout(remaining) {
             Ok((timestamp, message)) => {
-                if waiting
-                    && matches!(message, MidiMessage::NoteOn { velocity, .. } if velocity.as_u8() > 0)
-                {
-                    waiting = false;
-                    deadline = Instant::now() + Duration::from_secs_f64(seconds.max(0.0));
+                if waiting {
+                    if matches!(message, MidiMessage::NoteOn { velocity, .. } if velocity.as_u8() > 0)
+                    {
+                        waiting = false;
+                        origin = Some(timestamp);
+                        deadline = Instant::now() + Duration::from_secs_f64(seconds);
+                    } else {
+                        continue;
+                    }
                 }
-                capture.ingest(timestamp, message);
+                let origin = *origin.get_or_insert(timestamp);
+                capture.ingest(timestamp.saturating_sub(origin), message);
             }
             Err(RecvTimeoutError::Timeout) => break,
             Err(RecvTimeoutError::Disconnected) => return Err(DeviceError::InputClosed),

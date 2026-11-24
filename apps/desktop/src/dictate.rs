@@ -45,7 +45,7 @@ pub fn transcribe(wav: &Path, command: &str) -> Result<String, String> {
     Ok(text)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

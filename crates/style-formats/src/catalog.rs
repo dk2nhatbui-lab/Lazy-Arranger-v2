@@ -81,10 +81,13 @@ fn walk(directory: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
         .map_err(|error| format!("{}: {error}", directory.display()))?;
     for entry in entries {
         let entry = entry.map_err(|error| format!("{}: {error}", directory.display()))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("{}: {error}", directory.display()))?;
         let path = entry.path();
-        if path.is_dir() {
+        if file_type.is_dir() {
             walk(&path, out)?;
-        } else if is_style(&path) {
+        } else if file_type.is_file() && is_style(&path) {
             out.push(path);
         }
     }

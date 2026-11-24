@@ -81,6 +81,10 @@ pub fn record_seconds_from_channel(
     channel: Option<usize>,
     seconds: f64,
 ) -> Result<RenderedAudio, String> {
+    if !seconds.is_finite() {
+        return Err(String::from("recording length must be finite"));
+    }
+    let seconds = seconds.max(0.0);
     let host = cpal::default_host();
     let device = match device_name {
         Some(name) => host
@@ -114,7 +118,7 @@ pub fn record_seconds_from_channel(
     stream
         .play()
         .map_err(|error| format!("could not start input: {error}"))?;
-    std::thread::sleep(std::time::Duration::from_secs_f64(seconds.max(0.0)));
+    std::thread::sleep(std::time::Duration::from_secs_f64(seconds));
     drop(stream);
     if let Some(message) = error_slot.lock().ok().and_then(|slot| slot.clone()) {
         return Err(message);

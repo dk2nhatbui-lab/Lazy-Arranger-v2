@@ -78,7 +78,7 @@ fn chorus(rendered: &mut RenderedAudio, amount: f32) {
             let phase = time * std::f32::consts::TAU * 0.5 + channel as f32 * 0.8;
             let delay = rate * 0.018 + phase.sin() * rate * 0.004;
             let read = (index as f32 - delay).rem_euclid(max_delay as f32);
-            let first = read.floor() as usize;
+            let first = (read.floor() as usize).min(max_delay - 1);
             let second = (first + 1) % max_delay;
             let mix = read - read.floor();
             let delayed = line[first] * (1.0 - mix) + line[second] * mix;
@@ -234,6 +234,21 @@ mod tests {
             },
         );
         assert_eq!(raw.samples, vec![1.0, -1.0]);
+    }
+
+    #[test]
+    fn chorus_does_not_index_past_the_delay_line() {
+        let mut buffer = audio(vec![0.0; 48_000 * 2]);
+        apply(
+            &mut buffer,
+            Master {
+                reverb: 0.0,
+                chorus: 1.0,
+                limiter: false,
+                ..Master::default()
+            },
+        );
+        assert!(buffer.samples.iter().all(|sample| sample.is_finite()));
     }
 
     #[test]

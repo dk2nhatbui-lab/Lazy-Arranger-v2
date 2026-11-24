@@ -226,9 +226,9 @@ fn control_of(message: &MidiMessage) -> Option<Control> {
         MidiMessage::NoteOn { key, velocity, .. } if velocity.as_u8() > 0 => {
             Some(Control::Note(key.as_u8()))
         }
-        MidiMessage::ControlChange {
-            controller, value, ..
-        } if *value > 0 => Some(Control::Controller(controller.as_u8())),
+        MidiMessage::ControlChange { controller, .. } => {
+            Some(Control::Controller(controller.as_u8()))
+        }
         _ => None,
     }
 }
@@ -346,6 +346,21 @@ mod tests {
     }
 
     #[test]
+    fn a_zero_controller_value_still_matches_its_binding() {
+        let mut map = MidiMap::default();
+        let track = TrackId::new(1).expect("valid");
+        map.bind(Control::Controller(7), Action::TrackFader(track));
+        assert_eq!(
+            map.action_for(&control(7, 0)),
+            Some(Action::TrackFader(track))
+        );
+        assert_eq!(
+            Learn::begin(Action::Play).capture(&control(7, 0)),
+            Some((Control::Controller(7), Action::Play))
+        );
+    }
+
+    #[test]
     fn control_changes_expose_their_value() {
         assert_eq!(value_of(&control(7, 90)), Some(90));
         assert_eq!(value_of(&note_on(60)), None);
@@ -368,7 +383,10 @@ mod tests {
             Velocity::new(0).expect("valid"),
         );
         assert_eq!(learn.capture(&release), None);
-        assert_eq!(learn.capture(&control(64, 0)), None);
+        assert_eq!(
+            learn.capture(&control(64, 0)),
+            Some((Control::Controller(64), Action::Play))
+        );
     }
 }
 

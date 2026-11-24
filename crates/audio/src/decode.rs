@@ -65,6 +65,9 @@ fn decode_internal(path: &Path, stereo: bool) -> Result<RenderedAudio, String> {
     let sample_rate = params
         .sample_rate
         .ok_or_else(|| format!("{}: no sample rate", path.display()))?;
+    if sample_rate == 0 {
+        return Err(format!("{}: zero sample rate", path.display()));
+    }
     let mut decoder = symphonia::default::get_codecs()
         .make_audio_decoder(&params, &AudioDecoderOptions::default())
         .map_err(|error| format!("{}: {error}", path.display()))?;
@@ -116,7 +119,11 @@ fn decode_internal(path: &Path, stereo: bool) -> Result<RenderedAudio, String> {
     }
     if let Some(declared) = declared {
         let channels = if stereo { 2 } else { 1 };
-        samples.truncate(usize::try_from(declared).unwrap_or(usize::MAX) * channels);
+        samples.truncate(
+            usize::try_from(declared)
+                .unwrap_or(usize::MAX)
+                .saturating_mul(channels),
+        );
     }
     if samples.is_empty() {
         return Err(format!("{}: decoded no samples", path.display()));

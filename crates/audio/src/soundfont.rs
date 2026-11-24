@@ -144,11 +144,15 @@ fn u32_at(data: &[u8], offset: usize) -> Result<u32, String> {
 }
 
 fn name_at(data: &[u8], offset: usize) -> String {
-    let end = data[offset..]
+    let Some(rest) = data.get(offset..) else {
+        return String::new();
+    };
+    let end = rest
         .iter()
         .position(|byte| *byte == 0)
-        .unwrap_or(20);
-    String::from_utf8_lossy(&data[offset..offset + end.min(20)]).into_owned()
+        .unwrap_or(rest.len())
+        .min(20);
+    String::from_utf8_lossy(&rest[..end]).into_owned()
 }
 
 type Chunk<'a> = ([u8; 4], &'a [u8]);
@@ -288,6 +292,9 @@ fn zones<'a>(
             .copied()
             .unwrap_or(gens.len())
             .min(gens.len());
+        if end < start {
+            continue;
+        }
         out.push(decode(&gens[start..end]));
     }
     out
@@ -304,6 +311,9 @@ pub fn parse(bytes: &[u8]) -> Result<SoundFont, String> {
     }
     let size = u32_at(bytes, 4)? as usize;
     let end = (8 + size).min(bytes.len());
+    if end < 12 {
+        return Err(String::from("RIFF size is too short"));
+    }
     let top = chunks(&bytes[12..end])?;
     let pdta = top
         .iter()
@@ -472,9 +482,9 @@ struct Lowpass {
 
 impl Lowpass {
     fn new(cutoff_cents: i16, q_centibels: i16, rate: u32) -> Self {
-        let nyquist = rate as f32 / 2.0;
-        let cutoff =
-            (8.176 * 2.0_f32.powf(f32::from(cutoff_cents) / 1200.0)).clamp(20.0, nyquist * 0.95);
+        let nyquist = rate.max(1) as f32 / 2.0;
+        let ceiling = (nyquist * 0.95).max(20.0);
+        let cutoff = (8.176 * 2.0_f32.powf(f32::from(cutoff_cents) / 1200.0)).clamp(20.0, ceiling);
         let q = 10.0_f32
             .powf(f32::from(q_centibels) / 200.0)
             .clamp(0.5, 20.0);
@@ -591,7 +601,8 @@ fn render_sample(
     let step = (sample_rate / ratio) * 2.0_f32.powf(semitones / 12.0);
     let frames = (seconds * ratio) as usize;
     let gain = f32::from(velocity.min(127)) / 127.0 * 0.6;
-    let mut out = Vec::with_capacity(frames);
+    let mut out = Vec::new();
+    out.try_reserve(frames).ok()?;
     let mut filter = Lowpass::new(zone.filter_cutoff, zone.filter_q, rate);
     let mut position = start as f64;
     let loop_length = (loop_end.saturating_sub(loop_start)) as f64;
@@ -750,6 +761,15 @@ mod tests {
             *slot = byte;
         }
         out
+    }
+
+    #[test]
+    fn malformed_names_and_short_riffs_do_not_panic() {
+        assert_eq!(name_at(b"AB", 0), "AB");
+        assert_eq!(name_at(b"A", 4), "");
+        assert!(parse(b"RIFF").is_err());
+        assert!(parse(b"RIFF\x02\x00\x00\x00WAVE").is_err());
+        let _ = Lowpass::new(0, 0, 1);
     }
 
     fn build() -> Vec<u8> {
