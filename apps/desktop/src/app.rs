@@ -3278,6 +3278,72 @@ impl ShellApp {
     }
 
     fn print_score_pdf(&mut self) {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        if self.score_all_tracks {
+            let selected: Vec<TrackId> = self
+                .song()
+                .tracks
+                .iter()
+                .filter(|track| !self.score_full_hidden.contains(&track.id))
+                .map(|track| track.id)
+                .collect();
+            let selected = if selected.is_empty() {
+                self.song().tracks.iter().map(|track| track.id).collect()
+            } else {
+                selected
+            };
+            let title = if self.song().name.is_empty() {
+                String::from("Lazy Arranger full score")
+            } else {
+                self.song().name.clone()
+            };
+            let pdf =
+                score::pdf::to_full_pdf(self.song(), score::Settings::default(), &title, &selected);
+            let path = std::env::temp_dir().join(format!(
+                "lazy-arranger-full-score-{}-{stamp}.pdf",
+                std::process::id()
+            ));
+            if let Err(error) = std::fs::write(&path, pdf) {
+                self.status = Some(format!("{}: {error}", path.display()));
+                return;
+            }
+            let pages = self.print_pages.trim();
+            if !pages.is_empty()
+                && !pages.chars().all(|character| {
+                    character.is_ascii_digit() || character == '-' || character == ','
+                })
+            {
+                self.status = Some(String::from("pages must look like 1-4, 7"));
+                return;
+            }
+            let arguments = print_arguments(
+                self.printer_choice.as_deref(),
+                self.print_copies,
+                pages,
+                &path,
+            );
+            match std::process::Command::new("lp").args(&arguments).output() {
+                Ok(output) if output.status.success() => {
+                    self.status = Some(format!(
+                        "sent {} to lp: {}",
+                        path.display(),
+                        String::from_utf8_lossy(&output.stdout).trim()
+                    ));
+                    self.print_dialog = false;
+                }
+                Ok(output) => {
+                    self.status = Some(format!(
+                        "lp failed: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ));
+                }
+                Err(error) => self.status = Some(format!("lp: {error}")),
+            }
+            return;
+        }
         let Some(track) = self
             .score_track
             .or(self.roll.selected)
@@ -3336,8 +3402,10 @@ impl ShellApp {
             let engraved = score::engrave(self.song(), track, settings);
             score::pdf::to_pdf(&engraved, settings, &title)
         };
-        let path =
-            std::env::temp_dir().join(format!("lazy-arranger-score-{}.pdf", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-score-{}-{stamp}.pdf",
+            std::process::id()
+        ));
         if let Err(error) = std::fs::write(&path, pdf) {
             self.status = Some(format!("{}: {error}", path.display()));
             return;
