@@ -1376,6 +1376,7 @@ mod tests {
         assert!(text.contains("(Piano) Tj"));
         assert!(text.contains("(Bass) Tj"));
         assert!(text.contains("(C) Tj"));
+        assert!(text.contains("120 BPM"), "tempo header");
         assert!(text.contains("(la) Tj"));
         assert!(text.contains("(f) Tj"));
         assert!(text.contains("/ClefTreble"), "clef image resource");
