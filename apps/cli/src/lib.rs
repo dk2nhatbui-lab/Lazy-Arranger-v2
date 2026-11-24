@@ -163,6 +163,14 @@ enum Commands {
         #[arg(long, default_value_t = 0.9)]
         peak: f32,
     },
+    /// Reverse a WAV file.
+    WavReverse {
+        /// Input `.wav` file.
+        wav: PathBuf,
+        /// Output `.wav` path.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Send all-notes-off on every channel to a MIDI output.
     MidiPanic {
         /// Output port name exactly as listed by `midi-ports`.
@@ -2128,6 +2136,14 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
         Commands::WavGain { wav, out, db } => wav_edit(&wav, &out, Some(db), 0.0),
         Commands::WavNormalize { wav, out, peak } => wav_edit(&wav, &out, None, peak),
+        Commands::WavReverse { wav, out } => {
+            let bytes = fs::read(&wav)?;
+            let mut audio = audio::wav::decode_stereo(&bytes)?;
+            audio::edit::reverse(&mut audio);
+            fs::write(&out, audio.to_wav32f())?;
+            println!("wrote {}", out.display());
+            Ok(())
+        }
         Commands::ScoreLayout { project, track } => {
             let project = read_project(&project)?;
             let Some(entry) = project.song.tracks.get(track) else {

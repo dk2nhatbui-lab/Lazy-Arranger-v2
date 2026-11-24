@@ -1638,16 +1638,8 @@ impl Editor {
         let bytes = std::fs::read(&source)
             .map_err(|error| format!("could not read {}: {error}", source.display()))?;
         let audio = audio::wav::decode_stereo(&bytes)?;
-        let frames = audio.samples.len() / 2;
-        let mut samples = vec![0.0_f32; audio.samples.len()];
-        for frame in 0..frames {
-            samples[frame * 2] = audio.samples[(frames - 1 - frame) * 2];
-            samples[frame * 2 + 1] = audio.samples[(frames - 1 - frame) * 2 + 1];
-        }
-        let reversed = audio::RenderedAudio {
-            samples,
-            sample_rate: audio.sample_rate,
-        };
+        let mut reversed = audio;
+        audio::edit::reverse(&mut reversed);
         let stem = source
             .file_stem()
             .and_then(|stem| stem.to_str())

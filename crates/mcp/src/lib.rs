@@ -2734,16 +2734,8 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .map_err(|error| ToolError::Arguments(format!("{}: {error}", source.display())))?;
             let audio = audio::wav::decode_stereo(&bytes)
                 .map_err(|error| ToolError::Arguments(error.to_string()))?;
-            let frames = audio.samples.len() / 2;
-            let mut samples = vec![0.0_f32; audio.samples.len()];
-            for frame in 0..frames {
-                samples[frame * 2] = audio.samples[(frames - 1 - frame) * 2];
-                samples[frame * 2 + 1] = audio.samples[(frames - 1 - frame) * 2 + 1];
-            }
-            let reversed = audio::RenderedAudio {
-                samples,
-                sample_rate: audio.sample_rate,
-            };
+            let mut reversed = audio;
+            audio::edit::reverse(&mut reversed);
             let stem = source
                 .file_stem()
                 .and_then(|stem| stem.to_str())
