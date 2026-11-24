@@ -238,6 +238,17 @@ pub fn preview_cursor_x(
     None
 }
 
+fn short_track_name(name: &str) -> String {
+    if name.is_empty() {
+        return String::from("Track");
+    }
+    let mut short: String = name.chars().take(8).collect();
+    if name.chars().count() > 8 {
+        short.push_str("..");
+    }
+    short
+}
+
 /// Cheap content hash for caching an all-track engraving.
 #[must_use]
 pub fn full_score_hash(song: &project::Song, title: &str) -> u64 {
@@ -399,7 +410,7 @@ pub fn show_full(
         painter.text(
             Pos2::new(page_rect.left() + 4.0, top + 2.0 * line_gap * zoom),
             egui::Align2::LEFT_CENTER,
-            name,
+            short_track_name(name),
             egui::FontId::proportional(7.0 * zoom),
             Color32::from_rgb(0x40, 0x40, 0x40),
         );

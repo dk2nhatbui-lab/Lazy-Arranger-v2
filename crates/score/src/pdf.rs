@@ -626,11 +626,7 @@ pub fn to_full_pdf(
             let _ = writeln!(
                 content,
                 "BT /F1 7 Tf 4 {y:.1} Td ({}) Tj ET",
-                escape(if staff.name.is_empty() {
-                    "Track"
-                } else {
-                    &staff.name
-                }),
+                escape(&short_track_name(&staff.name)),
                 y = settings.page_height - (top + 2.0 * line_gap)
             );
             for note in staff.notes.iter().filter(|note| note.page == *page) {
@@ -987,6 +983,17 @@ fn circle(content: &mut String, x: f32, y: f32, radius: f32) {
         x + radius,
         y
     );
+}
+
+fn short_track_name(name: &str) -> String {
+    if name.is_empty() {
+        return String::from("Track");
+    }
+    let mut short: String = name.chars().take(8).collect();
+    if name.chars().count() > 8 {
+        short.push_str("..");
+    }
+    short
 }
 
 fn escape(text: &str) -> String {
