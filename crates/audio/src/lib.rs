@@ -2028,6 +2028,53 @@ mod tests {
     }
 
     #[test]
+    fn a_stretched_audio_reference_keeps_pitch() {
+        use project::song::{AudioRef, Track};
+        let mut song = Song::new("Stretch", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Take");
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-audio-stretch-pitch-{}.wav",
+            std::process::id()
+        ));
+        let mut samples = Vec::with_capacity(SAMPLE_RATE as usize * 2);
+        for frame in 0..SAMPLE_RATE as usize {
+            let time = frame as f64 / f64::from(SAMPLE_RATE);
+            let value = (std::f64::consts::TAU * 440.0 * time).sin() as f32 * 0.5;
+            samples.extend_from_slice(&[value, value]);
+        }
+        std::fs::write(
+            &path,
+            RenderedAudio {
+                samples,
+                sample_rate: SAMPLE_RATE,
+            }
+            .to_wav32f(),
+        )
+        .expect("write wav");
+        track.audio = Some(AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: 4 * music_core::PPQ,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: true,
+            gain_mb: 0,
+        });
+        song.tracks.push(track);
+        let rendered = render(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        let frame = SAMPLE_RATE as usize;
+        let mono: Vec<f32> = rendered.samples[frame * 2..(frame + 2_048) * 2]
+            .iter()
+            .step_by(2)
+            .copied()
+            .collect();
+        let pitch = crate::analysis::detect_pitch(&mono, SAMPLE_RATE).expect("pitch");
+        assert!((pitch - 440.0).abs() < 5.0, "pitch was {pitch}");
+    }
+
+    #[test]
     fn audio_reference_offset_skips_the_source_start() {
         use project::song::{AudioRef, Track};
         let mut song = Song::new("Audio", 120.0);
