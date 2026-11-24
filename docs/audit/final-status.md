@@ -1,6 +1,6 @@
 # Final status (2026-11-24)
 
-Commit basis: audit-remediation work at round 620. Goal: C++ v1.0.0-beta.1 feature parity.
+Commit basis: audit-remediation work at round 629. Goal: C++ v1.0.0-beta.1 feature parity.
 **Parity is not claimed.** All 39 crosscheck rows remain `partial`; several need
 material this environment does not have (hardware, proprietary formats, native
 plug-in editor support or model services).
