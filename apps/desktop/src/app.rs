@@ -9875,10 +9875,15 @@ impl ShellApp {
                 if index + 1 < self.song().tracks.len() && ui.small_button("↓").clicked() {
                     let _ = self.editor.move_track(id, index + 1);
                 }
-                if ui.small_button("Dup").clicked() {
-                    let _ = self.editor.duplicate_track(id);
+                if ui.small_button("Dup").clicked()
+                    && let Ok(copy) = self.editor.duplicate_track(id)
+                {
+                    self.roll.selected = Some(copy);
                 }
                 if ui.small_button("Del").clicked() {
+                    if self.roll.selected == Some(id) {
+                        self.roll.selected = None;
+                    }
                     let _ = self.editor.remove_track(id);
                 }
                 ui.label(
@@ -11119,7 +11124,10 @@ impl ShellApp {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button("+").on_hover_text("Add a track").clicked() {
                             match self.editor.add_empty_track() {
-                                Ok(_) => self.status = Some(String::from("track added")),
+                                Ok(id) => {
+                                    self.roll.selected = Some(id);
+                                    self.status = Some(String::from("track added"));
+                                }
                                 Err(error) => self.status = Some(error),
                             }
                         }
