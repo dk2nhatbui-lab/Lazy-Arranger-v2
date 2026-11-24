@@ -3,7 +3,8 @@
 //! Reads a partwise document into a [`Song`]: one track per part, measures
 //! advanced by the meter, notes placed by divisions, chords stacked, rests
 //! skipped and unpitched notes treated as drums. Tempo changes come from
-//! `<sound tempo>` elements; key, lyrics, marks and dynamics are not imported yet.
+//! `<sound tempo>` elements; chords, lyrics, marks and dynamics are imported.
+//! The song has no key field, so `<key>` is not imported.
 
 use music_core::{Channel, PPQ, Pitch, TempoChange, TempoMap, Tick, TimeSignature, Velocity};
 use project::song::{Note, Song, Track};

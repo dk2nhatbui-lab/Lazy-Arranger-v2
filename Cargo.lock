@@ -1842,6 +1842,7 @@ dependencies = [
  "music-core",
  "project",
  "roxmltree",
+ "score",
  "thiserror 2.0.21",
 ]
 

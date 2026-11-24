@@ -112,7 +112,11 @@ pub fn export(song: &Song, title: &str) -> String {
                     "        <divisions>{}</divisions>\n",
                     music_core::PPQ
                 ));
-                out.push_str("        <key><fifths>0</fifths></key>\n");
+                let key = score::spelling::detect_key(song);
+                out.push_str(&format!(
+                    "        <key><fifths>{}</fifths></key>\n",
+                    key_fifths(key)
+                ));
                 out.push_str(&format!(
                     "        <time><beats>{}</beats><beat-type>{}</beat-type></time>\n",
                     song.time_signature.numerator, song.time_signature.denominator
@@ -247,6 +251,29 @@ fn slur_flags(track: &project::song::Track) -> std::collections::BTreeMap<u32, (
         }
     }
     flags
+}
+
+fn key_fifths(key: score::spelling::Key) -> i32 {
+    let major = if key.minor {
+        (key.tonic.as_u8() + 3) % 12
+    } else {
+        key.tonic.as_u8()
+    };
+    match major {
+        0 => 0,
+        7 => 1,
+        2 => 2,
+        9 => 3,
+        4 => 4,
+        11 => 5,
+        6 => 6,
+        1 => 7,
+        5 => -1,
+        10 => -2,
+        3 => -3,
+        8 => -4,
+        _ => 0,
+    }
 }
 
 fn write_harmony(out: &mut String, chord: music_core::Chord, offset: Tick) {
@@ -517,6 +544,47 @@ mod tests {
         });
         let xml = export(&song, "Offsets");
         assert_eq!(xml.matches("<offset>480</offset>").count(), 2);
+    }
+
+    #[test]
+    fn key_fifths_covers_the_circle() {
+        use music_core::PitchClass;
+        use score::spelling::Key;
+        assert_eq!(
+            key_fifths(Key {
+                tonic: PitchClass::new(0),
+                minor: false
+            }),
+            0
+        );
+        assert_eq!(
+            key_fifths(Key {
+                tonic: PitchClass::new(2),
+                minor: false
+            }),
+            2
+        );
+        assert_eq!(
+            key_fifths(Key {
+                tonic: PitchClass::new(5),
+                minor: false
+            }),
+            -1
+        );
+        assert_eq!(
+            key_fifths(Key {
+                tonic: PitchClass::new(9),
+                minor: true
+            }),
+            0
+        );
+        assert_eq!(
+            key_fifths(Key {
+                tonic: PitchClass::new(4),
+                minor: true
+            }),
+            1
+        );
     }
 
     #[test]
