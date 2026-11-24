@@ -175,6 +175,10 @@ pub struct Settings {
     pub language: String,
     /// Chord grade shown by default, 1..=9.
     pub grade: u8,
+    /// Correct lesson answers kept across launches.
+    pub lesson_correct: u32,
+    /// Wrong lesson answers kept across launches.
+    pub lesson_wrong: u32,
     /// Preferred MIDI input name, when set.
     pub keyboard: Option<String>,
     /// Listen to every MIDI input, not only `keyboard`.
@@ -260,6 +264,8 @@ impl Default for Settings {
         Self {
             language: String::from("en"),
             grade: 5,
+            lesson_correct: 0,
+            lesson_wrong: 0,
             keyboard: None,
             auto_inputs: false,
             audio_input: None,
@@ -415,6 +421,12 @@ impl Settings {
                         settings.grade = grade.clamp(1, 9);
                     }
                 }
+                "lesson_correct" => {
+                    settings.lesson_correct = value.parse::<u32>().unwrap_or(0);
+                }
+                "lesson_wrong" => {
+                    settings.lesson_wrong = value.parse::<u32>().unwrap_or(0);
+                }
                 "auto_inputs" => settings.auto_inputs = value == "true",
                 "keyboard" => {
                     settings.keyboard = if value.is_empty() {
@@ -524,6 +536,8 @@ impl Settings {
         let mut text = String::from("# Lazy Arranger settings\n");
         text.push_str(&format!("language = {}\n", self.language));
         text.push_str(&format!("grade = {}\n", self.grade));
+        text.push_str(&format!("lesson_correct = {}\n", self.lesson_correct));
+        text.push_str(&format!("lesson_wrong = {}\n", self.lesson_wrong));
         if let Some(keyboard) = &self.keyboard {
             text.push_str(&format!("keyboard = {}\n", clean_line(keyboard)));
         }
@@ -672,6 +686,8 @@ mod tests {
             master_reverb: 0.3,
             master_chorus: 0.2,
             grade: 3,
+            lesson_correct: 7,
+            lesson_wrong: 2,
             keyboard: Some(String::from("PSR-S970")),
             auto_inputs: true,
             audio_input: Some(String::from("Camo Microphone")),

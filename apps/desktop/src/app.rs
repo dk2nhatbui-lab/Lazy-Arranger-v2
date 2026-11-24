@@ -1236,7 +1236,7 @@ impl ShellApp {
             lesson_kind: music_core::lesson::LessonKind::ChordQuality,
             lesson_seed: 1,
             lesson_question: None,
-            lesson_score: (0, 0),
+            lesson_score: (settings.lesson_correct, settings.lesson_wrong),
             lesson_feedback: None,
             printers: Vec::new(),
             printer_choice: None,
@@ -7439,6 +7439,7 @@ impl ShellApp {
         }
         let mut open = self.lessons_open;
         let mut new_question = false;
+        let mut reset_score = false;
         let mut answer = None;
         egui::Window::new("Lessons")
             .open(&mut open)
@@ -7467,6 +7468,9 @@ impl ShellApp {
                         self.lesson_score.0,
                         self.lesson_score.0 + self.lesson_score.1
                     ));
+                    if ui.small_button("Reset").clicked() {
+                        reset_score = true;
+                    }
                 });
                 if let Some(question) = &self.lesson_question {
                     ui.separator();
@@ -7507,7 +7511,16 @@ impl ShellApp {
             } else {
                 self.lesson_score.1 += 1;
             }
+            self.settings.lesson_correct = self.lesson_score.0;
+            self.settings.lesson_wrong = self.lesson_score.1;
+            let _ = self.settings.save(&crate::settings::Settings::path());
             self.lesson_feedback = Some(correct);
+        }
+        if reset_score {
+            self.lesson_score = (0, 0);
+            self.settings.lesson_correct = 0;
+            self.settings.lesson_wrong = 0;
+            let _ = self.settings.save(&crate::settings::Settings::path());
         }
         if new_question {
             self.lesson_question = Some(music_core::lesson::question(
