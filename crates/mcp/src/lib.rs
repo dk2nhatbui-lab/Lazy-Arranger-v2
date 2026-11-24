@@ -1137,6 +1137,20 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "set_track_voice",
+            description: "Set a track's program and bank in one undo step.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "program": {"type": "integer"},
+                    "msb": {"type": "integer"},
+                    "lsb": {"type": "integer"}
+                },
+                "required": ["track"]
+            }),
+        },
+        Tool {
             name: "set_track_bank",
             description: "Set a track's bank-select pair, or clear it with null.",
             input_schema: json!({
@@ -1320,6 +1334,51 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             let track = track_argument(arguments)?;
             session.apply(Command::RemoveTrack { track })?;
             Ok(json!({"removed": track.get()}))
+        }
+        "set_track_voice" => {
+            let track = track_argument(arguments)?;
+            let program = arguments
+                .get("program")
+                .and_then(Value::as_u64)
+                .map(u8::try_from)
+                .transpose()
+                .map_err(|_| ToolError::Arguments(String::from("program must be 0..=127")))?;
+            if program.is_some_and(|value| value > 127) {
+                return Err(ToolError::Arguments(String::from(
+                    "program must be 0..=127",
+                )));
+            }
+            let msb = arguments
+                .get("msb")
+                .and_then(Value::as_u64)
+                .map(u8::try_from)
+                .transpose()
+                .map_err(|_| ToolError::Arguments(String::from("msb must be 0..=127")))?;
+            let lsb = arguments
+                .get("lsb")
+                .and_then(Value::as_u64)
+                .map(u8::try_from)
+                .transpose()
+                .map_err(|_| ToolError::Arguments(String::from("lsb must be 0..=127")))?;
+            let bank = match (msb, lsb) {
+                (Some(msb), Some(lsb)) if msb <= 127 && lsb <= 127 => {
+                    Some(project::song::BankSelect { msb, lsb })
+                }
+                (None, None) => None,
+                _ => {
+                    return Err(ToolError::Arguments(String::from(
+                        "set both msb and lsb in 0..=127, or neither",
+                    )));
+                }
+            };
+            session.apply(Command::SetTrackVoice {
+                track,
+                program,
+                bank,
+            })?;
+            Ok(
+                json!({"track": track.get(), "program": program, "bank": bank.map(|bank| json!({"msb": bank.msb, "lsb": bank.lsb}))}),
+            )
         }
         "set_track_bank" => {
             let track = track_argument(arguments)?;
@@ -3994,7 +4053,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 104);
+        assert_eq!(tools().len(), 105);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
@@ -4586,6 +4645,15 @@ mod tests {
         .expect("bank");
         let tracks = call(&mut session, "get_tracks", &json!({})).expect("tracks");
         assert_eq!(tracks["tracks"][0]["bank"]["msb"], 63);
+        call(
+            &mut session,
+            "set_track_voice",
+            &json!({"track": 1, "program": 48, "msb": 0, "lsb": 1}),
+        )
+        .expect("voice");
+        let tracks = call(&mut session, "get_tracks", &json!({})).expect("tracks");
+        assert_eq!(tracks["tracks"][0]["program"], 48);
+        assert_eq!(tracks["tracks"][0]["bank"]["lsb"], 1);
         call(
             &mut session,
             "add_note",
