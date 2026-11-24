@@ -1410,6 +1410,7 @@ mod tests {
         assert!(text.contains("(Bass) Tj"));
         assert!(text.contains("(C) Tj"));
         assert!(text.contains("120 BPM"), "tempo header");
+        assert!(text.contains("/Title (Full score)"), "PDF metadata title");
         assert!(text.contains("(la) Tj"));
         assert!(text.contains("(f) Tj"));
         assert!(text.contains("(Intro) Tj"), "section marker");
