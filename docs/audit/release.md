@@ -1,6 +1,6 @@
 # Release build verification (2026-11-24)
 
-Environment: macOS arm64, rustc 1.100.0 (Homebrew), commit `9f19021`.
+Environment: macOS arm64, rustc 1.100.0 (Homebrew), commit `b46c61b`.
 
 ## Build
 
@@ -18,7 +18,7 @@ stays green on the workspace.
 
 ```sh
 ./scripts/rust.sh test --release --workspace
-# 845 passed, 0 failed
+# 853 passed, 0 failed
 ```
 
 ## Binaries
@@ -29,7 +29,7 @@ stays green on the workspace.
 | `target/release/lazy-arranger-desktop` | 23 MB | app bundle launches |
 | bundle `lazy-arranger-plugin-scan` | — | returned R0Verb 1.0.4 FX metadata from `/Library/Audio/Plug-Ins/VST3/R0Verb.vst3` |
 
-The debug workspace gate (845 tests, clippy `-D warnings`, fmt, rustdoc) and the
+The debug workspace gate (853 tests, clippy `-D warnings`, fmt, rustdoc) and the
 Windows/Linux/macOS CI matrix remain the authoritative checks; this file records
 that the optimized build and its tests also pass. Hardware remains powered down,
 so audio/MIDI/print hardware checks are not part of this snapshot.
