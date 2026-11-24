@@ -883,6 +883,7 @@ pub struct ShellApp {
     songs_open: bool,
     lessons_open: bool,
     lesson_kind: music_core::lesson::LessonKind,
+    lesson_pack: Option<usize>,
     lesson_seed: u64,
     lesson_question: Option<music_core::lesson::Question>,
     lesson_score: (u32, u32),
@@ -1234,6 +1235,7 @@ impl ShellApp {
             songs_open: initial_window == "songs",
             lessons_open: initial_window == "lessons",
             lesson_kind: music_core::lesson::LessonKind::ChordQuality,
+            lesson_pack: None,
             lesson_seed: 1,
             lesson_question: None,
             lesson_score: (settings.lesson_correct, settings.lesson_wrong),
@@ -7445,6 +7447,43 @@ impl ShellApp {
             .open(&mut open)
             .default_width(400.0)
             .show(context, |ui| {
+                egui::ComboBox::from_id_salt("lesson-pack")
+                    .selected_text(
+                        self.lesson_pack
+                            .and_then(|index| music_core::lesson::PACKS.get(index))
+                            .map_or("Custom", |pack| pack.name),
+                    )
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(self.lesson_pack.is_none(), "Custom")
+                            .clicked()
+                        {
+                            self.lesson_pack = None;
+                            self.lesson_question = None;
+                            self.lesson_feedback = None;
+                        }
+                        for (index, pack) in music_core::lesson::PACKS.iter().enumerate() {
+                            if ui
+                                .selectable_label(self.lesson_pack == Some(index), pack.name)
+                                .clicked()
+                            {
+                                self.lesson_pack = Some(index);
+                                self.lesson_kind = pack.kind(0);
+                                self.lesson_question = None;
+                                self.lesson_feedback = None;
+                            }
+                        }
+                    });
+                if let Some(pack) = self
+                    .lesson_pack
+                    .and_then(|index| music_core::lesson::PACKS.get(index))
+                {
+                    ui.label(
+                        egui::RichText::new(pack.description)
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                    );
+                }
                 egui::ComboBox::from_id_salt("lesson-kind")
                     .selected_text(self.lesson_kind.name())
                     .show_ui(ui, |ui| {
@@ -7454,6 +7493,7 @@ impl ShellApp {
                                 .clicked()
                             {
                                 self.lesson_kind = kind;
+                                self.lesson_pack = None;
                                 self.lesson_question = None;
                                 self.lesson_feedback = None;
                             }
@@ -7523,6 +7563,12 @@ impl ShellApp {
             let _ = self.settings.save(&crate::settings::Settings::path());
         }
         if new_question {
+            if let Some(pack) = self
+                .lesson_pack
+                .and_then(|index| music_core::lesson::PACKS.get(index))
+            {
+                self.lesson_kind = pack.kind(self.lesson_seed);
+            }
             self.lesson_question = Some(music_core::lesson::question(
                 self.lesson_kind,
                 self.lesson_seed,

@@ -28,6 +28,52 @@ impl LessonKind {
     }
 }
 
+const FOUNDATION_KINDS: [LessonKind; 2] = [LessonKind::ChordQuality, LessonKind::Interval];
+const FUNCTION_KINDS: [LessonKind; 2] = [LessonKind::RomanNumeral, LessonKind::ChordQuality];
+const MIXED_KINDS: [LessonKind; 3] = [
+    LessonKind::ChordQuality,
+    LessonKind::RomanNumeral,
+    LessonKind::Interval,
+];
+
+/// A small curated sequence of lesson kinds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LessonPack {
+    /// Display name.
+    pub name: &'static str,
+    /// One-line description.
+    pub description: &'static str,
+    /// Kinds in cycle order.
+    pub kinds: &'static [LessonKind],
+}
+
+/// Built-in skill packs, in menu order.
+pub const PACKS: [LessonPack; 3] = [
+    LessonPack {
+        name: "Foundations",
+        description: "Chord quality and intervals.",
+        kinds: &FOUNDATION_KINDS,
+    },
+    LessonPack {
+        name: "Function",
+        description: "Roman numerals and chord quality.",
+        kinds: &FUNCTION_KINDS,
+    },
+    LessonPack {
+        name: "Mixed",
+        description: "All three exercise kinds.",
+        kinds: &MIXED_KINDS,
+    },
+];
+
+impl LessonPack {
+    /// The kind at `step` in this pack's cycle.
+    #[must_use]
+    pub fn kind(self, step: u64) -> LessonKind {
+        self.kinds[usize::try_from(step).unwrap_or(0) % self.kinds.len().max(1)]
+    }
+}
+
 /// One multiple-choice question.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Question {
@@ -149,6 +195,18 @@ mod tests {
                 assert!(question.answer < question.choices.len());
                 assert_eq!(question, question.clone());
             }
+        }
+    }
+
+    #[test]
+    fn skill_packs_cycle_their_kinds() {
+        for pack in PACKS {
+            assert!(!pack.name.is_empty());
+            assert!(!pack.description.is_empty());
+            assert!(!pack.kinds.is_empty());
+            let first = pack.kind(0);
+            assert_eq!(pack.kind(pack.kinds.len() as u64), first);
+            assert!(pack.kinds.contains(&first));
         }
     }
 
