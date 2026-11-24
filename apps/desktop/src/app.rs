@@ -862,6 +862,11 @@ struct RenderedSong {
     loop_start: Option<music_core::Tick>,
 }
 
+enum D05TaskResult {
+    TempPatch(Result<(Box<midi_devices::d05::TempPatch>, usize), String>),
+    BankNames(u8, Result<Vec<String>, String>),
+}
+
 pub struct ShellApp {
     editor: Editor,
     selected_note: Option<(TrackId, NoteId)>,
@@ -1078,6 +1083,11 @@ pub struct ShellApp {
     mark_choice: usize,
     l6max_device_open: bool,
     l6max_device: crate::l6max_device::DeviceState,
+    l6max_identity: String,
+    l6max_id_reply: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
+    d05_open: bool,
+    d05_editor: crate::d05_editor::D05EditorState,
+    d05_reply: Option<std::sync::mpsc::Receiver<D05TaskResult>>,
     takes_open: bool,
     xg_open: bool,
     xg_parts: [[u8; 4]; 16],
@@ -1466,6 +1476,11 @@ impl ShellApp {
             l6max_device: crate::l6max_device::load(
                 &crate::settings::Settings::data_dir().join(crate::l6max_device::STATE_PATH),
             ),
+            l6max_identity: String::new(),
+            l6max_id_reply: None,
+            d05_open: std::env::var("ARRANGER_D05").is_ok(),
+            d05_editor: crate::d05_editor::D05EditorState::default(),
+            d05_reply: None,
             takes_open: std::env::var("ARRANGER_TAKES").is_ok(),
             xg_open: std::env::var("ARRANGER_XG").is_ok(),
             xg_parts: [[100, 64, 40, 0]; 16],
@@ -5922,12 +5937,28 @@ impl ShellApp {
             return;
         }
         let port = self.l6max_control_port();
+        if let Some(receiver) = &self.l6max_id_reply
+            && let Ok(result) = receiver.try_recv()
+        {
+            match result {
+                Ok(info) => {
+                    self.l6max_identity = info.clone();
+                    self.status = Some(info);
+                }
+                Err(error) => {
+                    self.l6max_identity = error.clone();
+                    self.status = Some(error);
+                }
+            }
+            self.l6max_id_reply = None;
+        }
         let mut open = self.l6max_device_open;
         let mut state = self.l6max_device.clone();
         let mut changes: Vec<(u8, u8)> = Vec::new();
         let mut scene = None;
         let mut reset = false;
         let mut transport = None;
+        let mut identify = false;
         egui::Window::new("L6max device mixer")
             .open(&mut open)
             .resizable(true)
@@ -5944,6 +5975,20 @@ impl ShellApp {
                     ui.add(egui::DragValue::new(&mut state.channel).range(1..=16));
                     if ui.button("Reset all").clicked() {
                         reset = true;
+                    }
+                    if ui
+                        .add_enabled(self.l6max_id_reply.is_none(), egui::Button::new("Identify"))
+                        .on_hover_text("Query L6max firmware over L6 Editor Port (SysEx Identity)")
+                        .clicked()
+                    {
+                        identify = true;
+                    }
+                    if !self.l6max_identity.is_empty() {
+                        ui.label(
+                            egui::RichText::new(&self.l6max_identity)
+                                .size(9.0)
+                                .color(theme::text_dim()),
+                        );
                     }
                 });
                 ui.separator();
@@ -6128,7 +6173,488 @@ impl ShellApp {
         if let Some(action) = transport {
             self.send_l6max_transport(action);
         }
+        if identify {
+            let editor_port = midi_devices::list_ports().ok().and_then(|ports| {
+                ports
+                    .outputs
+                    .into_iter()
+                    .find(|name| name.contains("L6 Editor"))
+            });
+            if let Some(editor_port) = editor_port {
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.l6max_id_reply = Some(rx);
+                self.l6max_identity = String::from("querying...");
+                std::thread::spawn(move || {
+                    let result = midi_devices::devices::sysex_exchange(
+                        &editor_port,
+                        &editor_port,
+                        &midi_devices::d05::IDENTITY_REQUEST,
+                        Duration::from_millis(1200),
+                        Duration::from_millis(200),
+                    )
+                    .map_err(|err| err.to_string())
+                    .and_then(|replies| {
+                        replies
+                            .iter()
+                            .find_map(|reply| midi_devices::d05::IdentityReply::parse(reply))
+                            .map(|id| {
+                                format!(
+                                    "Zoom L6max fw {} (mfr {:02X} fam {:02X}{:02X})",
+                                    id.revision_text(),
+                                    id.manufacturer.first().copied().unwrap_or(0),
+                                    id.family[0],
+                                    id.family[1]
+                                )
+                            })
+                            .ok_or_else(|| String::from("no identity reply from L6 Editor Port"))
+                    });
+                    let _ = tx.send(result);
+                });
+            } else {
+                self.l6max_identity = String::from("L6 Editor Port not connected");
+            }
+        }
         self.send_l6max_changes(&changes, scene);
+    }
+
+    fn d05_port_name(&self) -> Option<String> {
+        if let Some(port) = &self.midi_out_port
+            && port.contains("D-05")
+        {
+            return Some(port.clone());
+        }
+        midi_devices::list_ports()
+            .ok()
+            .and_then(|ports| ports.outputs.into_iter().find(|name| name.contains("D-05")))
+    }
+
+    fn send_d05_raw(&mut self, bytes: &[u8]) {
+        let port = self.d05_port_name().or_else(|| self.midi_out_port.clone());
+        let Some(port) = port else {
+            self.d05_editor.note = String::from("connect Roland D-05 MIDI port");
+            return;
+        };
+        if let Err(error) = midi_devices::devices::send_raw(&port, bytes) {
+            self.d05_editor.note = error.to_string();
+        }
+    }
+
+    fn start_d05_read(&mut self) {
+        let Some(port) = self.d05_port_name() else {
+            self.d05_editor.note = String::from("Roland D-05 MIDI port not connected");
+            return;
+        };
+        let device = self.d05_editor.device_id;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.d05_reply = Some(rx);
+        self.d05_editor.busy = true;
+        self.d05_editor.note = String::from("reading temporary patch from D-05...");
+        std::thread::spawn(move || {
+            let result = midi_devices::d05::read_temp_patch(&port, &port, device)
+                .map(|(patch, raw)| (Box::new(patch), raw.len()));
+            let _ = tx.send(D05TaskResult::TempPatch(result));
+        });
+    }
+
+    fn d05_editor_window(&mut self, context: &Context) {
+        if let Some(receiver) = &self.d05_reply
+            && let Ok(result) = receiver.try_recv()
+        {
+            self.d05_editor.busy = false;
+            self.d05_reply = None;
+            match result {
+                D05TaskResult::TempPatch(Ok((patch, raw_len))) => {
+                    let name = patch.patch_name();
+                    self.d05_editor.patch = *patch;
+                    self.d05_editor.sync_names_from_patch();
+                    self.d05_editor.note = format!("read {:?} ({raw_len} B)", name);
+                    self.status = Some(format!("D-05: read {:?}", name));
+                }
+                D05TaskResult::TempPatch(Err(error)) => {
+                    self.d05_editor.note = error.clone();
+                    self.status = Some(error);
+                }
+                D05TaskResult::BankNames(bank_lsb, Ok(names)) => {
+                    let count = names.len();
+                    self.d05_editor.bank_names = names;
+                    let label = midi_devices::d05::BANK_NAMES
+                        .get(usize::from(bank_lsb))
+                        .copied()
+                        .unwrap_or("Bank");
+                    self.d05_editor.note = format!("{label}: loaded {count} patch name(s)");
+                    self.status = Some(format!("D-05: loaded {count} names from {label}"));
+                }
+                D05TaskResult::BankNames(_, Err(error)) => {
+                    self.d05_editor.note = error.clone();
+                    self.status = Some(error);
+                }
+            }
+        }
+        if !self.d05_open {
+            return;
+        }
+        let mut open = self.d05_open;
+        let mut pending_sysex: Vec<Vec<u8>> = Vec::new();
+        let mut request_read = false;
+        let mut request_send_all = false;
+        let mut request_bank_scan = false;
+        let mut select_program: Option<u8> = None;
+        let port_label = self
+            .d05_port_name()
+            .unwrap_or_else(|| String::from("not connected"));
+        egui::Window::new("Roland D-05 sound editor")
+            .open(&mut open)
+            .resizable(true)
+            .default_width(560.0)
+            .show(context, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new("Roland D-05").strong());
+                    ui.label(
+                        egui::RichText::new(&port_label)
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                    );
+                    ui.label("Dev");
+                    ui.add(egui::DragValue::new(&mut self.d05_editor.device_id).range(0..=31));
+                    ui.label("Ch");
+                    ui.add(egui::DragValue::new(&mut self.d05_editor.channel).range(1..=16));
+                    let key_mode = self.d05_editor.patch.patch_common(0x12);
+                    if midi_devices::d05::is_separate_mode(key_mode) {
+                        let lower_ch =
+                            midi_devices::d05::separate_lower_channel(self.d05_editor.channel);
+                        ui.label(
+                            egui::RichText::new(format!("Lower ch {lower_ch}"))
+                                .size(9.5)
+                                .color(theme::accent()),
+                        );
+                    }
+                    ui.checkbox(&mut self.d05_editor.live_send, "Live");
+                });
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(!self.d05_editor.busy, egui::Button::new("Read from Synth"))
+                        .clicked()
+                    {
+                        request_read = true;
+                    }
+                    if ui
+                        .add_enabled(!self.d05_editor.busy, egui::Button::new("Send All"))
+                        .clicked()
+                    {
+                        request_send_all = true;
+                    }
+                    ui.label("Dump");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.d05_editor.dump_path)
+                            .desired_width(140.0),
+                    );
+                    if ui.button("Save Dump").clicked() {
+                        match self
+                            .d05_editor
+                            .patch
+                            .to_syx_bytes(self.d05_editor.device_id)
+                        {
+                            Ok(bytes) => {
+                                match std::fs::write(&self.d05_editor.dump_path, &bytes) {
+                                    Ok(()) => {
+                                        self.d05_editor.note = format!(
+                                            "saved {} B -> {}",
+                                            bytes.len(),
+                                            self.d05_editor.dump_path
+                                        );
+                                    }
+                                    Err(error) => self.d05_editor.note = error.to_string(),
+                                }
+                            }
+                            Err(error) => self.d05_editor.note = error,
+                        }
+                    }
+                    if ui.button("Load Dump").clicked() {
+                        match std::fs::read(&self.d05_editor.dump_path)
+                            .map_err(|error| error.to_string())
+                            .and_then(|bytes| midi_devices::d05::TempPatch::from_syx_bytes(&bytes))
+                        {
+                            Ok(patch) => {
+                                self.d05_editor.patch = patch;
+                                self.d05_editor.sync_names_from_patch();
+                                self.d05_editor.note =
+                                    format!("loaded {:?}", self.d05_editor.patch.patch_name());
+                                if self.d05_editor.live_send {
+                                    request_send_all = true;
+                                }
+                            }
+                            Err(error) => self.d05_editor.note = error,
+                        }
+                    }
+                });
+                if !self.d05_editor.note.is_empty() {
+                    ui.label(
+                        egui::RichText::new(&self.d05_editor.note)
+                            .size(9.5)
+                            .color(theme::text_dim()),
+                    );
+                }
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut self.d05_editor.page,
+                        crate::d05_editor::D05Page::Patch,
+                        "Patch",
+                    );
+                    ui.selectable_value(
+                        &mut self.d05_editor.page,
+                        crate::d05_editor::D05Page::UpperTone,
+                        "Upper Tone",
+                    );
+                    ui.selectable_value(
+                        &mut self.d05_editor.page,
+                        crate::d05_editor::D05Page::LowerTone,
+                        "Lower Tone",
+                    );
+                    ui.selectable_value(
+                        &mut self.d05_editor.page,
+                        crate::d05_editor::D05Page::Names,
+                        "Names & Banks",
+                    );
+                });
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .max_height(380.0)
+                    .show(ui, |ui| match self.d05_editor.page {
+                        crate::d05_editor::D05Page::Patch => {
+                            let mut key_mode =
+                                usize::from(self.d05_editor.patch.patch_common(0x12)).min(8);
+                            ui.horizontal(|ui| {
+                                ui.label("Key mode");
+                                egui::ComboBox::from_id_salt("d05-key-mode")
+                                    .selected_text(midi_devices::d05::KEY_MODES[key_mode])
+                                    .show_ui(ui, |ui| {
+                                        for (index, label) in
+                                            midi_devices::d05::KEY_MODES.iter().enumerate()
+                                        {
+                                            if ui
+                                                .selectable_value(&mut key_mode, index, *label)
+                                                .clicked()
+                                                && let Ok(msg) = self
+                                                    .d05_editor
+                                                    .set_byte(384 + 0x12, index as u8)
+                                                && self.d05_editor.live_send
+                                            {
+                                                pending_sysex.push(msg);
+                                            }
+                                        }
+                                    });
+                                let mut reverb = self.d05_editor.patch.patch_common(0x1e).min(31);
+                                ui.label("Reverb");
+                                egui::ComboBox::from_id_salt("d05-reverb-slot")
+                                    .selected_text(midi_devices::d05::reverb_slot_label(reverb))
+                                    .show_ui(ui, |ui| {
+                                        for slot in 0..32_u8 {
+                                            if ui
+                                                .selectable_value(
+                                                    &mut reverb,
+                                                    slot,
+                                                    midi_devices::d05::reverb_slot_label(slot),
+                                                )
+                                                .clicked()
+                                                && let Ok(msg) =
+                                                    self.d05_editor.set_byte(384 + 0x1e, slot)
+                                                && self.d05_editor.live_send
+                                            {
+                                                pending_sysex.push(msg);
+                                            }
+                                        }
+                                    });
+                            });
+                            for param in crate::d05_editor::PATCH_PARAMS {
+                                let abs = 384 + param.offset;
+                                let mut value =
+                                    self.d05_editor.patch.bytes[abs].clamp(param.min, param.max);
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut value, param.min..=param.max)
+                                            .text(param.label),
+                                    )
+                                    .changed()
+                                    && let Ok(msg) = self.d05_editor.set_byte(abs, value)
+                                    && self.d05_editor.live_send
+                                {
+                                    pending_sysex.push(msg);
+                                }
+                            }
+                        }
+                        crate::d05_editor::D05Page::UpperTone
+                        | crate::d05_editor::D05Page::LowerTone => {
+                            let upper = self.d05_editor.page
+                                == crate::d05_editor::D05Page::UpperTone;
+                            ui.horizontal(|ui| {
+                                ui.selectable_value(&mut self.d05_editor.tone_sub, 0, "Common");
+                                ui.selectable_value(&mut self.d05_editor.tone_sub, 1, "Partial 1");
+                                ui.selectable_value(&mut self.d05_editor.tone_sub, 2, "Partial 2");
+                            });
+                            let base = crate::d05_editor::D05EditorState::tone_block_base(
+                                upper,
+                                self.d05_editor.tone_sub,
+                            );
+                            let params = if self.d05_editor.tone_sub == 0 {
+                                crate::d05_editor::TONE_COMMON_PARAMS
+                            } else {
+                                crate::d05_editor::PARTIAL_PARAMS
+                            };
+                            for param in params {
+                                let abs = base + param.offset;
+                                let mut value =
+                                    self.d05_editor.patch.bytes[abs].clamp(param.min, param.max);
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut value, param.min..=param.max)
+                                            .text(param.label),
+                                    )
+                                    .changed()
+                                    && let Ok(msg) = self.d05_editor.set_byte(abs, value)
+                                    && self.d05_editor.live_send
+                                {
+                                    pending_sysex.push(msg);
+                                }
+                            }
+                        }
+                        crate::d05_editor::D05Page::Names => {
+                            ui.horizontal(|ui| {
+                                ui.label("Patch name (18)");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.d05_editor.patch_name)
+                                        .char_limit(18)
+                                        .desired_width(180.0),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Upper tone (10)");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.d05_editor.upper_name)
+                                        .char_limit(10)
+                                        .desired_width(120.0),
+                                );
+                                ui.label("Lower tone (10)");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.d05_editor.lower_name)
+                                        .char_limit(10)
+                                        .desired_width(120.0),
+                                );
+                            });
+                            if ui.button("Send Names").clicked() {
+                                match self.d05_editor.commit_names_dt1() {
+                                    Ok(msgs) => {
+                                        pending_sysex.extend(msgs);
+                                        self.d05_editor.note = String::from("sent patch & tone names");
+                                    }
+                                    Err(error) => self.d05_editor.note = error,
+                                }
+                            }
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                ui.label("Bank");
+                                let current = usize::from(self.d05_editor.bank_lsb).min(13);
+                                egui::ComboBox::from_id_salt("d05-bank")
+                                    .selected_text(midi_devices::d05::BANK_NAMES[current])
+                                    .show_ui(ui, |ui| {
+                                        for (index, label) in
+                                            midi_devices::d05::BANK_NAMES.iter().enumerate()
+                                        {
+                                            ui.selectable_value(
+                                                &mut self.d05_editor.bank_lsb,
+                                                index as u8,
+                                                *label,
+                                            );
+                                        }
+                                    });
+                                if ui
+                                    .add_enabled(
+                                        !self.d05_editor.busy,
+                                        egui::Button::new("Get Sound Names"),
+                                    )
+                                    .on_hover_text(
+                                        "Scan all 64 patch names in this bank and restore the active patch",
+                                    )
+                                    .clicked()
+                                {
+                                    request_bank_scan = true;
+                                }
+                            });
+                            if !self.d05_editor.bank_names.is_empty() {
+                                egui::Grid::new("d05-bank-names")
+                                    .num_columns(2)
+                                    .spacing([12.0, 4.0])
+                                    .show(ui, |ui| {
+                                        for (index, name) in
+                                            self.d05_editor.bank_names.iter().enumerate()
+                                        {
+                                            let group = index / 8 + 1;
+                                            let slot = index % 8 + 1;
+                                            if ui
+                                                .small_button(format!("{group}-{slot}  {name}"))
+                                                .clicked()
+                                            {
+                                                select_program = Some(index as u8);
+                                            }
+                                            if index % 2 == 1 {
+                                                ui.end_row();
+                                            }
+                                        }
+                                    });
+                            }
+                        }
+                    });
+            });
+        self.d05_open = open;
+        for msg in pending_sysex {
+            self.send_d05_raw(&msg);
+        }
+        if request_send_all {
+            if let Some(port) = self.d05_port_name().or_else(|| self.midi_out_port.clone()) {
+                match midi_devices::d05::write_temp_patch(
+                    &port,
+                    self.d05_editor.device_id,
+                    &self.d05_editor.patch,
+                ) {
+                    Ok(packets) => {
+                        self.d05_editor.note = format!("sent full patch ({packets} DT1 packets)");
+                    }
+                    Err(error) => self.d05_editor.note = error,
+                }
+            } else {
+                self.d05_editor.note = String::from("Roland D-05 MIDI port not connected");
+            }
+        }
+        if let Some(program) = select_program {
+            let ch = self.d05_editor.channel.clamp(1, 16) - 1;
+            let bank = self.d05_editor.bank_lsb;
+            for msg in midi_devices::d05::bank_select_messages(ch, bank) {
+                self.send_d05_raw(&msg);
+            }
+            self.send_d05_raw(&midi_devices::d05::program_change_message(ch, program));
+            request_read = true;
+        }
+        if request_read {
+            self.start_d05_read();
+        }
+        if request_bank_scan {
+            if let Some(port) = self.d05_port_name() {
+                let device = self.d05_editor.device_id;
+                let ch = self.d05_editor.channel.clamp(1, 16) - 1;
+                let bank = self.d05_editor.bank_lsb;
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.d05_reply = Some(rx);
+                self.d05_editor.busy = true;
+                self.d05_editor.note = String::from("scanning 64 patch names from D-05...");
+                std::thread::spawn(move || {
+                    let result =
+                        midi_devices::d05::read_bank_names(&port, &port, device, ch, bank, 64);
+                    let _ = tx.send(D05TaskResult::BankNames(bank, result));
+                });
+            } else {
+                self.d05_editor.note = String::from("Roland D-05 MIDI port not connected");
+            }
+        }
     }
 
     fn l6max_mixer_window(&mut self, context: &Context) {
@@ -8659,6 +9185,14 @@ impl ShellApp {
                             }
                         }
                     });
+                if self
+                    .device_profiles
+                    .get(self.device_editor_profile)
+                    .is_some_and(|profile| profile.id == "d05")
+                    && ui.button("Open Roland D-05 sound editor...").clicked()
+                {
+                    self.d05_open = true;
+                }
                 let controls = self
                     .device_profiles
                     .get(self.device_editor_profile)
@@ -11704,6 +12238,10 @@ impl ShellApp {
                                 self.l6max_device_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Roland D-05 editor").clicked() {
+                                self.d05_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("L6max mixer").clicked() {
                                 self.l6max_mixer_open = true;
                                 ui.close_menu();
@@ -12337,6 +12875,7 @@ impl eframe::App for ShellApp {
         self.generate_window(context);
         self.l6max_mixer_window(context);
         self.l6max_device_window(context);
+        self.d05_editor_window(context);
         self.marks_window(context);
         self.audio_style_window(context);
         self.style_rules_window(context);
@@ -15423,6 +15962,7 @@ mod tests {
         app.style_file_open = true;
         app.style_link_open = true;
         app.l6max_device_open = true;
+        app.d05_open = true;
         app.marks_open = true;
         app.takes_open = true;
         app.xg_open = true;
@@ -15458,6 +15998,7 @@ mod tests {
             app.style_file_window(context);
             app.style_link_window(context);
             app.l6max_device_window(context);
+            app.d05_editor_window(context);
             app.marks_window(context);
             app.takes_window(context);
             app.xg_window(context);

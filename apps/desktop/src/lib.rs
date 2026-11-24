@@ -7,6 +7,7 @@
 pub mod ai;
 pub mod app;
 pub mod automation_view;
+pub mod d05_editor;
 pub mod dictate;
 pub mod editor;
 pub mod help;

@@ -357,6 +357,86 @@ enum Commands {
         #[arg(long, default_value_t = 0)]
         device: u8,
     },
+    /// Send a hex SysEx message and print any SysEx replies.
+    MidiSysex {
+        /// MIDI input port name.
+        #[arg(long = "in")]
+        input: String,
+        /// MIDI output port name.
+        #[arg(long = "out")]
+        output: String,
+        /// Hex bytes from F0 to F7 (spaces optional).
+        #[arg(long)]
+        hex: String,
+        /// Reply timeout in milliseconds.
+        #[arg(long, default_value_t = 1200)]
+        timeout_ms: u64,
+    },
+    /// Send a Universal Identity Request (`F0 7E 7F 06 01 F7`) and print SysEx replies.
+    MidiIdentity {
+        /// MIDI input port name.
+        #[arg(long = "in")]
+        input: String,
+        /// MIDI output port name.
+        #[arg(long = "out")]
+        output: String,
+        /// Reply timeout in milliseconds.
+        #[arg(long, default_value_t = 1200)]
+        timeout_ms: u64,
+    },
+    /// Monitor raw MIDI bytes (including SysEx and realtime) on an input port.
+    MidiMonitorRaw {
+        /// MIDI input port name.
+        #[arg(long = "in")]
+        input: String,
+        /// Listening window in seconds.
+        #[arg(long, default_value_t = 5.0)]
+        seconds: f64,
+    },
+    /// Read the active temporary patch from a Roland D-05 / D-50 over SysEx.
+    D05Read {
+        /// MIDI input port name.
+        #[arg(long = "in", default_value = "D-05")]
+        input: String,
+        /// MIDI output port name.
+        #[arg(long = "out", default_value = "D-05")]
+        output: String,
+        /// Roland device ID (0..=31; default 0 = channel 1).
+        #[arg(long, default_value_t = 0)]
+        device: u8,
+        /// Optional path to write the raw received `.syx` dump.
+        #[arg(long)]
+        save: Option<PathBuf>,
+    },
+    /// Read patch names from a Roland D-05 bank over MIDI + SysEx (restores active patch).
+    D05Names {
+        /// MIDI input port name.
+        #[arg(long = "in", default_value = "D-05")]
+        input: String,
+        /// MIDI output port name.
+        #[arg(long = "out", default_value = "D-05")]
+        output: String,
+        /// Roland device ID (0..=31; default 0 = channel 1).
+        #[arg(long, default_value_t = 0)]
+        device: u8,
+        /// MIDI channel (1..=16).
+        #[arg(long, default_value_t = 1)]
+        channel: u8,
+        /// Bank LSB: 0..=7 Internal 1–8, 8..=13 Preset 1–6.
+        #[arg(long, default_value_t = 0)]
+        bank: u8,
+        /// Number of patches to query (1..=64).
+        #[arg(long, default_value_t = 8)]
+        count: usize,
+    },
+    /// Send a MIDI realtime transport byte (start, continue, stop) to a port (e.g. L6max).
+    L6maxTransport {
+        /// MIDI output port name.
+        #[arg(long = "out", default_value = "L6max MIDI I/O Port")]
+        output: String,
+        /// start, continue, or stop.
+        action: String,
+    },
     /// Repeat a marker-named section in place.
     JoinLoop {
         /// Project `.json` path.
@@ -1886,6 +1966,187 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 bytes.len(),
                 out.display()
             );
+            Ok(())
+        }
+        Commands::MidiSysex {
+            input,
+            output,
+            hex,
+            timeout_ms,
+        } => {
+            let bytes = parse_hex_bytes(&hex)?;
+            let replies = midi_devices::devices::sysex_exchange(
+                &input,
+                &output,
+                &bytes,
+                std::time::Duration::from_millis(timeout_ms.clamp(100, 10_000)),
+                std::time::Duration::from_millis(250),
+            )?;
+            println!("{} SysEx reply packet(s)", replies.len());
+            for (index, reply) in replies.iter().enumerate() {
+                let text: Vec<String> = reply
+                    .iter()
+                    .take(32)
+                    .map(|byte| format!("{byte:02X}"))
+                    .collect();
+                let suffix = if reply.len() > 32 { " ..." } else { "" };
+                println!("  [{index}] ({} B) {}{suffix}", reply.len(), text.join(" "));
+            }
+            Ok(())
+        }
+        Commands::MidiIdentity {
+            input,
+            output,
+            timeout_ms,
+        } => {
+            let replies = midi_devices::devices::sysex_exchange(
+                &input,
+                &output,
+                &midi_devices::d05::IDENTITY_REQUEST,
+                std::time::Duration::from_millis(timeout_ms.clamp(100, 10_000)),
+                std::time::Duration::from_millis(200),
+            )?;
+            println!("{} SysEx reply packet(s)", replies.len());
+            for (index, reply) in replies.iter().enumerate() {
+                let hex: Vec<String> = reply.iter().map(|byte| format!("{byte:02X}")).collect();
+                println!("  [{index}] ({} B) {}", reply.len(), hex.join(" "));
+                if let Some(id) = midi_devices::d05::IdentityReply::parse(reply) {
+                    let mfr: Vec<String> =
+                        id.manufacturer.iter().map(|b| format!("{b:02X}")).collect();
+                    println!(
+                        "      Identity: dev=0x{:02X} mfr={} family={:02X}{:02X} member={:02X}{:02X} rev={:?}",
+                        id.device,
+                        mfr.join(" "),
+                        id.family[0],
+                        id.family[1],
+                        id.member[0],
+                        id.member[1],
+                        id.revision_text()
+                    );
+                }
+            }
+            Ok(())
+        }
+        Commands::MidiMonitorRaw { input, seconds } => {
+            let packets = midi_devices::devices::monitor_raw(&input, seconds)?;
+            println!("{} raw packet(s) from {input}", packets.len());
+            for (timestamp, bytes) in packets.iter().take(64) {
+                let hex: Vec<String> = bytes
+                    .iter()
+                    .take(32)
+                    .map(|byte| format!("{byte:02X}"))
+                    .collect();
+                let suffix = if bytes.len() > 32 { " ..." } else { "" };
+                println!(
+                    "  {timestamp:>10} us ({:>3} B): {}{suffix}",
+                    bytes.len(),
+                    hex.join(" ")
+                );
+            }
+            Ok(())
+        }
+        Commands::D05Read {
+            input,
+            output,
+            device,
+            save,
+        } => {
+            let requests = midi_devices::d05::TempPatch::request_messages(device)?;
+            let mut patch = midi_devices::d05::TempPatch {
+                bytes: [0; midi_devices::d05::TEMP_PATCH_BYTES],
+            };
+            let mut raw = Vec::new();
+            let mut written = 0_usize;
+            for request in &requests {
+                let replies = midi_devices::devices::sysex_exchange(
+                    &input,
+                    &output,
+                    request,
+                    std::time::Duration::from_millis(1500),
+                    std::time::Duration::from_millis(250),
+                )?;
+                for reply in replies {
+                    raw.extend_from_slice(&reply);
+                    if let Some(dt1) = midi_devices::d05::parse_dt1(&reply) {
+                        written += patch.apply_dt1(&dt1);
+                    }
+                }
+            }
+            if written == 0 {
+                return Err(format!(
+                    "no D-05 DT1 reply received on {input} (device {device}); raw bytes: {}",
+                    raw.len()
+                )
+                .into());
+            }
+            if let Some(path) = save {
+                fs::write(&path, &raw)
+                    .map_err(|error| format!("could not write {}: {error}", path.display()))?;
+                println!("saved {} raw byte(s) -> {}", raw.len(), path.display());
+            }
+            let key_mode = usize::from(patch.patch_common(0x12));
+            let key_mode_name = midi_devices::d05::KEY_MODES
+                .get(key_mode)
+                .copied()
+                .unwrap_or("Unknown");
+            println!("D-05 temp patch ({written} B decoded):");
+            println!("  Patch name : {:?}", patch.patch_name());
+            println!("  Upper tone : {:?}", patch.upper_tone_name());
+            println!("  Lower tone : {:?}", patch.lower_tone_name());
+            println!(
+                "  Key mode   : {key_mode_name} ({key_mode}), split {}",
+                patch.patch_common(0x13)
+            );
+            println!(
+                "  Reverb     : type {}, balance {}",
+                patch.patch_common(0x1e) + 1,
+                patch.patch_common(0x1f)
+            );
+            println!(
+                "  Volume     : {}, tone balance {}",
+                patch.patch_common(0x20),
+                patch.patch_common(0x21)
+            );
+            Ok(())
+        }
+        Commands::D05Names {
+            input,
+            output,
+            device,
+            channel,
+            bank,
+            count,
+        } => {
+            let bank = bank.min(13);
+            let ch = channel.clamp(1, 16) - 1;
+            let names =
+                midi_devices::d05::read_bank_names(&input, &output, device, ch, bank, count)?;
+            let label = midi_devices::d05::BANK_NAMES
+                .get(usize::from(bank))
+                .copied()
+                .unwrap_or("Bank");
+            println!("{label} ({} patch name(s)):", names.len());
+            for (index, name) in names.iter().enumerate() {
+                let group = index / 8 + 1;
+                let slot = index % 8 + 1;
+                println!("  {group}-{slot}: {name}");
+            }
+            Ok(())
+        }
+        Commands::L6maxTransport { output, action } => {
+            let byte = match action.to_ascii_lowercase().as_str() {
+                "start" => 0xfa,
+                "continue" => 0xfb,
+                "stop" => 0xfc,
+                other => {
+                    return Err(format!(
+                        "unknown transport action {other:?}; use start, continue, or stop"
+                    )
+                    .into());
+                }
+            };
+            midi_devices::devices::send_raw(&output, &[byte])?;
+            println!("sent 0x{byte:02X} ({action}) to {output}");
             Ok(())
         }
         Commands::DeviceProfile { file, track } => {
@@ -3710,6 +3971,19 @@ fn message_label(message: music_core::MidiMessage) -> &'static str {
         M::ProgramChange { .. } => "program-change",
         M::PitchBend { .. } => "pitch-bend",
     }
+}
+
+fn parse_hex_bytes(text: &str) -> Result<Vec<u8>, Box<dyn Error>> {
+    let cleaned: String = text.chars().filter(|ch| !ch.is_whitespace()).collect();
+    if cleaned.is_empty() || !cleaned.len().is_multiple_of(2) {
+        return Err("hex string must contain an even number of hex digits".into());
+    }
+    let mut bytes = Vec::with_capacity(cleaned.len() / 2);
+    for pair in cleaned.as_bytes().as_chunks::<2>().0 {
+        let s = std::str::from_utf8(pair)?;
+        bytes.push(u8::from_str_radix(s, 16)?);
+    }
+    Ok(bytes)
 }
 
 #[cfg(test)]

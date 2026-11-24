@@ -7,7 +7,7 @@ plug-in editor support or model services).
 
 ## Gate and CI
 
-- `cargo test --workspace`: **906 passed, 0 failed**.
+- `cargo test --workspace`: **916 passed, 0 failed** (including all 5 VST3 test-plugin fixture tests in `plugin-host` and `audio`).
 - `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all`
   and rustdoc (warnings denied): clean.
 - Release bundle builds; the app launches; the bundled scanner returns R0Verb
@@ -36,10 +36,12 @@ and tutorial; background rendering for Cecilia previews, waveforms and playback.
 1. **Native plug-in editors** — VST3/AU scanning, hosting, processing, parameter
    enumeration and opaque state work. No native editor window exists for either
    format, and no stable header/plugin fixture was supplied to test one.
-2. **Korg PCG and L6max project files** — the Pa5X manual does not specify the
-   PCG binary layout, and no PCG/L6max project fixture was supplied. The L6max
-   device page sends the documented CC map and transport bytes; project readback
-   and device feedback remain unverified.
+2. **Korg PCG and L6max project files** — Korg PCG is deferred by request (the
+   Pa5X manual does not specify the PCG binary layout, and no PCG fixture was
+   supplied). The L6max device page sends the documented CC map and transport
+   bytes, live USB 48 kHz audio capture works, and `L6max for L6 Editor Port`
+   answers Universal Identity (`Zoom fw 0110`); proprietary project-file parsing
+   and full mixer-state readback remain absent without a published Zoom schema.
 3. **Full score** — a read-only all-track canvas and printable review PDF exist.
    They put two systems on each page with clefs, stems, accidentals,
    dots, ledger lines, shaped rests, beams, ties, slurs, tuplets, chords, optional
@@ -70,7 +72,10 @@ Provide one or more of: a VST3/AU editor fixture and platform harness; Korg PCG
 and L6max project fixtures/specs; an SF3 fixture or decoder budget; a CJK font
 choice; an AI/speech endpoint with credentials; or the hardware powered on.
 
-- The device editor sends profile CC controls and SysEx dumps; D-05/XioSynth
-  sound pages remain generic, not device-specific.
+- The Roland D-05 now has a dedicated SysEx sound editor (Patch, Upper/Lower
+  Tone + Partials, Names & Banks, Separate-mode next-channel, User Reverb 17–32,
+  `Read from Synth`, `Get Sound Names`, `Send All`, Save/Load `.syx`), live-verified
+  on powered hardware (`"Neo Horizon"`, 448 B / 468 B `.syx`, bank scans + DT1
+  restore); XioSynth sound pages remain generic.
 - Take comping, buses, automation, plug-in state and freeze have model, command,
   MCP and UI coverage; real plugin editor windows do not.

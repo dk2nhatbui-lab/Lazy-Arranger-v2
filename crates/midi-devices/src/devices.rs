@@ -304,6 +304,229 @@ pub fn open_output(name: &str) -> Result<MidiOutputConnection, DeviceError> {
     find_output(name)
 }
 
+/// Sends a raw MIDI or SysEx message to one output port.
+///
+/// # Errors
+///
+/// Returns [`DeviceError`] when the port is unavailable or the send fails.
+pub fn send_raw(output_name: &str, bytes: &[u8]) -> Result<(), DeviceError> {
+    let mut output = find_output(output_name)?;
+    output
+        .send(bytes)
+        .map_err(|err| DeviceError::Send(err.to_string()))
+}
+
+fn find_input_port(
+    input: &MidiInput,
+    input_name: &str,
+) -> Result<midir::MidiInputPort, DeviceError> {
+    let ports = input.ports();
+    let mut available = Vec::with_capacity(ports.len());
+    for port in ports {
+        let port_name = input
+            .port_name(&port)
+            .map_err(|err| DeviceError::PortName(err.to_string()))?;
+        if port_name == input_name {
+            return Ok(port);
+        }
+        available.push(port_name);
+    }
+    Err(DeviceError::NoSuchPort {
+        requested: String::from(input_name),
+        available,
+    })
+}
+
+/// Reassembles complete `0xF0..=0xF7` SysEx frames from incoming byte chunks.
+pub fn collect_sysex_chunks(pending: &mut Vec<u8>, chunk: &[u8], out: &mut Vec<Vec<u8>>) {
+    for &byte in chunk {
+        if byte == 0xf0 {
+            pending.clear();
+            pending.push(byte);
+        } else if byte == 0xf7 {
+            if !pending.is_empty() {
+                pending.push(byte);
+                out.push(std::mem::take(pending));
+            }
+        } else if byte >= 0xf8 {
+            // Realtime messages may be interleaved inside SysEx.
+        } else if byte & 0x80 != 0 {
+            pending.clear();
+        } else if !pending.is_empty() {
+            pending.push(byte);
+        }
+    }
+}
+
+/// Sends one SysEx request to `output_name` and collects complete `F0..F7`
+/// replies arriving on `input_name`.
+///
+/// Waits up to `timeout` for the first reply, then keeps collecting follow-up
+/// packets until `idle_gap` passes with no new bytes.
+///
+/// # Errors
+///
+/// Returns [`DeviceError`] when either port cannot be opened or the send fails.
+pub fn sysex_exchange(
+    input_name: &str,
+    output_name: &str,
+    request: &[u8],
+    timeout: Duration,
+    idle_gap: Duration,
+) -> Result<Vec<Vec<u8>>, DeviceError> {
+    let mut input =
+        MidiInput::new("lazy-arranger-sysex").map_err(|err| DeviceError::Init(err.to_string()))?;
+    input.ignore(midir::Ignore::TimeAndActiveSense);
+    let port = find_input_port(&input, input_name)?;
+    let (sender, receiver) = channel::<Vec<u8>>();
+    let _connection = input
+        .connect(
+            &port,
+            "lazy-arranger-sysex-in",
+            move |_timestamp, bytes, _| {
+                if !bytes.is_empty() {
+                    let _ = sender.send(bytes.to_vec());
+                }
+            },
+            (),
+        )
+        .map_err(|err| DeviceError::Connect(err.to_string()))?;
+    let mut output = find_output(output_name)?;
+    output
+        .send(request)
+        .map_err(|err| DeviceError::Send(err.to_string()))?;
+
+    let mut replies = Vec::new();
+    let mut pending = Vec::new();
+    let first_deadline = Instant::now() + timeout;
+    let mut got_any = false;
+    loop {
+        let wait = if got_any {
+            idle_gap
+        } else {
+            let Some(remaining) = first_deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            remaining
+        };
+        match receiver.recv_timeout(wait) {
+            Ok(chunk) => {
+                let before = replies.len();
+                collect_sysex_chunks(&mut pending, &chunk, &mut replies);
+                if replies.len() > before || !pending.is_empty() {
+                    got_any = true;
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => break,
+            Err(RecvTimeoutError::Disconnected) => return Err(DeviceError::InputClosed),
+        }
+    }
+    Ok(replies)
+}
+
+/// Sends a handshake request (such as Roland `RQD`), acknowledging each data
+/// packet with `ack_message` until `is_done` or `is_abort` matches or `timeout`
+/// elapses between packets.
+///
+/// # Errors
+///
+/// Returns [`DeviceError`] when either port fails or the send fails.
+pub fn sysex_handshake<F, G>(
+    input_name: &str,
+    output_name: &str,
+    request: &[u8],
+    ack_message: &[u8],
+    timeout: Duration,
+    is_done: F,
+    is_abort: G,
+) -> Result<Vec<Vec<u8>>, DeviceError>
+where
+    F: Fn(&[u8]) -> bool,
+    G: Fn(&[u8]) -> bool,
+{
+    let mut input = MidiInput::new("lazy-arranger-handshake")
+        .map_err(|err| DeviceError::Init(err.to_string()))?;
+    input.ignore(midir::Ignore::TimeAndActiveSense);
+    let port = find_input_port(&input, input_name)?;
+    let (sender, receiver) = channel::<Vec<u8>>();
+    let _connection = input
+        .connect(
+            &port,
+            "lazy-arranger-handshake-in",
+            move |_timestamp, bytes, _| {
+                if !bytes.is_empty() {
+                    let _ = sender.send(bytes.to_vec());
+                }
+            },
+            (),
+        )
+        .map_err(|err| DeviceError::Connect(err.to_string()))?;
+    let mut output = find_output(output_name)?;
+    output
+        .send(request)
+        .map_err(|err| DeviceError::Send(err.to_string()))?;
+
+    let mut replies = Vec::new();
+    let mut pending = Vec::new();
+    let mut batch = Vec::new();
+    loop {
+        match receiver.recv_timeout(timeout) {
+            Ok(chunk) => {
+                batch.clear();
+                collect_sysex_chunks(&mut pending, &chunk, &mut batch);
+                for message in batch.drain(..) {
+                    if is_done(&message) || is_abort(&message) {
+                        return Ok(replies);
+                    }
+                    replies.push(message);
+                    output
+                        .send(ack_message)
+                        .map_err(|err| DeviceError::Send(err.to_string()))?;
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => break,
+            Err(RecvTimeoutError::Disconnected) => return Err(DeviceError::InputClosed),
+        }
+    }
+    Ok(replies)
+}
+
+/// Captures raw MIDI bytes (including SysEx and realtime) from `input_name`
+/// for `seconds`.
+///
+/// # Errors
+///
+/// Returns [`DeviceError`] when the input port cannot be opened.
+pub fn monitor_raw(input_name: &str, seconds: f64) -> Result<Vec<(u64, Vec<u8>)>, DeviceError> {
+    let mut input =
+        MidiInput::new("lazy-arranger-raw").map_err(|err| DeviceError::Init(err.to_string()))?;
+    input.ignore(midir::Ignore::None);
+    let port = find_input_port(&input, input_name)?;
+    let (sender, receiver) = channel::<(u64, Vec<u8>)>();
+    let _connection = input
+        .connect(
+            &port,
+            "lazy-arranger-raw-in",
+            move |timestamp, bytes, _| {
+                if !bytes.is_empty() {
+                    let _ = sender.send((timestamp, bytes.to_vec()));
+                }
+            },
+            (),
+        )
+        .map_err(|err| DeviceError::Connect(err.to_string()))?;
+    let deadline = Instant::now() + Duration::from_secs_f64(seconds.clamp(0.0, 120.0));
+    let mut packets = Vec::new();
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        match receiver.recv_timeout(remaining) {
+            Ok(packet) => packets.push(packet),
+            Err(RecvTimeoutError::Timeout) => break,
+            Err(RecvTimeoutError::Disconnected) => return Err(DeviceError::InputClosed),
+        }
+    }
+    Ok(packets)
+}
+
 fn find_output(name: &str) -> Result<MidiOutputConnection, DeviceError> {
     let output =
         MidiOutput::new("lazy-arranger").map_err(|err| DeviceError::Init(err.to_string()))?;
@@ -591,5 +814,25 @@ mod panic_tests {
             assert_eq!(message[1], 123);
             assert_eq!(message[2], 0);
         }
+    }
+
+    #[test]
+    fn sysex_chunks_reassemble_across_packets_and_realtime_bytes() {
+        let mut pending = Vec::new();
+        let mut out = Vec::new();
+        collect_sysex_chunks(&mut pending, &[0xf0, 0x41, 0x00, 0xf8, 0x14], &mut out);
+        assert!(out.is_empty());
+        collect_sysex_chunks(
+            &mut pending,
+            &[0x12, 0x00, 0xf7, 0xf0, 0x7e, 0xf7],
+            &mut out,
+        );
+        assert_eq!(
+            out,
+            vec![
+                vec![0xf0, 0x41, 0x00, 0x14, 0x12, 0x00, 0xf7],
+                vec![0xf0, 0x7e, 0xf7]
+            ]
+        );
     }
 }

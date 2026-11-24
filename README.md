@@ -59,15 +59,18 @@ projects.
 ./scripts/rust.sh test --workspace
 ```
 
-Latest local result: **906 tests pass**. GitHub Actions runs the same lint,
+Latest local result: **916 tests pass**. GitHub Actions runs the same lint,
 test, build, documentation and headless-demo steps on macOS, Linux and Windows.
 
 Hardware checks and their limits are recorded in
 [`docs/audit/hardware.md`](docs/audit/hardware.md). Current verified hardware:
 MIDI sends and panic on five outputs, physical note input on Launchkey,
 PSR-S970, XioSynth and X-TOUCH, CC capture on Launchkey/X-TOUCH, L6max CH1 mute,
-cpal output on Mac mini Speakers and one printed score page on a Brother
-printer. D-05 key input and L6max readback/transport remain unverified.
+L6max Editor Port SysEx identity (`v0110`) and 48 kHz USB audio capture,
+Roland D-05 SysEx temporary-patch read/write (448 B / `.syx`) and Internal/Preset
+bank name scans, cpal output on Mac mini Speakers and one printed score page on
+a Brother printer. D-05 key/audio output, XioSynth sound page, and L6max
+project/mixer readback and physical transport reaction remain unverified.
 
 ## Documentation
 

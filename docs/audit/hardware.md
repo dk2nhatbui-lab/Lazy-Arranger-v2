@@ -152,3 +152,25 @@ lazy-arranger record-audio --device XioSynth --channel 0 --seconds 3 --out take.
 ```
 
 The instruments were powered down after this round. The release bundle then showed `No MIDI inputs`, as expected.
+
+## Roland D-05 & Zoom L6max live round (2026-11-24)
+
+The owner powered on the Roland D-05 and Zoom LiveTrak L6max. `lazy-arranger ports` listed `D-05`, `L6max MIDI I/O Port`, `L6max Mixer Control Port`, and `L6max for L6 Editor Port` (plus Launchkey, XioSynth, X-TOUCH); `lazy-arranger audio-devices` listed `ZOOM L6max` and `D-05` inputs and outputs.
+
+### What passed (observed on hardware)
+
+- **Roland D-05 SysEx RQ1 temporary-patch read (`d05-read`):** decoded all 448 bytes (`00 00 00`..`00 03 3F`) from the live `D-05` port: patch `"Neo Horizon"`, upper tone `"Bass Fx"`, lower tone `"SweepPad"`, Key mode `Dual (1)`, split `24`, Reverb type `24` (User slot 24) / balance `65`, Volume `60`, Tone balance `50`. `d05-read --save` wrote a 468-byte `.syx` dump (two valid DT1 packets).
+- **Roland D-05 bank name scan + DT1 restore (`d05-names`):** using Bank Select `CC 0 = 87`, `CC 32 = 0..13` + Program Change + `RQ1(00 03 00, 00 00 12)`:
+  - Internal 1 (`--bank 0 --count 8`): `Fantasia`, `Metal Harp`, `Jazz Guitar Duo`, `Arco Strings`, `Horn Section`, `Living Calliope`, `D-49 Voices`, `Slow Rotor`.
+  - Preset 2 (`--bank 9 --count 4`): `Neo Horizon`, `Aqua Bells`, `Lead with Joystk`, `D-49SynBrass`.
+  - After scanning, chunked DT1 restore (`write_temp_patch`) restored `"Neo Horizon"` on the synth, confirmed by a subsequent `d05-read`.
+- **Roland D-05 internal memory address check:** direct `RQ1` and `RQD` against `02 00 00` / `02 03 00` / `01 00 00` returned 0 packets on the D-05; bank scanning therefore uses Bank Select + Program Change + Temporary Patch `RQ1` with DT1 restore.
+- **Zoom L6max Editor Port SysEx identity (`midi-identity --in "L6max for L6 Editor Port" --out "L6max for L6 Editor Port"`):** returned 15-byte Universal Identity Reply `F0 7E 00 06 02 52 72 00 0D 00 30 31 31 30 F7` (Zoom `0x52`, family `7200`, member `0D00`, firmware `"0110"`). Idle 2 s raw monitor on `L6max for L6 Editor Port` received 0 unsolicited packets.
+- **Zoom L6max USB audio capture:** `record-audio --device "ZOOM L6max" --channel 0 --seconds 2` opened the stream and wrote a 2.01 s 48 kHz WAV file.
+- **Zoom L6max transport send:** `l6max-transport --out "L6max MIDI I/O Port" stop` sent realtime `0xFC` cleanly.
+
+### Still unverified
+
+- Roland D-05 audible audio output and physical key input (no keyboard attached).
+- Novation XioSynth dedicated sound editor page and knob-feedback sync.
+- Zoom L6max proprietary project-file layout, mixer-state SysEx readback beyond Universal Identity, and visual confirmation of hardware recorder reaction to `0xFA`/`0xFB`/`0xFC`.

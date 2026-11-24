@@ -15,6 +15,7 @@
 //! as a sample-accurate audio clock.
 
 pub mod capture;
+pub mod d05;
 pub mod devices;
 pub mod dispatch;
 pub mod map;
