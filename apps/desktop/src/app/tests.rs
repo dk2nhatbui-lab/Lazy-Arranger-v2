@@ -898,8 +898,8 @@ fn the_tool_windows_draw_without_panicking() {
     app.print_dialog = true;
     app.about_open = true;
     app.assistant.open = true;
-    app.audio_chords_open = true;
-    app.audio_style_open = true;
+    app.audio_chords.open = true;
+    app.audio_style.open = true;
     app.bus_fx_open = true;
     app.controller_open = true;
     app.device_editor_open = true;

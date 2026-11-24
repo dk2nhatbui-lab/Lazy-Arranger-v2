@@ -673,7 +673,7 @@ impl ShellApp {
                                 ui.close_menu();
                             }
                             if ui.button("Style from audio").clicked() {
-                                self.audio_style_open = true;
+                                self.audio_style.open = true;
                                 ui.close_menu();
                             }
                             if ui.button("MIDI monitor").clicked() {
@@ -713,7 +713,7 @@ impl ShellApp {
                                 ui.close_menu();
                             }
                             if ui.button("Chords from audio").clicked() {
-                                self.audio_chords_open = true;
+                                self.audio_chords.open = true;
                                 ui.close_menu();
                             }
                             if ui.button("Style file player").clicked() {

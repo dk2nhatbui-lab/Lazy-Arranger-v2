@@ -32,6 +32,21 @@ pub(super) struct StyleState {
     pub(super) queue_at: f64,
 }
 
+/// The build-a-style-from-audio window.
+pub(super) struct AudioStyleState {
+    pub(super) open: bool,
+    pub(super) path: String,
+    pub(super) bpm: f64,
+    pub(super) chord: String,
+    pub(super) section: String,
+    pub(super) split: bool,
+    pub(super) section_bars: u32,
+    pub(super) drums: bool,
+    pub(super) detect_tempo: bool,
+    pub(super) out: String,
+    pub(super) sff1: bool,
+}
+
 impl ShellApp {
     pub(super) fn style_rules_window(&mut self, context: &Context) {
         if !self.style.rules_open {
@@ -197,85 +212,85 @@ impl ShellApp {
     }
 
     pub(super) fn build_audio_style(&self) -> Result<style_formats::BuiltAudioStyle, String> {
-        let path = std::path::Path::new(&self.audio_style_path);
+        let path = std::path::Path::new(&self.audio_style.path);
         let decoded = audio::decode::decode_mono(path).or_else(|_| {
             let bytes =
                 std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
             audio::wav::decode_mono(&bytes)
         })?;
-        let source = if self.audio_style_chord.eq_ignore_ascii_case("auto") {
+        let source = if self.audio_style.chord.eq_ignore_ascii_case("auto") {
             None
         } else {
-            let chord = music_core::Chord::parse(&self.audio_style_chord)
+            let chord = music_core::Chord::parse(&self.audio_style.chord)
                 .map_err(|error| error.to_string())?;
             Some(
                 arranger::chord_type::ArrangerChord::try_from(&chord)
-                    .map_err(|_| format!("unsupported chord {:?}", self.audio_style_chord))?,
+                    .map_err(|_| format!("unsupported chord {:?}", self.audio_style.chord))?,
             )
         };
         style_formats::style_from_audio(
             &decoded,
             style_formats::AudioStyleOptions {
-                bpm: self.audio_style_bpm,
-                section: &self.audio_style_section,
+                bpm: self.audio_style.bpm,
+                section: &self.audio_style.section,
                 source_chord: source,
-                split_parts: self.audio_style_split,
-                section_bars: self.audio_style_section_bars,
-                include_drums: self.audio_style_drums,
-                detect_tempo: self.audio_style_detect_tempo,
+                split_parts: self.audio_style.split,
+                section_bars: self.audio_style.section_bars,
+                include_drums: self.audio_style.drums,
+                detect_tempo: self.audio_style.detect_tempo,
             },
         )
     }
 
     pub(super) fn audio_style_window(&mut self, context: &Context) {
-        if !self.audio_style_open {
+        if !self.audio_style.open {
             return;
         }
-        let mut open = self.audio_style_open;
+        let mut open = self.audio_style.open;
         egui::Window::new("Style from audio")
             .open(&mut open)
             .resizable(false)
             .show(context, |ui| {
                 ui.label("Audio file");
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.audio_style_path)
+                    egui::TextEdit::singleline(&mut self.audio_style.path)
                         .hint_text("WAV, FLAC, MP3, M4A")
                         .desired_width(320.0),
                 );
                 ui.horizontal(|ui| {
                     ui.label("BPM");
-                    ui.add(egui::DragValue::new(&mut self.audio_style_bpm).range(20.0..=300.0));
+                    ui.add(egui::DragValue::new(&mut self.audio_style.bpm).range(20.0..=300.0));
                     ui.label("chord");
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.audio_style_chord).desired_width(60.0),
+                        egui::TextEdit::singleline(&mut self.audio_style.chord).desired_width(60.0),
                     );
                 });
                 ui.horizontal(|ui| {
                     ui.label("section");
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.audio_style_section)
+                        egui::TextEdit::singleline(&mut self.audio_style.section)
                             .desired_width(100.0),
                     );
-                    ui.checkbox(&mut self.audio_style_split, "split bass/melody");
+                    ui.checkbox(&mut self.audio_style.split, "split bass/melody");
                 });
                 ui.horizontal(|ui| {
                     ui.label("section bars");
-                    ui.add(egui::DragValue::new(&mut self.audio_style_section_bars).range(0..=16));
+                    ui.add(egui::DragValue::new(&mut self.audio_style.section_bars).range(0..=16));
                     ui.label("output");
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.audio_style_out).desired_width(150.0),
+                        egui::TextEdit::singleline(&mut self.audio_style.out).desired_width(150.0),
                     );
                 });
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.audio_style_drums, "add drums from onsets");
-                    ui.checkbox(&mut self.audio_style_detect_tempo, "detect BPM");
-                    ui.checkbox(&mut self.audio_style_sff1, "SFF1 instead of SFF2");
+                    ui.checkbox(&mut self.audio_style.drums, "add drums from onsets");
+                    ui.checkbox(&mut self.audio_style.detect_tempo, "detect BPM");
+                    ui.checkbox(&mut self.audio_style.sff1, "SFF1 instead of SFF2");
                 });
                 ui.horizontal(|ui| {
                     if ui.button("Export style").clicked() {
                         match self.build_audio_style() {
                             Ok(built) => {
-                                let version = if self.audio_style_sff1 {
+                                let version = if self.audio_style.sff1 {
                                     style_formats::casm::SffVersion::Sff1
                                 } else {
                                     style_formats::casm::SffVersion::Sff2
@@ -283,14 +298,14 @@ impl ShellApp {
                                 match style_formats::write_native_style(&built.style, version)
                                     .map_err(|error| error.to_string())
                                     .and_then(|bytes| {
-                                        std::fs::write(&self.audio_style_out, &bytes)
+                                        std::fs::write(&self.audio_style.out, &bytes)
                                             .map(|()| bytes.len())
                                             .map_err(|error| error.to_string())
                                     }) {
                                     Ok(bytes) => {
                                         self.status = Some(format!(
                                             "wrote {}: source {}, {} note(s), {} bytes",
-                                            self.audio_style_out,
+                                            self.audio_style.out,
                                             built.source_chord.name(),
                                             built.notes,
                                             bytes
@@ -322,7 +337,7 @@ impl ShellApp {
                     }
                 });
             });
-        self.audio_style_open = open;
+        self.audio_style.open = open;
     }
 
     pub(super) fn audition_style_section(&mut self) {
