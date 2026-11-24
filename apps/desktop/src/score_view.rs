@@ -1887,6 +1887,55 @@ mod tests {
     }
 
     #[test]
+    fn clicking_the_preview_returns_a_seek_tick() {
+        let settings = Settings::default();
+        let song = score_song();
+        let engraved = score::engrave(&song, TrackId::new(1).expect("valid"), settings);
+        let system = &engraved.pages[0].systems[0];
+        let measure = &system.measures[0];
+        let page = page_rect(Pos2::new(450.0, 450.0), settings, 1.0);
+        let point = Pos2::new(
+            page.left() + (measure.x + 8.0) / settings.page_width * page.width(),
+            page.top() + (system.y + settings.staff_space) / settings.page_height * page.height(),
+        );
+        let context = egui::Context::default();
+        let mut state = ScoreState::default();
+        let mut run = |events: Vec<egui::Event>, seek: &mut Option<Tick>| {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0))),
+                events,
+                ..egui::RawInput::default()
+            };
+            let _ = context.run(input, |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    *seek = show_preview(ui, &mut state, 0, 1.0, &engraved, 0, None);
+                });
+            });
+        };
+        run(vec![egui::Event::PointerMoved(point)], &mut None);
+        run(
+            vec![egui::Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            &mut None,
+        );
+        let mut seek = None;
+        run(
+            vec![egui::Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            &mut seek,
+        );
+        assert!(seek.is_some(), "preview click");
+    }
+
+    #[test]
     fn a_tick_maps_into_the_preview_page() {
         let song = score_song();
         let settings = Settings::default();
