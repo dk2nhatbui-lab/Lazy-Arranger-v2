@@ -735,6 +735,16 @@ mod tests {
     }
 
     #[test]
+    fn window_size_values_are_clamped() {
+        let path = temp("lazy-arranger-settings-window.txt");
+        std::fs::write(&path, "window_width = 100\nwindow_height = 99999\n").expect("write");
+        let loaded = Settings::load(&path);
+        assert_eq!(loaded.window_width, 960.0);
+        assert_eq!(loaded.window_height, 5000.0);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn defaults_round_trip_and_unknown_keys_survive() {
         let path = temp("lazy-arranger-settings-test.txt");
         let mut settings = Settings {
