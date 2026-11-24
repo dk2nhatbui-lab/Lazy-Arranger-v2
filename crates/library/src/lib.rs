@@ -19,7 +19,7 @@ pub enum LibraryError {
 }
 
 /// One Music Finder entry.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
     /// Song name.
@@ -45,6 +45,21 @@ pub struct Entry {
     /// Free notes.
     #[serde(default)]
     pub notes: String,
+}
+
+impl Default for Entry {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            style: String::new(),
+            tempo: 120.0,
+            style_number: -1,
+            time_numerator: 4,
+            time_denominator: 4,
+            voices: Vec::new(),
+            notes: String::new(),
+        }
+    }
 }
 
 fn default_tempo() -> f64 {
@@ -228,6 +243,11 @@ impl Book {
             let tempo: f64 = fields[2].parse().map_err(|_| {
                 LibraryError::Number(String::from("a Music Finder tempo is not a number"))
             })?;
+            if !tempo.is_finite() || tempo <= 0.0 {
+                return Err(LibraryError::Number(String::from(
+                    "a Music Finder tempo must be finite and positive",
+                )));
+            }
             entries.push(Entry {
                 name: fields[0].clone(),
                 style: fields[1].clone(),
@@ -366,11 +386,12 @@ impl List {
     #[must_use]
     pub fn to_tsv(&self) -> String {
         let mut out = String::from("TITLE\tFILEPATH\tREGIST\tOPENVIEWER\r\n");
+        let clean = |value: &str| value.replace(['\t', '\r', '\n'], " ");
         for item in &self.items {
             out.push_str(&format!(
                 "{}\t{}\t{}\t{}\r\n",
-                item.title,
-                item.file_path,
+                clean(&item.title),
+                clean(&item.file_path),
                 item.regist,
                 if item.open_viewer { "ON" } else { "OFF" }
             ));
@@ -394,6 +415,15 @@ mod tests {
             voices: vec![String::from("Piano"), String::from("Strings")],
             notes: String::from("encore"),
         }
+    }
+
+    #[test]
+    fn a_default_entry_has_a_real_tempo_and_meter() {
+        let entry = Entry::default();
+        assert_eq!(entry.tempo, 120.0);
+        assert_eq!(entry.style_number, -1);
+        assert_eq!((entry.time_numerator, entry.time_denominator), (4, 4));
+        assert!(Book::from_csv("name,style,tempo,voices,notes\nSong,style,NaN,,notes\n",).is_err());
     }
 
     #[test]
