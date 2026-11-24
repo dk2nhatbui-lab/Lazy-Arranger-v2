@@ -150,3 +150,5 @@ lazy-arranger midi-panic --output "X-TOUCH MINI"
 lazy-arranger audio-devices
 lazy-arranger record-audio --device XioSynth --channel 0 --seconds 3 --out take.wav
 ```
+
+The instruments were powered down after this round. The release bundle then showed `No MIDI inputs`, as expected.

@@ -1,6 +1,6 @@
 # Final status (2026-11-23)
 
-Commit basis: the L6max device-mixer commit at round 465. Goal: C++ v1.0.0-beta.1 feature parity.
+Commit basis: the L6max device-mixer commit at round 467. Goal: C++ v1.0.0-beta.1 feature parity.
 **Parity is not claimed.** All 39 crosscheck rows are `partial`; none is
 `verified` in full, because several require material this environment does not
 have (hardware, proprietary formats, native plug-in editor support or model
@@ -206,3 +206,4 @@ For the clef layout, choose either four measures per system without clefs
 - Audio input channel picker covers Mix or CH1-CH16; MIDI panic now records the five verified outputs.
 - cpal output played audibly on Mac mini Speakers; a one-page score printed on the Brother printer.
 - Score marks window adds/removes dynamics and articulations at the playhead (`docs/audit/score-marks.png`).
+- Release bundle rebuilt after the L6max/marks work; app-bundle.png refreshed. With instruments powered down the status bar shows no MIDI inputs.
