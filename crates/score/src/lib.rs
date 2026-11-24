@@ -273,6 +273,31 @@ pub struct ScoreHit {
     pub pitch: u8,
 }
 
+/// Maps an x from one track's system into another track's measure geometry.
+///
+/// Full scores share barlines taken from the first track; this maps later
+/// tracks' note positions proportionally inside the matching measure.
+#[must_use]
+pub fn full_score_x(system: &System, reference: &System, x: f32) -> f32 {
+    let Some(measure) = system
+        .measures
+        .iter()
+        .find(|measure| x >= measure.x && x <= measure.x_end)
+    else {
+        return x;
+    };
+    let Some(reference) = reference
+        .measures
+        .iter()
+        .find(|entry| entry.number == measure.number)
+    else {
+        return x;
+    };
+    let width = (measure.x_end - measure.x).max(1.0);
+    let ratio = ((x - measure.x) / width).clamp(0.0, 1.0);
+    reference.x + ratio * (reference.x_end - reference.x)
+}
+
 /// The pitch a click at `y` means on a system whose staff starts at `system_y`.
 #[must_use]
 pub fn pitch_at_y_staff(system_y: f32, y: f32, settings: Settings, staves: usize) -> u8 {

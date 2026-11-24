@@ -579,6 +579,10 @@ pub fn to_full_pdf(
                 x = settings.page_width / 2.0 - 4.0
             );
         }
+        let first_system = staves
+            .first()
+            .and_then(|staff| staff.systems.get(page_index))
+            .map(|(_, system)| system);
         for (staff_index, staff) in staves.iter().enumerate() {
             let Some((page, system)) = staff.systems.get(page_index) else {
                 continue;
@@ -635,10 +639,12 @@ pub fn to_full_pdf(
                 {
                     continue;
                 }
+                let x =
+                    first_system.map_or(note.x, |first| crate::full_score_x(system, first, note.x));
                 let relative = (note.y - system.y) * (line_gap / settings.staff_space);
                 let note_y = top + relative;
                 let y = settings.page_height - note_y;
-                circle(&mut content, note.x, y, line_gap * 0.55);
+                circle(&mut content, x, y, line_gap * 0.55);
                 if let Some(alter) = note.spelled.accidental {
                     let accidental = match alter {
                         1 => "#",
@@ -651,7 +657,7 @@ pub fn to_full_pdf(
                         let _ = writeln!(
                             content,
                             "BT /F1 7 Tf {:.1} {:.1} Td ({accidental}) Tj ET",
-                            note.x - 5.5,
+                            x - 5.5,
                             y - 2.0
                         );
                     }
@@ -664,8 +670,8 @@ pub fn to_full_pdf(
                 let _ = writeln!(
                     content,
                     "{:.1} {y:.1} m {:.1} {:.1} l S",
-                    note.x,
-                    note.x,
+                    x,
+                    x,
                     settings.page_height - stem
                 );
             }
@@ -691,21 +697,25 @@ pub fn to_full_pdf(
                 } else {
                     -3.0 * line_gap
                 };
+                let first_x =
+                    first_system.map_or(first.x, |sys| crate::full_score_x(system, sys, first.x));
+                let second_x =
+                    first_system.map_or(second.x, |sys| crate::full_score_x(system, sys, second.x));
                 let _ = writeln!(
                     content,
                     "{:.1} {:.1} m {:.1} {:.1} l S",
-                    first.x,
+                    first_x,
                     settings.page_height - (first_y + offset),
-                    second.x,
+                    second_x,
                     settings.page_height - (second_y + offset)
                 );
                 if first.duration <= music_core::PPQ / 4 && second.duration <= music_core::PPQ / 4 {
                     let _ = writeln!(
                         content,
                         "{:.1} {:.1} m {:.1} {:.1} l S",
-                        first.x,
+                        first_x,
                         settings.page_height - (first_y + offset + 1.5),
-                        second.x,
+                        second_x,
                         settings.page_height - (second_y + offset + 1.5)
                     );
                 }
@@ -713,16 +723,21 @@ pub fn to_full_pdf(
             for tie in staff.ties.iter().filter(|tie| tie.page == *page) {
                 let y = settings.page_height
                     - (top + (tie.y - system.y) * (line_gap / settings.staff_space));
-                let control = (tie.end_x - tie.start_x).abs() * 0.33;
+                let start_x = first_system.map_or(tie.start_x, |sys| {
+                    crate::full_score_x(system, sys, tie.start_x)
+                });
+                let end_x = first_system
+                    .map_or(tie.end_x, |sys| crate::full_score_x(system, sys, tie.end_x));
+                let control = (end_x - start_x).abs() * 0.33;
                 let _ = writeln!(
                     content,
                     "{:.1} {y:.1} m {:.1} {:.1} {:.1} {:.1} {:.1} {y:.1} c S",
-                    tie.start_x,
-                    tie.start_x + control,
+                    start_x,
+                    start_x + control,
                     y + 3.0,
-                    tie.end_x - control,
+                    end_x - control,
                     y + 3.0,
-                    tie.end_x
+                    end_x
                 );
             }
             for tuplet in staff.tuplets.iter().filter(|tuplet| tuplet.page == *page) {

@@ -389,6 +389,13 @@ pub fn show_full(
     let left = page_rect.left() + settings.margin * zoom;
     let right = page_rect.right() - settings.margin * zoom;
     let top0 = page_rect.top() + (settings.margin + 12.0) * zoom;
+    let first_system = tracks.first().and_then(|(_, engraved)| {
+        engraved
+            .pages
+            .iter()
+            .flat_map(|page| page.systems.iter())
+            .nth(page_index)
+    });
     for (index, (name, engraved)) in tracks.iter().enumerate() {
         let Some((source_page, system)) = engraved
             .pages
@@ -460,7 +467,9 @@ pub fn show_full(
                 continue;
             }
             let y = top + (note.y - system.y) * (line_gap / settings.staff_space) * zoom;
-            let x = page_rect.left() + note.x * zoom;
+            let note_x =
+                first_system.map_or(note.x, |first| score::full_score_x(system, first, note.x));
+            let x = page_rect.left() + note_x * zoom;
             painter.circle_filled(
                 Pos2::new(x, y),
                 line_gap * 0.55 * zoom,
@@ -520,8 +529,12 @@ pub fn show_full(
             } else {
                 -3.0 * line_gap * zoom
             };
-            let first_x = page_rect.left() + first.x * zoom;
-            let second_x = page_rect.left() + second.x * zoom;
+            let first_x = page_rect.left()
+                + first_system.map_or(first.x, |sys| score::full_score_x(system, sys, first.x))
+                    * zoom;
+            let second_x = page_rect.left()
+                + first_system.map_or(second.x, |sys| score::full_score_x(system, sys, second.x))
+                    * zoom;
             painter.line_segment(
                 [
                     Pos2::new(first_x, first_y + offset),
@@ -541,8 +554,13 @@ pub fn show_full(
         }
         for tie in engraved.ties.iter().filter(|tie| tie.page == source_page) {
             let y = top + (tie.y - system.y) * (line_gap / settings.staff_space) * zoom;
-            let start = page_rect.left() + tie.start_x * zoom;
-            let end = page_rect.left() + tie.end_x * zoom;
+            let start = page_rect.left()
+                + first_system.map_or(tie.start_x, |sys| {
+                    score::full_score_x(system, sys, tie.start_x)
+                }) * zoom;
+            let end = page_rect.left()
+                + first_system.map_or(tie.end_x, |sys| score::full_score_x(system, sys, tie.end_x))
+                    * zoom;
             painter.add(egui::Shape::line(
                 vec![
                     Pos2::new(start, y),
@@ -558,8 +576,14 @@ pub fn show_full(
             .filter(|tuplet| tuplet.page == source_page)
         {
             let y = top + (tuplet.y - system.y) * (line_gap / settings.staff_space) * zoom;
-            let start = page_rect.left() + tuplet.start_x * zoom;
-            let end = page_rect.left() + tuplet.end_x * zoom;
+            let start = page_rect.left()
+                + first_system.map_or(tuplet.start_x, |sys| {
+                    score::full_score_x(system, sys, tuplet.start_x)
+                }) * zoom;
+            let end = page_rect.left()
+                + first_system.map_or(tuplet.end_x, |sys| {
+                    score::full_score_x(system, sys, tuplet.end_x)
+                }) * zoom;
             painter.line_segment(
                 [Pos2::new(start, y), Pos2::new(end, y)],
                 Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
