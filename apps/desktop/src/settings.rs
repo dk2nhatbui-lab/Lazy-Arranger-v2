@@ -187,6 +187,10 @@ pub struct Settings {
     pub score_follow: bool,
     /// Last main view name.
     pub view: String,
+    /// Last window width in points.
+    pub window_width: f32,
+    /// Last window height in points.
+    pub window_height: f32,
     /// Last opened or saved project path.
     pub last_project: Option<String>,
     /// Show guitar frames in the full score.
@@ -282,6 +286,8 @@ impl Default for Settings {
             lesson_kind: 0,
             score_follow: true,
             view: String::from("arrange"),
+            window_width: 1500.0,
+            window_height: 900.0,
             last_project: None,
             score_frames: false,
             keyboard: None,
@@ -456,6 +462,14 @@ impl Settings {
                 }
                 "score_follow" => settings.score_follow = value == "true",
                 "view" => settings.view = value.to_string(),
+                "window_width" => {
+                    settings.window_width =
+                        value.parse::<f32>().unwrap_or(1500.0).clamp(960.0, 8000.0);
+                }
+                "window_height" => {
+                    settings.window_height =
+                        value.parse::<f32>().unwrap_or(900.0).clamp(600.0, 5000.0);
+                }
                 "last_project" => {
                     settings.last_project = if value.is_empty() {
                         None
@@ -581,6 +595,8 @@ impl Settings {
         text.push_str(&format!("lesson_kind = {}\n", self.lesson_kind));
         text.push_str(&format!("score_follow = {}\n", self.score_follow));
         text.push_str(&format!("view = {}\n", clean_line(&self.view)));
+        text.push_str(&format!("window_width = {:.1}\n", self.window_width));
+        text.push_str(&format!("window_height = {:.1}\n", self.window_height));
         if let Some(path) = &self.last_project {
             text.push_str(&format!("last_project = {}\n", clean_line(path)));
         }
@@ -739,6 +755,8 @@ mod tests {
             lesson_kind: 2,
             score_follow: false,
             view: String::from("score"),
+            window_width: 1280.0,
+            window_height: 800.0,
             last_project: Some(String::from("/tmp/song.arranger")),
             score_frames: true,
             keyboard: Some(String::from("PSR-S970")),

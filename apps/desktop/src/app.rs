@@ -952,6 +952,7 @@ pub struct ShellApp {
     assistant_log: Vec<String>,
     ai_pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     assistant_tool_rounds: usize,
+    window_size: egui::Vec2,
     assistant_proposal: Option<AssistantProposal>,
     available_update: Option<crate::update::Release>,
     update_download: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>>,
@@ -1323,6 +1324,7 @@ impl ShellApp {
             assistant_log: Vec::new(),
             ai_pending: None,
             assistant_tool_rounds: 0,
+            window_size: egui::vec2(settings.window_width, settings.window_height),
             assistant_proposal: None,
             available_update: None,
             update_download: None,
@@ -12114,6 +12116,9 @@ impl std::fmt::Debug for ShellApp {
 
 impl eframe::App for ShellApp {
     fn update(&mut self, context: &Context, frame: &mut eframe::Frame) {
+        if let Some(rect) = context.input(|input| input.viewport().inner_rect) {
+            self.window_size = rect.size();
+        }
         if self.view != self.last_view {
             self.last_view = self.view;
             self.settings.view = self.view.as_str().to_string();
@@ -13695,6 +13700,14 @@ impl eframe::App for ShellApp {
         if !self.shown {
             self.shown = true;
             context.send_viewport_cmd(ViewportCommand::Visible(true));
+        }
+    }
+
+    fn on_exit(&mut self) {
+        if self.window_size.x >= 960.0 && self.window_size.y >= 600.0 {
+            self.settings.window_width = self.window_size.x;
+            self.settings.window_height = self.window_size.y;
+            let _ = self.settings.save(&crate::settings::Settings::path());
         }
     }
 }
