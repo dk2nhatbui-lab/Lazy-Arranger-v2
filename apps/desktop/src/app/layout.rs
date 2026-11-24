@@ -648,7 +648,7 @@ impl ShellApp {
                                 ui.close_menu();
                             }
                             if ui.button("Style from clips").clicked() {
-                                self.style_clips_open = true;
+                                self.style.clips_open = true;
                                 ui.close_menu();
                             }
                             if ui.button("Style from audio").clicked() {
@@ -688,7 +688,7 @@ impl ShellApp {
                                 ui.close_menu();
                             }
                             if ui.button("Style from link").clicked() {
-                                self.style_link_open = true;
+                                self.style.link_open = true;
                                 ui.close_menu();
                             }
                             if ui.button("Chords from audio").clicked() {
@@ -696,7 +696,7 @@ impl ShellApp {
                                 ui.close_menu();
                             }
                             if ui.button("Style file player").clicked() {
-                                self.style_file_open = true;
+                                self.style.file_open = true;
                                 ui.close_menu();
                             }
                             if ui.button("Master effects").clicked() {

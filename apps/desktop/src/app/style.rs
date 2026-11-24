@@ -2,18 +2,48 @@
 
 use super::*;
 
+/// Style building, preview, file import and live section playback.
+pub(super) struct StyleState {
+    pub(super) clips_open: bool,
+    pub(super) name: String,
+    pub(super) chord: String,
+    pub(super) length: u32,
+    pub(super) from_markers: bool,
+    pub(super) path: String,
+    pub(super) sff1: bool,
+    pub(super) draft: Option<arranger::style::Style>,
+    pub(super) rules_open: bool,
+    pub(super) preview: Option<audio::player::Player>,
+    pub(super) link_open: bool,
+    pub(super) link_url: String,
+    pub(super) link_pending: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>>,
+    pub(super) file_open: bool,
+    pub(super) file_path: String,
+    pub(super) import: Option<style_formats::ImportedStyle>,
+    pub(super) section: usize,
+    pub(super) file_loop: bool,
+    pub(super) auto_load: bool,
+    pub(super) queued_section: Option<usize>,
+    pub(super) queued_chord: Option<String>,
+    pub(super) fill_return: Option<usize>,
+    pub(super) ending: bool,
+    pub(super) held: [bool; 128],
+    pub(super) last_chord: String,
+    pub(super) queue_at: f64,
+}
+
 impl ShellApp {
     pub(super) fn style_rules_window(&mut self, context: &Context) {
-        if !self.style_rules_open {
+        if !self.style.rules_open {
             return;
         }
-        let mut open = self.style_rules_open;
+        let mut open = self.style.rules_open;
         egui::Window::new("Style rules")
             .open(&mut open)
             .resizable(true)
             .default_width(620.0)
             .show(context, |ui| {
-                let Some(style) = self.style_draft.as_mut() else {
+                let Some(style) = self.style.draft.as_mut() else {
                     ui.label("No style draft.");
                     return;
                 };
@@ -163,7 +193,7 @@ impl ShellApp {
                     }
                 }
             });
-        self.style_rules_open = open;
+        self.style.rules_open = open;
     }
 
     pub(super) fn build_audio_style(&self) -> Result<style_formats::BuiltAudioStyle, String> {
@@ -281,14 +311,14 @@ impl ShellApp {
                             }) {
                             Ok(player) => {
                                 player.play();
-                                self.style_preview = Some(player);
+                                self.style.preview = Some(player);
                                 self.status = Some(String::from("auditioning audio style"));
                             }
                             Err(error) => self.status = Some(error),
                         }
                     }
                     if ui.button("Stop").clicked() {
-                        self.style_preview = None;
+                        self.style.preview = None;
                     }
                 });
             });
@@ -302,7 +332,7 @@ impl ShellApp {
         }) {
             Ok(player) => {
                 player.play();
-                self.style_preview = Some(player);
+                self.style.preview = Some(player);
                 self.status = Some(String::from("auditioning style section"));
             }
             Err(error) => self.status = Some(error),
@@ -310,12 +340,12 @@ impl ShellApp {
     }
 
     pub(super) fn queue_style_section(&mut self, index: usize) {
-        let Some(imported) = self.style_import.as_ref() else {
+        let Some(imported) = self.style.import.as_ref() else {
             return;
         };
         let current_role = imported
             .section_names()
-            .get(self.style_section)
+            .get(self.style.section)
             .map_or(StyleSectionRole::Main, |name| style_section_role(name));
         let role = imported
             .section_names()
@@ -324,25 +354,25 @@ impl ShellApp {
         match role {
             StyleSectionRole::Fill => {
                 if current_role == StyleSectionRole::Main {
-                    self.style_fill_return = Some(self.style_section);
+                    self.style.fill_return = Some(self.style.section);
                 }
-                self.style_ending = false;
+                self.style.ending = false;
             }
             StyleSectionRole::Ending => {
-                self.style_fill_return = None;
-                self.style_ending = true;
+                self.style.fill_return = None;
+                self.style.ending = true;
             }
             StyleSectionRole::Main => {
-                self.style_fill_return = None;
-                self.style_ending = false;
+                self.style.fill_return = None;
+                self.style.ending = false;
             }
         }
-        let Some(player) = self.style_preview.as_ref() else {
-            self.style_section = index;
+        let Some(player) = self.style.preview.as_ref() else {
+            self.style.section = index;
             self.audition_style_section();
             return;
         };
-        self.style_section = index;
+        self.style.section = index;
         if !player.is_playing() {
             self.audition_style_section();
             return;
@@ -351,22 +381,22 @@ impl ShellApp {
         let seconds = 60.0 / (imported.tempo_bpm.max(30.0) * music_core::PPQ as f64);
         let bar_seconds = bar_ticks as f64 * seconds;
         let now = player.seconds();
-        self.style_queued_section = Some(index);
-        self.style_queue_at = next_bar_seconds(now, bar_seconds);
+        self.style.queued_section = Some(index);
+        self.style.queue_at = next_bar_seconds(now, bar_seconds);
         self.status = Some(String::from("section queued at the next bar"));
     }
 
     pub(super) fn queue_style_chord(&mut self, chord: &str) {
-        let Some(imported) = self.style_import.as_ref() else {
+        let Some(imported) = self.style.import.as_ref() else {
             return;
         };
-        let Some(player) = self.style_preview.as_ref() else {
-            self.style_chord = chord.to_string();
+        let Some(player) = self.style.preview.as_ref() else {
+            self.style.chord = chord.to_string();
             self.audition_style_section();
             return;
         };
         if !player.is_playing() {
-            self.style_chord = chord.to_string();
+            self.style.chord = chord.to_string();
             self.audition_style_section();
             return;
         }
@@ -374,37 +404,37 @@ impl ShellApp {
         let seconds = 60.0 / (imported.tempo_bpm.max(30.0) * music_core::PPQ as f64);
         let bar_seconds = bar_ticks as f64 * seconds;
         let now = player.seconds();
-        self.style_chord = chord.to_string();
-        self.style_queued_chord = Some(chord.to_string());
-        self.style_queue_at = next_bar_seconds(now, bar_seconds);
+        self.style.chord = chord.to_string();
+        self.style.queued_chord = Some(chord.to_string());
+        self.style.queue_at = next_bar_seconds(now, bar_seconds);
         self.status = Some(format!("chord {chord} queued at the next bar"));
     }
 
     pub(super) fn load_style_file(&mut self) {
-        match std::fs::read(&self.style_file_path)
+        match std::fs::read(&self.style.file_path)
             .map_err(|error| error.to_string())
             .and_then(|bytes| {
                 style_formats::import_style(&bytes).map_err(|error| error.to_string())
             }) {
             Ok(imported) => {
-                self.style_section = 0;
-                self.style_fill_return = None;
-                self.style_ending = false;
+                self.style.section = 0;
+                self.style.fill_return = None;
+                self.style.ending = false;
                 self.status = Some(format!(
                     "style loaded: {} section(s)",
                     imported.sections.len()
                 ));
-                self.style_import = Some(imported);
+                self.style.import = Some(imported);
             }
             Err(error) => self.status = Some(error),
         }
     }
 
     pub(super) fn style_link_window(&mut self, context: &Context) {
-        if !self.style_link_open {
+        if !self.style.link_open {
             return;
         }
-        let mut open = self.style_link_open;
+        let mut open = self.style.link_open;
         egui::Window::new("Style from link")
             .open(&mut open)
             .resizable(false)
@@ -412,7 +442,7 @@ impl ShellApp {
             .show(context, |ui| {
                 ui.label("Link");
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.style_link_url)
+                    egui::TextEdit::singleline(&mut self.style.link_url)
                         .hint_text("https://…")
                         .desired_width(300.0),
                 );
@@ -424,19 +454,19 @@ impl ShellApp {
                     .color(theme::text_dim()),
                 );
                 if ui.button("Download audio").clicked() {
-                    if self.style_link_url.trim().is_empty() {
+                    if self.style.link_url.trim().is_empty() {
                         self.status = Some(String::from("enter a link first"));
                     } else {
-                        let url = self.style_link_url.clone();
+                        let url = self.style.link_url.clone();
                         let (sender, receiver) = std::sync::mpsc::channel();
-                        self.style_link_pending = Some(receiver);
+                        self.style.link_pending = Some(receiver);
                         self.status = Some(String::from("downloading link audio…"));
                         std::thread::spawn(move || {
                             let _ = sender.send(audio::link::download_mono_wav(&url));
                         });
                     }
                 }
-                if self.style_link_pending.is_some() {
+                if self.style.link_pending.is_some() {
                     ui.label(
                         egui::RichText::new("Downloading…")
                             .size(10.0)
@@ -444,18 +474,18 @@ impl ShellApp {
                     );
                 }
             });
-        self.style_link_open = open;
+        self.style.link_open = open;
     }
 
     pub(super) fn style_file_window(&mut self, context: &Context) {
-        if !self.style_file_open {
+        if !self.style.file_open {
             return;
         }
-        if self.style_auto_load {
-            self.style_auto_load = false;
+        if self.style.auto_load {
+            self.style.auto_load = false;
             self.load_style_file();
         }
-        let mut open = self.style_file_open;
+        let mut open = self.style.file_open;
         let mut queue_choice = None;
         let mut chord_choice = None;
         egui::Window::new("Style file player")
@@ -466,14 +496,14 @@ impl ShellApp {
                 ui.horizontal(|ui| {
                     ui.label("File");
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.style_file_path)
+                        egui::TextEdit::singleline(&mut self.style.file_path)
                             .desired_width(220.0),
                     );
                     if ui.button("Load").clicked() {
                         self.load_style_file();
                     }
                 });
-                let Some(imported) = &self.style_import else {
+                let Some(imported) = &self.style.import else {
                     ui.label(
                         egui::RichText::new("Load a Yamaha style to audition sections.")
                             .size(10.0)
@@ -486,15 +516,15 @@ impl ShellApp {
                     ui.label("No sections.");
                     return;
                 }
-                self.style_section = self.style_section.min(names.len() - 1);
+                self.style.section = self.style.section.min(names.len() - 1);
                 egui::ComboBox::from_id_salt("style-file-section")
-                    .selected_text(names[self.style_section])
+                    .selected_text(names[self.style.section])
                     .show_ui(ui, |ui| {
                         for (index, name) in names.iter().enumerate() {
                             if ui
-                                .selectable_label(self.style_section == index, *name)
+                                .selectable_label(self.style.section == index, *name)
                                 .clicked()
-                                && self.style_section != index
+                                && self.style.section != index
                             {
                                 queue_choice = Some(index);
                             }
@@ -503,7 +533,7 @@ impl ShellApp {
                 ui.horizontal(|ui| {
                     ui.label("Chord");
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.style_chord).desired_width(70.0),
+                        egui::TextEdit::singleline(&mut self.style.chord).desired_width(70.0),
                     );
                     for chord in ["C", "Dm", "Em", "F", "G", "Am", "G7"] {
                         if ui.small_button(chord).clicked() {
@@ -515,20 +545,20 @@ impl ShellApp {
                     "style written in {} · {:.1} BPM · {} ticks",
                     imported.native.source_chord.name(),
                     imported.tempo_bpm,
-                    imported.native.sections[self.style_section].length_ticks
+                    imported.native.sections[self.style.section].length_ticks
                 ));
                 ui.horizontal(|ui| {
                     if ui.button("Audition").clicked() {
-                        self.style_queued_section = None;
-                        self.style_queued_chord = None;
-                        self.style_fill_return = None;
-                        self.style_ending = false;
+                        self.style.queued_section = None;
+                        self.style.queued_chord = None;
+                        self.style.fill_return = None;
+                        self.style.ending = false;
                         self.audition_style_section();
                     }
                     if ui.button("Stop").clicked() {
-                        self.style_preview = None;
+                        self.style.preview = None;
                     }
-                    ui.checkbox(&mut self.style_file_loop, "Loop");
+                    ui.checkbox(&mut self.style.file_loop, "Loop");
                 });
                 ui.label(
                     egui::RichText::new(
@@ -538,7 +568,7 @@ impl ShellApp {
                     .color(theme::text_dim()),
                 );
             });
-        self.style_file_open = open;
+        self.style.file_open = open;
         if let Some(chord) = chord_choice {
             self.queue_style_chord(chord);
         }
@@ -549,40 +579,41 @@ impl ShellApp {
 
     pub(super) fn style_file_preview_song(&self) -> Result<project::Song, String> {
         let imported = self
-            .style_import
+            .style
+            .import
             .as_ref()
             .ok_or_else(|| String::from("load a style first"))?;
-        style_section_song(imported, self.style_section, &self.style_chord)
+        style_section_song(imported, self.style.section, &self.style.chord)
     }
 
     pub(super) fn style_clips_window(&mut self, context: &Context) {
-        if !self.style_clips_open {
+        if !self.style.clips_open {
             return;
         }
-        let mut open = self.style_clips_open;
+        let mut open = self.style.clips_open;
         egui::Window::new("Style from clips")
             .open(&mut open)
             .resizable(false)
             .show(context, |ui| {
                 ui.label("Section name");
-                ui.text_edit_singleline(&mut self.style_name);
+                ui.text_edit_singleline(&mut self.style.name);
                 ui.horizontal(|ui| {
                     ui.label("Chord");
-                    ui.add(egui::TextEdit::singleline(&mut self.style_chord).desired_width(80.0));
+                    ui.add(egui::TextEdit::singleline(&mut self.style.chord).desired_width(80.0));
                 });
-                ui.checkbox(&mut self.style_from_markers, "split at markers");
-                if !self.style_from_markers {
+                ui.checkbox(&mut self.style.from_markers, "split at markers");
+                if !self.style.from_markers {
                     ui.add(
-                        egui::DragValue::new(&mut self.style_length)
+                        egui::DragValue::new(&mut self.style.length)
                             .range(1..=960 * 128)
                             .suffix(" ticks"),
                     );
                 }
                 ui.horizontal(|ui| {
                     ui.label("Output");
-                    ui.add(egui::TextEdit::singleline(&mut self.style_path).desired_width(220.0));
+                    ui.add(egui::TextEdit::singleline(&mut self.style.path).desired_width(220.0));
                 });
-                ui.checkbox(&mut self.style_sff1, "SFF1 instead of SFF2");
+                ui.checkbox(&mut self.style.sff1, "SFF1 instead of SFF2");
                 ui.horizontal(|ui| {
                     if ui.button("Export style").clicked() {
                         match self.export_style_from_clips() {
@@ -597,7 +628,7 @@ impl ShellApp {
                             }) {
                                 Ok(player) => {
                                     player.play();
-                                    self.style_preview = Some(player);
+                                    self.style.preview = Some(player);
                                     self.status = Some(String::from("auditioning style"));
                                 }
                                 Err(error) => self.status = Some(error),
@@ -606,65 +637,65 @@ impl ShellApp {
                         }
                     }
                     if ui.button("Stop").clicked() {
-                        self.style_preview = None;
+                        self.style.preview = None;
                     }
                     if ui.button("Edit rules").clicked() {
                         match self.build_style_from_clips() {
                             Ok(style) => {
-                                self.style_draft = Some(style);
-                                self.style_rules_open = true;
+                                self.style.draft = Some(style);
+                                self.style.rules_open = true;
                             }
                             Err(error) => self.status = Some(error),
                         }
                     }
                 });
             });
-        self.style_clips_open = open;
+        self.style.clips_open = open;
     }
 
     pub(super) fn build_style_from_clips(&self) -> Result<arranger::style::Style, String> {
-        if let Some(draft) = &self.style_draft {
+        if let Some(draft) = &self.style.draft {
             return Ok(draft.clone());
         }
         let chord =
-            music_core::Chord::parse(&self.style_chord).map_err(|error| error.to_string())?;
+            music_core::Chord::parse(&self.style.chord).map_err(|error| error.to_string())?;
         let source = arranger::chord_type::ArrangerChord::try_from(&chord)
-            .map_err(|_| format!("unsupported style chord {:?}", self.style_chord))?;
-        let mut style = if self.style_from_markers {
+            .map_err(|_| format!("unsupported style chord {:?}", self.style.chord))?;
+        let mut style = if self.style.from_markers {
             arranger::style::from_song_sections(self.song(), &self.song().name, source)
         } else {
             arranger::style::from_song(
                 self.song(),
                 &self.song().name,
                 source,
-                music_core::Tick::from(self.style_length.max(1)),
+                music_core::Tick::from(self.style.length.max(1)),
             )
         };
-        if !self.style_from_markers
+        if !self.style.from_markers
             && let Some(first) = style.sections.first_mut()
         {
-            first.name = self.style_name.clone();
+            first.name = self.style.name.clone();
         }
         Ok(style)
     }
 
     pub(super) fn export_style_from_clips(&self) -> Result<String, String> {
         let style = self.build_style_from_clips()?;
-        let version = if self.style_sff1 {
+        let version = if self.style.sff1 {
             style_formats::casm::SffVersion::Sff1
         } else {
             style_formats::casm::SffVersion::Sff2
         };
         let bytes = style_formats::write_native_style(&style, version)
             .map_err(|error| error.to_string())?;
-        if let Some(parent) = std::path::Path::new(&self.style_path).parent() {
+        if let Some(parent) = std::path::Path::new(&self.style.path).parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        std::fs::write(&self.style_path, &bytes)
-            .map_err(|error| format!("{}: {error}", self.style_path))?;
+        std::fs::write(&self.style.path, &bytes)
+            .map_err(|error| format!("{}: {error}", self.style.path))?;
         Ok(format!(
             "wrote {}: {} section(s), {} byte(s)",
-            self.style_path,
+            self.style.path,
             style.sections.len(),
             bytes.len()
         ))

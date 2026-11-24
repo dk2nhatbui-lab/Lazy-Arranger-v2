@@ -339,7 +339,7 @@ impl ShellApp {
                     music_core::MidiMessage::NoteOn { key, velocity, .. }
                         if velocity.as_u8() > 0 =>
                     {
-                        self.style_held[usize::from(key.as_u8())] = true;
+                        self.style.held[usize::from(key.as_u8())] = true;
                         if self.settings.kids_mode && self.settings.kids_keys_play {
                             preview_keys.push(key.as_u8());
                         }
@@ -349,20 +349,20 @@ impl ShellApp {
                     }
                     music_core::MidiMessage::NoteOff { key, .. }
                     | music_core::MidiMessage::NoteOn { key, .. } => {
-                        self.style_held[usize::from(key.as_u8())] = false;
+                        self.style.held[usize::from(key.as_u8())] = false;
                         if self.view == View::Score
                             && self.score_entry
-                            && !self.style_held.iter().any(|held| *held)
+                            && !self.style.held.iter().any(|held| *held)
                         {
                             score_chord_done = true;
                         }
                     }
                     _ => {}
                 }
-                self.midi_chord = held_chord_name(&self.style_held);
-                if self.style_file_open
+                self.midi_chord = held_chord_name(&self.style.held);
+                if self.style.file_open
                     && let Some(name) = &self.midi_chord
-                    && *name != self.style_last_chord
+                    && *name != self.style.last_chord
                 {
                     detected_chord = Some(name.clone());
                 }
@@ -422,7 +422,7 @@ impl ShellApp {
             self.preview_pitch(pitch);
         }
         if let Some(name) = detected_chord {
-            self.style_last_chord = name.clone();
+            self.style.last_chord = name.clone();
             self.queue_style_chord(&name);
         }
         if midi_activity && self.settings.kids_mode && self.view == View::Perform {
