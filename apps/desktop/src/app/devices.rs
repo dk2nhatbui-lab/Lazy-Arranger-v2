@@ -285,6 +285,16 @@ pub(super) struct D05State {
     pub(super) reply: Option<std::sync::mpsc::Receiver<D05TaskResult>>,
 }
 
+/// Chord detection from an audio file.
+pub(super) struct AudioChordsState {
+    pub(super) open: bool,
+    pub(super) path: String,
+    pub(super) chords: Vec<audio::chords::AudioChord>,
+    pub(super) pending:
+        Option<std::sync::mpsc::Receiver<Result<Vec<audio::chords::AudioChord>, String>>>,
+    pub(super) auto: bool,
+}
+
 impl ShellApp {
     /// Opens the configured keyboard once and applies mapped controls.
     pub(super) fn poll_midi(&mut self) {

@@ -25,6 +25,7 @@ mod mixer;
 mod style;
 
 use assistant::AssistantState;
+use devices::AudioChordsState;
 use devices::{
     D05State, L6MaxState, PsrState, XgState, load_device_profiles, load_l6_scenes, load_psr_regs,
 };
@@ -36,6 +37,7 @@ pub use files::{
     load_project, load_startup_project, project_kind,
 };
 use layout::ScoreUi;
+use style::AudioStyleState;
 use style::StyleState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -826,24 +828,9 @@ pub struct ShellApp {
     style: StyleState,
     generate_open: bool,
     generate_seed: u64,
-    audio_chords_open: bool,
-    audio_chords_path: String,
-    audio_chords: Vec<audio::chords::AudioChord>,
-    audio_chords_pending:
-        Option<std::sync::mpsc::Receiver<Result<Vec<audio::chords::AudioChord>, String>>>,
-    audio_chords_auto: bool,
+    audio_chords: AudioChordsState,
     midi_chord: Option<String>,
-    audio_style_open: bool,
-    audio_style_path: String,
-    audio_style_bpm: f64,
-    audio_style_chord: String,
-    audio_style_section: String,
-    audio_style_split: bool,
-    audio_style_section_bars: u32,
-    audio_style_drums: bool,
-    audio_style_detect_tempo: bool,
-    audio_style_out: String,
-    audio_style_sff1: bool,
+    audio_style: AudioStyleState,
     master_fx_open: bool,
     master_fx_choice: usize,
     bus_fx_open: bool,
@@ -1230,23 +1217,27 @@ impl ShellApp {
             },
             generate_open: std::env::var("ARRANGER_GENERATE").is_ok(),
             generate_seed: 1,
-            audio_chords_open: std::env::var("ARRANGER_CHORDS").is_ok(),
-            audio_chords_path: std::env::var("ARRANGER_CHORDS_FILE").unwrap_or_default(),
-            audio_chords: Vec::new(),
-            audio_chords_pending: None,
-            audio_chords_auto: std::env::var("ARRANGER_CHORDS_FILE").is_ok(),
+            audio_chords: AudioChordsState {
+                open: std::env::var("ARRANGER_CHORDS").is_ok(),
+                path: std::env::var("ARRANGER_CHORDS_FILE").unwrap_or_default(),
+                chords: Vec::new(),
+                pending: None,
+                auto: std::env::var("ARRANGER_CHORDS_FILE").is_ok(),
+            },
             midi_chord: None,
-            audio_style_open: std::env::var("ARRANGER_AUDIO_STYLE").is_ok(),
-            audio_style_path: String::new(),
-            audio_style_bpm: 120.0,
-            audio_style_chord: String::from("auto"),
-            audio_style_section: String::from("Main A"),
-            audio_style_split: false,
-            audio_style_section_bars: 0,
-            audio_style_drums: false,
-            audio_style_detect_tempo: false,
-            audio_style_out: String::from("audio-style.sty"),
-            audio_style_sff1: false,
+            audio_style: AudioStyleState {
+                open: std::env::var("ARRANGER_AUDIO_STYLE").is_ok(),
+                path: String::new(),
+                bpm: 120.0,
+                chord: String::from("auto"),
+                section: String::from("Main A"),
+                split: false,
+                section_bars: 0,
+                drums: false,
+                detect_tempo: false,
+                out: String::from("audio-style.sty"),
+                sff1: false,
+            },
             master_fx_open: std::env::var("ARRANGER_MASTER_FX").is_ok(),
             master_fx_choice: 0,
             bus_fx_open: std::env::var("ARRANGER_BUS_FX").is_ok(),
@@ -1994,8 +1985,8 @@ impl ShellApp {
         if let Some(receiver) = &self.style.link_pending {
             match receiver.try_recv() {
                 Ok(Ok(path)) => {
-                    self.audio_style_path = path.display().to_string();
-                    self.audio_style_open = true;
+                    self.audio_style.path = path.display().to_string();
+                    self.audio_style.open = true;
                     self.status = Some(String::from("audio downloaded; style build is ready"));
                     self.style.link_pending = None;
                 }
@@ -2009,20 +2000,20 @@ impl ShellApp {
                 }
             }
         }
-        if let Some(receiver) = &self.audio_chords_pending {
+        if let Some(receiver) = &self.audio_chords.pending {
             match receiver.try_recv() {
                 Ok(Ok(chords)) => {
                     self.status = Some(format!("recognised {} chord(s)", chords.len()));
-                    self.audio_chords = chords;
-                    self.audio_chords_pending = None;
+                    self.audio_chords.chords = chords;
+                    self.audio_chords.pending = None;
                 }
                 Ok(Err(error)) => {
                     self.status = Some(error);
-                    self.audio_chords_pending = None;
+                    self.audio_chords.pending = None;
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.audio_chords_pending = None;
+                    self.audio_chords.pending = None;
                 }
             }
         }
@@ -3599,12 +3590,12 @@ impl ShellApp {
     }
 
     fn analyze_audio_chords(&mut self) {
-        let path = std::path::PathBuf::from(&self.audio_chords_path);
+        let path = std::path::PathBuf::from(&self.audio_chords.path);
         let bpm = self.song().tempo_map.bpm_at(0);
         let bar_seconds = self.song().time_signature.bar_ticks() as f64 * 60.0
             / (bpm.max(1.0) * music_core::PPQ as f64);
         let (sender, receiver) = std::sync::mpsc::channel();
-        self.audio_chords_pending = Some(receiver);
+        self.audio_chords.pending = Some(receiver);
         self.status = Some(String::from("analysing audio…"));
         std::thread::spawn(move || {
             let result = std::fs::read(&path)
@@ -3687,14 +3678,14 @@ impl ShellApp {
     }
 
     fn audio_chords_window(&mut self, context: &Context) {
-        if !self.audio_chords_open {
+        if !self.audio_chords.open {
             return;
         }
-        if self.audio_chords_auto {
-            self.audio_chords_auto = false;
+        if self.audio_chords.auto {
+            self.audio_chords.auto = false;
             self.analyze_audio_chords();
         }
-        let mut open = self.audio_chords_open;
+        let mut open = self.audio_chords.open;
         egui::Window::new("Chords from audio")
             .open(&mut open)
             .resizable(false)
@@ -3703,7 +3694,7 @@ impl ShellApp {
                 ui.horizontal(|ui| {
                     ui.label("Audio");
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.audio_chords_path)
+                        egui::TextEdit::singleline(&mut self.audio_chords.path)
                             .desired_width(220.0),
                     );
                     if ui.button("Analyze").clicked() {
@@ -3713,7 +3704,7 @@ impl ShellApp {
                 egui::ScrollArea::vertical()
                     .max_height(240.0)
                     .show(ui, |ui| {
-                        for chord in &self.audio_chords {
+                        for chord in &self.audio_chords.chords {
                             ui.label(format!(
                                 "{:>7.2}s  {}  ({:.0}%)",
                                 chord.start,
@@ -3727,6 +3718,7 @@ impl ShellApp {
                         let bpm = self.song().tempo_map.bpm_at(0);
                         let events: Vec<project::song::ChordEvent> = self
                             .audio_chords
+                            .chords
                             .iter()
                             .map(|chord| project::song::ChordEvent {
                                 tick: audio::chords::to_ticks(chord.start, bpm),
@@ -3741,11 +3733,11 @@ impl ShellApp {
                         }
                     }
                     if ui.button("Clear").clicked() {
-                        self.audio_chords.clear();
+                        self.audio_chords.chords.clear();
                     }
                 });
             });
-        self.audio_chords_open = open;
+        self.audio_chords.open = open;
     }
 
     fn help_window(&mut self, context: &egui::Context) {
