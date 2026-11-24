@@ -1066,6 +1066,33 @@ pub fn tools() -> Vec<Tool> {
             input_schema: json!({"type": "object", "properties": {}}),
         },
         Tool {
+            name: "redo",
+            description: "Redo the last undone edit.",
+            input_schema: json!({"type": "object"}),
+        },
+        Tool {
+            name: "remove_track",
+            description: "Remove a track and every note on it.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {"track": {"type": "integer"}},
+                "required": ["track"]
+            }),
+        },
+        Tool {
+            name: "set_track_bank",
+            description: "Set a track's bank-select pair, or clear it with null.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "msb": {"type": ["integer", "null"]},
+                    "lsb": {"type": ["integer", "null"]}
+                },
+                "required": ["track"]
+            }),
+        },
+        Tool {
             name: "undo",
             description: "Undo the last edit.",
             input_schema: json!({"type": "object", "properties": {}}),
@@ -1225,6 +1252,50 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .undo()
                 .map_err(|error| ToolError::Command(CommandError::Validation(error.to_string())))?;
             Ok(json!({"undone": true}))
+        }
+        "redo" => {
+            session
+                .redo()
+                .map_err(|error| ToolError::Command(CommandError::Validation(error.to_string())))?;
+            Ok(json!({"redone": true}))
+        }
+        "remove_track" => {
+            let track = track_argument(arguments)?;
+            session.apply(Command::RemoveTrack { track })?;
+            Ok(json!({"removed": track.get()}))
+        }
+        "set_track_bank" => {
+            let track = track_argument(arguments)?;
+            let msb = arguments
+                .get("msb")
+                .and_then(Value::as_u64)
+                .map(u8::try_from)
+                .transpose()
+                .map_err(|_| ToolError::Arguments(String::from("msb must be 0..=127")))?;
+            let lsb = arguments
+                .get("lsb")
+                .and_then(Value::as_u64)
+                .map(u8::try_from)
+                .transpose()
+                .map_err(|_| ToolError::Arguments(String::from("lsb must be 0..=127")))?;
+            if msb.is_some_and(|value| value > 127) || lsb.is_some_and(|value| value > 127) {
+                return Err(ToolError::Arguments(String::from(
+                    "bank select values must be 0..=127",
+                )));
+            }
+            let bank = match (msb, lsb) {
+                (Some(msb), Some(lsb)) => Some(project::song::BankSelect { msb, lsb }),
+                (None, None) => None,
+                _ => {
+                    return Err(ToolError::Arguments(String::from(
+                        "set both msb and lsb, or neither",
+                    )));
+                }
+            };
+            session.apply(Command::SetTrackBank { track, bank })?;
+            Ok(
+                json!({"track": track.get(), "bank": bank.map(|bank| json!({"msb": bank.msb, "lsb": bank.lsb}))}),
+            )
         }
         "add_track" => {
             let track_name = arguments
@@ -2279,6 +2350,7 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "send": track.send,
                 "send_level": track.send_level,
                 "program": track.program,
+                "bank": track.bank.map(|bank| json!({"msb": bank.msb, "lsb": bank.lsb})),
                 "notes": track.notes.len(),
                 "clips": track.clips.len(),
                 "audio": track.audio.as_ref().map(|reference| reference.path.clone())
@@ -3708,7 +3780,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 97);
+        assert_eq!(tools().len(), 100);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
@@ -4171,6 +4243,32 @@ mod tests {
         call(&mut session, "set_audio_ref", &json!({"track": 1})).expect("clear");
         assert!(session.song().tracks[0].audio.is_none());
         let _ = track;
+    }
+
+    #[test]
+    fn bank_remove_and_redo_tools_work() {
+        let mut session = session_with_track();
+        call(
+            &mut session,
+            "set_track_bank",
+            &json!({"track": 1, "msb": 63, "lsb": 1}),
+        )
+        .expect("bank");
+        let tracks = call(&mut session, "get_tracks", &json!({})).expect("tracks");
+        assert_eq!(tracks["tracks"][0]["bank"]["msb"], 63);
+        call(
+            &mut session,
+            "add_note",
+            &json!({"track": 1, "start": 0, "pitch": 60}),
+        )
+        .expect("note");
+        call(&mut session, "undo", &json!({})).expect("undo");
+        call(&mut session, "redo", &json!({})).expect("redo");
+        assert_eq!(session.song().tracks[0].notes.len(), 1);
+        call(&mut session, "remove_track", &json!({"track": 1})).expect("remove");
+        assert!(session.song().tracks.is_empty());
+        call(&mut session, "undo", &json!({})).expect("restore");
+        assert_eq!(session.song().tracks.len(), 1);
     }
 
     #[test]
