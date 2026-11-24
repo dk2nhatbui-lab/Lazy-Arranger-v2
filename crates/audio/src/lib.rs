@@ -442,7 +442,10 @@ pub fn render_with_soundfont(
             }
             for comp in &comps {
                 if let Some(take) = track.takes.get(comp.take) {
-                    let cross = chords::to_ticks(0.005, song.tempo_map.bpm_at(comp.start)).max(1);
+                    let cross = chords::to_ticks(0.005, song.tempo_map.bpm_at(comp.start))
+                        .max(take.fade_in.min(comp.length))
+                        .max(take.fade_out.min(comp.length))
+                        .max(1);
                     let mut placed = take.clone();
                     placed.start = comp.start;
                     // Overlap the next span by the crossfade length so the two
@@ -1873,6 +1876,57 @@ mod tests {
         assert!(
             rendered.samples[boundary * 2].abs() > 0.2,
             "comp boundary should not fade to silence"
+        );
+    }
+
+    #[test]
+    fn comp_crossfades_follow_take_fades() {
+        use project::song::{AudioComp, AudioRef, Track};
+        let mut song = Song::new("Comp fades", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("track"), "Audio");
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-comp-fades-{}.wav",
+            std::process::id()
+        ));
+        let source = RenderedAudio {
+            samples: vec![0.5; SAMPLE_RATE as usize * 2],
+            sample_rate: SAMPLE_RATE,
+        };
+        std::fs::write(&path, source.to_wav32f()).expect("wav");
+        let reference = AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: music_core::PPQ * 2,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+            gain_mb: 0,
+        };
+        track.audio = Some(reference.clone());
+        let mut left = reference.clone();
+        left.fade_out = music_core::PPQ / 2;
+        let mut right = reference;
+        right.fade_in = music_core::PPQ / 2;
+        track.takes.push(left);
+        track.takes.push(right);
+        track.comps.push(AudioComp {
+            take: 0,
+            start: 0,
+            length: music_core::PPQ,
+        });
+        track.comps.push(AudioComp {
+            take: 1,
+            start: music_core::PPQ,
+            length: music_core::PPQ,
+        });
+        song.tracks.push(track);
+        let rendered = render(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        let boundary = (SAMPLE_RATE as f64 * 0.5).round() as usize;
+        assert!(
+            rendered.samples[boundary * 2].abs() > 0.2,
+            "take fades should lengthen the overlap"
         );
     }
 
