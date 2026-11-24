@@ -290,15 +290,6 @@ pub fn render_with_soundfont(
             end_tick = end_tick.max(reference.start.saturating_add(reference.length));
         }
     }
-    let duration = song.tempo_map.duration_seconds(0, end_tick.max(1)) + 0.75;
-    let frames = (duration * f64::from(sample_rate)).ceil() as usize;
-    let mut samples = vec![0.0_f32; frames * usize::from(CHANNELS)];
-    let mut bus_buffers: Vec<Vec<f32>> = song
-        .buses
-        .iter()
-        .map(|_| vec![0.0_f32; frames * usize::from(CHANNELS)])
-        .collect();
-
     let track_latencies: Vec<usize> = song
         .tracks
         .iter()
@@ -311,6 +302,22 @@ pub fn render_with_soundfont(
         })
         .collect();
     let max_track_latency = track_latencies.iter().copied().max().unwrap_or(0);
+    let bus_latencies: Vec<usize> = song
+        .buses
+        .iter()
+        .map(|bus| chain_latency(&bus.plugins, sample_rate))
+        .collect();
+    let max_bus_latency = bus_latencies.iter().copied().max().unwrap_or(0);
+    let total_latency = max_track_latency.saturating_add(max_bus_latency);
+    let latency_seconds = total_latency as f64 / f64::from(sample_rate);
+    let duration = song.tempo_map.duration_seconds(0, end_tick.max(1)) + latency_seconds + 0.75;
+    let frames = (duration * f64::from(sample_rate)).ceil() as usize;
+    let mut samples = vec![0.0_f32; frames * usize::from(CHANNELS)];
+    let mut bus_buffers: Vec<Vec<f32>> = song
+        .buses
+        .iter()
+        .map(|_| vec![0.0_f32; frames * usize::from(CHANNELS)])
+        .collect();
     for (track_index, track) in song
         .tracks
         .iter()
@@ -485,18 +492,19 @@ pub fn render_with_soundfont(
             for (target, value) in bus_buffers[index].iter_mut().zip(&track_buffer) {
                 *target += *value;
             }
+        } else if max_bus_latency > 0 {
+            // Direct tracks bypass the bus chain, so delay them by the bus
+            // compensation their bus-routed peers receive.
+            let delay = max_bus_latency.saturating_mul(2);
+            for (target, value) in samples.iter_mut().skip(delay).zip(&track_buffer) {
+                *target += *value;
+            }
         } else {
             for (target, value) in samples.iter_mut().zip(&track_buffer) {
                 *target += *value;
             }
         }
     }
-    let bus_latencies: Vec<usize> = song
-        .buses
-        .iter()
-        .map(|bus| chain_latency(&bus.plugins, sample_rate))
-        .collect();
-    let max_bus_latency = bus_latencies.iter().copied().max().unwrap_or(0);
     let any_bus_solo = song.buses.iter().any(|bus| bus.soloed);
     for (index, bus) in song.buses.iter().enumerate() {
         if bus.muted || (any_bus_solo && !bus.soloed) {
