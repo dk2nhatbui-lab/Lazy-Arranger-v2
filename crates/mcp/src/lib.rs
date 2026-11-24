@@ -4160,6 +4160,18 @@ mod tests {
         .expect("full pdf");
         assert!(full_export["pages"].as_u64().unwrap_or(0) >= 1);
         assert!(std::fs::metadata(&full).is_ok_and(|meta| meta.len() > 0));
+        let selected = directory.join("selected.pdf");
+        call(
+            &mut session,
+            "export_pdf",
+            &json!({
+                "path": selected.display().to_string(),
+                "all_tracks": true,
+                "tracks": [1]
+            }),
+        )
+        .expect("selected full pdf");
+        assert!(std::fs::metadata(&selected).is_ok_and(|meta| meta.len() > 0));
         let _ = std::fs::remove_dir_all(directory);
     }
 
