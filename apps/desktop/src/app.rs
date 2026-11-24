@@ -937,6 +937,7 @@ pub struct ShellApp {
     score_zoom: f32,
     score_grand: bool,
     score_preview: bool,
+    score_all_tracks: bool,
     patch_open: bool,
     patch_track: Option<TrackId>,
     patch_draft: Option<project::song::Patch>,
@@ -1284,6 +1285,7 @@ impl ShellApp {
             score_grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
             score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err()
                 && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
+            score_all_tracks: false,
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
             patch_track: None,
             patch_draft: None,
@@ -12125,6 +12127,7 @@ impl eframe::App for ShellApp {
                             .collect();
                         ui.horizontal_wrapped(|ui| {
                             ui.label(egui::RichText::new("Score").strong());
+                            ui.checkbox(&mut self.score_all_tracks, "All tracks (PDF)");
                             let mut write = self.score_entry;
                             if ui.checkbox(&mut write, "Write notes").changed() {
                                 self.score_entry = write;
@@ -12260,7 +12263,20 @@ impl eframe::App for ShellApp {
                                 .position(|entry| entry.id == track)
                                 .unwrap_or(0);
                             if save_pdf {
-                                let pdf = if self.score_preview {
+                                let pdf = if self.score_all_tracks {
+                                    let tracks: Vec<TrackId> = project
+                                        .song
+                                        .tracks
+                                        .iter()
+                                        .map(|entry| entry.id)
+                                        .collect();
+                                    Ok(score::pdf::to_full_pdf(
+                                        &project.song,
+                                        score_settings,
+                                        title,
+                                        &tracks,
+                                    ))
+                                } else if self.score_preview {
                                     score::cecilia::render_pdf(
                                         &project.song,
                                         track_index,

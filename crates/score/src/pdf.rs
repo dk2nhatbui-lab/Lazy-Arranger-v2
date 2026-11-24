@@ -467,6 +467,179 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
     objects.push(image_stream(bass, bass_mask));
     objects.push(alpha_stream(bass));
 
+    finish_pdf(objects)
+}
+
+struct FullStaff {
+    name: String,
+    systems: Vec<(usize, crate::System)>,
+    notes: Vec<crate::PlacedNote>,
+}
+
+/// Writes an all-track full score to PDF bytes.
+///
+/// Each page holds one system, with every track as its own staff. Noteheads are
+/// placed from each track's engraving; stems, clefs and accidentals are omitted.
+/// This is a compact review score, not a replacement for the single-track
+/// engraving.
+#[must_use]
+pub fn to_full_pdf(
+    song: &project::Song,
+    settings: Settings,
+    title: &str,
+    track_ids: &[project::TrackId],
+) -> Vec<u8> {
+    let mut staves: Vec<FullStaff> = Vec::new();
+    for id in track_ids {
+        let Some(track) = song.tracks.iter().find(|track| track.id == *id) else {
+            continue;
+        };
+        let engraved = crate::engrave(song, *id, settings);
+        let systems = engraved
+            .pages
+            .iter()
+            .enumerate()
+            .flat_map(|(page, page_data)| {
+                page_data
+                    .systems
+                    .iter()
+                    .cloned()
+                    .map(move |system| (page, system))
+            })
+            .collect();
+        staves.push(FullStaff {
+            name: track.name.clone(),
+            systems,
+            notes: engraved.notes,
+        });
+    }
+    if staves.is_empty() {
+        staves.push(FullStaff {
+            name: String::from("Empty"),
+            systems: Vec::new(),
+            notes: Vec::new(),
+        });
+    }
+    let page_count = staves
+        .iter()
+        .map(|staff| staff.systems.len())
+        .max()
+        .unwrap_or(0)
+        .max(1);
+    let mut objects: Vec<Vec<u8>> = Vec::new();
+    objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
+    let kids: Vec<String> = (0..page_count)
+        .map(|index| format!("{} 0 R", 4 + index * 2))
+        .collect();
+    objects.push(
+        format!(
+            "<< /Type /Pages /Kids [{}] /Count {page_count} >>",
+            kids.join(" ")
+        )
+        .into_bytes(),
+    );
+    objects.push(
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+            .to_vec(),
+    );
+    let roster = staves.len().max(1);
+    let available = (settings.page_height - 2.0 * settings.margin - 24.0).max(24.0);
+    let span = (available / roster as f32).max(12.0);
+    let line_gap = ((span - 4.0) / 4.0).clamp(1.5, settings.staff_space);
+    for (page_index, _) in (0..page_count).enumerate() {
+        let mut content = String::new();
+        let _ = writeln!(
+            content,
+            "0.98 0.97 0.94 rg 0 0 {w} {h} re f 0.15 0.15 0.15 rg 0.2 0.2 0.2 RG 0.7 w",
+            w = settings.page_width,
+            h = settings.page_height
+        );
+        let _ = writeln!(
+            content,
+            "BT /F1 12 Tf {x:.1} {y:.1} Td ({title}) Tj ET",
+            x = settings.margin,
+            y = settings.page_height - settings.margin,
+            title = escape(title)
+        );
+        if page_count > 1 {
+            let _ = writeln!(
+                content,
+                "BT /F1 8 Tf {x:.1} 20 Td ({}) Tj ET",
+                page_index + 1,
+                x = settings.page_width / 2.0 - 4.0
+            );
+        }
+        for (staff_index, staff) in staves.iter().enumerate() {
+            let Some((page, system)) = staff.systems.get(page_index) else {
+                continue;
+            };
+            let top = settings.margin + 12.0 + staff_index as f32 * span;
+            for line in 0..5 {
+                let y = settings.page_height - (top + line as f32 * line_gap);
+                let _ = writeln!(
+                    content,
+                    "{:.1} {y:.1} m {:.1} {y:.1} l S",
+                    settings.margin,
+                    settings.page_width - settings.margin
+                );
+            }
+            let _ = writeln!(
+                content,
+                "BT /F1 7 Tf 4 {y:.1} Td ({}) Tj ET",
+                escape(if staff.name.is_empty() {
+                    "Track"
+                } else {
+                    &staff.name
+                }),
+                y = settings.page_height - (top + 2.0 * line_gap)
+            );
+            for note in staff.notes.iter().filter(|note| note.page == *page) {
+                if note.measure + 1 < system.measures.first().map_or(0, |m| m.number)
+                    || note.measure + 1 > system.measures.last().map_or(0, |m| m.number)
+                {
+                    continue;
+                }
+                let relative = (note.y - system.y) * (line_gap / settings.staff_space);
+                let y = settings.page_height - (top + relative);
+                circle(&mut content, note.x, y, line_gap * 0.55);
+            }
+        }
+        if let Some(staff) = staves.first()
+            && let Some((_, system)) = staff.systems.get(page_index)
+        {
+            let top = settings.margin + 12.0;
+            let bottom = top + roster as f32 * span - 4.0;
+            for measure in &system.measures {
+                for x in [measure.x, measure.x_end] {
+                    let _ = writeln!(
+                        content,
+                        "{x:.1} {:.1} m {x:.1} {:.1} l S",
+                        settings.page_height - bottom,
+                        settings.page_height - top
+                    );
+                }
+            }
+        }
+        let contents = 5 + page_index * 2;
+        objects.push(
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Resources << /Font << /F1 3 0 R >> >> /Contents {contents} 0 R >>",
+                w = settings.page_width,
+                h = settings.page_height
+            )
+            .into_bytes(),
+        );
+        let mut stream = b"<< /Length ".to_vec();
+        stream.extend_from_slice(content.len().to_string().as_bytes());
+        stream.extend_from_slice(b" >>\nstream\n");
+        stream.extend_from_slice(content.as_bytes());
+        stream.extend_from_slice(b"endstream");
+        objects.push(stream);
+    }
+    finish_pdf(objects)
+}
+
+fn finish_pdf(objects: Vec<Vec<u8>>) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
     let mut offsets = Vec::with_capacity(objects.len());
@@ -739,6 +912,32 @@ mod tests {
         assert_eq!(escape("a–b"), "a\\226b");
         assert_eq!(escape("日本"), "??");
         assert_eq!(escape("a(b)"), "a\\(b\\)");
+    }
+
+    #[test]
+    fn a_full_score_pdf_lists_every_track() {
+        let mut song = Song::new("Full", 120.0);
+        for (index, name) in [(1_u32, "Piano"), (2, "Bass")] {
+            let mut track = Track::new(TrackId::new(index).expect("valid"), name);
+            track.notes.push(Note {
+                id: project::NoteId::new(index).expect("valid"),
+                start: 0,
+                duration: PPQ,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+            song.tracks.push(track);
+        }
+        let tracks = vec![
+            TrackId::new(1).expect("valid"),
+            TrackId::new(2).expect("valid"),
+        ];
+        let pdf = to_full_pdf(&song, small(), "Full score", &tracks);
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("(Piano) Tj"));
+        assert!(text.contains("(Bass) Tj"));
+        assert!(page_count(&pdf).is_some_and(|count| count >= 1));
     }
 
     #[test]

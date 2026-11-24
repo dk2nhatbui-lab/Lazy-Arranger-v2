@@ -1923,13 +1923,24 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     .map(|track| track.id)
                     .ok_or_else(|| ToolError::Arguments(String::from("no track to engrave")))?,
             };
-            let engraved = score::engrave(session.song(), track, score::Settings::default());
-            let pdf = score::pdf::to_pdf(&engraved, score::Settings::default(), title);
+            let all_tracks = arguments
+                .get("all_tracks")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let settings = score::Settings::default();
+            let (pdf, pages) = if all_tracks {
+                let tracks: Vec<project::TrackId> =
+                    session.song().tracks.iter().map(|track| track.id).collect();
+                let pdf = score::pdf::to_full_pdf(session.song(), settings, title, &tracks);
+                (pdf, tracks.len().max(1))
+            } else {
+                let engraved = score::engrave(session.song(), track, settings);
+                let pages = engraved.pages.len();
+                (score::pdf::to_pdf(&engraved, settings, title), pages)
+            };
             std::fs::write(&path, &pdf)
                 .map_err(|error| ToolError::Arguments(format!("{}: {error}", path.display())))?;
-            Ok(
-                json!({"path": path.display().to_string(), "bytes": pdf.len(), "pages": engraved.pages.len()}),
-            )
+            Ok(json!({"path": path.display().to_string(), "bytes": pdf.len(), "pages": pages}))
         }
         "get_clip" => {
             let track = track_argument(arguments)?;
@@ -4140,6 +4151,15 @@ mod tests {
         .expect("pdf");
         assert!(exported["bytes"].as_u64().unwrap_or(0) > 0);
         assert!(std::fs::metadata(&pdf).is_ok_and(|meta| meta.len() > 0));
+        let full = directory.join("full.pdf");
+        let full_export = call(
+            &mut session,
+            "export_pdf",
+            &json!({"path": full.display().to_string(), "all_tracks": true}),
+        )
+        .expect("full pdf");
+        assert!(full_export["pages"].as_u64().unwrap_or(0) >= 1);
+        assert!(std::fs::metadata(&full).is_ok_and(|meta| meta.len() > 0));
         let _ = std::fs::remove_dir_all(directory);
     }
 
