@@ -34,7 +34,7 @@ impl Note {
     /// Tick where the note stops sounding.
     #[must_use]
     pub fn end(&self) -> Tick {
-        self.start + self.duration
+        self.start.saturating_add(self.duration)
     }
 }
 
@@ -793,7 +793,33 @@ impl Song {
             .unwrap_or(0);
         let chord_end = self.chords.last().map_or(0, |event| event.tick);
         let marker_end = self.markers.last().map_or(0, |marker| marker.tick);
-        note_end.max(chord_end).max(marker_end)
+        let audio_end = self
+            .tracks
+            .iter()
+            .filter_map(|track| track.audio.as_ref())
+            .map(|reference| reference.start.saturating_add(reference.length))
+            .max()
+            .unwrap_or(0);
+        let clip_end = self
+            .tracks
+            .iter()
+            .flat_map(|track| track.clips.iter())
+            .map(|clip| clip.start.saturating_add(clip.length))
+            .max()
+            .unwrap_or(0);
+        let comp_end = self
+            .tracks
+            .iter()
+            .flat_map(|track| track.comps.iter())
+            .map(|comp| comp.start.saturating_add(comp.length))
+            .max()
+            .unwrap_or(0);
+        note_end
+            .max(chord_end)
+            .max(marker_end)
+            .max(audio_end)
+            .max(clip_end)
+            .max(comp_end)
     }
 }
 
@@ -1135,6 +1161,29 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[test]
+    fn audio_and_clips_extend_the_song_end() {
+        let mut song = Song::new("x", 120.0);
+        let mut track = Track::new(crate::TrackId::new(1).expect("valid"), "Audio");
+        track.audio = Some(AudioRef {
+            path: String::from("take.wav"),
+            start: 960,
+            length: 960,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        track.clips.push(crate::song::Clip {
+            id: crate::ClipId::new(1).expect("valid"),
+            name: String::new(),
+            start: 3840,
+            length: 960,
+        });
+        song.tracks.push(track);
+        assert_eq!(song.end_tick(), 4800);
     }
 
     #[test]
