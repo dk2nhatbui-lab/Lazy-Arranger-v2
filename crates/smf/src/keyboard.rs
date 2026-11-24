@@ -217,6 +217,18 @@ pub fn export(song: &Song, voices: &[Voice], lyrics: &[(Tick, String)]) -> (Vec<
         .round()
         .clamp(1.0, 16_777_215.0) as u32;
     setup.push((0, tempo_event(microseconds)));
+    if let Some(key) = song.key {
+        setup.push((
+            0,
+            vec![
+                0xff,
+                0x59,
+                0x02,
+                super::key_fifths(key.tonic, key.minor) as u8,
+                u8::from(key.minor),
+            ],
+        ));
+    }
     for change in song.tempo_map.changes().iter().skip(1) {
         let microseconds = (60_000_000.0 / change.bpm.max(1.0))
             .round()
@@ -439,6 +451,21 @@ mod tests {
         assert_eq!(changes.len(), 2);
         assert_eq!(changes[1].tick, 3_840 + 3_840);
         assert!((changes[1].bpm - 90.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_setup_track_carries_the_key() {
+        use music_core::PitchClass;
+        let mut song = song();
+        song.key = Some(project::song::KeySignature {
+            tonic: PitchClass::new(9),
+            minor: true,
+        });
+        let (bytes, _) = export(&song, &[Voice::default()], &[]);
+        let decoded = crate::decode(&bytes).expect("midi");
+        let key = decoded.0.key.expect("key");
+        assert_eq!(key.tonic.as_u8(), 9);
+        assert!(key.minor);
     }
 
     #[test]

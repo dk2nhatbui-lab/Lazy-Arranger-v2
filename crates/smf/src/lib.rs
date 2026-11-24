@@ -451,7 +451,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
     Ok((song, report))
 }
 
-fn key_fifths(tonic: music_core::PitchClass, minor: bool) -> i8 {
+pub(crate) fn key_fifths(tonic: music_core::PitchClass, minor: bool) -> i8 {
     let major = if minor {
         (tonic.as_u8() + 3) % 12
     } else {
