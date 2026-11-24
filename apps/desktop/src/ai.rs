@@ -193,6 +193,12 @@ pub fn tool_commands(reply: &str) -> Vec<&str> {
         .collect()
 }
 
+/// True when a read-only tool reply may start another model round.
+#[must_use]
+pub fn can_follow_up(ready: bool, tool_count: usize, rounds: usize) -> bool {
+    ready && tool_count > 0 && rounds < 3
+}
+
 /// Tool name from a `tool <name> ...` command.
 #[must_use]
 pub fn tool_name(command: &str) -> Option<&str> {
@@ -258,6 +264,10 @@ mod tests {
         assert!(!changes_project("tool get_song {}"));
         assert!(!changes_project("not a tool"));
         let commands = tool_commands("Checking.\ntool get_song {}\ntool get_tracks {}");
+        assert!(can_follow_up(true, 2, 0));
+        assert!(!can_follow_up(false, 2, 0));
+        assert!(!can_follow_up(true, 0, 0));
+        assert!(!can_follow_up(true, 1, 3));
         assert_eq!(commands.len(), 2);
         assert_eq!(tool_name(commands[0]), Some("get_song"));
         assert_eq!(tool_name(commands[1]), Some("get_tracks"));

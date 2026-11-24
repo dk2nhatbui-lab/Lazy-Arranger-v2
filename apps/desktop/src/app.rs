@@ -3239,7 +3239,7 @@ impl ShellApp {
                 api_key: self.settings.ai_api_key.clone(),
             }
             .is_ready();
-            follow_up = ready && !commands.is_empty() && self.assistant_tool_rounds < 3;
+            follow_up = crate::ai::can_follow_up(ready, commands.len(), self.assistant_tool_rounds);
         }
         if self.settings.speech
             && let Err(error) = crate::speech::speak_with(&text, &self.settings.speak_command)
