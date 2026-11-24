@@ -384,7 +384,15 @@ enum Commands {
         /// Seconds to record.
         #[arg(long, default_value_t = 3.0)]
         seconds: f64,
+        /// Input device name; omitted uses the default.
+        #[arg(long)]
+        device: Option<String>,
+        /// One input channel; omitted mixes all.
+        #[arg(long)]
+        channel: Option<usize>,
     },
+    /// List audio input and output devices.
+    AudioDevices,
     /// List installed VST3 and Audio Unit bundles, without hosting them.
     PluginScan {
         /// Extra folders to scan; omitted scans the standard plug-in folders.
@@ -1398,8 +1406,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             );
             Ok(())
         }
-        Commands::RecordAudio { out, seconds } => {
-            let rendered = audio::record::record_seconds(seconds.clamp(0.1, 3600.0))?;
+        Commands::RecordAudio {
+            out,
+            seconds,
+            device,
+            channel,
+        } => {
+            let rendered = audio::record::record_seconds_from_channel(
+                device.as_deref(),
+                channel,
+                seconds.clamp(0.1, 3600.0),
+            )?;
             fs::write(&out, rendered.to_wav())
                 .map_err(|error| format!("{}: {error}", out.display()))?;
             println!(
@@ -1408,6 +1425,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 rendered.sample_rate,
                 out.display()
             );
+            Ok(())
+        }
+        Commands::AudioDevices => {
+            println!("inputs:");
+            for name in audio::record::input_devices() {
+                println!("  {name}");
+            }
+            println!("outputs:");
+            for name in audio::player::output_devices() {
+                println!("  {name}");
+            }
             Ok(())
         }
         Commands::PluginScan { dirs } => {

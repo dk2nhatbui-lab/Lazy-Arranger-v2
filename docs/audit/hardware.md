@@ -81,3 +81,53 @@ When the instruments are powered on, verify in this order:
 
 Record each result in this file with date, device, command/UI step and the
 observed outcome. Do not mark an item verified from a successful send alone.
+
+## Final hardware round (2026-11-24)
+
+The owner powered the instruments on. `ports` then listed inputs and outputs:
+Launchkey Mini MK3 MIDI/DAW, XioSynth, D-05, PSR-S970 Port 1/2, X-TOUCH MINI
+and three L6max ports. `lazy-arranger audio-devices` listed XioSynth, D-05, ZOOM L6max,
+Camo Microphone and Microsoft Teams Audio inputs; outputs added DELL U4320Q and
+Mac mini Speakers.
+
+### What passed
+
+- `midi-channel-check` sent note on/off on all five tested outputs: PSR-S970
+  Port 1, X-TOUCH MINI, L6max Mixer Control Port, XioSynth and D-05.
+- `midi-panic` sent 16 all-notes-off messages to each of those outputs.
+- `record-audio --device XioSynth` and the default/Camo inputs opened and wrote
+  WAV files; the input stream and file writer work.
+- `lpstat -p` reported the Brother, Canon and DYMO queues idle.
+- `plugin-scan` still lists 21 bundles.
+
+### What did not produce evidence
+
+- Two 30-second input recordings on Launchkey and PSR-S970 wrote 0 notes. The
+  owner pressed keys after the recordings had already finished (the answer came
+  back about 26 minutes later), so physical key capture remains unverified.
+- A PSR echo test (send to the PSR output while recording its input) wrote 0
+  notes.
+- XioSynth input recordings during a channel check and a 35-second demo playback
+  peaked around 0.0002, effectively silence. No audible synth output was
+  captured, so audio output and the XioSynth audio path remain unverified.
+- D-05 input opened at 44.1 kHz and captured peaks around 0.031, but RMS before,
+  during and after four channel-check notes showed no repeatable note envelope.
+  This is not enough to call the D-05 audio path verified.
+- No print job was sent, so physical printing is unverified.
+- No L6max control surface response was measured; only port presence and sends
+  are verified.
+- No plug-in editor window was opened.
+
+These are transport/send and stream-open checks, not audible or physical
+acceptance. The hardware rows remain partial.
+
+### Reproduction commands
+
+```sh
+lazy-arranger ports
+lazy-arranger audio-devices
+lazy-arranger midi-channel-check --output "Yamaha PSR-S970 Port 1"
+lazy-arranger midi-panic --output "X-TOUCH MINI"
+lazy-arranger audio-devices
+lazy-arranger record-audio --device XioSynth --channel 0 --seconds 3 --out take.wav
+```
