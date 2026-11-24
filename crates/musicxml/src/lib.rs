@@ -330,6 +330,24 @@ fn write_harmony(out: &mut String, chord: music_core::Chord, offset: Tick) {
             ""
         }
     ));
+    if let Some(bass) = chord.bass {
+        let pc = bass.as_u8();
+        let letter = match pc {
+            0 | 1 => "C",
+            2 | 3 => "D",
+            4 => "E",
+            5 => "F",
+            6 | 7 => "G",
+            8 | 9 => "A",
+            _ => "B",
+        };
+        let alter = matches!(pc, 1 | 3 | 6 | 8 | 10);
+        out.push_str(&format!("<bass><bass-step>{letter}</bass-step>"));
+        if alter {
+            out.push_str("<bass-alter>1</bass-alter>");
+        }
+        out.push_str("</bass>");
+    }
     if offset != 0 {
         out.push_str(&format!("<offset>{offset}</offset>"));
     }
@@ -557,6 +575,18 @@ mod tests {
         let xml = export(&song, "Frame");
         assert!(xml.contains("<frame-strings>6</frame-strings>"));
         assert!(xml.contains("<frame-note>"));
+    }
+
+    #[test]
+    fn slash_chords_export_a_bass_note() {
+        use music_core::Chord;
+        let mut song = song();
+        song.chords.push(project::song::ChordEvent {
+            tick: 0,
+            chord: Chord::parse("C/E").expect("chord"),
+        });
+        let xml = export(&song, "Slash");
+        assert!(xml.contains("<bass-step>E</bass-step>"), "{xml}");
     }
 
     #[test]

@@ -5,6 +5,30 @@ mod tests {
     use project::song::{Song, Track};
 
     #[test]
+    fn slash_chord_bass_round_trips() {
+        let mut song = Song::new("Slash", 120.0);
+        let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: 960,
+            pitch: music_core::Pitch::from_name("C4").expect("valid"),
+            velocity: music_core::Velocity::new(100).expect("valid"),
+            channel: music_core::Channel::first(),
+        });
+        song.tracks.push(track);
+        song.chords.push(project::song::ChordEvent {
+            tick: 0,
+            chord: music_core::Chord::parse("C/E").expect("chord"),
+        });
+        let imported = import(&export(&song, "Slash")).expect("import");
+        assert_eq!(
+            imported.chords[0].chord.bass.map(|bass| bass.as_u8()),
+            Some(4)
+        );
+    }
+
+    #[test]
     fn our_export_round_trips_through_the_importer() {
         let mut song = Song::new("Round trip", 120.0);
         let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");

@@ -44,7 +44,23 @@ fn read_harmony(harmony: roxmltree::Node<'_, '_>) -> Option<music_core::Chord> {
         -1 => "b",
         _ => "",
     };
-    music_core::Chord::parse(&format!("{step}{accidental}{suffix}")).ok()
+    let mut symbol = format!("{step}{accidental}{suffix}");
+    if let Some(bass) = harmony.children().find(|node| node.has_tag_name("bass"))
+        && let Some(step) = text_of(bass, "bass-step")
+    {
+        let alter = text_of(bass, "bass-alter")
+            .and_then(|text| text.parse::<i32>().ok())
+            .unwrap_or(0);
+        let accidental = match alter {
+            1 => "#",
+            -1 => "b",
+            _ => "",
+        };
+        symbol.push('/');
+        symbol.push_str(&step);
+        symbol.push_str(accidental);
+    }
+    music_core::Chord::parse(&symbol).ok()
 }
 
 fn read_mark(direction: roxmltree::Node<'_, '_>, tick: Tick) -> Option<project::song::Mark> {
