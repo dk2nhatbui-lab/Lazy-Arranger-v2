@@ -2622,6 +2622,15 @@ impl ShellApp {
         });
     }
 
+    fn window_title(name: &str, dirty: bool) -> String {
+        let dirty = if dirty { "*" } else { "" };
+        if name.is_empty() {
+            format!("Lazy Arranger Midi DAW{dirty}")
+        } else {
+            format!("{name}{dirty} — Lazy Arranger Midi DAW")
+        }
+    }
+
     fn waveform_fraction(rect: Rect, x: f32, start: usize, end: usize, peaks: usize) -> f32 {
         if peaks == 0 {
             return 0.0;
@@ -11361,12 +11370,7 @@ impl ShellApp {
                 if ai_response.on_hover_text("Open the assistant").clicked() {
                     self.assistant_open = true;
                 }
-                let dirty = if self.editor.dirty() { "*" } else { "" };
-                let title = if self.song().name.is_empty() {
-                    format!("Lazy Arranger Midi DAW{dirty}")
-                } else {
-                    format!("{}{dirty} — Lazy Arranger Midi DAW", self.song().name)
-                };
+                let title = Self::window_title(&self.song().name, self.editor.dirty());
                 context.send_viewport_cmd(egui::ViewportCommand::Title(title));
             });
     }
@@ -14988,6 +14992,19 @@ mod tests {
         assert_eq!(app.song().tracks.len(), song.tracks.len());
         assert_eq!(app.project_path.as_deref(), Some(path.as_path()));
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn window_title_shows_song_and_dirty_state() {
+        assert_eq!(
+            ShellApp::window_title("Demo", false),
+            "Demo — Lazy Arranger Midi DAW"
+        );
+        assert_eq!(
+            ShellApp::window_title("Demo", true),
+            "Demo* — Lazy Arranger Midi DAW"
+        );
+        assert_eq!(ShellApp::window_title("", true), "Lazy Arranger Midi DAW*");
     }
 
     #[test]
