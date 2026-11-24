@@ -4081,15 +4081,35 @@ mod tests {
         )
         .expect("program");
         assert_eq!(session.song().tracks[0].program, Some(48));
+        let before = session.undo_depth();
         call(
             &mut session,
             "set_audio_ref",
-            &json!({"track": 1, "path": "/tmp/take.wav", "length": 960, "fade_in": 120}),
+            &json!({
+                "track": 1,
+                "path": "/tmp/take.wav",
+                "length": 960,
+                "fade_in": 120,
+                "takes": [{"path": "/tmp/take.wav", "length": 960}],
+                "comps": [{"take": 0, "start": 0, "length": 480}]
+            }),
         )
         .expect("audio");
-        let reference = session.song().tracks[0].audio.as_ref().expect("audio");
-        assert_eq!(reference.fade_in, 120);
-        assert_eq!(reference.length, 960);
+        assert_eq!(session.undo_depth(), before + 1);
+        let (fade_in, length, takes, comps) = {
+            let track = &session.song().tracks[0];
+            let reference = track.audio.as_ref().expect("audio");
+            (
+                reference.fade_in,
+                reference.length,
+                track.takes.len(),
+                track.comps.len(),
+            )
+        };
+        assert_eq!(fade_in, 120);
+        assert_eq!(length, 960);
+        assert_eq!(takes, 1);
+        assert_eq!(comps, 1);
         call(&mut session, "set_audio_ref", &json!({"track": 1})).expect("clear");
         assert!(session.song().tracks[0].audio.is_none());
         let _ = track;
