@@ -1285,6 +1285,34 @@ mod tests {
     }
 
     #[test]
+    fn full_score_x_maps_into_the_reference_measure() {
+        use crate::{Measure, System};
+        let system = System {
+            measures: vec![Measure {
+                start: 0,
+                length: 3840,
+                number: 1,
+                x: 50.0,
+                x_end: 150.0,
+            }],
+            y: 100.0,
+            page: 0,
+        };
+        let reference = System {
+            measures: vec![Measure {
+                start: 0,
+                length: 3840,
+                number: 1,
+                x: 50.0,
+                x_end: 200.0,
+            }],
+            y: 100.0,
+            page: 0,
+        };
+        assert!((crate::full_score_x(&system, &reference, 100.0) - 125.0).abs() < 0.01);
+    }
+
+    #[test]
     fn chromatic_notes_carry_accidentals_and_the_key_is_reported() {
         let mut score = song(1);
         score.chords.push(project::song::ChordEvent {
