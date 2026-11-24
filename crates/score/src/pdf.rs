@@ -481,6 +481,8 @@ struct FullStaff {
     marks: Vec<crate::PlacedMark>,
     rests: Vec<crate::PlacedRest>,
     frames: Vec<crate::ChordFrame>,
+    key: crate::spelling::Key,
+    time_signature: music_core::TimeSignature,
 }
 
 /// Writes an all-track full score to PDF bytes.
@@ -525,6 +527,8 @@ pub fn to_full_pdf(
             marks: engraved.marks,
             rests: engraved.rests,
             frames: engraved.frames,
+            key: engraved.key,
+            time_signature: engraved.time_signature,
         });
     }
     if staves.is_empty() {
@@ -539,6 +543,11 @@ pub fn to_full_pdf(
             marks: Vec::new(),
             rests: Vec::new(),
             frames: Vec::new(),
+            key: crate::spelling::Key {
+                tonic: music_core::PitchClass::new(0),
+                minor: false,
+            },
+            time_signature: music_core::TimeSignature::default(),
         });
     }
     let page_count = staves
@@ -586,6 +595,18 @@ pub fn to_full_pdf(
             y = settings.page_height - settings.margin,
             title = escape(title)
         );
+        if let Some(staff) = staves.first() {
+            let _ = writeln!(
+                content,
+                "BT /F1 8 Tf {x:.1} {y:.1} Td ({} {} / {}/{}) Tj ET",
+                staff.key.tonic.name_sharp(),
+                if staff.key.minor { "minor" } else { "major" },
+                staff.time_signature.numerator,
+                staff.time_signature.denominator,
+                x = settings.page_width - settings.margin - 80.0,
+                y = settings.page_height - settings.margin
+            );
+        }
         if page_count > 1 {
             let _ = writeln!(
                 content,
