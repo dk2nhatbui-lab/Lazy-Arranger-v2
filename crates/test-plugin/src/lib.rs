@@ -4,7 +4,6 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-use std::cell::Cell;
 use std::ffi::{CString, c_char, c_void};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -248,6 +247,9 @@ impl IAudioProcessorTrait for GainProcessor {
     }
 
     unsafe fn process(&self, data: *mut ProcessData) -> tresult {
+        if data.is_null() {
+            return kInvalidArgument;
+        }
         let process_data = &*data;
 
         if let Some(param_changes) = ComRef::from_raw(process_data.inputParameterChanges) {
@@ -258,6 +260,9 @@ impl IAudioProcessorTrait for GainProcessor {
                 {
                     let param_id = param_queue.getParameterId();
                     let point_count = param_queue.getPointCount();
+                    if point_count <= 0 {
+                        continue;
+                    }
 
                     match param_id {
                         0 => {
@@ -281,38 +286,47 @@ impl IAudioProcessorTrait for GainProcessor {
 
         let gain = f64::from_bits(self.gain.load(Ordering::Relaxed)) as f32;
 
+        if process_data.numSamples < 0
+            || process_data.inputs.is_null()
+            || process_data.outputs.is_null()
+            || process_data.numInputs != 1
+            || process_data.numOutputs != 1
+        {
+            return kResultOk;
+        }
         let num_samples = process_data.numSamples as usize;
-
-        if process_data.numInputs != 1 || process_data.numOutputs != 1 {
+        if num_samples == 0 {
             return kResultOk;
         }
 
-        let input_buses =
-            slice::from_raw_parts(process_data.inputs, process_data.numInputs as usize);
-        let output_buses =
-            slice::from_raw_parts(process_data.outputs, process_data.numOutputs as usize);
-
-        if input_buses[0].numChannels != 2 || output_buses[0].numChannels != 2 {
+        let input_buses = &*process_data.inputs;
+        let output_buses = &*process_data.outputs;
+        if input_buses.numChannels != 2
+            || output_buses.numChannels != 2
+            || input_buses.__field0.channelBuffers32.is_null()
+            || output_buses.__field0.channelBuffers32.is_null()
+        {
+            return kResultOk;
+        }
+        let input_channels = input_buses.__field0.channelBuffers32;
+        let output_channels = output_buses.__field0.channelBuffers32;
+        if input_channels.is_null()
+            || output_channels.is_null()
+            || (*input_channels.add(0)).is_null()
+            || (*input_channels.add(1)).is_null()
+            || (*output_channels.add(0)).is_null()
+            || (*output_channels.add(1)).is_null()
+        {
             return kResultOk;
         }
 
-        let input_channels = slice::from_raw_parts(
-            input_buses[0].__field0.channelBuffers32,
-            input_buses[0].numChannels as usize,
-        );
-        let output_channels = slice::from_raw_parts(
-            output_buses[0].__field0.channelBuffers32,
-            output_buses[0].numChannels as usize,
-        );
-
-        let input_l = slice::from_raw_parts(input_channels[0], num_samples);
-        let input_r = slice::from_raw_parts(input_channels[1], num_samples);
-        let output_l = slice::from_raw_parts_mut(output_channels[0], num_samples);
-        let output_r = slice::from_raw_parts_mut(output_channels[1], num_samples);
-
+        // Input and output may alias for in-place processing. Read one frame
+        // before writing it instead of forming overlapping slices.
         for i in 0..num_samples {
-            output_l[i] = gain * input_l[i];
-            output_r[i] = gain * input_r[i];
+            let left = *(*input_channels.add(0)).add(i);
+            let right = *(*input_channels.add(1)).add(i);
+            *(*output_channels.add(0)).add(i) = gain * left;
+            *(*output_channels.add(1)).add(i) = gain * right;
         }
 
         kResultOk
@@ -330,7 +344,7 @@ impl IProcessContextRequirementsTrait for GainProcessor {
 }
 
 struct GainController {
-    gain: Cell<f64>,
+    gain: AtomicU64,
 }
 
 impl Class for GainController {
@@ -342,7 +356,7 @@ impl GainController {
 
     fn new() -> GainController {
         GainController {
-            gain: Cell::new(1.0),
+            gain: AtomicU64::new(1.0f64.to_bits()),
         }
     }
 }
@@ -451,7 +465,7 @@ impl IEditControllerTrait for GainController {
 
     unsafe fn getParamNormalized(&self, id: u32) -> f64 {
         match id {
-            0 => self.gain.get(),
+            0 => f64::from_bits(self.gain.load(Ordering::Relaxed)),
             _ => 0.0,
         }
     }
@@ -459,7 +473,7 @@ impl IEditControllerTrait for GainController {
     unsafe fn setParamNormalized(&self, id: u32, value: f64) -> tresult {
         match id {
             0 => {
-                self.gain.set(value);
+                self.gain.store(value.to_bits(), Ordering::Relaxed);
                 kResultOk
             }
             _ => kInvalidArgument,
@@ -638,6 +652,9 @@ impl IAudioProcessorTrait for SynthProcessor {
     }
 
     unsafe fn process(&self, data: *mut ProcessData) -> tresult {
+        if data.is_null() {
+            return kInvalidArgument;
+        }
         let process_data = &*data;
         if let Some(events) = ComRef::from_raw(process_data.inputEvents) {
             for index in 0..events.getEventCount() {
@@ -655,17 +672,23 @@ impl IAudioProcessorTrait for SynthProcessor {
                 }
             }
         }
-        if process_data.numOutputs != 1 {
+        if process_data.numOutputs != 1
+            || process_data.numSamples < 0
+            || process_data.outputs.is_null()
+        {
             return kResultOk;
         }
-        let outputs = slice::from_raw_parts(process_data.outputs, process_data.numOutputs as usize);
-        if outputs[0].numChannels != 2 {
+        let outputs = &*process_data.outputs;
+        if outputs.numChannels != 2 || outputs.__field0.channelBuffers32.is_null() {
             return kResultOk;
         }
-        let channels = slice::from_raw_parts(outputs[0].__field0.channelBuffers32, 2);
+        let channels = outputs.__field0.channelBuffers32;
         let num_samples = process_data.numSamples as usize;
-        let left = slice::from_raw_parts_mut(channels[0], num_samples);
-        let right = slice::from_raw_parts_mut(channels[1], num_samples);
+        if channels.is_null() || (*channels.add(0)).is_null() || (*channels.add(1)).is_null() {
+            return kResultOk;
+        }
+        let left = *channels.add(0);
+        let right = *channels.add(1);
         let frequency = f64::from_bits(self.frequency.load(Ordering::Relaxed));
         let mut phase = f64::from_bits(self.phase.load(Ordering::Relaxed));
         let active = self.active.load(Ordering::Relaxed);
@@ -677,8 +700,8 @@ impl IAudioProcessorTrait for SynthProcessor {
             } else {
                 0.0
             };
-            left[index] = value;
-            right[index] = value;
+            *left.add(index) = value;
+            *right.add(index) = value;
         }
         self.phase.store(phase.to_bits(), Ordering::Relaxed);
         kResultOk
