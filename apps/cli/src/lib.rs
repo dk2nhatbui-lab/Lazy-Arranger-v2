@@ -391,6 +391,17 @@ enum Commands {
         #[arg(long)]
         channel: Option<usize>,
     },
+    /// Play a project through cpal and wait for it to finish.
+    PlayAudio {
+        /// Project `.json` path.
+        project: PathBuf,
+        /// Output device; omitted uses the default.
+        #[arg(long)]
+        device: Option<String>,
+        /// Stop after this many seconds; omitted plays the whole render.
+        #[arg(long)]
+        seconds: Option<f64>,
+    },
     /// List audio input and output devices.
     AudioDevices,
     /// List installed VST3 and Audio Unit bundles, without hosting them.
@@ -1454,6 +1465,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             );
             Ok(())
         }
+        Commands::PlayAudio {
+            project,
+            device,
+            seconds,
+        } => play_audio(&project, device.as_deref(), seconds),
         Commands::AudioDevices => {
             println!("inputs:");
             for name in audio::record::input_devices() {
@@ -3370,6 +3386,27 @@ fn record(
         );
     }
     write_midi(out, &song)?;
+    Ok(())
+}
+
+fn play_audio(
+    project: &PathBuf,
+    device: Option<&str>,
+    seconds: Option<f64>,
+) -> Result<(), Box<dyn Error>> {
+    let text = fs::read_to_string(project)?;
+    let project = project::song::ProjectFile::from_json(&text)?;
+    let rendered = audio::render(&project.song, audio::SAMPLE_RATE);
+    let duration = rendered.duration_seconds();
+    let player = audio::player::Player::new_on(rendered, device, None)?;
+    player.play();
+    let limit = seconds.map_or(duration + 0.2, |value| value.max(0.1));
+    let started = std::time::Instant::now();
+    while player.is_playing() && started.elapsed().as_secs_f64() < limit {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    player.release();
+    println!("played {:.2} s with cpal", limit.min(duration));
     Ok(())
 }
 

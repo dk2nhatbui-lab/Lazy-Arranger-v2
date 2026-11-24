@@ -98,7 +98,9 @@ Mac mini Speakers.
 - `record-audio --device XioSynth` and the default/Camo inputs opened and wrote
   WAV files; the input stream and file writer work.
 - L6max Mixer Control accepted CC 93 = 127 on channel 1; the owner saw CH1 mute on the mixer, and CC 93 = 0 cleared it. The L6max CC map is hardware-verified for mute.
-- `lpstat -p` reported the Brother, Canon and DYMO queues idle.
+- cpal playback: `play-audio` rendered the demo and played 12 seconds on **Mac mini Speakers**; the owner confirmed the music was audible. Output is hardware-verified.
+- Printing: a one-page score PDF was sent to `Brother_DCP_L3550CDW_series` (request 105) and the owner confirmed a page printed. Print is hardware-verified for that printer.
+- `lpstat -p` reports the Brother, Canon and DYMO queues idle.
 - `plugin-scan` still lists 21 bundles.
 
 ### What did not produce evidence
@@ -122,8 +124,8 @@ Mac mini Speakers.
 - A PSR echo test (send to the PSR output while recording its input) wrote 0
   notes.
 - XioSynth input recordings during a channel check and a 35-second demo playback
-  peaked around 0.0002, effectively silence. No audible synth output was
-  captured, so audio output and the XioSynth audio path remain unverified.
+  peaked around 0.0002, effectively silence. The app's cpal output is verified on
+  Mac mini Speakers, but the XioSynth USB audio path remains unverified.
 - D-05 input opened at 44.1 kHz and captured peaks around 0.031, but RMS before,
   during and after four channel-check notes showed no repeatable note envelope.
   This is not enough to call the D-05 audio path verified. The owner reports the
@@ -131,9 +133,7 @@ Mac mini Speakers.
 - A 60-second XioSynth audio capture stopped at **0.54 s** and peaked around
   0.0004, so its USB audio path is inconclusive. This is outside the app's MIDI
   capture claim.
-- No print job was sent, so physical printing is unverified.
-- No L6max control surface response was measured; only port presence and sends
-  are verified.
+- L6max readback and transport are not verified; only CC sends and the CH1 mute response are.
 - No plug-in editor window was opened.
 
 These are transport/send and stream-open checks, not audible or physical
