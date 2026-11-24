@@ -332,6 +332,7 @@ pub fn show_full(
     position: music_core::Tick,
     frames: bool,
     bpm: f64,
+    markers: &[project::Marker],
 ) -> (usize, Option<music_core::Tick>) {
     let settings = Settings::default();
     let systems_per_page = 2;
@@ -508,6 +509,34 @@ pub fn show_full(
                     egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
                     Color32::WHITE,
                 );
+            }
+            if index == 0 {
+                for marker in markers
+                    .iter()
+                    .filter(|marker| marker.tick >= first_tick && marker.tick < last_tick)
+                {
+                    let Some(measure) = system.measures.iter().find(|measure| {
+                        marker.tick >= measure.start
+                            && marker.tick < measure.start.saturating_add(measure.length)
+                    }) else {
+                        continue;
+                    };
+                    let ratio = if measure.length > 0 && measure.x_end > measure.x {
+                        ((marker.tick - measure.start) as f32 / measure.length as f32)
+                            .clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                    let x = measure.x + (measure.x_end - measure.x) * ratio;
+                    let x = first_system.map_or(x, |sys| score::full_score_x(system, sys, x));
+                    painter.text(
+                        Pos2::new(page_rect.left() + x * scale, top - 5.0 * line_gap * scale),
+                        egui::Align2::LEFT_BOTTOM,
+                        &marker.name,
+                        egui::FontId::proportional(7.0 * zoom),
+                        Color32::from_rgb(0x20, 0x20, 0x20),
+                    );
+                }
             }
             if frames && index == 0 {
                 for frame in engraved.frames.iter().filter(|frame| {
@@ -1730,7 +1759,18 @@ mod tests {
             },
             |context| {
                 egui::CentralPanel::default().show(context, |ui| {
-                    let _ = show_full(ui, &tracks, 0, 1.0, "Full", &mut state, 0, false, 120.0);
+                    let _ = show_full(
+                        ui,
+                        &tracks,
+                        0,
+                        1.0,
+                        "Full",
+                        &mut state,
+                        0,
+                        false,
+                        120.0,
+                        &[],
+                    );
                 });
             },
         );
@@ -1769,7 +1809,18 @@ mod tests {
             },
             |context| {
                 egui::CentralPanel::default().show(context, |ui| {
-                    let _ = show_full(ui, &tracks, 0, 1.0, "Long", &mut state, 0, false, 120.0);
+                    let _ = show_full(
+                        ui,
+                        &tracks,
+                        0,
+                        1.0,
+                        "Long",
+                        &mut state,
+                        0,
+                        false,
+                        120.0,
+                        &[],
+                    );
                 });
             },
         );
@@ -1857,7 +1908,18 @@ mod tests {
         };
         let _ = context.run(press.clone(), |context| {
             egui::CentralPanel::default().show(context, |ui| {
-                let _ = show_full(ui, &tracks, 0, 1.0, "Click", &mut state, 0, false, 120.0);
+                let _ = show_full(
+                    ui,
+                    &tracks,
+                    0,
+                    1.0,
+                    "Click",
+                    &mut state,
+                    0,
+                    false,
+                    120.0,
+                    &[],
+                );
             });
         });
         press.events = vec![egui::Event::PointerButton {
@@ -1868,7 +1930,18 @@ mod tests {
         }];
         let _ = context.run(press.clone(), |context| {
             egui::CentralPanel::default().show(context, |ui| {
-                let _ = show_full(ui, &tracks, 0, 1.0, "Click", &mut state, 0, false, 120.0);
+                let _ = show_full(
+                    ui,
+                    &tracks,
+                    0,
+                    1.0,
+                    "Click",
+                    &mut state,
+                    0,
+                    false,
+                    120.0,
+                    &[],
+                );
             });
         });
         press.events = vec![egui::Event::PointerButton {
@@ -1880,7 +1953,19 @@ mod tests {
         let mut seek = None;
         let _ = context.run(press, |context| {
             egui::CentralPanel::default().show(context, |ui| {
-                seek = show_full(ui, &tracks, 0, 1.0, "Click", &mut state, 0, false, 120.0).1;
+                seek = show_full(
+                    ui,
+                    &tracks,
+                    0,
+                    1.0,
+                    "Click",
+                    &mut state,
+                    0,
+                    false,
+                    120.0,
+                    &[],
+                )
+                .1;
             });
         });
         assert!(seek.is_some(), "full-score click");

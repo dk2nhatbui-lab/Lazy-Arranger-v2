@@ -759,6 +759,32 @@ pub fn to_full_pdf_with_frames(
                     }
                 }
                 if staff_index == 0 {
+                    for marker in song
+                        .markers
+                        .iter()
+                        .filter(|marker| marker.tick >= first_tick && marker.tick < last_tick)
+                    {
+                        let Some(measure) = system.measures.iter().find(|measure| {
+                            marker.tick >= measure.start
+                                && marker.tick < measure.start.saturating_add(measure.length)
+                        }) else {
+                            continue;
+                        };
+                        let ratio = if measure.length > 0 && measure.x_end > measure.x {
+                            ((marker.tick - measure.start) as f32 / measure.length as f32)
+                                .clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        };
+                        let x = measure.x + (measure.x_end - measure.x) * ratio;
+                        let x = first_system.map_or(x, |sys| crate::full_score_x(system, sys, x));
+                        let _ = writeln!(
+                            content,
+                            "BT /F1 7 Tf {x:.1} {:.1} Td ({}) Tj ET",
+                            settings.page_height - (top - 5.0 * line_gap),
+                            escape(&marker.name)
+                        );
+                    }
                     for chord in staff.chords.iter().filter(|chord| {
                         chord.page == *page && chord.x >= first_x && chord.x <= last_x
                     }) {
@@ -1355,6 +1381,10 @@ mod tests {
             tick: 0,
             kind: project::song::MarkKind::Dynamic(project::song::Dynamic::F),
         });
+        song.markers.push(project::Marker {
+            tick: 0,
+            name: String::from("Intro"),
+        });
         for (index, name) in [(1_u32, "Piano"), (2, "Bass")] {
             let mut track = Track::new(TrackId::new(index).expect("valid"), name);
             track.notes.push(Note {
@@ -1382,6 +1412,7 @@ mod tests {
         assert!(text.contains("120 BPM"), "tempo header");
         assert!(text.contains("(la) Tj"));
         assert!(text.contains("(f) Tj"));
+        assert!(text.contains("(Intro) Tj"), "section marker");
         assert!(text.contains("/ClefTreble"), "clef image resource");
         assert!(text.contains(" c "), "slur curve");
         assert!(
