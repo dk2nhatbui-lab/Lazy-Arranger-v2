@@ -921,9 +921,9 @@ fn the_tool_windows_draw_without_panicking() {
     app.songs_open = true;
     app.lessons_open = true;
     app.theory_open = true;
-    app.style_clips_open = true;
-    app.style_file_open = true;
-    app.style_link_open = true;
+    app.style.clips_open = true;
+    app.style.file_open = true;
+    app.style.link_open = true;
     app.l6max.device_open = true;
     app.d05.open = true;
     app.marks_open = true;

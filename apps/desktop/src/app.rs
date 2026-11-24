@@ -34,6 +34,7 @@ pub use files::{
     export_musicxml_file, export_stems_folder, export_wav_file, import_l6max_folder, is_midi_path,
     load_project, load_startup_project, project_kind,
 };
+use style::StyleState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum View {
@@ -837,16 +838,7 @@ pub struct ShellApp {
     patch_open: bool,
     patch_track: Option<TrackId>,
     patch_draft: Option<project::song::Patch>,
-    style_clips_open: bool,
-    style_name: String,
-    style_chord: String,
-    style_length: u32,
-    style_from_markers: bool,
-    style_path: String,
-    style_sff1: bool,
-    style_draft: Option<arranger::style::Style>,
-    style_rules_open: bool,
-    style_preview: Option<audio::player::Player>,
+    style: StyleState,
     generate_open: bool,
     generate_seed: u64,
     audio_chords_open: bool,
@@ -855,23 +847,7 @@ pub struct ShellApp {
     audio_chords_pending:
         Option<std::sync::mpsc::Receiver<Result<Vec<audio::chords::AudioChord>, String>>>,
     audio_chords_auto: bool,
-    style_link_open: bool,
-    style_link_url: String,
-    style_link_pending: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>>,
-    style_file_open: bool,
-    style_file_path: String,
-    style_import: Option<style_formats::ImportedStyle>,
-    style_section: usize,
-    style_file_loop: bool,
-    style_auto_load: bool,
-    style_queued_section: Option<usize>,
-    style_queued_chord: Option<String>,
-    style_fill_return: Option<usize>,
-    style_ending: bool,
-    style_held: [bool; 128],
-    style_last_chord: String,
     midi_chord: Option<String>,
-    style_queue_at: f64,
     audio_style_open: bool,
     audio_style_path: String,
     audio_style_bpm: f64,
@@ -1229,20 +1205,38 @@ impl ShellApp {
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
             patch_track: None,
             patch_draft: None,
-            style_clips_open: std::env::var("ARRANGER_STYLE").is_ok(),
-            style_name: String::from("Main A"),
-            style_chord: String::from("C"),
-            style_length: 3840,
-            style_from_markers: true,
-            style_path: crate::settings::Settings::data_dir()
-                .join("styles")
-                .join("clips.sty")
-                .display()
-                .to_string(),
-            style_sff1: false,
-            style_draft: None,
-            style_rules_open: false,
-            style_preview: None,
+            style: StyleState {
+                clips_open: std::env::var("ARRANGER_STYLE").is_ok(),
+                name: String::from("Main A"),
+                chord: String::from("C"),
+                length: 3840,
+                from_markers: true,
+                path: crate::settings::Settings::data_dir()
+                    .join("styles")
+                    .join("clips.sty")
+                    .display()
+                    .to_string(),
+                sff1: false,
+                draft: None,
+                rules_open: false,
+                preview: None,
+                link_open: std::env::var("ARRANGER_STYLE_LINK").is_ok(),
+                link_url: String::new(),
+                link_pending: None,
+                file_open: std::env::var("ARRANGER_STYLE").is_ok(),
+                file_path: std::env::var("ARRANGER_STYLE_FILE").unwrap_or_default(),
+                import: None,
+                section: 0,
+                file_loop: true,
+                auto_load: std::env::var("ARRANGER_STYLE_FILE").is_ok(),
+                queued_section: None,
+                queued_chord: None,
+                fill_return: None,
+                ending: false,
+                held: [false; 128],
+                last_chord: String::new(),
+                queue_at: 0.0,
+            },
             generate_open: std::env::var("ARRANGER_GENERATE").is_ok(),
             generate_seed: 1,
             audio_chords_open: std::env::var("ARRANGER_CHORDS").is_ok(),
@@ -1250,23 +1244,7 @@ impl ShellApp {
             audio_chords: Vec::new(),
             audio_chords_pending: None,
             audio_chords_auto: std::env::var("ARRANGER_CHORDS_FILE").is_ok(),
-            style_link_open: std::env::var("ARRANGER_STYLE_LINK").is_ok(),
-            style_link_url: String::new(),
-            style_link_pending: None,
-            style_file_open: std::env::var("ARRANGER_STYLE").is_ok(),
-            style_file_path: std::env::var("ARRANGER_STYLE_FILE").unwrap_or_default(),
-            style_import: None,
-            style_section: 0,
-            style_file_loop: true,
-            style_auto_load: std::env::var("ARRANGER_STYLE_FILE").is_ok(),
-            style_queued_section: None,
-            style_queued_chord: None,
-            style_fill_return: None,
-            style_ending: false,
-            style_held: [false; 128],
-            style_last_chord: String::new(),
             midi_chord: None,
-            style_queue_at: 0.0,
             audio_style_open: std::env::var("ARRANGER_AUDIO_STYLE").is_ok(),
             audio_style_path: String::new(),
             audio_style_bpm: 120.0,
@@ -1993,54 +1971,54 @@ impl ShellApp {
 
     /// Per-frame upkeep before drawing: style queue, background jobs and pending edits.
     fn poll_background(&mut self, context: &Context) {
-        if (self.style_queued_section.is_some() || self.style_queued_chord.is_some())
-            && let Some(player) = &self.style_preview
-            && (!player.is_playing() || player.seconds() >= self.style_queue_at)
+        if (self.style.queued_section.is_some() || self.style.queued_chord.is_some())
+            && let Some(player) = &self.style.preview
+            && (!player.is_playing() || player.seconds() >= self.style.queue_at)
         {
-            if let Some(index) = self.style_queued_section.take() {
-                self.style_section = index;
+            if let Some(index) = self.style.queued_section.take() {
+                self.style.section = index;
             }
-            if let Some(chord) = self.style_queued_chord.take() {
-                self.style_chord = chord;
+            if let Some(chord) = self.style.queued_chord.take() {
+                self.style.chord = chord;
             }
             self.audition_style_section();
         }
-        if let Some(return_index) = self.style_fill_return
-            && self.style_queued_section.is_none()
-            && let Some(player) = &self.style_preview
+        if let Some(return_index) = self.style.fill_return
+            && self.style.queued_section.is_none()
+            && let Some(player) = &self.style.preview
             && !player.is_playing()
         {
-            self.style_fill_return = None;
-            self.style_section = return_index;
+            self.style.fill_return = None;
+            self.style.section = return_index;
             self.audition_style_section();
         }
-        if self.style_file_loop
-            && !self.style_ending
-            && self.style_fill_return.is_none()
-            && self.style_queued_section.is_none()
-            && self.style_queued_chord.is_none()
-            && let Some(player) = &self.style_preview
+        if self.style.file_loop
+            && !self.style.ending
+            && self.style.fill_return.is_none()
+            && self.style.queued_section.is_none()
+            && self.style.queued_chord.is_none()
+            && let Some(player) = &self.style.preview
             && !player.is_playing()
         {
             player.play();
         }
         self.poll_midi();
         self.poll_ai();
-        if let Some(receiver) = &self.style_link_pending {
+        if let Some(receiver) = &self.style.link_pending {
             match receiver.try_recv() {
                 Ok(Ok(path)) => {
                     self.audio_style_path = path.display().to_string();
                     self.audio_style_open = true;
                     self.status = Some(String::from("audio downloaded; style build is ready"));
-                    self.style_link_pending = None;
+                    self.style.link_pending = None;
                 }
                 Ok(Err(error)) => {
                     self.status = Some(format!("link: {error}"));
-                    self.style_link_pending = None;
+                    self.style.link_pending = None;
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.style_link_pending = None;
+                    self.style.link_pending = None;
                 }
             }
         }
