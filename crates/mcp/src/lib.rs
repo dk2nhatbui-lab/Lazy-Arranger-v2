@@ -1066,6 +1066,37 @@ pub fn tools() -> Vec<Tool> {
             input_schema: json!({"type": "object", "properties": {}}),
         },
         Tool {
+            name: "freeze_track",
+            description: "Freeze a track to an audio reference, clearing its notes.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "path": {"type": "string"},
+                    "start": {"type": "integer"},
+                    "length": {"type": "integer"},
+                    "offset": {"type": "integer"},
+                    "fade_in": {"type": "integer"},
+                    "fade_out": {"type": "integer"},
+                    "stretch": {"type": "boolean"}
+                },
+                "required": ["track", "path", "length"]
+            }),
+        },
+        Tool {
+            name: "restore_track",
+            description: "Restore a frozen track's notes and optional audio reference.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "notes": {"type": "array"},
+                    "audio": {"type": ["object", "null"]}
+                },
+                "required": ["track", "notes"]
+            }),
+        },
+        Tool {
             name: "redo",
             description: "Redo the last undone edit.",
             input_schema: json!({"type": "object"}),
@@ -1296,6 +1327,75 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             Ok(
                 json!({"track": track.get(), "bank": bank.map(|bank| json!({"msb": bank.msb, "lsb": bank.lsb}))}),
             )
+        }
+        "freeze_track" => {
+            let track = track_argument(arguments)?;
+            let reference = audio_ref_from_value(arguments)
+                .ok_or_else(|| ToolError::Arguments(String::from("path is required")))?;
+            if reference.length <= 0 {
+                return Err(ToolError::Arguments(String::from(
+                    "length must be positive",
+                )));
+            }
+            session.apply(Command::FreezeTrack { track, reference })?;
+            Ok(json!({"track": track.get(), "frozen": true}))
+        }
+        "restore_track" => {
+            let track = track_argument(arguments)?;
+            let array = arguments
+                .get("notes")
+                .and_then(Value::as_array)
+                .ok_or_else(|| ToolError::Arguments(String::from("notes must be an array")))?;
+            if array.len() > 100_000 {
+                return Err(ToolError::Arguments(String::from("too many notes")));
+            }
+            let mut notes = Vec::new();
+            for (index, note) in array.iter().enumerate() {
+                let start = note
+                    .get("start")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| ToolError::Arguments(String::from("start is required")))?;
+                let duration = note
+                    .get("duration")
+                    .and_then(Value::as_i64)
+                    .filter(|duration| *duration > 0)
+                    .ok_or_else(|| {
+                        ToolError::Arguments(String::from("duration must be positive"))
+                    })?;
+                let pitch = note
+                    .get("pitch")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| u8::try_from(value).ok())
+                    .ok_or_else(|| ToolError::Arguments(String::from("pitch is required")))?;
+                let velocity =
+                    u8::try_from(note.get("velocity").and_then(Value::as_u64).unwrap_or(100))
+                        .unwrap_or(100);
+                let channel =
+                    u8::try_from(note.get("channel").and_then(Value::as_u64).unwrap_or(0))
+                        .unwrap_or(0);
+                notes.push(project::song::Note {
+                    id: project::NoteId::new(u32::try_from(index + 1).unwrap_or(u32::MAX))
+                        .map_err(|error| ToolError::Arguments(error.to_string()))?,
+                    start,
+                    duration,
+                    pitch: music_core::Pitch::new(pitch)
+                        .map_err(|error| ToolError::Arguments(error.to_string()))?,
+                    velocity: music_core::Velocity::new(velocity)
+                        .map_err(|error| ToolError::Arguments(error.to_string()))?,
+                    channel: music_core::Channel::new(channel)
+                        .map_err(|error| ToolError::Arguments(error.to_string()))?,
+                });
+            }
+            let audio = arguments
+                .get("audio")
+                .filter(|value| !value.is_null())
+                .and_then(audio_ref_from_value);
+            session.apply(Command::RestoreTrack {
+                track,
+                notes,
+                audio,
+            })?;
+            Ok(json!({"track": track.get(), "restored": true}))
         }
         "add_track" => {
             let track_name = arguments
@@ -3780,7 +3880,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 100);
+        assert_eq!(tools().len(), 102);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
@@ -4243,6 +4343,37 @@ mod tests {
         call(&mut session, "set_audio_ref", &json!({"track": 1})).expect("clear");
         assert!(session.song().tracks[0].audio.is_none());
         let _ = track;
+    }
+
+    #[test]
+    fn freeze_and_restore_tools_work() {
+        let mut session = session_with_track();
+        call(
+            &mut session,
+            "add_note",
+            &json!({"track": 1, "start": 0, "pitch": 60}),
+        )
+        .expect("note");
+        call(
+            &mut session,
+            "freeze_track",
+            &json!({"track": 1, "path": "/tmp/frozen.wav", "length": 960}),
+        )
+        .expect("freeze");
+        assert!(session.song().tracks[0].notes.is_empty());
+        assert!(session.song().tracks[0].audio.is_some());
+        call(
+            &mut session,
+            "restore_track",
+            &json!({
+                "track": 1,
+                "notes": [{"start": 0, "duration": 960, "pitch": 60}],
+                "audio": null
+            }),
+        )
+        .expect("restore");
+        assert_eq!(session.song().tracks[0].notes.len(), 1);
+        assert!(session.song().tracks[0].audio.is_none());
     }
 
     #[test]
