@@ -14151,6 +14151,61 @@ mod tests {
     }
 
     #[test]
+    fn an_audio_track_transcribes_drums_to_channel_nine() {
+        let context = egui::Context::default();
+        let mut app = ShellApp::new(&context, demo_project(), None);
+        let rate = 48_000_u32;
+        let mut samples = vec![0.0_f32; rate as usize];
+        let burst = (0.08 * f64::from(rate)) as usize;
+        let start = (0.2 * f64::from(rate)) as usize;
+        for index in 0..burst {
+            let time = index as f64 / f64::from(rate);
+            samples[start + index] = (std::f64::consts::TAU * 60.0 * time).sin() as f32 * 0.8;
+        }
+        let path =
+            std::env::temp_dir().join(format!("lazy-arranger-drums-{}.wav", std::process::id()));
+        std::fs::write(
+            &path,
+            audio::RenderedAudio {
+                samples,
+                sample_rate: rate,
+            }
+            .to_wav(),
+        )
+        .expect("wav");
+        let id = project::TrackId::new(91).expect("track");
+        let mut track = project::song::Track::new(id, "Drums source");
+        track.audio = Some(project::song::AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: 960,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        app.editor
+            .session_for_test()
+            .apply(app_commands::Command::InsertTrack { track })
+            .expect("track");
+        app.transcribe_audio_drums(id).expect("drums");
+        let recorded = app
+            .song()
+            .tracks
+            .iter()
+            .find(|track| track.name == "Drums source Drums")
+            .expect("drums track");
+        assert!(
+            recorded
+                .notes
+                .iter()
+                .all(|note| note.channel.zero_based() == 9)
+        );
+        assert!(!recorded.notes.is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn detected_notes_convert_to_ticks_and_pitches() {
         let detected = vec![
             audio::analysis::DetectedNote {
