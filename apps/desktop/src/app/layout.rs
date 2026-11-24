@@ -664,7 +664,7 @@ impl ShellApp {
                                 ui.close_menu();
                             }
                             if ui.button("XG part mixer").clicked() {
-                                self.xg_open = true;
+                                self.xg.open = true;
                                 ui.close_menu();
                             }
                             if ui.button("Score marks").clicked() {
@@ -672,15 +672,15 @@ impl ShellApp {
                                 ui.close_menu();
                             }
                             if ui.button("L6max device mixer").clicked() {
-                                self.l6max_device_open = true;
+                                self.l6max.device_open = true;
                                 ui.close_menu();
                             }
                             if ui.button("Roland D-05 editor").clicked() {
-                                self.d05_open = true;
+                                self.d05.open = true;
                                 ui.close_menu();
                             }
                             if ui.button("L6max mixer").clicked() {
-                                self.l6max_mixer_open = true;
+                                self.l6max.mixer_open = true;
                                 ui.close_menu();
                             }
                             if ui.button("Generate part").clicked() {
@@ -712,7 +712,7 @@ impl ShellApp {
                                 ui.close_menu();
                             }
                             if ui.button("PSR-S970 remote").clicked() {
-                                self.psr_open = true;
+                                self.psr.open = true;
                                 ui.close_menu();
                             }
                             if ui.button("Shortcuts").clicked() {

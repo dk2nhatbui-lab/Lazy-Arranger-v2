@@ -1361,43 +1361,44 @@ impl ShellApp {
         }
         ui.collapsing("L6max takes", |ui| {
             ui.horizontal(|ui| {
-                ui.text_edit_singleline(&mut self.l6max_folder);
+                ui.text_edit_singleline(&mut self.l6max.folder);
                 if ui.button("Scan").clicked() {
-                    match audio::l6max::scan(std::path::Path::new(&self.l6max_folder)) {
+                    match audio::l6max::scan(std::path::Path::new(&self.l6max.folder)) {
                         Ok(plan) => {
-                            self.l6max_error = None;
-                            self.l6max_selected = vec![true; plan.takes.len()];
-                            self.l6max_plan = Some(plan);
+                            self.l6max.error = None;
+                            self.l6max.selected = vec![true; plan.takes.len()];
+                            self.l6max.plan = Some(plan);
                         }
                         Err(error) => {
-                            self.l6max_plan = None;
-                            self.l6max_error = Some(error);
+                            self.l6max.plan = None;
+                            self.l6max.error = Some(error);
                         }
                     }
                 }
             });
-            if let Some(error) = &self.l6max_error {
+            if let Some(error) = &self.l6max.error {
                 ui.label(egui::RichText::new(error).color(theme::recording()));
             }
-            if let Some(plan) = &self.l6max_plan {
+            if let Some(plan) = &self.l6max.plan {
                 ui.label(format!(
                     "{} take(s), {} at 32-bit float, {:.1} s total",
                     plan.takes.len(),
                     plan.float32(),
                     plan.seconds()
                 ));
-                if self.l6max_selected.len() != plan.takes.len() {
-                    self.l6max_selected = vec![true; plan.takes.len()];
+                if self.l6max.selected.len() != plan.takes.len() {
+                    self.l6max.selected = vec![true; plan.takes.len()];
                 }
                 for (index, take) in plan.takes.iter().enumerate() {
                     ui.horizontal(|ui| {
                         let selected = self
-                            .l6max_selected
+                            .l6max
+                            .selected
                             .get_mut(index)
                             .is_some_and(|selected| *selected);
                         let mut chosen = selected;
                         ui.checkbox(&mut chosen, "");
-                        if let Some(selected) = self.l6max_selected.get_mut(index) {
+                        if let Some(selected) = self.l6max.selected.get_mut(index) {
                             *selected = chosen;
                         }
                         ui.label(
@@ -1416,7 +1417,7 @@ impl ShellApp {
                         .iter()
                         .enumerate()
                         .filter(|(index, _)| {
-                            self.l6max_selected.get(*index).copied().unwrap_or(true)
+                            self.l6max.selected.get(*index).copied().unwrap_or(true)
                         })
                         .map(|(_, take)| take.clone())
                         .collect();

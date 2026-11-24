@@ -1,5 +1,6 @@
 use super::devices::{
-    decode_l6_scenes, encode_l6_scenes, profile_for_port, seed_default_device_profiles,
+    L6Scene, PsrRegistration, decode_l6_scenes, encode_l6_scenes, profile_for_port,
+    seed_default_device_profiles,
 };
 use super::*;
 
@@ -906,7 +907,7 @@ fn the_tool_windows_draw_without_panicking() {
     app.groove_open = true;
     app.help_open = true;
     app.inspector_open = true;
-    app.l6max_mixer_open = true;
+    app.l6max.mixer_open = true;
     app.library_open = true;
     app.lyrics_open = true;
     app.markers_open = true;
@@ -916,18 +917,18 @@ fn the_tool_windows_draw_without_panicking() {
     app.midi_out_open = true;
     app.pads_open = true;
     app.plugins_open = true;
-    app.psr_open = true;
+    app.psr.open = true;
     app.songs_open = true;
     app.lessons_open = true;
     app.theory_open = true;
     app.style_clips_open = true;
     app.style_file_open = true;
     app.style_link_open = true;
-    app.l6max_device_open = true;
-    app.d05_open = true;
+    app.l6max.device_open = true;
+    app.d05.open = true;
     app.marks_open = true;
     app.takes_open = true;
-    app.xg_open = true;
+    app.xg.open = true;
     let _ = context.run(egui::RawInput::default(), |context| {
         app.about_window(context);
         app.assistant_window(context);
