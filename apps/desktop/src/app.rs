@@ -1011,6 +1011,7 @@ pub struct ShellApp {
     score_full_hidden: std::collections::HashSet<TrackId>,
     score_full_cache: Option<(u64, Vec<(String, score::Engraved)>)>,
     pending_clip_add: Option<(TrackId, Tick, Tick)>,
+    pending_reverse: Option<TrackId>,
     patch_open: bool,
     patch_track: Option<TrackId>,
     patch_draft: Option<project::song::Patch>,
@@ -1389,6 +1390,7 @@ impl ShellApp {
             score_full_hidden: std::collections::HashSet::new(),
             score_full_cache: None,
             pending_clip_add: None,
+            pending_reverse: None,
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
             patch_track: None,
             patch_draft: None,
@@ -12538,6 +12540,13 @@ impl eframe::App for ShellApp {
                                 {
                                     audio_normalize = Some(*track_id);
                                 }
+                                if ui
+                                    .small_button("Reverse")
+                                    .on_hover_text("Write a reversed copy and switch to it")
+                                    .clicked()
+                                {
+                                    self.pending_reverse = Some(*track_id);
+                                }
                             });
                             ui.horizontal(|ui| {
                                 ui.label(
@@ -13697,6 +13706,12 @@ impl eframe::App for ShellApp {
             && let Err(error) = self.editor.merge_automation(track, lane)
         {
             self.status = Some(error);
+        }
+        if let Some(track) = self.pending_reverse.take() {
+            match self.editor.reverse_audio(track) {
+                Ok(path) => self.status = Some(format!("reversed to {}", path.display())),
+                Err(error) => self.status = Some(error),
+            }
         }
         if let Some((track, start, length)) = self.pending_clip_add.take() {
             match self.editor.add_clip(track, start, length) {

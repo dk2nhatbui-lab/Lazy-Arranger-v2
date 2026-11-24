@@ -1619,6 +1619,55 @@ impl Editor {
         Ok(track_id)
     }
 
+    /// Writes a reversed copy beside the source and points the reference at it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track or source cannot be read or written.
+    pub fn reverse_audio(&mut self, track: TrackId) -> Result<std::path::PathBuf, String> {
+        let Some(reference) = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.audio.clone())
+        else {
+            return Err(String::from("track has no audio reference"));
+        };
+        let source = std::path::PathBuf::from(&reference.path);
+        let bytes = std::fs::read(&source)
+            .map_err(|error| format!("could not read {}: {error}", source.display()))?;
+        let audio = audio::wav::decode_stereo(&bytes)?;
+        let frames = audio.samples.len() / 2;
+        let mut samples = vec![0.0_f32; audio.samples.len()];
+        for frame in 0..frames {
+            samples[frame * 2] = audio.samples[(frames - 1 - frame) * 2];
+            samples[frame * 2 + 1] = audio.samples[(frames - 1 - frame) * 2 + 1];
+        }
+        let reversed = audio::RenderedAudio {
+            samples,
+            sample_rate: audio.sample_rate,
+        };
+        let stem = source
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("audio");
+        let out = source.with_file_name(format!("{stem}-reversed.wav"));
+        std::fs::write(&out, reversed.to_wav32f())
+            .map_err(|error| format!("{}: {error}", out.display()))?;
+        let mut updated = reference;
+        updated.path = out.display().to_string();
+        updated.offset = 0;
+        self.session
+            .apply(app_commands::Command::SetAudioRef {
+                track,
+                reference: Some(updated),
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(out)
+    }
+
     /// Writes a normalized copy beside the source and points the reference at it.
     ///
     /// Returns the new path. Undo restores the reference but leaves the file.
@@ -3369,6 +3418,26 @@ mod tests {
         assert!(copy.name.ends_with("copy"));
         assert!(editor.undo());
         assert!(editor.song().tracks.iter().all(|entry| entry.id != id));
+    }
+
+    #[test]
+    fn audio_can_be_reversed_to_a_new_source() {
+        let mut editor = editor();
+        let path =
+            std::env::temp_dir().join(format!("lazy-arranger-reverse-{}.wav", std::process::id()));
+        let audio = audio::RenderedAudio {
+            samples: vec![0.1, 0.1, 0.2, 0.2, 0.3, 0.3, 0.4, 0.4],
+            sample_rate: 48_000,
+        };
+        std::fs::write(&path, audio.to_wav32f()).expect("wav");
+        let track = editor.import_audio(&path, 0).expect("import");
+        let out = editor.reverse_audio(track).expect("reverse");
+        let bytes = std::fs::read(&out).expect("read");
+        let reversed = audio::wav::decode_stereo(&bytes).expect("decode");
+        assert!((reversed.samples[0] - 0.4).abs() < 1.0e-4);
+        assert!((reversed.samples[6] - 0.1).abs() < 1.0e-4);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&out);
     }
 
     #[test]
