@@ -321,6 +321,7 @@ pub fn full_score_hash(song: &project::Song, title: &str) -> u64 {
 }
 
 /// Draws a read-only all-track review score: one system per page.
+#[allow(clippy::too_many_arguments)]
 pub fn show_full(
     ui: &mut Ui,
     tracks: &[(String, Engraved)],
@@ -329,6 +330,7 @@ pub fn show_full(
     title: &str,
     state: &mut ScoreState,
     position: music_core::Tick,
+    frames: bool,
 ) -> (usize, Option<music_core::Tick>) {
     let settings = Settings::default();
     let systems_per_page = 2;
@@ -504,6 +506,49 @@ pub fn show_full(
                     egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
                     Color32::WHITE,
                 );
+            }
+            if frames && index == 0 {
+                for frame in engraved.frames.iter().filter(|frame| {
+                    frame.page == source_page && frame.x >= first_x && frame.x <= last_x
+                }) {
+                    let x = page_rect.left()
+                        + first_system
+                            .map_or(frame.x, |sys| score::full_score_x(system, sys, frame.x))
+                            * scale;
+                    let y = top + (frame.y - system.y) * (line_gap / settings.staff_space) * scale;
+                    let width = 3.0 * line_gap * scale;
+                    let height = 4.0 * line_gap * scale;
+                    painter.rect_stroke(
+                        egui::Rect::from_min_size(
+                            Pos2::new(x, y - height),
+                            Vec2::new(width, height),
+                        ),
+                        0.0,
+                        Stroke::new(0.5_f32, Color32::from_rgb(0x20, 0x20, 0x20)),
+                        egui::StrokeKind::Inside,
+                    );
+                    for (string, fret) in frame.frets.iter().enumerate() {
+                        if let Some(fret) = fret {
+                            painter.text(
+                                Pos2::new(
+                                    x + 2.0 + string as f32 * (width / 6.0),
+                                    y - height + 2.0,
+                                ),
+                                egui::Align2::LEFT_TOP,
+                                format!("{fret}"),
+                                egui::FontId::proportional(6.0 * zoom),
+                                Color32::from_rgb(0x20, 0x20, 0x20),
+                            );
+                        }
+                    }
+                    painter.text(
+                        Pos2::new(x, y + 1.0),
+                        egui::Align2::LEFT_TOP,
+                        &frame.name,
+                        egui::FontId::proportional(6.0 * zoom),
+                        Color32::from_rgb(0x20, 0x20, 0x20),
+                    );
+                }
             }
             for rest in engraved.rests.iter().filter(|rest| {
                 rest.page == source_page
@@ -1656,7 +1701,7 @@ mod tests {
             },
             |context| {
                 egui::CentralPanel::default().show(context, |ui| {
-                    let _ = show_full(ui, &tracks, 0, 1.0, "Full", &mut state, 0);
+                    let _ = show_full(ui, &tracks, 0, 1.0, "Full", &mut state, 0, false);
                 });
             },
         );
@@ -1695,7 +1740,7 @@ mod tests {
             },
             |context| {
                 egui::CentralPanel::default().show(context, |ui| {
-                    let _ = show_full(ui, &tracks, 0, 1.0, "Long", &mut state, 0);
+                    let _ = show_full(ui, &tracks, 0, 1.0, "Long", &mut state, 0, false);
                 });
             },
         );

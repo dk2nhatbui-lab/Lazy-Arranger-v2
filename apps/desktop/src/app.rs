@@ -1001,6 +1001,7 @@ pub struct ShellApp {
     score_preview: bool,
     score_all_tracks: bool,
     score_follow: bool,
+    score_full_frames: bool,
     score_full_hidden: std::collections::HashSet<TrackId>,
     score_full_cache: Option<(u64, Vec<(String, score::Engraved)>)>,
     patch_open: bool,
@@ -1363,6 +1364,7 @@ impl ShellApp {
                 && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
             score_all_tracks: std::env::var("ARRANGER_SCORE_ALL").is_ok(),
             score_follow: initial_score_follow,
+            score_full_frames: std::env::var("ARRANGER_FULL_FRAMES").is_ok(),
             score_full_hidden: std::collections::HashSet::new(),
             score_full_cache: None,
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
@@ -3414,8 +3416,13 @@ impl ShellApp {
             } else {
                 self.song().name.clone()
             };
-            let pdf =
-                score::pdf::to_full_pdf(self.song(), score::Settings::default(), &title, &selected);
+            let pdf = score::pdf::to_full_pdf_with_frames(
+                self.song(),
+                score::Settings::default(),
+                &title,
+                &selected,
+                self.score_full_frames,
+            );
             let path = std::env::temp_dir().join(format!(
                 "lazy-arranger-full-score-{}-{stamp}.pdf",
                 std::process::id()
@@ -12722,6 +12729,7 @@ impl eframe::App for ShellApp {
                                     self.settings.score_follow = self.score_follow;
                                     let _ = self.settings.save(&crate::settings::Settings::path());
                                 }
+                                ui.checkbox(&mut self.score_full_frames, "Frames");
                                 let tracks: Vec<(TrackId, String)> = project
                                     .song
                                     .tracks
@@ -13000,6 +13008,7 @@ impl eframe::App for ShellApp {
                                     title,
                                     &mut self.score_state,
                                     position,
+                                    self.score_full_frames,
                                 );
                                 if let Some(tick) = score_seek {
                                     seek = Some(tick);

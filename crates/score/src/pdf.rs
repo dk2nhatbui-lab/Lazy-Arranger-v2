@@ -478,6 +478,7 @@ struct FullStaff {
     slurs: Vec<crate::SlurArc>,
     tuplets: Vec<crate::Tuplet>,
     chords: Vec<crate::ChordSymbol>,
+    frames: Vec<crate::ChordFrame>,
     lyrics: Vec<crate::Lyric>,
     marks: Vec<crate::PlacedMark>,
     rests: Vec<crate::PlacedRest>,
@@ -497,6 +498,18 @@ pub fn to_full_pdf(
     settings: Settings,
     title: &str,
     track_ids: &[project::TrackId],
+) -> Vec<u8> {
+    to_full_pdf_with_frames(song, settings, title, track_ids, false)
+}
+
+/// Writes an all-track full score, optionally with guitar chord frames.
+#[must_use]
+pub fn to_full_pdf_with_frames(
+    song: &project::Song,
+    settings: Settings,
+    title: &str,
+    track_ids: &[project::TrackId],
+    frames: bool,
 ) -> Vec<u8> {
     let mut staves: Vec<FullStaff> = Vec::new();
     for id in track_ids {
@@ -524,6 +537,7 @@ pub fn to_full_pdf(
             slurs: engraved.slurs,
             tuplets: engraved.tuplets,
             chords: engraved.chord_symbols,
+            frames: engraved.frames,
             lyrics: engraved.lyrics,
             marks: engraved.marks,
             rests: engraved.rests,
@@ -540,6 +554,7 @@ pub fn to_full_pdf(
             slurs: Vec::new(),
             tuplets: Vec::new(),
             chords: Vec::new(),
+            frames: Vec::new(),
             lyrics: Vec::new(),
             marks: Vec::new(),
             rests: Vec::new(),
@@ -709,6 +724,38 @@ pub fn to_full_pdf(
                         x + 3.0,
                         settings.page_height - y
                     );
+                }
+                if staff_index == 0 && frames {
+                    for frame in staff.frames.iter().filter(|frame| {
+                        frame.page == *page && frame.x >= first_x && frame.x <= last_x
+                    }) {
+                        let x = first_system
+                            .map_or(frame.x, |sys| crate::full_score_x(system, sys, frame.x));
+                        let y = top + (frame.y - system.y) * (line_gap / settings.staff_space);
+                        let width = 3.0 * line_gap;
+                        let height = 4.0 * line_gap;
+                        let _ = writeln!(
+                            content,
+                            "{x:.1} {:.1} {width:.1} {height:.1} re S",
+                            settings.page_height - y
+                        );
+                        for (string, fret) in frame.frets.iter().enumerate() {
+                            if let Some(fret) = fret {
+                                let _ = writeln!(
+                                    content,
+                                    "BT /F1 6 Tf {:.1} {:.1} Td ({fret}) Tj ET",
+                                    x + 2.0 + string as f32 * (width / 6.0),
+                                    settings.page_height - y - height + 2.0
+                                );
+                            }
+                        }
+                        let _ = writeln!(
+                            content,
+                            "BT /F1 6 Tf {x:.1} {:.1} Td ({}) Tj ET",
+                            settings.page_height - y - height - 2.0,
+                            escape(&frame.name)
+                        );
+                    }
                 }
                 if staff_index == 0 {
                     for chord in staff.chords.iter().filter(|chord| {
@@ -1341,6 +1388,9 @@ mod tests {
         let text = String::from_utf8_lossy(&one);
         assert!(text.contains("(Piano) Tj"));
         assert!(!text.contains("(Bass) Tj"));
+        let framed = to_full_pdf_with_frames(&song, small(), "Framed", &tracks, true);
+        let framed = String::from_utf8_lossy(&framed);
+        assert!(framed.contains("(3) Tj"), "guitar frame fret");
     }
 
     #[test]
