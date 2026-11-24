@@ -35,6 +35,7 @@ pub use files::{
     export_musicxml_file, export_stems_folder, export_wav_file, import_l6max_folder, is_midi_path,
     load_project, load_startup_project, project_kind,
 };
+use layout::ScoreUi;
 use style::StyleState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -816,20 +817,7 @@ pub struct ShellApp {
     groove_timing: f32,
     groove_accents: f32,
     help_open: bool,
-    score_entry: bool,
-    score_octave: i32,
-    score_note_length: music_core::Tick,
-    score_dotted: bool,
-    score_cursor: music_core::Tick,
-    score_page: usize,
-    score_zoom: f32,
-    score_grand: bool,
-    score_preview: bool,
-    score_all_tracks: bool,
-    score_follow: bool,
-    score_full_frames: bool,
-    score_full_hidden: std::collections::HashSet<TrackId>,
-    score_full_cache: Option<(u64, Vec<(String, score::Engraved)>)>,
+    score: ScoreUi,
     pending_clip_add: Option<(TrackId, Tick, Tick)>,
     pending_reverse: Option<TrackId>,
     patch_open: bool,
@@ -893,9 +881,6 @@ pub struct ShellApp {
     vst3_params_slot: Option<u32>,
     vst3_effect: Option<plugin_host::Vst3Effect>,
     vst3_params: Vec<(u32, String, f64)>,
-    score_pdf_path: String,
-    score_track: Option<TrackId>,
-    score_state: crate::score_view::ScoreState,
     lyrics_open: bool,
     lyric_text: String,
     lyric_selected: Option<Tick>,
@@ -1180,25 +1165,32 @@ impl ShellApp {
             groove_timing: 1.0,
             groove_accents: 1.0,
             help_open: initial_window == "help",
-            score_entry: std::env::var("ARRANGER_SCORE_ENTRY").is_ok(),
-            score_octave: 4,
-            score_note_length: music_core::PPQ,
-            score_dotted: false,
-            score_cursor: std::env::var("ARRANGER_SCORE_CURSOR")
-                .ok()
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(0),
-            score_page: 0,
-            score_zoom: initial_score_zoom,
-            score_grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
-            score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err()
-                && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
-            score_all_tracks: std::env::var("ARRANGER_SCORE_ALL").is_ok(),
-            score_follow: initial_score_follow,
-            score_full_frames: std::env::var("ARRANGER_FULL_FRAMES").is_ok()
-                || initial_score_frames,
-            score_full_hidden: std::collections::HashSet::new(),
-            score_full_cache: None,
+            score: ScoreUi {
+                entry: std::env::var("ARRANGER_SCORE_ENTRY").is_ok(),
+                octave: 4,
+                note_length: music_core::PPQ,
+                dotted: false,
+                cursor: std::env::var("ARRANGER_SCORE_CURSOR")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
+                page: 0,
+                zoom: initial_score_zoom,
+                grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
+                preview: std::env::var("ARRANGER_SCORE_EDIT").is_err()
+                    && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
+                all_tracks: std::env::var("ARRANGER_SCORE_ALL").is_ok(),
+                follow: initial_score_follow,
+                full_frames: std::env::var("ARRANGER_FULL_FRAMES").is_ok() || initial_score_frames,
+                full_hidden: std::collections::HashSet::new(),
+                full_cache: None,
+                pdf_path: crate::settings::Settings::data_dir()
+                    .join("score.pdf")
+                    .display()
+                    .to_string(),
+                track: None,
+                state: crate::score_view::ScoreState::default(),
+            },
             pending_clip_add: None,
             pending_reverse: None,
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
@@ -1321,12 +1313,6 @@ impl ShellApp {
             vst3_params_slot: None,
             vst3_effect: None,
             vst3_params: Vec::new(),
-            score_pdf_path: crate::settings::Settings::data_dir()
-                .join("score.pdf")
-                .display()
-                .to_string(),
-            score_track: None,
-            score_state: crate::score_view::ScoreState::default(),
             lyrics_open: initial_window == "lyrics",
             lyric_text: String::new(),
             lyric_selected: None,
@@ -1395,7 +1381,8 @@ impl ShellApp {
             return;
         }
         let Some(track) = self
-            .score_track
+            .score
+            .track
             .or(self.roll.selected)
             .or_else(|| self.song().tracks.first().map(|track| track.id))
         else {
@@ -1448,7 +1435,7 @@ impl ShellApp {
             input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace)
         });
         let score_typing =
-            score_typing(self.view, self.score_entry, context.wants_keyboard_input());
+            score_typing(self.view, self.score.entry, context.wants_keyboard_input());
         let copy_clips = !score_typing
             && context.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::C));
         let paste_clips = !score_typing
@@ -1923,12 +1910,13 @@ impl ShellApp {
     /// Note entry from the computer keyboard in the score view.
     fn handle_score_entry_keys(&mut self, context: &Context) {
         if self.view == View::Score
-            && self.score_entry
+            && self.score.entry
             && !context.wants_keyboard_input()
             && !context.input(|input| input.modifiers.command || input.modifiers.alt)
         {
             let track = self
-                .score_track
+                .score
+                .track
                 .or(self.roll.selected)
                 .or_else(|| self.song().tracks.first().map(|track| track.id));
             if let Some(track) = track {
@@ -1947,14 +1935,14 @@ impl ShellApp {
                     egui::Key::J,
                 ] {
                     if context.input(|input| input.key_pressed(key))
-                        && let Some(pitch) = score_key_pitch(key, self.score_octave)
+                        && let Some(pitch) = score_key_pitch(key, self.score.octave)
                         && let Ok(pitch) = music_core::Pitch::new(pitch)
                     {
                         match self.editor.insert_length(
                             track,
                             self.position.max(0),
                             pitch,
-                            self.score_note_length.max(1),
+                            self.score.note_length.max(1),
                         ) {
                             Ok(_) => {
                                 self.status =
@@ -3062,10 +3050,10 @@ impl ShellApp {
                     |key| key.tonic,
                 );
                 self.theory_minor = self.song().key.is_some_and(|key| key.minor);
-                self.score_full_hidden.clear();
-                self.score_full_cache = None;
-                self.score_track = None;
-                self.score_page = 0;
+                self.score.full_hidden.clear();
+                self.score.full_cache = None;
+                self.score.track = None;
+                self.score.page = 0;
                 self.song_name_input = self.song().name.clone();
                 self.status = Some(format!("loaded {label}"));
                 self.load_error = None;
@@ -3131,12 +3119,12 @@ impl ShellApp {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
-        if self.score_all_tracks {
+        if self.score.all_tracks {
             let selected: Vec<TrackId> = self
                 .song()
                 .tracks
                 .iter()
-                .filter(|track| !self.score_full_hidden.contains(&track.id))
+                .filter(|track| !self.score.full_hidden.contains(&track.id))
                 .map(|track| track.id)
                 .collect();
             let selected = if selected.is_empty() {
@@ -3154,7 +3142,7 @@ impl ShellApp {
                 score::Settings::default(),
                 &title,
                 &selected,
-                self.score_full_frames,
+                self.score.full_frames,
             );
             let path = std::env::temp_dir().join(format!(
                 "lazy-arranger-full-score-{}-{stamp}.pdf",
@@ -3199,7 +3187,8 @@ impl ShellApp {
             return;
         }
         let Some(track) = self
-            .score_track
+            .score
+            .track
             .or(self.roll.selected)
             .or_else(|| self.song().tracks.first().map(|track| track.id))
         else {
@@ -3215,7 +3204,7 @@ impl ShellApp {
             self.status = Some(String::from("pages must look like 1-4, 7"));
             return;
         }
-        let grand_staff = self.score_grand
+        let grand_staff = self.score.grand
             || self
                 .song()
                 .tracks
@@ -3231,7 +3220,7 @@ impl ShellApp {
         } else {
             self.song().name.clone()
         };
-        let pdf = if self.score_preview {
+        let pdf = if self.score.preview {
             match self
                 .song()
                 .tracks
@@ -3239,7 +3228,7 @@ impl ShellApp {
                 .position(|entry| entry.id == track)
             {
                 Some(index) => {
-                    match score::cecilia::render_pdf(self.song(), index, &title, self.score_grand) {
+                    match score::cecilia::render_pdf(self.song(), index, &title, self.score.grand) {
                         Ok(pdf) => pdf,
                         Err(error) => {
                             self.status = Some(format!("Cecilia: {error}"));
@@ -4797,8 +4786,8 @@ impl ShellApp {
                     |key| key.tonic,
                 );
                 self.theory_minor = self.song().key.is_some_and(|key| key.minor);
-                self.score_full_hidden.clear();
-                self.score_full_cache = None;
+                self.score.full_hidden.clear();
+                self.score.full_cache = None;
                 self.selected_note = None;
                 self.selected_clip = None;
                 self.selected_clips.clear();
@@ -4885,7 +4874,7 @@ impl eframe::App for ShellApp {
             self.settings.window_height = self.window_size.y;
             self.settings.timeline_zoom = self.timeline_zoom;
             self.settings.waveform_zoom = self.waveform_zoom;
-            self.settings.score_zoom = self.score_zoom;
+            self.settings.score_zoom = self.score.zoom;
             if let Some(position) = self.window_pos {
                 self.settings.window_x = Some(position.x);
                 self.settings.window_y = Some(position.y);
