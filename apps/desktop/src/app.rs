@@ -14107,6 +14107,50 @@ mod tests {
     }
 
     #[test]
+    fn an_audio_track_transcribes_into_new_tracks() {
+        let context = egui::Context::default();
+        let mut app = ShellApp::new(&context, demo_project(), None);
+        let rate = 48_000_u32;
+        let mut samples = vec![0.0_f32; rate as usize];
+        for (index, sample) in samples.iter_mut().enumerate() {
+            let time = index as f32 / rate as f32;
+            *sample = (std::f32::consts::TAU * 440.0 * time).sin() * 0.5;
+        }
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-transcribe-{}.wav",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            audio::RenderedAudio {
+                samples,
+                sample_rate: rate,
+            }
+            .to_wav(),
+        )
+        .expect("wav");
+        let id = project::TrackId::new(90).expect("track");
+        let mut track = project::song::Track::new(id, "Transcribe");
+        track.audio = Some(project::song::AudioRef {
+            path: path.display().to_string(),
+            start: 0,
+            length: 960,
+            offset: 0,
+            fade_in: 0,
+            fade_out: 0,
+            stretch: false,
+        });
+        app.editor
+            .session_for_test()
+            .apply(app_commands::Command::InsertTrack { track })
+            .expect("track");
+        let before = app.song().tracks.len();
+        app.transcribe_audio_track(id).expect("transcribe");
+        assert_eq!(app.song().tracks.len(), before + 1);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn detected_notes_convert_to_ticks_and_pitches() {
         let detected = vec![
             audio::analysis::DetectedNote {
