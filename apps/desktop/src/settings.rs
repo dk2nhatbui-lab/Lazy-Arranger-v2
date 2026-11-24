@@ -181,7 +181,7 @@ pub struct Settings {
     pub auto_inputs: bool,
     /// Preferred audio input name, when set.
     pub audio_input: Option<String>,
-    /// 0 mixes all input channels; 1..=8 records that channel.
+    /// 0 mixes all input channels; 1..=16 records that channel.
     pub audio_input_channel: u8,
     /// Preferred audio output device.
     pub audio_output: Option<String>,
@@ -369,7 +369,7 @@ impl Settings {
                     };
                 }
                 "audio_input_channel" => {
-                    settings.audio_input_channel = value.parse::<u8>().unwrap_or(0).min(8);
+                    settings.audio_input_channel = value.parse::<u8>().unwrap_or(0).min(16);
                 }
                 "audio_input" => {
                     settings.audio_input = if value.is_empty() {

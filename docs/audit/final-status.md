@@ -203,3 +203,4 @@ For the clef layout, choose either four measures per system without clefs
 - Final hardware round: all five MIDI outputs accepted note and panic sends; a new note-triggered recorder captured **9 Launchkey notes**, **28 PSR-S970 notes**, **8 XioSynth notes**, **10 X-TOUCH pads**, and **1,118 Launchkey / 635 X-TOUCH control changes**. D-05 audio capture was inconclusive; audible output, printing and L6max control remain unverified (`docs/audit/hardware.md`).
 - L6max device mixer page sends the factory 8-channel CC map; the owner observed hardware CH1 mute from CC 93 (`docs/audit/l6max-device.png`).
 - L6max device values persist in l6max-device.json; hardware mute verified, readback absent.
+- Audio input channel picker covers Mix or CH1-CH16; MIDI panic now records the five verified outputs.

@@ -8337,7 +8337,7 @@ impl ShellApp {
                                 {
                                     self.settings.audio_input_channel = 0;
                                 }
-                                for channel in 1..=8 {
+                                for channel in 1..=16 {
                                     if ui
                                         .selectable_label(
                                             self.settings.audio_input_channel == channel,
