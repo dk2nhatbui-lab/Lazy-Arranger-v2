@@ -162,6 +162,13 @@ pub fn encode(song: &Song) -> Result<Vec<u8>, SmfError> {
             TrackEventKind::Meta(MetaMessage::Marker(marker.name.as_bytes())),
         );
     }
+    for lyric in &song.lyrics {
+        conductor.push(
+            lyric.tick,
+            1,
+            TrackEventKind::Meta(MetaMessage::Lyric(lyric.text.as_bytes())),
+        );
+    }
     tracks.push(conductor.finish());
 
     for track in &song.tracks {
@@ -279,6 +286,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
     let mut time_signature: Option<TimeSignature> = None;
     let mut key_signature: Option<KeySignature> = None;
     let mut markers: Vec<Marker> = Vec::new();
+    let mut lyrics: Vec<project::song::LyricEvent> = Vec::new();
     let mut tracks: Vec<Track> = Vec::new();
     let mut next_track_id: u32 = 1;
 
@@ -363,6 +371,10 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
                         tick,
                         name: String::from_utf8_lossy(text).into_owned(),
                     }),
+                    MetaMessage::Lyric(text) => lyrics.push(project::song::LyricEvent {
+                        tick,
+                        text: String::from_utf8_lossy(text).into_owned(),
+                    }),
                     MetaMessage::EndOfTrack => {}
                     _ => {}
                 },
@@ -431,13 +443,14 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
     }
     let tempo_map = TempoMap::new(tempo_changes).map_err(|err| SmfError::Parse(err.to_string()))?;
     markers.sort_by_key(|marker| marker.tick);
+    lyrics.sort_by_key(|lyric| lyric.tick);
 
     let song = Song {
         scene_names: Vec::new(),
         buses: Vec::new(),
         master_plugins: Vec::new(),
         marks: Vec::new(),
-        lyrics: Vec::new(),
+        lyrics,
         name: String::new(),
         tempo_map,
         time_signature: time_signature.unwrap_or_default(),
@@ -661,6 +674,10 @@ mod tests {
             tick: 1920,
             name: String::from("Verse"),
         });
+        song.lyrics.push(project::song::LyricEvent {
+            tick: 960,
+            text: String::from("la"),
+        });
         let mut piano = Track::new(TrackId::new(1).expect("valid"), "Piano");
         for (index, (start, pitch, channel)) in [
             (0i64, "C4", 1u8),
@@ -704,6 +721,7 @@ mod tests {
         assert!(!report.rescaled);
         assert_eq!(notes_of(&back), notes_of(&song));
         assert_eq!(back.markers, song.markers);
+        assert_eq!(back.lyrics, song.lyrics);
         assert_eq!(back.time_signature, song.time_signature);
         assert!((back.tempo_map.bpm_at(0) - 120.0).abs() < 0.001);
         assert_eq!(
