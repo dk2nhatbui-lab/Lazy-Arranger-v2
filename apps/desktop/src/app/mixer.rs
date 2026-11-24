@@ -1,6 +1,19 @@
 //! The mixer, effects buses and plugin windows of [`ShellApp`].
 
 use super::*;
+use crate::widgets::MIXER_KNOB_SIZE;
+
+/// Height of every mixer fader. Track, bus and master strips keep the same
+/// rows above it (two knob rows, one button row) so their faders line up.
+const FADER_HEIGHT: f32 = 96.0;
+/// Height of the M/S/R button row, fixed so an empty row matches a full one.
+const BUTTON_ROW_HEIGHT: f32 = 20.0;
+
+/// Reserves a row of `height` so a strip without that control keeps its
+/// fader level with the other strips.
+fn empty_strip_slot(ui: &mut egui::Ui, height: f32) {
+    ui.allocate_exact_size(egui::vec2(1.0, height), egui::Sense::hover());
+}
 
 impl ShellApp {
     pub(super) fn bottom_mixer(&mut self, context: &Context) {
@@ -112,6 +125,7 @@ impl ShellApp {
                                         }
                                     });
                                     ui.horizontal(|ui| {
+                                        ui.set_min_height(BUTTON_ROW_HEIGHT);
                                         if ui.small_button("M").clicked() {
                                             muted = !muted;
                                             edits.push((
@@ -149,53 +163,37 @@ impl ShellApp {
                                             ));
                                         }
                                     });
-                                    ui.horizontal(|ui| {
-                                        ui.allocate_ui(egui::vec2(42.0, 88.0), |ui| {
-                                            if mixer_fader(
-                                                ui,
-                                                &mut volume,
-                                                0.0,
-                                                127.0,
-                                                88.0,
-                                                color,
-                                                "Volume",
-                                                100.0,
-                                            ) {
-                                                edits.push((
-                                                    track.id,
-                                                    u8::try_from(volume.round() as i32)
-                                                        .unwrap_or(track.volume),
-                                                    track.pan,
-                                                    muted,
-                                                    soloed,
-                                                    track.send_level,
-                                                    armed,
-                                                ));
-                                            }
-                                        });
-                                        let (meter, _) = ui.allocate_exact_size(
-                                            egui::vec2(5.0, 82.0),
-                                            egui::Sense::hover(),
-                                        );
-                                        ui.painter().rect_filled(meter, 1.0, theme::raised());
-                                        let level = if self.playing {
-                                            track_meter_level(
-                                                track,
-                                                self.position,
-                                                &self.timeline_waveforms,
-                                            )
-                                        } else {
-                                            0.0
-                                        };
-                                        let fill = egui::Rect::from_min_max(
-                                            egui::pos2(
-                                                meter.left(),
-                                                meter.bottom() - meter.height() * level,
-                                            ),
-                                            meter.max,
-                                        );
-                                        ui.painter().rect_filled(fill, 1.0, color);
-                                    });
+                                    let level = if self.playing {
+                                        track_meter_level(
+                                            track,
+                                            self.position,
+                                            &self.timeline_waveforms,
+                                        )
+                                    } else {
+                                        0.0
+                                    };
+                                    if mixer_fader(
+                                        ui,
+                                        &mut volume,
+                                        0.0,
+                                        127.0,
+                                        FADER_HEIGHT,
+                                        color,
+                                        "Volume",
+                                        100.0,
+                                        level,
+                                    ) {
+                                        edits.push((
+                                            track.id,
+                                            u8::try_from(volume.round() as i32)
+                                                .unwrap_or(track.volume),
+                                            track.pan,
+                                            muted,
+                                            soloed,
+                                            track.send_level,
+                                            armed,
+                                        ));
+                                    }
                                     ui.label(
                                         egui::RichText::new(format!(
                                             "{:.1} dB",
@@ -233,44 +231,9 @@ impl ShellApp {
                                             ));
                                         }
                                     });
-                                    ui.add_space(18.0);
+                                    empty_strip_slot(ui, MIXER_KNOB_SIZE.y);
                                     ui.horizontal(|ui| {
-                                        ui.allocate_ui(egui::vec2(42.0, 88.0), |ui| {
-                                            if mixer_fader(
-                                                ui,
-                                                &mut volume,
-                                                0.0,
-                                                127.0,
-                                                88.0,
-                                                theme::accent(),
-                                                "Bus volume",
-                                                100.0,
-                                            ) {
-                                                bus_volume = u8::try_from(volume.round() as i32)
-                                                    .unwrap_or(bus.volume);
-                                                bus_edits.push((
-                                                    bus.id, bus_volume, bus_pan, bus_muted,
-                                                    bus_soloed,
-                                                ));
-                                            }
-                                        });
-                                        let (meter, _) = ui.allocate_exact_size(
-                                            egui::vec2(5.0, 82.0),
-                                            egui::Sense::hover(),
-                                        );
-                                        ui.painter().rect_filled(meter, 1.0, theme::raised());
-                                        let level =
-                                            bus_levels.get(bus_index).copied().unwrap_or_default();
-                                        let fill = egui::Rect::from_min_max(
-                                            egui::pos2(
-                                                meter.left(),
-                                                meter.bottom() - meter.height() * level,
-                                            ),
-                                            meter.max,
-                                        );
-                                        ui.painter().rect_filled(fill, 1.0, theme::accent());
-                                    });
-                                    ui.horizontal(|ui| {
+                                        ui.set_min_height(BUTTON_ROW_HEIGHT);
                                         if ui.small_button("M").clicked() {
                                             bus_muted = !bus_muted;
                                             bus_edits.push((
@@ -284,6 +247,25 @@ impl ShellApp {
                                             ));
                                         }
                                     });
+                                    let level =
+                                        bus_levels.get(bus_index).copied().unwrap_or_default();
+                                    if mixer_fader(
+                                        ui,
+                                        &mut volume,
+                                        0.0,
+                                        127.0,
+                                        FADER_HEIGHT,
+                                        theme::accent(),
+                                        "Bus volume",
+                                        100.0,
+                                        level,
+                                    ) {
+                                        bus_volume = u8::try_from(volume.round() as i32)
+                                            .unwrap_or(bus.volume);
+                                        bus_edits.push((
+                                            bus.id, bus_volume, bus_pan, bus_muted, bus_soloed,
+                                        ));
+                                    }
                                     ui.label(
                                         egui::RichText::new(format!(
                                             "{:.1} dB",
@@ -315,7 +297,7 @@ impl ShellApp {
                             },
                             |player| player.meter().peak.clamp(0.0, 1.0),
                         );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                             ui.allocate_ui(egui::vec2(110.0, 220.0), |ui| {
                                 ui.vertical(|ui| {
                                     painter_strip(ui, theme::text_muted());
@@ -329,34 +311,20 @@ impl ShellApp {
                                         .size(9.0)
                                         .color(theme::text_dim()),
                                     );
-                                    ui.add_space(62.0);
-                                    ui.horizontal(|ui| {
-                                        ui.allocate_ui(egui::vec2(42.0, 88.0), |ui| {
-                                            mixer_fader(
-                                                ui,
-                                                &mut master_gain,
-                                                -24.0,
-                                                12.0,
-                                                88.0,
-                                                theme::accent(),
-                                                "Master",
-                                                0.0,
-                                            );
-                                        });
-                                        let (meter, _) = ui.allocate_exact_size(
-                                            egui::vec2(5.0, 82.0),
-                                            egui::Sense::hover(),
-                                        );
-                                        ui.painter().rect_filled(meter, 1.0, theme::raised());
-                                        let fill = egui::Rect::from_min_max(
-                                            egui::pos2(
-                                                meter.left(),
-                                                meter.bottom() - meter.height() * master_level,
-                                            ),
-                                            meter.max,
-                                        );
-                                        ui.painter().rect_filled(fill, 1.0, theme::accent());
-                                    });
+                                    empty_strip_slot(ui, MIXER_KNOB_SIZE.y);
+                                    empty_strip_slot(ui, MIXER_KNOB_SIZE.y);
+                                    empty_strip_slot(ui, BUTTON_ROW_HEIGHT);
+                                    mixer_fader(
+                                        ui,
+                                        &mut master_gain,
+                                        -24.0,
+                                        12.0,
+                                        FADER_HEIGHT,
+                                        theme::accent(),
+                                        "Master",
+                                        0.0,
+                                        master_level,
+                                    );
                                     ui.label(
                                         egui::RichText::new(format!("{master_gain:.1} dB"))
                                             .size(9.0)

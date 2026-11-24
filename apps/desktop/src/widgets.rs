@@ -418,6 +418,21 @@ pub(crate) fn draw_track_icon(
     }
 }
 
+/// Size of [`mixer_knob`]; the mixer uses it to keep empty knob slots the same height.
+pub(crate) const MIXER_KNOB_SIZE: Vec2 = Vec2::new(44.0, 46.0);
+/// Width of the fader column. It matches [`MIXER_KNOB_SIZE`] so the fader
+/// cap sits on the same vertical axis as the knobs above it.
+const FADER_COLUMN: f32 = MIXER_KNOB_SIZE.x;
+/// Gap between the fader column and its level meter, and the meter width.
+const FADER_METER_GAP: f32 = 4.0;
+const FADER_METER_WIDTH: f32 = 6.0;
+/// The fader cap, drawn like a brushed metal hardware cap.
+const FADER_CAP: Vec2 = Vec2::new(28.0, 16.0);
+
+/// A hardware-style channel fader with its level meter beside it.
+///
+/// The meter shares the fader slot's top and bottom, so the two line up.
+/// `meter` is the current level, 0..=1. Returns true when the value changed.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn mixer_fader(
     ui: &mut egui::Ui,
@@ -428,48 +443,236 @@ pub(crate) fn mixer_fader(
     color: egui::Color32,
     label: &str,
     default_value: f32,
+    meter: f32,
 ) -> bool {
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(32.0, height), egui::Sense::click_and_drag());
+    let size = egui::vec2(FADER_COLUMN + FADER_METER_GAP + FADER_METER_WIDTH, height);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
     let response =
         response.on_hover_text(format!("{label}: drag (Shift fine), double-click to reset"));
-    let double_clicked = response.double_clicked();
-    let delta = ui.input(|input| input.pointer.delta().y);
+
+    // The cap centre travels between these two lines, so the cap never leaves the widget.
+    let center_x = rect.left() + FADER_COLUMN / 2.0;
+    let travel_top = rect.top() + FADER_CAP.y / 2.0 + 1.0;
+    let travel_bottom = rect.bottom() - FADER_CAP.y / 2.0 - 1.0;
+    let travel = (travel_bottom - travel_top).max(1.0);
+    let span = (max - min).max(0.0001);
+
     let mut changed = false;
-    if double_clicked {
+    if response.double_clicked() {
         *value = default_value.clamp(min, max);
         changed = true;
-    } else if response.dragged() && delta != 0.0 {
-        let scale = if ui.input(|input| input.modifiers.shift) {
-            0.25
-        } else {
-            1.0
-        };
-        *value = (*value - delta / height * (max - min) * scale).clamp(min, max);
-        changed = true;
+    } else if response.dragged() {
+        let delta = ui.input(|input| input.pointer.delta().y);
+        if delta != 0.0 {
+            let scale = if ui.input(|input| input.modifiers.shift) {
+                0.25
+            } else {
+                1.0
+            };
+            // One pixel of drag moves the cap one pixel.
+            *value = (*value - delta / travel * span * scale).clamp(min, max);
+            changed = true;
+        }
     }
-    let rect = egui::Rect::from_min_size(rect.min, egui::vec2(32.0, height));
-    let center_x = rect.center().x;
-    let track = egui::Rect::from_min_max(
-        egui::pos2(center_x - 2.0, rect.top() + 6.0),
-        egui::pos2(center_x + 2.0, rect.bottom() - 6.0),
+
+    let painter = ui.painter_at(rect.expand(3.0));
+    let ratio = ((*value - min) / span).clamp(0.0, 1.0);
+    let cap_y = travel_bottom - ratio * travel;
+    let slot_top = travel_top - 3.0;
+    let slot_bottom = travel_bottom + 3.0;
+
+    // Scale ticks on both sides of the slot; the default (unity) mark is longer.
+    let tick = Color32::from_gray(if theme::light() { 120 } else { 110 }).gamma_multiply(0.7);
+    for step in 0..=10 {
+        let y = travel_bottom - travel * step as f32 / 10.0;
+        let length = if step % 5 == 0 { 6.0 } else { 4.0 };
+        for side in [-1.0_f32, 1.0] {
+            let inner = center_x + side * 6.0;
+            painter.line_segment(
+                [Pos2::new(inner, y), Pos2::new(inner + side * length, y)],
+                Stroke::new(1.0_f32, tick),
+            );
+        }
+    }
+    let unity = ((default_value - min) / span).clamp(0.0, 1.0);
+    let unity_y = travel_bottom - unity * travel;
+    for side in [-1.0_f32, 1.0] {
+        let inner = center_x + side * 6.0;
+        painter.line_segment(
+            [
+                Pos2::new(inner, unity_y),
+                Pos2::new(inner + side * 9.0, unity_y),
+            ],
+            Stroke::new(1.0_f32, theme::text_muted()),
+        );
+    }
+
+    // Recessed slot with the channel colour showing the level below the cap.
+    let slot = Rect::from_min_max(
+        Pos2::new(center_x - 2.5, slot_top),
+        Pos2::new(center_x + 2.5, slot_bottom),
     );
-    ui.painter().rect_filled(track, 2.0, theme::raised());
-    let ratio = ((*value - min) / (max - min).max(0.0001)).clamp(0.0, 1.0);
-    let thumb_y = track.bottom() - ratio * track.height();
-    let filled = egui::Rect::from_min_max(
-        egui::pos2(center_x - 2.0, thumb_y),
-        egui::pos2(center_x + 2.0, track.bottom()),
+    recessed(&painter, slot);
+    let fill = Rect::from_min_max(
+        Pos2::new(center_x - 1.0, cap_y),
+        Pos2::new(center_x + 1.0, slot_bottom - 1.5),
     );
-    ui.painter().rect_filled(filled, 2.0, color);
-    ui.painter()
-        .circle_filled(egui::pos2(center_x, thumb_y), 6.0, theme::raised());
-    ui.painter().circle_stroke(
-        egui::pos2(center_x, thumb_y),
-        6.0,
-        egui::Stroke::new(1.0_f32, theme::line()),
+    painter.rect_filled(fill, 1.0, color.gamma_multiply(0.85));
+
+    // Level meter, recessed, sharing the slot's top and bottom.
+    let meter_rect = Rect::from_min_max(
+        Pos2::new(rect.left() + FADER_COLUMN + FADER_METER_GAP, slot_top),
+        Pos2::new(rect.right(), slot_bottom),
     );
-    response.on_hover_text(label).clicked() || changed
+    recessed(&painter, meter_rect);
+    let level = meter.clamp(0.0, 1.0);
+    if level > 0.0 {
+        let inner = meter_rect.shrink(1.0);
+        let lit = Rect::from_min_max(
+            Pos2::new(inner.left(), inner.bottom() - inner.height() * level),
+            inner.max,
+        );
+        painter.rect_filled(lit, 1.0, color);
+    }
+
+    fader_cap(
+        &painter,
+        Rect::from_center_size(Pos2::new(center_x, cap_y), FADER_CAP),
+        color,
+        response.hovered() || response.dragged(),
+    );
+    changed
+}
+
+/// A dark groove with an inner shadow along the top and a lit lower edge.
+fn recessed(painter: &egui::Painter, rect: Rect) {
+    let base = if theme::light() {
+        Color32::from_rgb(0x4a, 0x46, 0x40)
+    } else {
+        Color32::from_rgb(0x05, 0x06, 0x07)
+    };
+    painter.rect_filled(rect, 2.0, base);
+    painter.line_segment(
+        [
+            Pos2::new(rect.left() + 1.0, rect.top() + 0.5),
+            Pos2::new(rect.right() - 1.0, rect.top() + 0.5),
+        ],
+        Stroke::new(1.0_f32, Color32::BLACK.gamma_multiply(0.6)),
+    );
+    painter.rect_stroke(
+        rect.expand(0.5),
+        2.5,
+        Stroke::new(1.0_f32, Color32::WHITE.gamma_multiply(0.06)),
+        StrokeKind::Outside,
+    );
+}
+
+/// Brushed metal fader cap: drop shadow, a vertical metal gradient, bevelled
+/// edges, grip ridges and a coloured index line through the middle.
+fn fader_cap(painter: &egui::Painter, cap: Rect, color: Color32, hot: bool) {
+    // Soft drop shadow, offset downwards as if lit from above.
+    for (grow, alpha) in [(3.0, 0.10), (2.0, 0.16), (1.0, 0.24)] {
+        painter.rect_filled(
+            cap.translate(Vec2::new(0.0, 2.5)).expand(grow),
+            3.0 + grow,
+            Color32::BLACK.gamma_multiply(alpha),
+        );
+    }
+
+    let lift = if hot { 0.08 } else { 0.0 };
+    let stops = [
+        (0.00, Color32::from_rgb(0xf2, 0xf3, 0xf5)),
+        (0.18, Color32::from_rgb(0xcf, 0xd2, 0xd7)),
+        (0.46, Color32::from_rgb(0xa8, 0xad, 0xb4)),
+        (0.54, Color32::from_rgb(0x8c, 0x92, 0x9a)),
+        (0.82, Color32::from_rgb(0xa3, 0xa8, 0xaf)),
+        (1.00, Color32::from_rgb(0x6c, 0x72, 0x7a)),
+    ]
+    .map(|(at, colour)| (at, lighten(colour, lift)));
+    painter.rect_filled(cap, 2.5, stops[0].1);
+    vertical_gradient(painter, cap.shrink2(Vec2::new(0.0, 1.0)), &stops);
+
+    // Fine horizontal brushing.
+    let mut y = cap.top() + 2.0;
+    while y < cap.bottom() - 1.0 {
+        painter.line_segment(
+            [
+                Pos2::new(cap.left() + 1.0, y),
+                Pos2::new(cap.right() - 1.0, y),
+            ],
+            Stroke::new(0.5_f32, Color32::WHITE.gamma_multiply(0.10)),
+        );
+        y += 1.5;
+    }
+
+    // Grip ridges: a dark groove with a highlight just below it.
+    for offset in [-4.5_f32, 4.5] {
+        let y = cap.center().y + offset;
+        painter.line_segment(
+            [
+                Pos2::new(cap.left() + 2.0, y),
+                Pos2::new(cap.right() - 2.0, y),
+            ],
+            Stroke::new(
+                1.0_f32,
+                Color32::from_rgb(0x4a, 0x4f, 0x56).gamma_multiply(0.8),
+            ),
+        );
+        painter.line_segment(
+            [
+                Pos2::new(cap.left() + 2.0, y + 1.0),
+                Pos2::new(cap.right() - 2.0, y + 1.0),
+            ],
+            Stroke::new(1.0_f32, Color32::WHITE.gamma_multiply(0.45)),
+        );
+    }
+
+    // Index line in the channel colour.
+    painter.line_segment(
+        [
+            Pos2::new(cap.left() + 1.5, cap.center().y),
+            Pos2::new(cap.right() - 1.5, cap.center().y),
+        ],
+        Stroke::new(2.0_f32, color),
+    );
+
+    // Bevel: bright top edge, dark bottom edge, then a crisp outline.
+    painter.line_segment(
+        [
+            Pos2::new(cap.left() + 2.0, cap.top() + 0.5),
+            Pos2::new(cap.right() - 2.0, cap.top() + 0.5),
+        ],
+        Stroke::new(1.0_f32, Color32::WHITE.gamma_multiply(0.9)),
+    );
+    painter.line_segment(
+        [
+            Pos2::new(cap.left() + 2.0, cap.bottom() - 0.5),
+            Pos2::new(cap.right() - 2.0, cap.bottom() - 0.5),
+        ],
+        Stroke::new(1.0_f32, Color32::from_rgb(0x3c, 0x40, 0x46)),
+    );
+    painter.rect_stroke(
+        cap,
+        2.5,
+        Stroke::new(1.0_f32, Color32::from_rgb(0x2a, 0x2e, 0x33)),
+        StrokeKind::Outside,
+    );
+}
+
+/// Fills `rect` with a top-to-bottom gradient through `stops` (position 0..=1, colour).
+fn vertical_gradient(painter: &egui::Painter, rect: Rect, stops: &[(f32, Color32)]) {
+    let mut mesh = egui::Mesh::default();
+    for (index, (at, colour)) in stops.iter().enumerate() {
+        let y = rect.top() + rect.height() * at.clamp(0.0, 1.0);
+        mesh.colored_vertex(Pos2::new(rect.left(), y), *colour);
+        mesh.colored_vertex(Pos2::new(rect.right(), y), *colour);
+        if index > 0 {
+            let base = u32::try_from(index * 2).unwrap_or(0);
+            mesh.add_triangle(base - 2, base - 1, base);
+            mesh.add_triangle(base - 1, base, base + 1);
+        }
+    }
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 pub(crate) fn painter_strip(ui: &mut egui::Ui, color: egui::Color32) {
@@ -497,8 +700,7 @@ pub(crate) fn mixer_knob(
     label: &str,
     enabled: bool,
 ) -> bool {
-    let size = egui::vec2(44.0, 46.0);
-    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+    let (rect, response) = ui.allocate_exact_size(MIXER_KNOB_SIZE, egui::Sense::click_and_drag());
     if enabled && response.dragged() {
         let delta = ui.input(|input| input.pointer.delta().y);
         *value = (*value - delta / 90.0 * (max - min)).clamp(min, max);
