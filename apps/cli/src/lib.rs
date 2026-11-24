@@ -3733,6 +3733,33 @@ mod tests {
     }
 
     #[test]
+    fn wav_reverse_accepts_a_file_and_output() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                use clap::Parser;
+                let cli = Cli::try_parse_from([
+                    "lazy-arranger",
+                    "wav-reverse",
+                    "in.wav",
+                    "--out",
+                    "out.wav",
+                ])
+                .expect("parse");
+                match cli.command {
+                    Commands::WavReverse { wav, out } => {
+                        assert_eq!(wav, std::path::PathBuf::from("in.wav"));
+                        assert_eq!(out, std::path::PathBuf::from("out.wav"));
+                    }
+                    _ => panic!("wav-reverse"),
+                }
+            })
+            .expect("thread")
+            .join()
+            .expect("join");
+    }
+
+    #[test]
     fn audio_midi_song_can_transcribe_drums() {
         let rate = 48_000_u32;
         let mut samples = vec![0.0_f32; rate as usize];
