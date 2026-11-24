@@ -428,7 +428,10 @@ pub fn render_with_soundfont(
                     if end <= start {
                         continue;
                     }
-                    let cross = chords::to_ticks(0.005, song.tempo_map.bpm_at(start)).max(1);
+                    let cross = chords::to_ticks(0.005, song.tempo_map.bpm_at(start))
+                        .max(active.fade_in.min(end.saturating_sub(start)))
+                        .max(active.fade_out.min(end.saturating_sub(start)))
+                        .max(1);
                     let mut placed = active.clone();
                     placed.offset = active
                         .offset
