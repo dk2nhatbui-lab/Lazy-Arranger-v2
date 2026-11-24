@@ -293,6 +293,7 @@ fn consume_binding(context: &Context, text: &str, fallback: &str) -> bool {
 fn detected_to_notes(
     detected: &[audio::analysis::DetectedNote],
     bpm: f64,
+    channel: music_core::Channel,
 ) -> Result<Vec<project::song::Note>, String> {
     let mut notes = Vec::with_capacity(detected.len());
     for (index, detected) in detected.iter().enumerate() {
@@ -307,7 +308,7 @@ fn detected_to_notes(
             pitch,
             velocity: music_core::Velocity::new((detected.level * 127.0).clamp(1.0, 127.0) as u8)
                 .map_err(|error| error.to_string())?,
-            channel: music_core::Channel::first(),
+            channel,
         });
     }
     Ok(notes)
@@ -4171,7 +4172,7 @@ impl ShellApp {
             return Err(String::from("no stable monophonic pitch found"));
         }
         let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
-        let notes = detected_to_notes(&detected, bpm)?;
+        let notes = detected_to_notes(&detected, bpm, music_core::Channel::first())?;
         if notes.is_empty() {
             return Err(String::from("no notes after pitch conversion"));
         }
@@ -4186,6 +4187,43 @@ impl ShellApp {
         let new_track = self.editor.insert_recorded(&name, &notes)?;
         self.status = Some(format!(
             "transcribed {} note(s) into track {}",
+            notes.len(),
+            new_track.get()
+        ));
+        Ok(())
+    }
+
+    fn transcribe_audio_drums(&mut self, track_id: TrackId) -> Result<(), String> {
+        let reference = self
+            .song()
+            .tracks
+            .iter()
+            .find(|track| track.id == track_id)
+            .and_then(|track| track.audio.clone())
+            .ok_or_else(|| String::from("this track has no active audio reference"))?;
+        let decoded = audio::decode::decode_mono(std::path::Path::new(&reference.path))
+            .map_err(|error| format!("{}: {error}", reference.path))?;
+        let detected = audio::analysis::to_drums(&decoded.samples, decoded.sample_rate);
+        if detected.is_empty() {
+            return Err(String::from("no drum onsets found"));
+        }
+        let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
+        let notes = detected_to_notes(
+            &detected,
+            bpm,
+            music_core::Channel::new(9).map_err(|error| error.to_string())?,
+        )?;
+        let name = format!(
+            "{} Drums",
+            self.song()
+                .tracks
+                .iter()
+                .find(|track| track.id == track_id)
+                .map_or("Audio", |track| track.name.as_str())
+        );
+        let new_track = self.editor.insert_recorded(&name, &notes)?;
+        self.status = Some(format!(
+            "transcribed {} drum hit(s) into track {}",
             notes.len(),
             new_track.get()
         ));
@@ -4225,6 +4263,7 @@ impl ShellApp {
         let mut comp_edit: Option<(usize, usize, Tick, Tick)> = None;
         let mut play_take: Option<String> = None;
         let mut to_midi = false;
+        let mut to_drums = false;
         egui::Window::new("Audio takes")
             .open(&mut open)
             .default_width(400.0)
@@ -4235,6 +4274,9 @@ impl ShellApp {
                             ui.label(format!("Active: {}", reference.path));
                             if ui.small_button("To MIDI").clicked() {
                                 to_midi = true;
+                            }
+                            if ui.small_button("To drums").clicked() {
+                                to_drums = true;
                             }
                         });
                     }
@@ -4378,6 +4420,9 @@ impl ShellApp {
             }
         }
         if to_midi && let Err(error) = self.transcribe_audio_track(track_id) {
+            self.status = Some(error);
+        }
+        if to_drums && let Err(error) = self.transcribe_audio_drums(track_id) {
             self.status = Some(error);
         }
         self.takes_open = open;
@@ -14077,7 +14122,8 @@ mod tests {
                 level: 0.25,
             },
         ];
-        let notes = detected_to_notes(&detected, 120.0).expect("notes");
+        let notes =
+            detected_to_notes(&detected, 120.0, music_core::Channel::first()).expect("notes");
         assert_eq!(notes.len(), 2);
         assert_eq!(notes[0].pitch.as_u8(), 69);
         assert_eq!(notes[0].start, 0);

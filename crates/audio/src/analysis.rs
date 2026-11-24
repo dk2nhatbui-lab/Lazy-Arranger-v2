@@ -139,6 +139,66 @@ fn nearest_pitch(hz: f64) -> u8 {
     midi.clamp(0.0, 127.0) as u8
 }
 
+/// A rough kick/snare/hi-hat transcription from onsets and band energy.
+///
+/// This is a time-domain heuristic, not a trained classifier: low-frequency
+/// onsets become kick, high-frequency ones hi-hat, the rest snare.
+#[must_use]
+pub fn to_drums(samples: &[f32], sample_rate: u32) -> Vec<DetectedNote> {
+    if sample_rate == 0 || samples.is_empty() {
+        return Vec::new();
+    }
+    let rate = f64::from(sample_rate);
+    let onsets = crate::drums::onsets(samples, sample_rate);
+    let window = ((rate * 0.04) as usize).max(32);
+    let alpha = 1.0 - (-std::f64::consts::TAU * 200.0 / rate).exp();
+    let mut notes = Vec::new();
+    for (index, onset) in onsets.iter().enumerate() {
+        let start = *onset;
+        let end = (start + window).min(samples.len());
+        if end.saturating_sub(start) < 8 {
+            continue;
+        }
+        let mut low = 0.0_f64;
+        let mut low_energy = 0.0_f64;
+        let mut high_energy = 0.0_f64;
+        let mut previous = samples[start];
+        for sample in &samples[start..end] {
+            low += alpha * (f64::from(*sample) - low);
+            low_energy += low.abs();
+            high_energy += f64::from((*sample - previous).abs());
+            previous = *sample;
+        }
+        let frame = end.saturating_sub(start) as f64;
+        let low_energy = low_energy / frame;
+        let high_energy = high_energy / frame;
+        let energy: f32 = samples[start..end]
+            .iter()
+            .map(|sample| sample.abs())
+            .sum::<f32>()
+            / frame as f32;
+        if energy < 0.005 {
+            continue;
+        }
+        let pitch = if high_energy > low_energy * 2.5 {
+            42
+        } else if low_energy > high_energy * 1.5 {
+            36
+        } else {
+            38
+        };
+        let next = onsets.get(index + 1).copied().unwrap_or(samples.len());
+        let duration = (next.saturating_sub(start) as f64 / rate).clamp(0.04, 0.25);
+        notes.push(DetectedNote {
+            start: start as f64 / rate,
+            duration,
+            pitch,
+            level: energy.min(1.0),
+        });
+    }
+    notes
+}
+
 /// Converts a detected note into a project note at 120 bpm's tick scale.
 #[must_use]
 pub fn as_ticks(note: &DetectedNote, bpm: f64) -> (Tick, Tick) {
@@ -334,6 +394,26 @@ mod tests {
     #[test]
     fn silence_has_no_pitch() {
         assert_eq!(detect_pitch(&vec![0.0_f32; 4_096], 48_000), None);
+    }
+
+    #[test]
+    fn drum_transcription_classifies_low_and_high_hits() {
+        let rate = 48_000_u32;
+        let mut samples = vec![0.0_f32; rate as usize];
+        let burst = 0.06 * f64::from(rate);
+        let start = (0.1 * f64::from(rate)) as usize;
+        for index in 0..burst as usize {
+            let time = index as f64 / f64::from(rate);
+            samples[start + index] += (std::f64::consts::TAU * 60.0 * time).sin() as f32 * 0.8;
+        }
+        let start = (0.5 * f64::from(rate)) as usize;
+        for index in 0..burst as usize {
+            samples[start + index] += if index % 2 == 0 { 0.4 } else { -0.4 };
+        }
+        let notes = to_drums(&samples, rate);
+        assert!(!notes.is_empty());
+        assert!(notes.iter().any(|note| note.pitch == 36));
+        assert!(notes.iter().any(|note| note.pitch == 42));
     }
 
     #[test]
