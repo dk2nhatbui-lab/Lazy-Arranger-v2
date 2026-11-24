@@ -478,6 +478,25 @@ pub fn show_full(
                 );
             }
         }
+        if index == 0 {
+            for lyric in engraved
+                .lyrics
+                .iter()
+                .filter(|lyric| lyric.page == source_page)
+            {
+                let x = page_rect.left()
+                    + first_system.map_or(lyric.x, |sys| score::full_score_x(system, sys, lyric.x))
+                        * zoom;
+                let y = top + (lyric.y - system.y) * (line_gap / settings.staff_space) * zoom;
+                painter.text(
+                    Pos2::new(x, y),
+                    egui::Align2::LEFT_CENTER,
+                    &lyric.text,
+                    egui::FontId::proportional(7.0 * zoom),
+                    Color32::from_rgb(0x20, 0x20, 0x20),
+                );
+            }
+        }
         for note in engraved
             .notes
             .iter()

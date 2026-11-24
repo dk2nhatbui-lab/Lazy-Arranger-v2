@@ -477,6 +477,7 @@ struct FullStaff {
     ties: Vec<crate::Tie>,
     tuplets: Vec<crate::Tuplet>,
     chords: Vec<crate::ChordSymbol>,
+    lyrics: Vec<crate::Lyric>,
 }
 
 /// Writes an all-track full score to PDF bytes.
@@ -517,6 +518,7 @@ pub fn to_full_pdf(
             ties: engraved.ties,
             tuplets: engraved.tuplets,
             chords: engraved.chord_symbols,
+            lyrics: engraved.lyrics,
         });
     }
     if staves.is_empty() {
@@ -527,6 +529,7 @@ pub fn to_full_pdf(
             ties: Vec::new(),
             tuplets: Vec::new(),
             chords: Vec::new(),
+            lyrics: Vec::new(),
         });
     }
     let page_count = staves
@@ -690,6 +693,19 @@ pub fn to_full_pdf(
                     x,
                     settings.page_height - stem
                 );
+            }
+            if staff_index == 0 {
+                for lyric in staff.lyrics.iter().filter(|lyric| lyric.page == *page) {
+                    let x = first_system
+                        .map_or(lyric.x, |sys| crate::full_score_x(system, sys, lyric.x));
+                    let y = top + (lyric.y - system.y) * (line_gap / settings.staff_space);
+                    let _ = writeln!(
+                        content,
+                        "BT /F1 7 Tf {x:.1} {:.1} Td ({}) Tj ET",
+                        settings.page_height - y,
+                        escape(&lyric.text)
+                    );
+                }
             }
             let mut shorts: Vec<&crate::PlacedNote> = staff
                 .notes
@@ -1127,6 +1143,10 @@ mod tests {
             tick: 0,
             chord: music_core::Chord::parse("C").expect("chord"),
         });
+        song.lyrics.push(project::song::LyricEvent {
+            tick: 0,
+            text: String::from("la"),
+        });
         for (index, name) in [(1_u32, "Piano"), (2, "Bass")] {
             let mut track = Track::new(TrackId::new(index).expect("valid"), name);
             track.notes.push(Note {
@@ -1148,6 +1168,7 @@ mod tests {
         assert!(text.contains("(Piano) Tj"));
         assert!(text.contains("(Bass) Tj"));
         assert!(text.contains("(C) Tj"));
+        assert!(text.contains("(la) Tj"));
         assert!(text.contains("/ClefTreble"), "clef image resource");
         assert!(
             text.contains("(#) Tj") || text.contains("(b) Tj"),
