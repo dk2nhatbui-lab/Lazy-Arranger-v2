@@ -2004,6 +2004,25 @@ mod tests {
     }
 
     #[test]
+    fn song_key_is_undoable() {
+        use music_core::PitchClass;
+        use project::song::KeySignature;
+        let mut edit = session();
+        edit.apply(Command::SetSongKey {
+            key: Some(KeySignature {
+                tonic: PitchClass::new(7),
+                minor: false,
+            }),
+        })
+        .expect("key");
+        assert_eq!(edit.song().key.expect("key").tonic.as_u8(), 7);
+        edit.undo().expect("undo");
+        assert!(edit.song().key.is_none());
+        edit.redo().expect("redo");
+        assert_eq!(edit.song().key.expect("key").tonic.as_u8(), 7);
+    }
+
+    #[test]
     fn invalid_automation_is_rejected() {
         use project::song::{Automation, AutomationPoint, AutomationTarget};
         let mut edit = session();

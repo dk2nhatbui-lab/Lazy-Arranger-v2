@@ -1225,6 +1225,21 @@ mod tests {
     }
 
     #[test]
+    fn a_selected_key_survives_json() {
+        use music_core::PitchClass;
+        let mut song = Song::new("Key", 120.0);
+        song.key = Some(KeySignature {
+            tonic: PitchClass::new(2),
+            minor: true,
+        });
+        let json = ProjectFile::new(song).to_json_pretty().expect("serialize");
+        let back = ProjectFile::from_json(&json).expect("parse");
+        let key = back.song.key.expect("key");
+        assert_eq!(key.tonic.as_u8(), 2);
+        assert!(key.minor);
+    }
+
+    #[test]
     fn legacy_key_strings_parse_into_key_signatures() {
         let song = Song {
             key: parse_key_text("C minor"),
