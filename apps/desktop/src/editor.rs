@@ -1130,6 +1130,19 @@ impl Editor {
         Ok(())
     }
 
+    /// Moves a track to a new zero-based position.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the edit is rejected.
+    pub fn move_track(&mut self, track: TrackId, index: usize) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::MoveTrack { track, index })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Duplicates an audio track, including takes and comps, as a new track.
     ///
     /// # Errors

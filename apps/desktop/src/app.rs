@@ -9847,6 +9847,12 @@ impl ShellApp {
             });
         }
         for (id, name, volume, pan, muted, soloed) in strips {
+            let index = self
+                .song()
+                .tracks
+                .iter()
+                .position(|track| track.id == id)
+                .unwrap_or(0);
             let meter = if self
                 .player
                 .as_ref()
@@ -9863,6 +9869,12 @@ impl ShellApp {
                 audio::master::Meter::default()
             };
             ui.horizontal(|ui| {
+                if index > 0 && ui.small_button("↑").clicked() {
+                    let _ = self.editor.move_track(id, index - 1);
+                }
+                if index + 1 < self.song().tracks.len() && ui.small_button("↓").clicked() {
+                    let _ = self.editor.move_track(id, index + 1);
+                }
                 ui.label(
                     egui::RichText::new(if name.is_empty() { "untitled" } else { &name })
                         .size(11.0),

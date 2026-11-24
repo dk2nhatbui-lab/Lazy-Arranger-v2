@@ -102,6 +102,13 @@ pub enum Command {
         /// The track.
         track: TrackId,
     },
+    /// Move a track to a new zero-based position.
+    MoveTrack {
+        /// The track.
+        track: TrackId,
+        /// Target position, clamped to the track list.
+        index: usize,
+    },
     /// Set a track's mute, solo and arm flags.
     SetTrackFlags {
         /// The track.
@@ -350,6 +357,7 @@ impl Command {
             Self::SetTimeSignature { .. } => "set time signature",
             Self::InsertTrack { .. } | Self::InsertTrackAt { .. } => "insert track",
             Self::RemoveTrack { .. } => "remove track",
+            Self::MoveTrack { .. } => "move track",
             Self::SetChords { .. } => "set chords",
             Self::SetTrackProgram { .. } => "set track program",
             Self::SetTrackBank { .. } => "set track bank",
@@ -1102,6 +1110,15 @@ impl EditSession {
                     track: self.track(*track)?.clone(),
                 }
             }
+            Command::MoveTrack { track, .. } => Command::MoveTrack {
+                track: *track,
+                index: self
+                    .song()
+                    .tracks
+                    .iter()
+                    .position(|entry| entry.id == *track)
+                    .ok_or(CommandError::UnknownTrack(*track))?,
+            },
         })
     }
 
@@ -1384,6 +1401,18 @@ impl EditSession {
                     .tracks
                     .retain(|existing| existing.id != *track);
             }
+            Command::MoveTrack { track, index } => {
+                let position = self
+                    .project
+                    .song
+                    .tracks
+                    .iter()
+                    .position(|entry| entry.id == *track)
+                    .ok_or(CommandError::UnknownTrack(*track))?;
+                let track = self.project.song.tracks.remove(position);
+                let target = (*index).min(self.project.song.tracks.len());
+                self.project.song.tracks.insert(target, track);
+            }
         }
         Ok(())
     }
@@ -1414,6 +1443,9 @@ fn describe(command: &Command) -> String {
             format!("insert track {} at {index}", track.id)
         }
         Command::RemoveTrack { track } => format!("remove track {track}"),
+        Command::MoveTrack { track, index } => {
+            format!("move track {track} to position {index}")
+        }
         Command::SetChords { chords } => format!("set {} chord(s)", chords.len()),
         Command::SetAutomation { track, lanes } => {
             format!("track {track}: {} automation lane(s)", lanes.len())
@@ -2057,6 +2089,39 @@ mod tests {
         assert!(edit.song().tracks[0].audio.is_some());
         edit.undo().expect("undo set");
         assert!(edit.song().tracks[0].audio.is_none());
+    }
+
+    #[test]
+    fn moving_a_track_reorders_and_undoes() {
+        let mut edit = session();
+        let second = TrackId::new(2).expect("valid");
+        edit.apply(Command::InsertTrack {
+            track: project::song::Track::new(second, "Second"),
+        })
+        .expect("insert");
+        let first = TrackId::new(1).expect("valid");
+        edit.apply(Command::MoveTrack {
+            track: first,
+            index: 1,
+        })
+        .expect("move");
+        assert_eq!(
+            edit.song()
+                .tracks
+                .iter()
+                .map(|track| track.id)
+                .collect::<Vec<_>>(),
+            vec![second, first]
+        );
+        edit.undo().expect("undo");
+        assert_eq!(
+            edit.song()
+                .tracks
+                .iter()
+                .map(|track| track.id)
+                .collect::<Vec<_>>(),
+            vec![first, second]
+        );
     }
 
     #[test]

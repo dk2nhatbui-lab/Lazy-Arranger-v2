@@ -1176,6 +1176,18 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
+            name: "move_track",
+            description: "Move a track to a zero-based position.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "track": {"type": "integer"},
+                    "index": {"type": "integer"}
+                },
+                "required": ["track", "index"]
+            }),
+        },
+        Tool {
             name: "set_track_voice",
             description: "Set a track's program and bank in one undo step.",
             input_schema: json!({
@@ -1373,6 +1385,19 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             let track = track_argument(arguments)?;
             session.apply(Command::RemoveTrack { track })?;
             Ok(json!({"removed": track.get()}))
+        }
+        "move_track" => {
+            let track = track_argument(arguments)?;
+            let index = arguments
+                .get("index")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| ToolError::Arguments(String::from("index is required")))?;
+            let index = usize::try_from(index)
+                .map_err(|_| ToolError::Arguments(String::from("index is too large")))?;
+            session
+                .apply(Command::MoveTrack { track, index })
+                .map_err(|error| ToolError::Arguments(error.to_string()))?;
+            Ok(json!({"track": track.get(), "index": index}))
         }
         "set_track_voice" => {
             let track = track_argument(arguments)?;
@@ -4198,7 +4223,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 108);
+        assert_eq!(tools().len(), 109);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
@@ -5152,6 +5177,10 @@ mod tests {
         assert_eq!(session.undo_depth(), 2);
         call(&mut session, "undo", &json!({})).expect("undo");
         assert!(session.song().tracks[0].notes.is_empty());
+        call(&mut session, "move_track", &json!({"track": 1, "index": 1})).expect("move");
+        assert_eq!(session.song().tracks[0].id.get() as u64, id);
+        call(&mut session, "undo", &json!({})).expect("undo");
+        assert_eq!(session.song().tracks[0].id.get(), 1);
     }
 
     #[test]
