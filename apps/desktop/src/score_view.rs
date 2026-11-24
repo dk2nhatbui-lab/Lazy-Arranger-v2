@@ -105,6 +105,9 @@ fn cecilia_cache_key(
     }
     song.time_signature.numerator.hash(&mut hasher);
     song.time_signature.denominator.hash(&mut hasher);
+    song.key
+        .map(|key| (key.tonic.as_u8(), key.minor))
+        .hash(&mut hasher);
     if let Some(track) = song.tracks.get(track_index) {
         for note in &track.notes {
             note.start.hash(&mut hasher);
@@ -1376,6 +1379,17 @@ mod tests {
         song.tracks[0].notes[0].pitch = Pitch::from_name("D4").expect("valid");
         let after = cecilia_cache_key(&song, 0, "Score", false);
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn the_cecilia_key_changes_with_the_selected_key() {
+        let mut song = score_song();
+        let before = cecilia_cache_key(&song, 0, "Score", false);
+        song.key = Some(project::song::KeySignature {
+            tonic: music_core::PitchClass::new(2),
+            minor: false,
+        });
+        assert_ne!(before, cecilia_cache_key(&song, 0, "Score", false));
     }
 
     #[test]
