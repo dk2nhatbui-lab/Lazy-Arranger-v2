@@ -9415,7 +9415,9 @@ impl ShellApp {
                     .on_hover_text("Render this track to audio and clear its notes")
                     .clicked()
                 {
-                    let path = std::path::PathBuf::from(format!("freeze-{id}.wav"));
+                    let folder = crate::settings::Settings::data_dir();
+                    let _ = std::fs::create_dir_all(&folder);
+                    let path = folder.join(format!("freeze-{id}.wav"));
                     match self.editor.freeze_track(id, &path) {
                         Ok(()) => {
                             self.status = Some(format!("froze {id} -> {}", path.display()));
