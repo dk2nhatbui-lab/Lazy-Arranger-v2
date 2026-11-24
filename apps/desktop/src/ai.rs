@@ -25,8 +25,9 @@ impl Config {
 }
 
 const SYSTEM: &str = "You are the assistant inside the Lazy Arranger music app. \
-Answer briefly. When the user asks for a change, reply with exactly one line \
-`tool <tool_name> {json}` using a tool from the app, otherwise answer normally.";
+Answer briefly. When the user asks for a change, reply with one or more lines \
+`tool <tool_name> {json}` using tools from the app; several read-only tools may \
+be combined, and only one changing tool is applied. Otherwise answer normally.";
 
 /// Builds the chat-completions message list: system, history, then the prompt.
 #[must_use]
