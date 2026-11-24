@@ -255,6 +255,14 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                     top + 2.0,
                     escape(&frame.name)
                 );
+                if frame.base_fret > 1 {
+                    let _ = writeln!(
+                        content,
+                        "BT /F1 7 Tf {:.1} {top:.1} Td ({base}fr) Tj ET",
+                        left - 12.0,
+                        base = frame.base_fret
+                    );
+                }
                 for (string, fret) in frame.frets.iter().enumerate() {
                     let x = left + width * string as f32 / 5.0;
                     match fret {
