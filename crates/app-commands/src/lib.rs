@@ -1154,6 +1154,7 @@ impl EditSession {
                 self.project.song.tempo_map = next;
             }
             Command::SetAutomation { track, lanes } => {
+                check_automation(lanes).map_err(CommandError::Validation)?;
                 self.track_mut(*track)?.automation = lanes.clone();
             }
             Command::FreezeTrack { track, reference } => {
@@ -1457,6 +1458,37 @@ fn describe(command: &Command) -> String {
 /// # Errors
 ///
 /// Returns the first error as text.
+fn check_automation(lanes: &[project::song::Automation]) -> Result<(), String> {
+    let mut targets = std::collections::HashSet::new();
+    for lane in lanes {
+        if !targets.insert(format!("{:?}", lane.target)) {
+            return Err(format!("duplicate automation target {:?}", lane.target));
+        }
+        let mut previous = None;
+        for point in &lane.points {
+            if point.tick < 0 {
+                return Err(format!("negative automation tick {}", point.tick));
+            }
+            if !point.value.is_finite() || !(0.0..=127.0).contains(&point.value) {
+                return Err(format!(
+                    "automation value {} is outside 0..=127",
+                    point.value
+                ));
+            }
+            if let Some(previous) = previous
+                && point.tick < previous
+            {
+                return Err(format!(
+                    "automation points are not sorted: {previous} then {}",
+                    point.tick
+                ));
+            }
+            previous = Some(point.tick);
+        }
+    }
+    Ok(())
+}
+
 pub fn check_project(project: &ProjectFile) -> Result<(), String> {
     let issues = project.validate();
     match issues
@@ -1949,6 +1981,37 @@ mod tests {
         assert!(edit.song().tracks[0].audio.is_some());
         edit.undo().expect("undo set");
         assert!(edit.song().tracks[0].audio.is_none());
+    }
+
+    #[test]
+    fn invalid_automation_is_rejected() {
+        use project::song::{Automation, AutomationPoint, AutomationTarget};
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        let lane = |tick, value| Automation {
+            target: AutomationTarget::Pan,
+            points: vec![AutomationPoint { tick, value }],
+        };
+        assert!(
+            edit.apply(Command::SetAutomation {
+                track,
+                lanes: vec![lane(960, 64.0), lane(0, 64.0)],
+            })
+            .is_err()
+        );
+        assert!(
+            edit.apply(Command::SetAutomation {
+                track,
+                lanes: vec![Automation {
+                    target: AutomationTarget::Volume,
+                    points: vec![AutomationPoint {
+                        tick: 0,
+                        value: 200.0
+                    }],
+                }],
+            })
+            .is_err()
+        );
     }
 
     #[test]
