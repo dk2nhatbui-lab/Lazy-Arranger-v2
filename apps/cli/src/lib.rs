@@ -201,6 +201,19 @@ enum Commands {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Transcribe monophonic audio to a MIDI file.
+    AudioToMidi {
+        /// Source audio file.
+        wav: PathBuf,
+        /// Output `.mid` path.
+        out: PathBuf,
+        /// Tempo used to place notes; defaults to 120.
+        #[arg(long, default_value_t = 120.0)]
+        bpm: f64,
+        /// Transcribe kick/snare/hi-hat instead of melody.
+        #[arg(long)]
+        drums: bool,
+    },
     /// Write a track's score as a PDF.
     ScorePdf {
         /// Project `.json` path.
@@ -1174,6 +1187,64 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                     .map_err(|error| format!("could not write {}: {error}", path.display()))?;
                 println!("{} chord(s) -> {}", chords.len(), path.display());
             }
+            Ok(())
+        }
+        Commands::AudioToMidi {
+            wav,
+            out,
+            bpm,
+            drums,
+        } => {
+            let decoded = audio::decode::decode_mono(&wav).or_else(|_| {
+                let bytes =
+                    fs::read(&wav).map_err(|error| format!("{}: {error}", wav.display()))?;
+                audio::wav::decode_mono(&bytes)
+            })?;
+            let detected = if drums {
+                audio::analysis::to_drums(&decoded.samples, decoded.sample_rate)
+            } else {
+                audio::analysis::to_midi(&decoded.samples, decoded.sample_rate)
+            };
+            if detected.is_empty() {
+                return Err(String::from("no notes detected").into());
+            }
+            let mut song = Song::new(
+                wav.file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .unwrap_or("Audio transcription"),
+                bpm,
+            );
+            let mut track = project::song::Track::new(
+                project::TrackId::new(1).map_err(|error| error.to_string())?,
+                if drums { "Drums" } else { "Melody" },
+            );
+            let channel = if drums { 9_u8 } else { 0_u8 };
+            for (index, note) in detected.iter().enumerate() {
+                let (start, duration) = audio::analysis::as_ticks(note, bpm);
+                track.notes.push(project::song::Note {
+                    id: project::NoteId::new(index as u32 + 1)
+                        .map_err(|error| error.to_string())?,
+                    start,
+                    duration: duration.max(1),
+                    pitch: music_core::Pitch::new(note.pitch).map_err(|error| error.to_string())?,
+                    velocity: music_core::Velocity::new(
+                        (note.level * 127.0).clamp(1.0, 127.0) as u8
+                    )
+                    .map_err(|error| error.to_string())?,
+                    channel: music_core::Channel::new(channel)
+                        .map_err(|error| error.to_string())?,
+                });
+            }
+            song.tracks.push(track);
+            let bytes = smf::encode(&song)?;
+            fs::write(&out, &bytes)
+                .map_err(|error| format!("could not write {}: {error}", out.display()))?;
+            println!(
+                "wrote {}: {} note(s), {} byte(s)",
+                out.display(),
+                detected.len(),
+                bytes.len()
+            );
             Ok(())
         }
         Commands::ScorePdf {
