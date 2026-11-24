@@ -1178,6 +1178,8 @@ impl ShellApp {
             .unwrap_or(music_core::lesson::LessonKind::ChordQuality);
         let initial_score_follow = settings.score_follow;
         let initial_score_frames = settings.score_frames;
+        let recent_file = crate::settings::Settings::path().with_file_name("recent-projects.txt");
+        let recent = project::recent::read(&recent_file);
         let midi_output_pref = settings.midi_output.clone();
         let initial_window = std::env::var("ARRANGER_WINDOW")
             .unwrap_or_default()
@@ -1297,8 +1299,8 @@ impl ShellApp {
             waveform_zoom: 1.0,
             waveform_position: 0.0,
             launcher: arranging::grid::Launcher::default(),
-            recent_file: crate::settings::Settings::path().with_file_name("recent-projects.txt"),
-            recent: project::recent::read(std::path::Path::new("recent-projects.txt")),
+            recent_file,
+            recent,
             midi_input: None,
             loop_enabled: false,
             loop_region: None,
