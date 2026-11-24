@@ -8,10 +8,102 @@ use project::song::ProjectFile;
 
 use crate::editor::Editor;
 
-/// Minimal file dialog: the shell must not pull a dialog crate in prematurely.
-pub(super) fn rfd_pick() -> Option<PathBuf> {
-    // Without a dialog dependency, opening from the command line is the path.
-    None
+use super::{FileMode, ShellApp};
+
+/// Audio and video files Import Audio takes.
+const AUDIO_EXTENSIONS: &[&str] = &[
+    "wav", "flac", "mp3", "m4a", "aiff", "aif", "ogg", "mp4", "mov", "mkv", "webm", "avi", "wmv",
+    "mpeg", "mpg",
+];
+
+/// Shows the native file dialog for `mode`, starting at `suggested`.
+/// `None` when the user cancels.
+pub(super) fn dialog(mode: FileMode, suggested: &str) -> Option<PathBuf> {
+    let suggested = std::path::Path::new(suggested);
+    let mut dialog = rfd::FileDialog::new();
+    if let Some(folder) = suggested.parent().filter(|folder| folder.is_dir()) {
+        dialog = dialog.set_directory(folder);
+    }
+    if let Some(name) = suggested.file_name().and_then(|name| name.to_str()) {
+        dialog = dialog.set_file_name(name);
+    }
+    match mode {
+        FileMode::Open => dialog
+            .set_title("Open project")
+            .add_filter(
+                "Projects, MIDI and MusicXML",
+                &["arranger", "json", "mid", "midi", "musicxml", "xml"],
+            )
+            .pick_file(),
+        FileMode::SaveAs => dialog
+            .set_title("Save project")
+            .add_filter("Lazy Arranger project", &["arranger"])
+            .save_file(),
+        FileMode::ImportAudio => dialog
+            .set_title("Import audio file")
+            .add_filter("Audio and video", AUDIO_EXTENSIONS)
+            .pick_file(),
+        FileMode::ImportL6max => dialog.set_title("Import L6max recording").pick_folder(),
+        FileMode::ExportMidi => dialog
+            .set_title("Export MIDI file")
+            .add_filter("MIDI file", &["mid"])
+            .save_file(),
+        FileMode::ExportMusicXml => dialog
+            .set_title("Export MusicXML file")
+            .add_filter("MusicXML", &["musicxml"])
+            .save_file(),
+        FileMode::ExportWav => dialog
+            .set_title("Export audio file")
+            .add_filter("WAV audio", &["wav"])
+            .save_file(),
+        FileMode::ExportStems => dialog.set_title("Export stems to a folder").pick_folder(),
+    }
+}
+
+impl ShellApp {
+    /// Asks where to open, save, import or export.
+    ///
+    /// macOS and Windows show the native dialog at once. Linux shows the
+    /// path window, with a Browse button for the dialog, because the Linux
+    /// dialog needs a desktop portal that may not be running.
+    pub(super) fn choose_file(&mut self, mode: FileMode) {
+        self.file_path_input = self.suggested_path(mode);
+        if cfg!(target_os = "linux") {
+            self.file_mode = Some(mode);
+            return;
+        }
+        if let Some(path) = dialog(mode, &self.file_path_input) {
+            self.run_file_action(mode, path);
+        }
+    }
+
+    /// The path the dialog starts at.
+    fn suggested_path(&self, mode: FileMode) -> String {
+        let project = self.project_path.as_ref();
+        let with_extension = |extension: &str, fallback: &str| {
+            project.map_or_else(
+                || String::from(fallback),
+                |path| path.with_extension(extension).display().to_string(),
+            )
+        };
+        match mode {
+            FileMode::Open => project
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
+            FileMode::SaveAs => project.map_or_else(
+                || String::from("project.arranger"),
+                |path| path.display().to_string(),
+            ),
+            FileMode::ExportMidi => with_extension("mid", "project.mid"),
+            FileMode::ExportWav => with_extension("wav", "project.wav"),
+            FileMode::ExportMusicXml => with_extension("musicxml", "project.musicxml"),
+            FileMode::ExportStems => project.and_then(|path| path.parent()).map_or_else(
+                || String::from("stems"),
+                |parent| parent.join("stems").display().to_string(),
+            ),
+            FileMode::ImportAudio | FileMode::ImportL6max => String::new(),
+        }
+    }
 }
 
 /// The format of a project path.

@@ -1,6 +1,7 @@
 //! The main layout of [`ShellApp`]: top bar, sidebar, track rows, grid,
 //! inspector, status bar and the window dispatcher.
 
+use super::menu::Panel;
 use super::*;
 
 /// The score view: note entry, paging, zoom and full-score options.
@@ -461,13 +462,7 @@ impl ShellApp {
                         .on_hover_text("Repeat the loop region")
                         .clicked()
                     {
-                        self.loop_enabled = !self.loop_enabled;
-                        if self.loop_enabled && self.loop_region.is_none() {
-                            let bar = self.song().time_signature.bar_ticks().max(1);
-                            self.loop_region =
-                                Some(crate::transport::bar_region(self.position, bar));
-                        }
-                        self.sync_player_loop();
+                        self.toggle_loop();
                     }
                     if ui
                         .small_button("From bar")
@@ -638,201 +633,45 @@ impl ShellApp {
                             );
                         });
                         ui.menu_button("Windows", |ui| {
-                            if ui.button("Inspector").clicked() {
-                                self.inspector_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Library").clicked() {
-                                self.library_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Pads").clicked() {
-                                self.pads_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Assistant").clicked() {
-                                self.assistant.open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("MIDI map").clicked() {
-                                self.midi_map_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Controllers").clicked() {
-                                self.controller_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Lyrics").clicked() {
-                                self.lyrics_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Markers").clicked() {
-                                self.markers_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Theory").clicked() {
-                                self.theory_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Lessons").clicked() {
-                                self.lessons_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Songs & tutorial").clicked() {
-                                self.songs_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Help").clicked() {
-                                self.help_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Plugins").clicked() {
-                                self.plugins_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Synth patch").clicked() {
-                                self.patch_open = true;
-                                self.patch_draft = None;
-                                ui.close_menu();
-                            }
-                            if ui.button("Style from clips").clicked() {
-                                self.style.clips_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Style from audio").clicked() {
-                                self.audio_style.open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("MIDI monitor").clicked() {
-                                self.midi_monitor_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Audio takes").clicked() {
-                                self.takes_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("XG part mixer").clicked() {
-                                self.xg.open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Score marks").clicked() {
-                                self.marks_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("L6max device mixer").clicked() {
-                                self.l6max.device_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Roland D-05 editor").clicked() {
-                                self.d05.open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("L6max mixer").clicked() {
-                                self.l6max.mixer_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Generate part").clicked() {
-                                self.generate_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Style from link").clicked() {
-                                self.style.link_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Chords from audio").clicked() {
-                                self.audio_chords.open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Style file player").clicked() {
-                                self.style.file_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Master effects").clicked() {
-                                self.master_fx_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Bus effects").clicked() {
-                                self.bus_fx_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("MIDI out").clicked() {
-                                self.midi_out.open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("PSR-S970 remote").clicked() {
-                                self.psr.open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Shortcuts").clicked() {
-                                self.shortcuts_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Device editor").clicked() {
-                                self.device_editor_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("Groove library").clicked() {
-                                self.groove_open = true;
-                                ui.close_menu();
-                            }
-                            if ui.button("About Lazy Arranger Midi DAW").clicked() {
-                                self.about_open = true;
-                                ui.close_menu();
+                            for (index, group) in super::menu::WINDOW_GROUPS.iter().enumerate() {
+                                if index > 0 {
+                                    ui.separator();
+                                }
+                                for (panel, label) in *group {
+                                    if ui.button(*label).clicked() {
+                                        self.open_panel(*panel);
+                                        ui.close_menu();
+                                    }
+                                }
                             }
                             ui.separator();
-                            if ui.button("Import L6max").clicked() {
-                                self.file_path_input.clear();
-                                self.file_mode = Some(FileMode::ImportL6max);
-                                ui.close_menu();
-                            }
-                            if ui.button("Import audio").clicked() {
-                                self.file_path_input.clear();
-                                self.file_mode = Some(FileMode::ImportAudio);
-                                ui.close_menu();
+                            for (panel, label) in [
+                                (Panel::Help, "Help"),
+                                (Panel::Shortcuts, "Shortcuts"),
+                                (Panel::About, "About Lazy Arranger Midi DAW"),
+                            ] {
+                                if ui.button(label).clicked() {
+                                    self.open_panel(panel);
+                                    ui.close_menu();
+                                }
                             }
                             ui.separator();
-                            if ui.button("Export MIDI").clicked() {
-                                self.file_path_input = self
-                                    .project_path
-                                    .as_ref()
-                                    .map(|path| path.with_extension("mid").display().to_string())
-                                    .unwrap_or_else(|| String::from("project.mid"));
-                                self.file_mode = Some(FileMode::ExportMidi);
-                                ui.close_menu();
-                            }
-                            if ui.button("Export stems").clicked() {
-                                self.file_path_input = self
-                                    .project_path
-                                    .as_ref()
-                                    .and_then(|path| path.parent())
-                                    .map(|parent| parent.join("stems").display().to_string())
-                                    .unwrap_or_else(|| String::from("stems"));
-                                self.file_mode = Some(FileMode::ExportStems);
-                                ui.close_menu();
-                            }
-                            if ui.button("Export WAV").clicked() {
-                                self.file_path_input = self
-                                    .project_path
-                                    .as_ref()
-                                    .map(|path| path.with_extension("wav").display().to_string())
-                                    .unwrap_or_else(|| String::from("project.wav"));
-                                self.file_mode = Some(FileMode::ExportWav);
-                                ui.close_menu();
-                            }
-                            if ui.button("Export XML").clicked() {
-                                self.file_path_input = self
-                                    .project_path
-                                    .as_ref()
-                                    .map(|path| {
-                                        path.with_extension("musicxml").display().to_string()
-                                    })
-                                    .unwrap_or_else(|| String::from("project.musicxml"));
-                                self.file_mode = Some(FileMode::ExportMusicXml);
-                                ui.close_menu();
+                            for (mode, label) in [
+                                (FileMode::ImportL6max, "Import L6max"),
+                                (FileMode::ImportAudio, "Import audio"),
+                                (FileMode::ExportMidi, "Export MIDI"),
+                                (FileMode::ExportStems, "Export stems"),
+                                (FileMode::ExportWav, "Export WAV"),
+                                (FileMode::ExportMusicXml, "Export XML"),
+                            ] {
+                                if ui.button(label).clicked() {
+                                    self.choose_file(mode);
+                                    ui.close_menu();
+                                }
                             }
                             ui.separator();
                             if ui.button("Settings").clicked() {
-                                self.settings_open = true;
+                                self.open_panel(Panel::Settings);
                                 ui.close_menu();
                             }
                         });
@@ -881,10 +720,8 @@ impl ShellApp {
                                 "new project",
                             );
                         }
-                        if ui.button("Open project…").clicked()
-                            && let Some(path) = rfd_pick()
-                        {
-                            self.open(&path);
+                        if ui.button("Open project…").clicked() {
+                            self.choose_file(FileMode::Open);
                         }
                         if let Some(last) = self.settings.last_project.clone()
                             && std::path::Path::new(&last).is_file()
@@ -901,11 +738,11 @@ impl ShellApp {
                             if let Some(path) = self.project_path.clone() {
                                 self.save_to(path);
                             } else {
-                                self.begin_save_as();
+                                self.choose_file(FileMode::SaveAs);
                             }
                         }
                         if ui.button("Save as…").clicked() {
-                            self.begin_save_as();
+                            self.choose_file(FileMode::SaveAs);
                         }
                     });
                 });
