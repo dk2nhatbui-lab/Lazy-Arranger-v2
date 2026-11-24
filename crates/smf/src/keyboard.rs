@@ -216,17 +216,13 @@ pub fn export(song: &Song, voices: &[Voice], lyrics: &[(Tick, String)]) -> (Vec<
     let microseconds = (60_000_000.0 / bpm.max(1.0))
         .round()
         .clamp(1.0, 16_777_215.0) as u32;
-    setup.push((
-        0,
-        vec![
-            0xff,
-            0x51,
-            0x03,
-            (microseconds >> 16) as u8,
-            (microseconds >> 8) as u8,
-            microseconds as u8,
-        ],
-    ));
+    setup.push((0, tempo_event(microseconds)));
+    for change in song.tempo_map.changes().iter().skip(1) {
+        let microseconds = (60_000_000.0 / change.bpm.max(1.0))
+            .round()
+            .clamp(1.0, 16_777_215.0) as u32;
+        setup.push((change.tick + bar, tempo_event(microseconds)));
+    }
     setup.push((
         0,
         vec![
@@ -304,6 +300,17 @@ pub fn export(song: &Song, voices: &[Voice], lyrics: &[(Tick, String)]) -> (Vec<
         bytes.extend_from_slice(track);
     }
     (bytes, report)
+}
+
+fn tempo_event(microseconds: u32) -> Vec<u8> {
+    vec![
+        0xff,
+        0x51,
+        0x03,
+        (microseconds >> 16) as u8,
+        (microseconds >> 8) as u8,
+        microseconds as u8,
+    ]
 }
 
 fn meta_text(kind: u8, text: &str) -> Vec<u8> {
@@ -416,6 +423,22 @@ mod tests {
         assert!(contains(&bytes, &[0x90, 60, 100]));
         assert!(contains(&bytes, b"Chord: C"));
         assert!(contains(&bytes, &[0xff, 0x58, 0x04, 4, 2]));
+    }
+
+    #[test]
+    fn tempo_changes_are_shifted_into_the_file() {
+        let mut song = song();
+        song.tempo_map = song
+            .tempo_map
+            .clone()
+            .with_change(3_840, 90.0)
+            .expect("tempo change");
+        let (bytes, _) = export(&song, &[Voice::default()], &[]);
+        let decoded = crate::decode(&bytes).expect("midi");
+        let changes = decoded.0.tempo_map.changes();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[1].tick, 3_840 + 3_840);
+        assert!((changes[1].bpm - 90.0).abs() < 0.01);
     }
 
     #[test]
