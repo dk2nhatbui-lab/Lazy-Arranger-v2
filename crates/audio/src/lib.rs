@@ -214,7 +214,7 @@ fn stretch_interleaved(input: &[f32], target_frames: usize) -> Vec<f32> {
         if has_previous {
             let mut best = f64::MIN;
             let span = SEARCH.min(nominal);
-            for offset in 0..=span * 2 {
+            for offset in (0..=span * 2).step_by(4) {
                 let candidate = nominal.saturating_sub(span).saturating_add(offset);
                 let available = source_frames.saturating_sub(candidate);
                 let length = HOP.min(available).min(previous.len() / 2);
