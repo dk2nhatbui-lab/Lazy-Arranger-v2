@@ -467,7 +467,9 @@ pub fn tools() -> Vec<Tool> {
                 "properties": {
                     "name": {"type": "string"},
                     "volume": {"type": "integer"},
-                    "pan": {"type": "integer"}
+                    "pan": {"type": "integer"},
+                    "muted": {"type": "boolean"},
+                    "soloed": {"type": "boolean"}
                 },
                 "required": ["name"]
             }),
@@ -490,7 +492,8 @@ pub fn tools() -> Vec<Tool> {
                     "track": {"type": "integer"},
                     "format": {"type": "string"},
                     "name": {"type": "string"},
-                    "path": {"type": "string"}
+                    "path": {"type": "string"},
+                    "identifier": {"type": "string"}
                 },
                 "required": ["track", "format"]
             }),
@@ -670,7 +673,10 @@ pub fn tools() -> Vec<Tool> {
                     "length": {"type": "integer"},
                     "offset": {"type": "integer"},
                     "fade_in": {"type": "integer"},
-                    "fade_out": {"type": "integer"}
+                    "fade_out": {"type": "integer"},
+                    "stretch": {"type": "boolean"},
+                    "takes": {"type": "array"},
+                    "comps": {"type": "array"}
                 },
                 "required": ["track"]
             }),
@@ -915,6 +921,8 @@ pub fn tools() -> Vec<Tool> {
                     "chord": {"type": "string"},
                     "split_parts": {"type": "boolean"},
                     "section_bars": {"type": "integer"},
+                    "drums": {"type": "boolean"},
+                    "detect_tempo": {"type": "boolean"},
                     "version": {"type": "string"}
                 },
                 "required": ["audio", "out"]
