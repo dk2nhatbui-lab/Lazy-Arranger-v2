@@ -8,7 +8,7 @@ services).
 
 ## Gate and CI
 
-- `cargo test --workspace`: **817 passed, 0 failed**.
+- `cargo test --workspace`: **818 passed, 0 failed**.
 - `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all`
   and rustdoc (warnings denied): clean.
 - Release build and desktop smoke are recorded in `docs/audit/release.md`.
