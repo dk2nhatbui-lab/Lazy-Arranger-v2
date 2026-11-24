@@ -479,6 +479,7 @@ struct FullStaff {
     chords: Vec<crate::ChordSymbol>,
     lyrics: Vec<crate::Lyric>,
     marks: Vec<crate::PlacedMark>,
+    rests: Vec<crate::PlacedRest>,
 }
 
 /// Writes an all-track full score to PDF bytes.
@@ -521,6 +522,7 @@ pub fn to_full_pdf(
             chords: engraved.chord_symbols,
             lyrics: engraved.lyrics,
             marks: engraved.marks,
+            rests: engraved.rests,
         });
     }
     if staves.is_empty() {
@@ -533,6 +535,7 @@ pub fn to_full_pdf(
             chords: Vec::new(),
             lyrics: Vec::new(),
             marks: Vec::new(),
+            rests: Vec::new(),
         });
     }
     let page_count = staves
@@ -642,6 +645,18 @@ pub fn to_full_pdf(
                 escape(&short_track_name(&staff.name)),
                 y = settings.page_height - (top + 2.0 * line_gap)
             );
+            for rest in staff.rests.iter().filter(|rest| rest.page == *page) {
+                let x = first_system.map_or(rest.x, |sys| crate::full_score_x(system, sys, rest.x));
+                let y = top + (rest.y - system.y) * (line_gap / settings.staff_space);
+                let _ = writeln!(
+                    content,
+                    "{:.1} {:.1} m {:.1} {:.1} l S",
+                    x - 3.0,
+                    settings.page_height - y,
+                    x + 3.0,
+                    settings.page_height - y
+                );
+            }
             if staff_index == 0 {
                 for chord in staff.chords.iter().filter(|chord| chord.page == *page) {
                     let x = first_system

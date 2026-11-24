@@ -459,6 +459,20 @@ pub fn show_full(
                 Color32::WHITE,
             );
         }
+        for rest in engraved
+            .rests
+            .iter()
+            .filter(|rest| rest.page == source_page)
+        {
+            let x = page_rect.left()
+                + first_system.map_or(rest.x, |sys| score::full_score_x(system, sys, rest.x))
+                    * zoom;
+            let y = top + (rest.y - system.y) * (line_gap / settings.staff_space) * zoom;
+            painter.line_segment(
+                [Pos2::new(x - 3.0 * zoom, y), Pos2::new(x + 3.0 * zoom, y)],
+                Stroke::new(0.8_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+            );
+        }
         if index == 0 {
             for chord in engraved
                 .chord_symbols
