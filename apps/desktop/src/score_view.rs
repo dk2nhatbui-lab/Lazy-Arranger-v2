@@ -367,7 +367,12 @@ pub fn show_full(
         ));
     }
     let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
-    let page_rect = page_rect(response.rect.center(), settings, zoom);
+    let available = response.rect.size();
+    let fit = ((available.x - 24.0).max(120.0) / settings.page_width)
+        .min((available.y - 24.0).max(120.0) / settings.page_height)
+        .clamp(0.15, 1.0);
+    let scale = fit * zoom;
+    let page_rect = page_rect(response.rect.center(), settings, scale);
     painter.rect_filled(page_rect, 0.0, Color32::from_rgb(0xF4, 0xF1, 0xEA));
     painter.rect_stroke(
         page_rect,
@@ -377,19 +382,19 @@ pub fn show_full(
     );
     painter.text(
         Pos2::new(
-            page_rect.left() + settings.margin * zoom,
-            page_rect.top() + 6.0 * zoom,
+            page_rect.left() + settings.margin * scale,
+            page_rect.top() + 6.0 * scale,
         ),
         egui::Align2::LEFT_TOP,
         title,
-        egui::FontId::proportional(12.0 * zoom),
+        egui::FontId::proportional(12.0 * scale),
         Color32::from_rgb(0x14, 0x14, 0x14),
     );
     if let Some((_, engraved)) = tracks.first() {
         painter.text(
             Pos2::new(
-                page_rect.right() - settings.margin * zoom,
-                page_rect.top() + 6.0 * zoom,
+                page_rect.right() - settings.margin * scale,
+                page_rect.top() + 6.0 * scale,
             ),
             egui::Align2::RIGHT_TOP,
             format!(
@@ -399,7 +404,7 @@ pub fn show_full(
                 engraved.time_signature.numerator,
                 engraved.time_signature.denominator
             ),
-            egui::FontId::proportional(8.0 * zoom),
+            egui::FontId::proportional(8.0 * scale),
             Color32::from_rgb(0x50, 0x50, 0x50),
         );
     }
@@ -407,9 +412,9 @@ pub fn show_full(
     let available = (settings.page_height - 2.0 * settings.margin - 24.0).max(24.0);
     let span = (available / roster as f32).max(12.0);
     let line_gap = ((span - 4.0) / 4.0).clamp(1.5, settings.staff_space);
-    let left = page_rect.left() + settings.margin * zoom;
-    let right = page_rect.right() - settings.margin * zoom;
-    let top0 = page_rect.top() + (settings.margin + 12.0) * zoom;
+    let left = page_rect.left() + settings.margin * scale;
+    let right = page_rect.right() - settings.margin * scale;
+    let top0 = page_rect.top() + (settings.margin + 12.0) * scale;
     let first_system = tracks.first().and_then(|(_, engraved)| {
         engraved
             .pages
@@ -427,19 +432,19 @@ pub fn show_full(
         else {
             continue;
         };
-        let top = top0 + index as f32 * span * zoom;
+        let top = top0 + index as f32 * span * scale;
         for line in 0..5 {
-            let y = top + line as f32 * line_gap * zoom;
+            let y = top + line as f32 * line_gap * scale;
             painter.line_segment(
                 [Pos2::new(left, y), Pos2::new(right, y)],
                 Stroke::new(0.6_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
             );
         }
         painter.text(
-            Pos2::new(page_rect.left() + 4.0, top + 2.0 * line_gap * zoom),
+            Pos2::new(page_rect.left() + 4.0, top + 2.0 * line_gap * scale),
             egui::Align2::LEFT_CENTER,
             short_track_name(name),
-            egui::FontId::proportional(7.0 * zoom),
+            egui::FontId::proportional(7.0 * scale),
             Color32::from_rgb(0x40, 0x40, 0x40),
         );
         let average = if engraved.notes.is_empty() {
@@ -464,10 +469,10 @@ pub fn show_full(
             } else {
                 score::clef::treble()
             };
-            let height = 7.0 * settings.staff_space * zoom;
+            let height = 7.0 * settings.staff_space * scale;
             let width = height * image.width as f32 / image.height as f32;
             let rect = egui::Rect::from_min_size(
-                Pos2::new(left - width, top - 2.0 * settings.staff_space * zoom),
+                Pos2::new(left - width, top - 2.0 * settings.staff_space * scale),
                 Vec2::new(width, height),
             );
             painter.image(
@@ -484,10 +489,10 @@ pub fn show_full(
         {
             let x = page_rect.left()
                 + first_system.map_or(rest.x, |sys| score::full_score_x(system, sys, rest.x))
-                    * zoom;
-            let y = top + (rest.y - system.y) * (line_gap / settings.staff_space) * zoom;
+                    * scale;
+            let y = top + (rest.y - system.y) * (line_gap / settings.staff_space) * scale;
             painter.line_segment(
-                [Pos2::new(x - 3.0 * zoom, y), Pos2::new(x + 3.0 * zoom, y)],
+                [Pos2::new(x - 3.0 * scale, y), Pos2::new(x + 3.0 * scale, y)],
                 Stroke::new(0.8_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
             );
         }
@@ -499,10 +504,10 @@ pub fn show_full(
             {
                 let left = page_rect.left()
                     + first_system.map_or(frame.x, |sys| score::full_score_x(system, sys, frame.x))
-                        * zoom;
-                let width = 3.0 * line_gap * zoom;
-                let height = 3.0 * line_gap * zoom;
-                let bottom = top + (frame.y - system.y) * (line_gap / settings.staff_space) * zoom;
+                        * scale;
+                let width = 3.0 * line_gap * scale;
+                let height = 3.0 * line_gap * scale;
+                let bottom = top + (frame.y - system.y) * (line_gap / settings.staff_space) * scale;
                 let top_edge = bottom - height;
                 for string in 0..6 {
                     let x = left + width * string as f32 / 5.0;
@@ -519,10 +524,10 @@ pub fn show_full(
                     );
                 }
                 painter.text(
-                    Pos2::new(left, top_edge - 2.0 * zoom),
+                    Pos2::new(left, top_edge - 2.0 * scale),
                     egui::Align2::LEFT_BOTTOM,
                     &frame.name,
-                    egui::FontId::proportional(7.0 * zoom),
+                    egui::FontId::proportional(7.0 * scale),
                     Color32::from_rgb(0x10, 0x10, 0x10),
                 );
                 for (string, fret) in frame.frets.iter().enumerate() {
@@ -530,10 +535,10 @@ pub fn show_full(
                     match fret {
                         None | Some(0) => {
                             painter.text(
-                                Pos2::new(x, top_edge - 1.0 * zoom),
+                                Pos2::new(x, top_edge - 1.0 * scale),
                                 egui::Align2::CENTER_BOTTOM,
                                 if fret.is_none() { "x" } else { "o" },
-                                egui::FontId::proportional(6.0 * zoom),
+                                egui::FontId::proportional(6.0 * scale),
                                 Color32::from_rgb(0x10, 0x10, 0x10),
                             );
                         }
@@ -541,7 +546,7 @@ pub fn show_full(
                             let row = (*value - frame.base_fret) as f32 + 0.5;
                             painter.circle_filled(
                                 Pos2::new(x, top_edge + height * row / 5.0),
-                                line_gap * 0.28 * zoom,
+                                line_gap * 0.28 * scale,
                                 Color32::from_rgb(0x10, 0x10, 0x10),
                             );
                         }
@@ -556,13 +561,13 @@ pub fn show_full(
             {
                 let x = page_rect.left()
                     + first_system.map_or(chord.x, |sys| score::full_score_x(system, sys, chord.x))
-                        * zoom;
-                let y = top + (chord.y - system.y) * (line_gap / settings.staff_space) * zoom;
+                        * scale;
+                let y = top + (chord.y - system.y) * (line_gap / settings.staff_space) * scale;
                 painter.text(
                     Pos2::new(x, y),
                     egui::Align2::LEFT_CENTER,
                     &chord.name,
-                    egui::FontId::proportional(8.0 * zoom),
+                    egui::FontId::proportional(8.0 * scale),
                     Color32::from_rgb(0x10, 0x10, 0x10),
                 );
             }
@@ -575,13 +580,13 @@ pub fn show_full(
             {
                 let x = page_rect.left()
                     + first_system.map_or(lyric.x, |sys| score::full_score_x(system, sys, lyric.x))
-                        * zoom;
-                let y = top + (lyric.y - system.y) * (line_gap / settings.staff_space) * zoom;
+                        * scale;
+                let y = top + (lyric.y - system.y) * (line_gap / settings.staff_space) * scale;
                 painter.text(
                     Pos2::new(x, y),
                     egui::Align2::LEFT_CENTER,
                     &lyric.text,
-                    egui::FontId::proportional(7.0 * zoom),
+                    egui::FontId::proportional(7.0 * scale),
                     Color32::from_rgb(0x20, 0x20, 0x20),
                 );
             }
@@ -594,8 +599,8 @@ pub fn show_full(
             {
                 let x = page_rect.left()
                     + first_system.map_or(mark.x, |sys| score::full_score_x(system, sys, mark.x))
-                        * zoom;
-                let y = top + (mark.y - system.y) * (line_gap / settings.staff_space) * zoom;
+                        * scale;
+                let y = top + (mark.y - system.y) * (line_gap / settings.staff_space) * scale;
                 let text = match mark.kind {
                     project::song::MarkKind::Dynamic(dynamic) => dynamic.text().to_string(),
                     project::song::MarkKind::Articulation(articulation) => {
@@ -606,7 +611,7 @@ pub fn show_full(
                     Pos2::new(x, y),
                     egui::Align2::LEFT_CENTER,
                     text,
-                    egui::FontId::proportional(7.0 * zoom),
+                    egui::FontId::proportional(7.0 * scale),
                     Color32::from_rgb(0x20, 0x20, 0x20),
                 );
             }
@@ -621,19 +626,19 @@ pub fn show_full(
             {
                 continue;
             }
-            let y = top + (note.y - system.y) * (line_gap / settings.staff_space) * zoom;
+            let y = top + (note.y - system.y) * (line_gap / settings.staff_space) * scale;
             let note_x =
                 first_system.map_or(note.x, |first| score::full_score_x(system, first, note.x));
-            let x = page_rect.left() + note_x * zoom;
+            let x = page_rect.left() + note_x * scale;
             painter.circle_filled(
                 Pos2::new(x, y),
-                line_gap * 0.55 * zoom,
+                line_gap * 0.55 * scale,
                 Color32::from_rgb(0x10, 0x10, 0x10),
             );
             let stem = if note.pitch.as_u8() < 71 {
-                y + 3.0 * line_gap * zoom
+                y + 3.0 * line_gap * scale
             } else {
-                y - 3.0 * line_gap * zoom
+                y - 3.0 * line_gap * scale
             };
             painter.line_segment(
                 [Pos2::new(x, y), Pos2::new(x, stem)],
@@ -649,10 +654,10 @@ pub fn show_full(
                 };
                 if !accidental.is_empty() {
                     painter.text(
-                        Pos2::new(x - 4.0 * zoom, y - 1.0 * zoom),
+                        Pos2::new(x - 4.0 * scale, y - 1.0 * scale),
                         egui::Align2::RIGHT_CENTER,
                         accidental,
-                        egui::FontId::proportional(7.0 * zoom),
+                        egui::FontId::proportional(7.0 * scale),
                         Color32::from_rgb(0x10, 0x10, 0x10),
                     );
                 }
@@ -676,20 +681,20 @@ pub fn show_full(
             {
                 continue;
             }
-            let first_y = top + (first.y - system.y) * (line_gap / settings.staff_space) * zoom;
-            let second_y = top + (second.y - system.y) * (line_gap / settings.staff_space) * zoom;
+            let first_y = top + (first.y - system.y) * (line_gap / settings.staff_space) * scale;
+            let second_y = top + (second.y - system.y) * (line_gap / settings.staff_space) * scale;
             let upward = first.pitch.as_u8() < 71 && second.pitch.as_u8() < 71;
             let offset = if upward {
-                3.0 * line_gap * zoom
+                3.0 * line_gap * scale
             } else {
-                -3.0 * line_gap * zoom
+                -3.0 * line_gap * scale
             };
             let first_x = page_rect.left()
                 + first_system.map_or(first.x, |sys| score::full_score_x(system, sys, first.x))
-                    * zoom;
+                    * scale;
             let second_x = page_rect.left()
                 + first_system.map_or(second.x, |sys| score::full_score_x(system, sys, second.x))
-                    * zoom;
+                    * scale;
             painter.line_segment(
                 [
                     Pos2::new(first_x, first_y + offset),
@@ -700,26 +705,26 @@ pub fn show_full(
             if first.duration <= music_core::PPQ / 4 && second.duration <= music_core::PPQ / 4 {
                 painter.line_segment(
                     [
-                        Pos2::new(first_x, first_y + offset + 1.5 * zoom),
-                        Pos2::new(second_x, second_y + offset + 1.5 * zoom),
+                        Pos2::new(first_x, first_y + offset + 1.5 * scale),
+                        Pos2::new(second_x, second_y + offset + 1.5 * scale),
                     ],
                     Stroke::new(0.7_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
                 );
             }
         }
         for tie in engraved.ties.iter().filter(|tie| tie.page == source_page) {
-            let y = top + (tie.y - system.y) * (line_gap / settings.staff_space) * zoom;
+            let y = top + (tie.y - system.y) * (line_gap / settings.staff_space) * scale;
             let start = page_rect.left()
                 + first_system.map_or(tie.start_x, |sys| {
                     score::full_score_x(system, sys, tie.start_x)
-                }) * zoom;
+                }) * scale;
             let end = page_rect.left()
                 + first_system.map_or(tie.end_x, |sys| score::full_score_x(system, sys, tie.end_x))
-                    * zoom;
+                    * scale;
             painter.add(egui::Shape::line(
                 vec![
                     Pos2::new(start, y),
-                    Pos2::new((start + end) / 2.0, y + 2.0 * zoom),
+                    Pos2::new((start + end) / 2.0, y + 2.0 * scale),
                     Pos2::new(end, y),
                 ],
                 Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
@@ -730,24 +735,24 @@ pub fn show_full(
             .iter()
             .filter(|tuplet| tuplet.page == source_page)
         {
-            let y = top + (tuplet.y - system.y) * (line_gap / settings.staff_space) * zoom;
+            let y = top + (tuplet.y - system.y) * (line_gap / settings.staff_space) * scale;
             let start = page_rect.left()
                 + first_system.map_or(tuplet.start_x, |sys| {
                     score::full_score_x(system, sys, tuplet.start_x)
-                }) * zoom;
+                }) * scale;
             let end = page_rect.left()
                 + first_system.map_or(tuplet.end_x, |sys| {
                     score::full_score_x(system, sys, tuplet.end_x)
-                }) * zoom;
+                }) * scale;
             painter.line_segment(
                 [Pos2::new(start, y), Pos2::new(end, y)],
                 Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
             );
             painter.text(
-                Pos2::new((start + end) / 2.0, y - 1.0 * zoom),
+                Pos2::new((start + end) / 2.0, y - 1.0 * scale),
                 egui::Align2::CENTER_BOTTOM,
                 format!("{}", tuplet.count),
-                egui::FontId::proportional(6.0 * zoom),
+                egui::FontId::proportional(6.0 * scale),
                 Color32::from_rgb(0x10, 0x10, 0x10),
             );
         }
@@ -760,17 +765,20 @@ pub fn show_full(
             .nth(page_index)
     {
         let top = top0;
-        let bottom = top + roster as f32 * span * zoom - 4.0 * zoom;
+        let bottom = top + roster as f32 * span * scale - 4.0 * scale;
         for measure in &system.measures {
             painter.text(
-                Pos2::new(page_rect.left() + measure.x * zoom + 2.0, top0 - 2.0 * zoom),
+                Pos2::new(
+                    page_rect.left() + measure.x * scale + 2.0,
+                    top0 - 2.0 * scale,
+                ),
                 egui::Align2::LEFT_BOTTOM,
                 format!("{}", measure.number),
-                egui::FontId::proportional(6.0 * zoom),
+                egui::FontId::proportional(6.0 * scale),
                 Color32::from_rgb(0x50, 0x50, 0x50),
             );
             for x in [measure.x, measure.x_end] {
-                let x = page_rect.left() + x * zoom;
+                let x = page_rect.left() + x * scale;
                 painter.line_segment(
                     [Pos2::new(x, top), Pos2::new(x, bottom)],
                     Stroke::new(0.6_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
@@ -779,10 +787,10 @@ pub fn show_full(
         }
     }
     painter.text(
-        Pos2::new(page_rect.center().x, page_rect.bottom() - 8.0 * zoom),
+        Pos2::new(page_rect.center().x, page_rect.bottom() - 8.0 * scale),
         egui::Align2::CENTER_BOTTOM,
         format!("{} / {page_count}", page_index + 1),
-        egui::FontId::proportional(8.0 * zoom),
+        egui::FontId::proportional(8.0 * scale),
         Color32::from_rgb(0x50, 0x50, 0x50),
     );
     let _ = position;
