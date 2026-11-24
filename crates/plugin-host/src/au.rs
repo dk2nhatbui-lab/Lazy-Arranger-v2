@@ -245,6 +245,7 @@ fn unit_parameters(unit: AudioUnit) -> Vec<(u32, String, f32, f32, f32, f32)> {
 pub struct AuEffect {
     unit: AudioUnit,
     sample_time: f64,
+    sample_rate: f64,
 }
 
 impl std::fmt::Debug for AuEffect {
@@ -285,6 +286,7 @@ impl AuEffect {
         let effect = Self {
             unit,
             sample_time: 0.0,
+            sample_rate,
         };
         effect.configure(sample_rate)?;
         Ok(effect)
@@ -354,7 +356,7 @@ impl AuEffect {
             )
         };
         if result == 0 {
-            latency.max(0.0).round() as usize
+            (latency.max(0.0) * self.sample_rate).round() as usize
         } else {
             0
         }
