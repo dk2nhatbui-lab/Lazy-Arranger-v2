@@ -290,6 +290,29 @@ fn consume_binding(context: &Context, text: &str, fallback: &str) -> bool {
 }
 
 /// Rounds recorded note starts to the nearest grid step and re-sorts them.
+fn detected_to_notes(
+    detected: &[audio::analysis::DetectedNote],
+    bpm: f64,
+) -> Result<Vec<project::song::Note>, String> {
+    let mut notes = Vec::with_capacity(detected.len());
+    for (index, detected) in detected.iter().enumerate() {
+        let (start, duration) = audio::analysis::as_ticks(detected, bpm);
+        let Some(pitch) = audio::analysis::as_pitch(detected.pitch) else {
+            continue;
+        };
+        notes.push(project::song::Note {
+            id: project::NoteId::new(index as u32 + 1).map_err(|error| error.to_string())?,
+            start,
+            duration: duration.max(1),
+            pitch,
+            velocity: music_core::Velocity::new((detected.level * 127.0).clamp(1.0, 127.0) as u8)
+                .map_err(|error| error.to_string())?,
+            channel: music_core::Channel::first(),
+        });
+    }
+    Ok(notes)
+}
+
 pub fn quantise_recorded(notes: &mut [project::song::Note], grid: Tick) {
     if grid <= 0 {
         return;
@@ -4148,24 +4171,7 @@ impl ShellApp {
             return Err(String::from("no stable monophonic pitch found"));
         }
         let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
-        let mut notes = Vec::with_capacity(detected.len());
-        for (index, detected) in detected.iter().enumerate() {
-            let (start, duration) = audio::analysis::as_ticks(detected, bpm);
-            let Some(pitch) = audio::analysis::as_pitch(detected.pitch) else {
-                continue;
-            };
-            notes.push(project::song::Note {
-                id: project::NoteId::new(index as u32 + 1).map_err(|error| error.to_string())?,
-                start,
-                duration: duration.max(1),
-                pitch,
-                velocity: music_core::Velocity::new(
-                    (detected.level * 127.0).clamp(1.0, 127.0) as u8
-                )
-                .map_err(|error| error.to_string())?,
-                channel: music_core::Channel::first(),
-            });
-        }
+        let notes = detected_to_notes(&detected, bpm)?;
         if notes.is_empty() {
             return Err(String::from("no notes after pitch conversion"));
         }
@@ -14053,6 +14059,31 @@ mod tests {
             .collect();
         assert!(!peaks.is_empty());
         assert!(peaks[0] < 480, "the first click starts the count-in");
+    }
+
+    #[test]
+    fn detected_notes_convert_to_ticks_and_pitches() {
+        let detected = vec![
+            audio::analysis::DetectedNote {
+                start: 0.0,
+                duration: 0.5,
+                pitch: 69,
+                level: 0.5,
+            },
+            audio::analysis::DetectedNote {
+                start: 0.5,
+                duration: 0.5,
+                pitch: 72,
+                level: 0.25,
+            },
+        ];
+        let notes = detected_to_notes(&detected, 120.0).expect("notes");
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[0].pitch.as_u8(), 69);
+        assert_eq!(notes[0].start, 0);
+        assert_eq!(notes[0].duration, music_core::PPQ);
+        assert_eq!(notes[1].pitch.as_u8(), 72);
+        assert_eq!(notes[1].start, music_core::PPQ);
     }
 
     #[test]
