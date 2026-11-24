@@ -249,6 +249,15 @@ pub enum Command {
         /// Bank select, or `None` for the default bank.
         bank: Option<BankSelect>,
     },
+    /// Set a track's program and bank in one edit.
+    SetTrackVoice {
+        /// The track.
+        track: TrackId,
+        /// Program number, or `None`.
+        program: Option<u8>,
+        /// Bank select, or `None`.
+        bank: Option<BankSelect>,
+    },
     /// Replace the song's chords as one edit.
     SetChords {
         /// The new chord list, sorted by tick.
@@ -344,6 +353,7 @@ impl Command {
             Self::SetChords { .. } => "set chords",
             Self::SetTrackProgram { .. } => "set track program",
             Self::SetTrackBank { .. } => "set track bank",
+            Self::SetTrackVoice { .. } => "set track voice",
             Self::SetTrackFlags { .. } => "set track flags",
             Self::SetTrackGain { .. } => "set track gain",
             Self::SetAutomation { .. } => "set automation",
@@ -999,6 +1009,11 @@ impl EditSession {
                 track: *track,
                 bank: self.track(*track)?.bank,
             },
+            Command::SetTrackVoice { track, .. } => Command::SetTrackVoice {
+                track: *track,
+                program: self.track(*track)?.program,
+                bank: self.track(*track)?.bank,
+            },
             Command::SetChords { .. } => Command::SetChords {
                 chords: self.song().chords.clone(),
             },
@@ -1276,6 +1291,15 @@ impl EditSession {
             Command::SetTrackBank { track, bank } => {
                 self.track_mut(*track)?.bank = *bank;
             }
+            Command::SetTrackVoice {
+                track,
+                program,
+                bank,
+            } => {
+                let entry = self.track_mut(*track)?;
+                entry.program = *program;
+                entry.bank = *bank;
+            }
             Command::SetChords { chords } => {
                 self.project.song.chords = chords.clone();
                 self.project.song.chords.sort_by_key(|event| event.tick);
@@ -1464,6 +1488,7 @@ fn describe(command: &Command) -> String {
             Some(value) => format!("set track {track} program {value}"),
             None => format!("clear track {track} program"),
         },
+        Command::SetTrackVoice { track, .. } => format!("set voice on track {track}"),
         Command::SetTrackBank { track, bank } => match bank {
             Some(bank) => format!("set track {track} bank {}/{}", bank.msb, bank.lsb),
             None => format!("clear track {track} bank"),
@@ -2031,6 +2056,27 @@ mod tests {
         assert!(edit.song().tracks[0].audio.is_some());
         edit.undo().expect("undo set");
         assert!(edit.song().tracks[0].audio.is_none());
+    }
+
+    #[test]
+    fn track_voice_is_one_undo_step() {
+        use project::song::BankSelect;
+        let mut edit = session();
+        let track = TrackId::new(1).expect("valid");
+        edit.apply(Command::SetTrackVoice {
+            track,
+            program: Some(48),
+            bank: Some(BankSelect { msb: 63, lsb: 1 }),
+        })
+        .expect("voice");
+        assert_eq!(edit.song().tracks[0].program, Some(48));
+        assert_eq!(
+            edit.song().tracks[0].bank,
+            Some(BankSelect { msb: 63, lsb: 1 })
+        );
+        edit.undo().expect("undo");
+        assert_eq!(edit.song().tracks[0].program, None);
+        assert_eq!(edit.song().tracks[0].bank, None);
     }
 
     #[test]

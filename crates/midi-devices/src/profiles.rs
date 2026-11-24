@@ -233,9 +233,9 @@ pub struct LoadedProfile {
     pub name: String,
     /// Voices in file order.
     pub voices: Vec<(String, u8)>,
-    /// Banks, parsed but not used by export yet.
+    /// Banks used by keyboard export.
     pub banks: Vec<Bank>,
-    /// Drum kits, parsed but not used by export yet.
+    /// Drum kits used by keyboard export.
     pub drum_kits: Vec<DrumKit>,
     /// MIDI CC controls for a generic device editor.
     pub controls: Vec<DeviceControl>,

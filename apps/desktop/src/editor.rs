@@ -1242,6 +1242,28 @@ impl Editor {
         Ok(())
     }
 
+    /// Sets a track's program and bank together in one undo step.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_track_voice(
+        &mut self,
+        track: TrackId,
+        program: Option<u8>,
+        bank: Option<project::song::BankSelect>,
+    ) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::SetTrackVoice {
+                track,
+                program,
+                bank,
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Sets or clears a track's keyboard program.
     ///
     /// # Errors

@@ -8375,6 +8375,26 @@ impl ShellApp {
                             }
                             self.status = Some(format!("sent voice {program}"));
                         }
+                        if let Some(track) = self.roll.selected
+                            && ui.button("Use on track").clicked()
+                        {
+                            let program = voices[voice].1;
+                            let bank = bank.as_ref().and_then(|bank| {
+                                (bank.msb.is_some() || bank.lsb.is_some()).then_some(
+                                    project::song::BankSelect {
+                                        msb: bank.msb.unwrap_or(0),
+                                        lsb: bank.lsb.unwrap_or(0),
+                                    },
+                                )
+                            });
+                            match self.editor.set_track_voice(track, Some(program), bank) {
+                                Ok(()) => {
+                                    self.status =
+                                        Some(format!("track {} voice {program}", track.get()));
+                                }
+                                Err(error) => self.status = Some(error),
+                            }
+                        }
                     });
                     self.device_editor_voice = voice;
                 }
