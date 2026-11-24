@@ -191,6 +191,12 @@ pub struct Settings {
     pub window_width: f32,
     /// Last window height in points.
     pub window_height: f32,
+    /// Timeline zoom factor.
+    pub timeline_zoom: f32,
+    /// Waveform zoom factor.
+    pub waveform_zoom: f32,
+    /// Score zoom factor.
+    pub score_zoom: f32,
     /// Last opened or saved project path.
     pub last_project: Option<String>,
     /// Show guitar frames in the full score.
@@ -288,6 +294,9 @@ impl Default for Settings {
             view: String::from("arrange"),
             window_width: 1500.0,
             window_height: 900.0,
+            timeline_zoom: 1.0,
+            waveform_zoom: 1.0,
+            score_zoom: 1.0,
             last_project: None,
             score_frames: false,
             keyboard: None,
@@ -466,6 +475,15 @@ impl Settings {
                     settings.window_width =
                         value.parse::<f32>().unwrap_or(1500.0).clamp(960.0, 8000.0);
                 }
+                "timeline_zoom" => {
+                    settings.timeline_zoom = value.parse::<f32>().unwrap_or(1.0).clamp(0.25, 8.0);
+                }
+                "waveform_zoom" => {
+                    settings.waveform_zoom = value.parse::<f32>().unwrap_or(1.0).clamp(1.0, 8.0);
+                }
+                "score_zoom" => {
+                    settings.score_zoom = value.parse::<f32>().unwrap_or(1.0).clamp(0.5, 3.0);
+                }
                 "window_height" => {
                     settings.window_height =
                         value.parse::<f32>().unwrap_or(900.0).clamp(600.0, 5000.0);
@@ -597,6 +615,9 @@ impl Settings {
         text.push_str(&format!("view = {}\n", clean_line(&self.view)));
         text.push_str(&format!("window_width = {:.1}\n", self.window_width));
         text.push_str(&format!("window_height = {:.1}\n", self.window_height));
+        text.push_str(&format!("timeline_zoom = {:.3}\n", self.timeline_zoom));
+        text.push_str(&format!("waveform_zoom = {:.3}\n", self.waveform_zoom));
+        text.push_str(&format!("score_zoom = {:.3}\n", self.score_zoom));
         if let Some(path) = &self.last_project {
             text.push_str(&format!("last_project = {}\n", clean_line(path)));
         }

@@ -1181,6 +1181,9 @@ impl ShellApp {
             .unwrap_or(music_core::lesson::LessonKind::ChordQuality);
         let initial_score_follow = settings.score_follow;
         let initial_score_frames = settings.score_frames;
+        let initial_timeline_zoom = settings.timeline_zoom;
+        let initial_waveform_zoom = settings.waveform_zoom;
+        let initial_score_zoom = settings.score_zoom;
         let recent_file = crate::settings::Settings::path().with_file_name("recent-projects.txt");
         let recent = project::recent::read(&recent_file);
         let midi_output_pref = settings.midi_output.clone();
@@ -1299,7 +1302,7 @@ impl ShellApp {
             beat_pattern: arranging::beat::BeatPattern::default(),
             beat_clipboard: None,
             beat_bars: 1,
-            waveform_zoom: 1.0,
+            waveform_zoom: initial_waveform_zoom,
             waveform_position: 0.0,
             launcher: arranging::grid::Launcher::default(),
             recent_file,
@@ -1347,7 +1350,7 @@ impl ShellApp {
             mixer_visible: true,
             kids_last_activity: None,
             timeline_mode: true,
-            timeline_zoom: 1.0,
+            timeline_zoom: initial_timeline_zoom,
             pending_clip_edit: None,
             inspector_name_track: None,
             inspector_name: String::new(),
@@ -1375,7 +1378,7 @@ impl ShellApp {
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(0),
             score_page: 0,
-            score_zoom: 1.0,
+            score_zoom: initial_score_zoom,
             score_grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
             score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err()
                 && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
@@ -13711,6 +13714,9 @@ impl eframe::App for ShellApp {
         if self.window_size.x >= 960.0 && self.window_size.y >= 600.0 {
             self.settings.window_width = self.window_size.x;
             self.settings.window_height = self.window_size.y;
+            self.settings.timeline_zoom = self.timeline_zoom;
+            self.settings.waveform_zoom = self.waveform_zoom;
+            self.settings.score_zoom = self.score_zoom;
             let _ = self.settings.save(&crate::settings::Settings::path());
         }
     }
