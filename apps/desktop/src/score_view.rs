@@ -385,6 +385,24 @@ pub fn show_full(
         egui::FontId::proportional(12.0 * zoom),
         Color32::from_rgb(0x14, 0x14, 0x14),
     );
+    if let Some((_, engraved)) = tracks.first() {
+        painter.text(
+            Pos2::new(
+                page_rect.right() - settings.margin * zoom,
+                page_rect.top() + 6.0 * zoom,
+            ),
+            egui::Align2::RIGHT_TOP,
+            format!(
+                "{} {} · {}/{}",
+                engraved.key.tonic.name_sharp(),
+                if engraved.key.minor { "minor" } else { "major" },
+                engraved.time_signature.numerator,
+                engraved.time_signature.denominator
+            ),
+            egui::FontId::proportional(8.0 * zoom),
+            Color32::from_rgb(0x50, 0x50, 0x50),
+        );
+    }
     let roster = tracks.len().max(1);
     let available = (settings.page_height - 2.0 * settings.margin - 24.0).max(24.0);
     let span = (available / roster as f32).max(12.0);
@@ -744,6 +762,13 @@ pub fn show_full(
         let top = top0;
         let bottom = top + roster as f32 * span * zoom - 4.0 * zoom;
         for measure in &system.measures {
+            painter.text(
+                Pos2::new(page_rect.left() + measure.x * zoom + 2.0, top0 - 2.0 * zoom),
+                egui::Align2::LEFT_BOTTOM,
+                format!("{}", measure.number),
+                egui::FontId::proportional(6.0 * zoom),
+                Color32::from_rgb(0x50, 0x50, 0x50),
+            );
             for x in [measure.x, measure.x_end] {
                 let x = page_rect.left() + x * zoom;
                 painter.line_segment(
