@@ -1235,7 +1235,9 @@ impl ShellApp {
             songs_open: initial_window == "songs",
             lessons_open: initial_window == "lessons",
             lesson_kind: music_core::lesson::LessonKind::ChordQuality,
-            lesson_pack: None,
+            lesson_pack: settings
+                .lesson_pack
+                .filter(|index| *index < music_core::lesson::PACKS.len()),
             lesson_seed: 1,
             lesson_question: None,
             lesson_score: (settings.lesson_correct, settings.lesson_wrong),
@@ -7459,6 +7461,8 @@ impl ShellApp {
                             .clicked()
                         {
                             self.lesson_pack = None;
+                            self.settings.lesson_pack = None;
+                            let _ = self.settings.save(&crate::settings::Settings::path());
                             self.lesson_question = None;
                             self.lesson_feedback = None;
                         }
@@ -7468,6 +7472,8 @@ impl ShellApp {
                                 .clicked()
                             {
                                 self.lesson_pack = Some(index);
+                                self.settings.lesson_pack = Some(index);
+                                let _ = self.settings.save(&crate::settings::Settings::path());
                                 self.lesson_kind = pack.kind(0);
                                 self.lesson_question = None;
                                 self.lesson_feedback = None;
@@ -7494,6 +7500,8 @@ impl ShellApp {
                             {
                                 self.lesson_kind = kind;
                                 self.lesson_pack = None;
+                                self.settings.lesson_pack = None;
+                                let _ = self.settings.save(&crate::settings::Settings::path());
                                 self.lesson_question = None;
                                 self.lesson_feedback = None;
                             }

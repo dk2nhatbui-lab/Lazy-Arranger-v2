@@ -179,6 +179,8 @@ pub struct Settings {
     pub lesson_correct: u32,
     /// Wrong lesson answers kept across launches.
     pub lesson_wrong: u32,
+    /// Selected lesson pack index, when one is active.
+    pub lesson_pack: Option<usize>,
     /// Preferred MIDI input name, when set.
     pub keyboard: Option<String>,
     /// Listen to every MIDI input, not only `keyboard`.
@@ -266,6 +268,7 @@ impl Default for Settings {
             grade: 5,
             lesson_correct: 0,
             lesson_wrong: 0,
+            lesson_pack: None,
             keyboard: None,
             auto_inputs: false,
             audio_input: None,
@@ -427,6 +430,9 @@ impl Settings {
                 "lesson_wrong" => {
                     settings.lesson_wrong = value.parse::<u32>().unwrap_or(0);
                 }
+                "lesson_pack" => {
+                    settings.lesson_pack = value.parse::<usize>().ok();
+                }
                 "auto_inputs" => settings.auto_inputs = value == "true",
                 "keyboard" => {
                     settings.keyboard = if value.is_empty() {
@@ -538,6 +544,9 @@ impl Settings {
         text.push_str(&format!("grade = {}\n", self.grade));
         text.push_str(&format!("lesson_correct = {}\n", self.lesson_correct));
         text.push_str(&format!("lesson_wrong = {}\n", self.lesson_wrong));
+        if let Some(pack) = self.lesson_pack {
+            text.push_str(&format!("lesson_pack = {pack}\n"));
+        }
         if let Some(keyboard) = &self.keyboard {
             text.push_str(&format!("keyboard = {}\n", clean_line(keyboard)));
         }
@@ -688,6 +697,7 @@ mod tests {
             grade: 3,
             lesson_correct: 7,
             lesson_wrong: 2,
+            lesson_pack: Some(1),
             keyboard: Some(String::from("PSR-S970")),
             auto_inputs: true,
             audio_input: Some(String::from("Camo Microphone")),
