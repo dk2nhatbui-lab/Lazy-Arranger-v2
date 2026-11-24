@@ -155,6 +155,17 @@ unsafe extern "C" {
     ) -> OsStatus;
 }
 
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    fn CFStringGetCString(
+        string: *const c_void,
+        buffer: *mut std::ffi::c_char,
+        size: isize,
+        encoding: u32,
+    ) -> bool;
+    fn CFRelease(value: *const c_void);
+}
+
 const AU_EFFECT: u32 = 0x6175_6678; // 'aufx'
 const AU_MUSIC_DEVICE: u32 = 0x6175_6d75; // 'aumu'
 const STREAM_FORMAT: u32 = 8;
@@ -223,12 +234,39 @@ fn unit_parameters(unit: AudioUnit) -> Vec<(u32, String, f32, f32, f32, f32)> {
         }
         let mut current = info.default;
         let _ = unsafe { AudioUnitGetParameter(unit, id, SCOPE_GLOBAL, 0, &mut current) };
-        let name: Vec<u8> = info
+        let mut name: Vec<u8> = info
             .name
             .iter()
             .take_while(|value| **value != 0)
             .map(|value| *value as u8)
             .collect();
+        // Audio Units may expose only a CFString name. Copy it before releasing
+        // the references the unit asked us to own.
+        if info.flags & (1 << 27) != 0 && !info.cf_name.is_null() {
+            let mut buffer = [0_i8; 256];
+            if unsafe {
+                CFStringGetCString(
+                    info.cf_name,
+                    buffer.as_mut_ptr(),
+                    buffer.len() as isize,
+                    0x0800_0100,
+                )
+            } {
+                name = buffer
+                    .iter()
+                    .take_while(|value| **value != 0)
+                    .map(|value| *value as u8)
+                    .collect();
+            }
+        }
+        if info.flags & (1 << 4) != 0 {
+            if !info.cf_name.is_null() {
+                unsafe { CFRelease(info.cf_name) };
+            }
+            if !info.unit_name.is_null() {
+                unsafe { CFRelease(info.unit_name) };
+            }
+        }
         out.push((
             id,
             String::from_utf8_lossy(&name).into_owned(),
