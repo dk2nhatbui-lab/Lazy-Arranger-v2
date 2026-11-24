@@ -58,14 +58,17 @@ pub struct ScoreDrag {
     pub duration: Tick,
 }
 
+type CeciliaReceiver = std::sync::mpsc::Receiver<Result<Vec<score::cecilia::PageImage>, String>>;
+
 /// Persistent score canvas state.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct ScoreState {
     drag: Option<(Tick, u8, Tick, bool)>,
     clef_treble: Option<egui::TextureHandle>,
     clef_bass: Option<egui::TextureHandle>,
     cecilia_pages: Vec<egui::TextureHandle>,
     cecilia_key: Option<String>,
+    cecilia_pending: Option<(String, CeciliaReceiver)>,
     /// Pages produced by the Cecilia preview.
     pub cecilia_page_count: usize,
     /// Last Cecilia preview error, if any.
@@ -145,33 +148,61 @@ impl ScoreState {
         if self.cecilia_key.as_deref() == Some(key.as_str()) {
             return;
         }
-        self.cecilia_pages.clear();
-        match score::cecilia::render_page_images(song, track_index, title, grand_staff, 1.6) {
-            Ok(pages) => {
-                for (index, page) in pages.into_iter().enumerate() {
-                    self.cecilia_pages.push(context.load_texture(
-                        format!("cecilia-page-{index}"),
-                        egui::ColorImage::from_rgba_unmultiplied(
-                            [page.width as usize, page.height as usize],
-                            &page.rgba,
-                        ),
-                        egui::TextureOptions::LINEAR,
-                    ));
+        if self
+            .cecilia_pending
+            .as_ref()
+            .is_some_and(|(pending, _)| pending == &key)
+        {
+            let result = self
+                .cecilia_pending
+                .as_ref()
+                .and_then(|(_, receiver)| receiver.try_recv().ok());
+            let Some(result) = result else {
+                context.request_repaint_after(std::time::Duration::from_millis(100));
+                return;
+            };
+            self.cecilia_pending = None;
+            match result {
+                Ok(pages) => {
+                    self.cecilia_pages.clear();
+                    for (index, page) in pages.into_iter().enumerate() {
+                        self.cecilia_pages.push(context.load_texture(
+                            format!("cecilia-page-{index}"),
+                            egui::ColorImage::from_rgba_unmultiplied(
+                                [page.width as usize, page.height as usize],
+                                &page.rgba,
+                            ),
+                            egui::TextureOptions::LINEAR,
+                        ));
+                    }
+                    self.cecilia_page_count = self.cecilia_pages.len();
+                    self.cecilia_error = None;
+                    self.cecilia_key = Some(key);
                 }
-                self.cecilia_page_count = self.cecilia_pages.len();
-                self.cecilia_error = None;
+                Err(error) => {
+                    self.cecilia_page_count = 0;
+                    self.cecilia_error = Some(error);
+                    self.cecilia_key = Some(key);
+                }
             }
-            Err(error) => {
-                self.cecilia_page_count = 0;
-                self.cecilia_error = Some(error);
-            }
+            return;
         }
-        self.cecilia_key = Some(key);
+        let song = song.clone();
+        let title = title.to_string();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.cecilia_pending = Some((key, receiver));
+        context.request_repaint_after(std::time::Duration::from_millis(100));
+        std::thread::spawn(move || {
+            let result =
+                score::cecilia::render_page_images(&song, track_index, &title, grand_staff, 1.6);
+            let _ = sender.send(result);
+        });
     }
 
     /// Forces the next preview to re-engrave.
     pub fn invalidate_cecilia(&mut self) {
         self.cecilia_key = None;
+        self.cecilia_pending = None;
     }
 }
 
