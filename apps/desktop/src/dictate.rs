@@ -9,8 +9,28 @@ use std::path::{Path, PathBuf};
 /// Returns a message when the input cannot be recorded or written.
 pub fn record_to_wav(seconds: f64) -> Result<PathBuf, String> {
     let audio = audio::record::record_seconds(seconds)?;
-    let path =
-        std::env::temp_dir().join(format!("lazy-arranger-dictate-{}.wav", std::process::id()));
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!(
+        "lazy-arranger-dictate-{}-{stamp}.wav",
+        std::process::id()
+    ));
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        file.write_all(&audio.to_wav())
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+    }
+    #[cfg(not(unix))]
     std::fs::write(&path, audio.to_wav()).map_err(|error| error.to_string())?;
     Ok(path)
 }

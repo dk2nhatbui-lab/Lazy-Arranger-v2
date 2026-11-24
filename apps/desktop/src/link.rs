@@ -5,7 +5,14 @@ use std::path::PathBuf;
 /// Temporary WAV path for one link download.
 #[must_use]
 pub fn output_path() -> PathBuf {
-    std::env::temp_dir().join(format!("lazy-arranger-link-{}.wav", std::process::id()))
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "lazy-arranger-link-{}-{stamp}.wav",
+        std::process::id()
+    ))
 }
 
 /// Downloads the best audio and converts it to 48 kHz mono WAV.
