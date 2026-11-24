@@ -1831,6 +1831,16 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .max()
                 .unwrap_or(0)
                 .saturating_add(1);
+            let slot_path = arguments
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            if !slot_path.is_empty() && !plugin_path_allowed(&slot_path, format) {
+                return Err(ToolError::Arguments(String::from(
+                    "plugin path is outside the standard plug-in folders",
+                )));
+            }
             plugins.push(PluginSlot {
                 id,
                 name: arguments
@@ -1839,11 +1849,7 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     .unwrap_or("Plugin")
                     .to_string(),
                 format,
-                path: arguments
-                    .get("path")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
+                path: slot_path,
                 identifier: arguments
                     .get("identifier")
                     .and_then(Value::as_str)
@@ -3103,6 +3109,20 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
     }
 }
 
+fn plugin_path_allowed(path: &str, format: project::song::PluginFormat) -> bool {
+    let Ok(path) = std::fs::canonicalize(path) else {
+        return false;
+    };
+    let wanted = match format {
+        project::song::PluginFormat::Vst3 => plugins::Format::Vst3,
+        project::song::PluginFormat::AudioUnit => plugins::Format::AudioUnit,
+    };
+    plugins::default_roots().iter().any(|root| {
+        root.format == wanted
+            && std::fs::canonicalize(&root.path).is_ok_and(|base| path.starts_with(base))
+    })
+}
+
 fn parse_tonic_argument(arguments: &Value) -> Result<music_core::PitchClass, ToolError> {
     let name = arguments
         .get("tonic")
@@ -3767,6 +3787,18 @@ mod tests {
             &json!({"track": 1, "format": "vst3", "name": "R0Verb"}),
         )
         .expect("plugin");
+        assert!(
+            call(
+                &mut session,
+                "add_plugin",
+                &json!({
+                    "track": 1,
+                    "format": "vst3",
+                    "path": "/tmp/not-a-plugin.vst3"
+                }),
+            )
+            .is_err()
+        );
         let plugin_id = plugin["plugin"].as_u64().expect("id");
         let slots = call(&mut session, "get_plugin_slots", &json!({"track": 1})).expect("slots");
         assert_eq!(slots["plugins"][0]["format"], "vst3");
