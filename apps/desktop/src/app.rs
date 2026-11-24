@@ -14845,6 +14845,21 @@ mod tests {
     }
 
     #[test]
+    fn view_names_round_trip_through_settings() {
+        for view in [
+            View::Perform,
+            View::Arrange,
+            View::Drums,
+            View::Loops,
+            View::Score,
+            View::Map,
+            View::Mix,
+        ] {
+            assert_eq!(View::parse(view.as_str()), Some(view), "{view:?}");
+        }
+    }
+
+    #[test]
     fn recent_projects_load_from_the_settings_folder() {
         let context = egui::Context::default();
         let app = ShellApp::new(&context, demo_project(), None);
