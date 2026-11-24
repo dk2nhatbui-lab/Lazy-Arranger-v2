@@ -28,6 +28,8 @@ pub struct Vst3Effect {
     max_block: usize,
     sample_rate: f64,
     pending_parameters: Vec<(u32, f64)>,
+    // Fields drop in order, so the plug-in library outlives every COM pointer.
+    _library: libloading::Library,
 }
 
 impl std::fmt::Debug for Vst3Effect {
@@ -156,6 +158,7 @@ impl Vst3Effect {
             max_block: max_block.max(1),
             sample_rate,
             pending_parameters: Vec::new(),
+            _library: library,
         })
     }
 

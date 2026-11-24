@@ -70,6 +70,9 @@ pub struct Vst3Instrument {
     sample_time: f64,
     sample_rate: f64,
     pending: Vec<PendingEvent>,
+    // Keep the host and plug-in module alive while COM objects can call them.
+    _host: ComPtr<vst3::Steinberg::Vst::IHostApplication>,
+    _library: libloading::Library,
 }
 
 impl std::fmt::Debug for Vst3Instrument {
@@ -176,6 +179,8 @@ impl Vst3Instrument {
             sample_time: 0.0,
             sample_rate,
             pending: Vec::new(),
+            _host: host,
+            _library: library,
         })
     }
 

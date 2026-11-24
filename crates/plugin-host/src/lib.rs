@@ -15,6 +15,10 @@ pub use vst3_instrument::Vst3Instrument;
 mod au;
 #[cfg(target_os = "macos")]
 pub use au::{AuEffect, AuInstrument};
+#[cfg(not(target_os = "macos"))]
+mod au_stub;
+#[cfg(not(target_os = "macos"))]
+pub use au_stub::{AuEffect, AuInstrument};
 
 use std::path::{Path, PathBuf};
 
