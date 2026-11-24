@@ -892,6 +892,15 @@ enum Commands {
         #[arg(long)]
         wait: bool,
     },
+    /// Print incoming MIDI messages for a few seconds.
+    MidiMonitor {
+        /// Input port name, exactly as `ports` prints it.
+        #[arg(long = "in")]
+        input: String,
+        /// How long to monitor, in seconds.
+        #[arg(long, default_value_t = 5.0)]
+        seconds: f64,
+    },
     /// Forward MIDI input to an output port to check wiring.
     Echo {
         /// Input port name, exactly as `ports` prints it.
@@ -2243,6 +2252,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             tempo,
             wait,
         } => record(&input, &out, seconds, tempo, wait),
+        Commands::MidiMonitor { input, seconds } => midi_monitor(&input, seconds),
         Commands::Echo {
             input,
             out,
@@ -3339,6 +3349,25 @@ fn record(
         );
     }
     write_midi(out, &song)?;
+    Ok(())
+}
+
+fn midi_monitor(input: &str, seconds: f64) -> Result<(), Box<dyn Error>> {
+    let live = midi_devices::LiveInput::open(input).map_err(map_device_error)?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs_f64(seconds.max(0.1));
+    let mut count = 0_usize;
+    let mut controllers = 0_usize;
+    while std::time::Instant::now() < deadline {
+        while let Some(message) = live.next() {
+            count += 1;
+            if matches!(message, music_core::MidiMessage::ControlChange { .. }) {
+                controllers += 1;
+            }
+            println!("{message:?}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    println!("{count} message(s), {controllers} control change(s)");
     Ok(())
 }
 

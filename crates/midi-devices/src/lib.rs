@@ -24,7 +24,8 @@ pub mod sysex;
 
 pub use capture::{CaptureStats, CapturedNote, NoteCapture};
 pub use devices::{
-    DeviceError, EchoReport, PortNames, echo, list_ports, record_to_song, record_to_song_after,
+    DeviceError, EchoReport, LiveInput, PortNames, echo, list_ports, record_to_song,
+    record_to_song_after,
 };
 pub use dispatch::{
     Clock, MidiSink, PortSink, RealClock, TimedMessage, all_notes_off_messages, play_timed,
