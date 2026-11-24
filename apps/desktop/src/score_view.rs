@@ -238,6 +238,281 @@ pub fn preview_cursor_x(
     None
 }
 
+/// Cheap content hash for caching an all-track engraving.
+#[must_use]
+pub fn full_score_hash(song: &project::Song, title: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    song.name.hash(&mut hasher);
+    title.hash(&mut hasher);
+    song.time_signature.numerator.hash(&mut hasher);
+    song.time_signature.denominator.hash(&mut hasher);
+    song.key
+        .map(|key| (key.tonic.as_u8(), key.minor))
+        .hash(&mut hasher);
+    song.end_tick().hash(&mut hasher);
+    for change in song.tempo_map.changes() {
+        change.tick.hash(&mut hasher);
+        change.bpm.to_bits().hash(&mut hasher);
+    }
+    for event in &song.chords {
+        event.tick.hash(&mut hasher);
+        event.chord.root.as_u8().hash(&mut hasher);
+        format!("{:?}", event.chord.quality).hash(&mut hasher);
+    }
+    for mark in &song.marks {
+        mark.tick.hash(&mut hasher);
+        format!("{:?}", mark.kind).hash(&mut hasher);
+    }
+    for lyric in &song.lyrics {
+        lyric.tick.hash(&mut hasher);
+        lyric.text.hash(&mut hasher);
+    }
+    for track in &song.tracks {
+        track.id.get().hash(&mut hasher);
+        track.name.hash(&mut hasher);
+        track.volume.hash(&mut hasher);
+        track.pan.hash(&mut hasher);
+        track.muted.hash(&mut hasher);
+        track.soloed.hash(&mut hasher);
+        track.program.hash(&mut hasher);
+        track
+            .bank
+            .map(|bank| (bank.msb, bank.lsb))
+            .hash(&mut hasher);
+        track.bus.hash(&mut hasher);
+        track.send.hash(&mut hasher);
+        track.send_level.hash(&mut hasher);
+        for note in &track.notes {
+            note.start.hash(&mut hasher);
+            note.duration.hash(&mut hasher);
+            note.pitch.as_u8().hash(&mut hasher);
+        }
+        for clip in &track.clips {
+            clip.start.hash(&mut hasher);
+            clip.length.hash(&mut hasher);
+        }
+        if let Some(audio) = &track.audio {
+            audio.path.hash(&mut hasher);
+            audio.start.hash(&mut hasher);
+            audio.length.hash(&mut hasher);
+        }
+        for slur in &track.slurs {
+            slur.start.hash(&mut hasher);
+            slur.end.hash(&mut hasher);
+        }
+    }
+    hasher.finish()
+}
+
+/// Draws a read-only all-track review score: one system per page.
+pub fn show_full(
+    ui: &mut Ui,
+    tracks: &[(String, Engraved)],
+    page: usize,
+    zoom: f32,
+    title: &str,
+    state: &mut ScoreState,
+    position: music_core::Tick,
+) -> usize {
+    let settings = Settings::default();
+    let page_count = tracks
+        .iter()
+        .map(|(_, engraved)| {
+            engraved
+                .pages
+                .iter()
+                .map(|page| page.systems.len())
+                .sum::<usize>()
+        })
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let page_index = page.min(page_count.saturating_sub(1));
+    if state.clef_treble.is_none() {
+        let image = score::clef::treble();
+        state.clef_treble = Some(ui.ctx().load_texture(
+            "score-treble-clef",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [image.width as usize, image.height as usize],
+                &image.rgba,
+            ),
+            egui::TextureOptions::LINEAR,
+        ));
+    }
+    if state.clef_bass.is_none() {
+        let image = score::clef::bass();
+        state.clef_bass = Some(ui.ctx().load_texture(
+            "score-bass-clef",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [image.width as usize, image.height as usize],
+                &image.rgba,
+            ),
+            egui::TextureOptions::LINEAR,
+        ));
+    }
+    let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
+    let page_rect = page_rect(response.rect.center(), settings, zoom);
+    painter.rect_filled(page_rect, 0.0, Color32::from_rgb(0xF4, 0xF1, 0xEA));
+    painter.rect_stroke(
+        page_rect,
+        0.0,
+        Stroke::new(1.0_f32, theme::line_strong()),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        Pos2::new(
+            page_rect.left() + settings.margin * zoom,
+            page_rect.top() + 6.0 * zoom,
+        ),
+        egui::Align2::LEFT_TOP,
+        title,
+        egui::FontId::proportional(12.0 * zoom),
+        Color32::from_rgb(0x14, 0x14, 0x14),
+    );
+    let roster = tracks.len().max(1);
+    let available = (settings.page_height - 2.0 * settings.margin - 24.0).max(24.0);
+    let span = (available / roster as f32).max(12.0);
+    let line_gap = ((span - 4.0) / 4.0).clamp(1.5, settings.staff_space);
+    let left = page_rect.left() + settings.margin * zoom;
+    let right = page_rect.right() - settings.margin * zoom;
+    let top0 = page_rect.top() + (settings.margin + 12.0) * zoom;
+    for (index, (name, engraved)) in tracks.iter().enumerate() {
+        let Some((source_page, system)) = engraved
+            .pages
+            .iter()
+            .enumerate()
+            .flat_map(|(page, data)| data.systems.iter().map(move |system| (page, system)))
+            .nth(page_index)
+        else {
+            continue;
+        };
+        let top = top0 + index as f32 * span * zoom;
+        for line in 0..5 {
+            let y = top + line as f32 * line_gap * zoom;
+            painter.line_segment(
+                [Pos2::new(left, y), Pos2::new(right, y)],
+                Stroke::new(0.6_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
+            );
+        }
+        painter.text(
+            Pos2::new(page_rect.left() + 4.0, top + 2.0 * line_gap * zoom),
+            egui::Align2::LEFT_CENTER,
+            name,
+            egui::FontId::proportional(7.0 * zoom),
+            Color32::from_rgb(0x40, 0x40, 0x40),
+        );
+        let average = if engraved.notes.is_empty() {
+            60.0
+        } else {
+            engraved
+                .notes
+                .iter()
+                .map(|note| f32::from(note.pitch.as_u8()))
+                .sum::<f32>()
+                / engraved.notes.len() as f32
+        };
+        let bass = average < 52.0;
+        let texture = if bass {
+            state.clef_bass.as_ref()
+        } else {
+            state.clef_treble.as_ref()
+        };
+        if let Some(texture) = texture {
+            let image = if bass {
+                score::clef::bass()
+            } else {
+                score::clef::treble()
+            };
+            let height = 7.0 * settings.staff_space * zoom;
+            let width = height * image.width as f32 / image.height as f32;
+            let rect = egui::Rect::from_min_size(
+                Pos2::new(left - width, top - 2.0 * settings.staff_space * zoom),
+                Vec2::new(width, height),
+            );
+            painter.image(
+                texture.id(),
+                rect,
+                egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                Color32::WHITE,
+            );
+        }
+        for note in engraved
+            .notes
+            .iter()
+            .filter(|note| note.page == source_page)
+        {
+            if note.measure + 1 < system.measures.first().map_or(0, |m| m.number)
+                || note.measure + 1 > system.measures.last().map_or(0, |m| m.number)
+            {
+                continue;
+            }
+            let y = top + (note.y - system.y) * (line_gap / settings.staff_space) * zoom;
+            let x = page_rect.left() + note.x * zoom;
+            painter.circle_filled(
+                Pos2::new(x, y),
+                line_gap * 0.55 * zoom,
+                Color32::from_rgb(0x10, 0x10, 0x10),
+            );
+            let stem = if note.pitch.as_u8() < 71 {
+                y + 3.0 * line_gap * zoom
+            } else {
+                y - 3.0 * line_gap * zoom
+            };
+            painter.line_segment(
+                [Pos2::new(x, y), Pos2::new(x, stem)],
+                Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+            );
+            if let Some(alter) = note.spelled.accidental {
+                let accidental = match alter {
+                    1 => "#",
+                    -1 => "b",
+                    2 => "x",
+                    -2 => "bb",
+                    _ => "",
+                };
+                if !accidental.is_empty() {
+                    painter.text(
+                        Pos2::new(x - 4.0 * zoom, y - 1.0 * zoom),
+                        egui::Align2::RIGHT_CENTER,
+                        accidental,
+                        egui::FontId::proportional(7.0 * zoom),
+                        Color32::from_rgb(0x10, 0x10, 0x10),
+                    );
+                }
+            }
+        }
+    }
+    if let Some((_, engraved)) = tracks.first()
+        && let Some(system) = engraved
+            .pages
+            .iter()
+            .flat_map(|page| page.systems.iter())
+            .nth(page_index)
+    {
+        let top = top0;
+        let bottom = top + roster as f32 * span * zoom - 4.0 * zoom;
+        for measure in &system.measures {
+            for x in [measure.x, measure.x_end] {
+                let x = page_rect.left() + x * zoom;
+                painter.line_segment(
+                    [Pos2::new(x, top), Pos2::new(x, bottom)],
+                    Stroke::new(0.6_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
+                );
+            }
+        }
+    }
+    painter.text(
+        Pos2::new(page_rect.center().x, page_rect.bottom() - 8.0 * zoom),
+        egui::Align2::CENTER_BOTTOM,
+        format!("{} / {page_count}", page_index + 1),
+        egui::FontId::proportional(8.0 * zoom),
+        Color32::from_rgb(0x50, 0x50, 0x50),
+    );
+    let _ = position;
+    page_count
+}
+
 /// Draws a Cecilia preview page, scaled to the score viewport.
 pub fn show_preview(
     ui: &mut Ui,
@@ -987,6 +1262,44 @@ mod tests {
         song.tracks[0].notes[0].pitch = Pitch::from_name("D4").expect("valid");
         let after = cecilia_cache_key(&song, 0, "Score", false);
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn the_full_score_hash_changes_with_notes() {
+        let mut song = score_song();
+        let before = full_score_hash(&song, "Full");
+        song.tracks[0].notes[0].pitch = Pitch::from_name("E4").expect("valid");
+        assert_ne!(before, full_score_hash(&song, "Full"));
+    }
+
+    #[test]
+    fn the_full_score_canvas_draws_every_track() {
+        let song = score_song();
+        let track = project::TrackId::new(1).expect("valid");
+        let engraved = score::engrave(&song, track, Settings::default());
+        let tracks = vec![
+            (String::from("Piano"), engraved.clone()),
+            (String::from("Bass"), engraved),
+        ];
+        let context = egui::Context::default();
+        let mut state = ScoreState::default();
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 900.0))),
+                ..egui::RawInput::default()
+            },
+            |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    let _ = show_full(ui, &tracks, 0, 1.0, "Full", &mut state, 0);
+                });
+            },
+        );
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            collect_text(&clipped.shape, &mut texts);
+        }
+        assert!(texts.iter().any(|text| text == "Piano"));
+        assert!(texts.iter().any(|text| text == "Bass"));
     }
 
     #[test]

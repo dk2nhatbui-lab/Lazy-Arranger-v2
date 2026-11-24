@@ -938,6 +938,7 @@ pub struct ShellApp {
     score_grand: bool,
     score_preview: bool,
     score_all_tracks: bool,
+    score_full_cache: Option<(u64, Vec<(String, score::Engraved)>)>,
     patch_open: bool,
     patch_track: Option<TrackId>,
     patch_draft: Option<project::song::Patch>,
@@ -1286,6 +1287,7 @@ impl ShellApp {
             score_preview: std::env::var("ARRANGER_SCORE_EDIT").is_err()
                 && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
             score_all_tracks: false,
+            score_full_cache: None,
             patch_open: std::env::var("ARRANGER_PATCH").is_ok(),
             patch_track: None,
             patch_draft: None,
@@ -12127,7 +12129,7 @@ impl eframe::App for ShellApp {
                             .collect();
                         ui.horizontal_wrapped(|ui| {
                             ui.label(egui::RichText::new("Score").strong());
-                            ui.checkbox(&mut self.score_all_tracks, "All tracks (PDF)");
+                            ui.checkbox(&mut self.score_all_tracks, "All tracks");
                             let mut write = self.score_entry;
                             if ui.checkbox(&mut write, "Write notes").changed() {
                                 self.score_entry = write;
@@ -12304,7 +12306,53 @@ impl eframe::App for ShellApp {
                             }
                             let zoom = self.score_zoom;
                             let page = self.score_page;
-                            let outcome = if self.score_preview {
+                            let full_tracks: Vec<(String, score::Engraved)> = if self.score_all_tracks {
+                                let key = crate::score_view::full_score_hash(&project.song, title);
+                                if self
+                                    .score_full_cache
+                                    .as_ref()
+                                    .is_none_or(|(cached, _)| *cached != key)
+                                {
+                                    self.score_full_cache = Some((
+                                        key,
+                                        project
+                                            .song
+                                            .tracks
+                                            .iter()
+                                            .map(|entry| {
+                                                (
+                                                    entry.name.clone(),
+                                                    score::engrave(
+                                                        &project.song,
+                                                        entry.id,
+                                                        score_settings,
+                                                    ),
+                                                )
+                                            })
+                                            .collect(),
+                                    ));
+                                }
+                                self.score_full_cache
+                                    .as_ref()
+                                    .map(|(_, tracks)| tracks.clone())
+                                    .unwrap_or_default()
+                            } else {
+                                Vec::new()
+                            };
+                            let outcome = if self.score_all_tracks {
+                                let count = crate::score_view::show_full(
+                                    ui,
+                                    &full_tracks,
+                                    self.score_page,
+                                    zoom,
+                                    title,
+                                    &mut self.score_state,
+                                    position,
+                                );
+                                self.score_page = self.score_page.min(count.saturating_sub(1));
+                                self.score_state.cecilia_page_count = count;
+                                crate::score_view::ScoreOutcome::default()
+                            } else if self.score_preview {
                                 self.score_state.ensure_cecilia(
                                     ui.ctx(),
                                     &project.song,
