@@ -68,7 +68,24 @@ fn the_test_gain_plugin_reports_params_processes_and_has_latency() {
     );
     let state = effect.save_state_base64().expect("state");
     assert!(!state.is_empty());
+    let view = effect.probe_view().expect("editor view");
+    assert!(view.supports_nsview);
+    assert_eq!((view.width, view.height), (360, 220));
+    assert!(view.can_resize);
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "probes installed R0Verb.vst3 native IPlugView"]
+fn installed_r0verb_vst3_exposes_nsview_editor() {
+    let bundle = std::path::Path::new("/Library/Audio/Plug-Ins/VST3/R0Verb.vst3");
+    let classes = plugin_host::scan_vst3(bundle).expect("scan");
+    let effect =
+        plugin_host::Vst3Effect::new(bundle, &classes[0].cid, 48_000.0, 512).expect("effect");
+    let view = effect.probe_view().expect("R0Verb editor view");
+    assert!(view.supports_nsview, "R0Verb should support NSView");
+    assert!(view.width >= 200 && view.height >= 100, "got {view:?}");
 }
 
 #[cfg(target_os = "macos")]

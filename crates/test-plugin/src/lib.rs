@@ -537,8 +537,122 @@ impl IEditControllerTrait for GainController {
         kResultOk
     }
 
-    unsafe fn createView(&self, _name: *const c_char) -> *mut IPlugView {
-        ptr::null_mut()
+    unsafe fn createView(&self, name: *const c_char) -> *mut IPlugView {
+        if name.is_null() {
+            return ptr::null_mut();
+        }
+        let requested = std::ffi::CStr::from_ptr(name).to_str().unwrap_or("");
+        if requested != "editor" {
+            return ptr::null_mut();
+        }
+        ComWrapper::new(GainPlugView::new())
+            .to_com_ptr::<IPlugView>()
+            .map_or(ptr::null_mut(), |ptr| ptr.into_raw())
+    }
+}
+
+struct GainPlugView {
+    width: std::sync::atomic::AtomicI32,
+    height: std::sync::atomic::AtomicI32,
+}
+
+impl GainPlugView {
+    fn new() -> Self {
+        Self {
+            width: std::sync::atomic::AtomicI32::new(360),
+            height: std::sync::atomic::AtomicI32::new(220),
+        }
+    }
+}
+
+impl Class for GainPlugView {
+    type Interfaces = (IPlugView,);
+}
+
+impl IPlugViewTrait for GainPlugView {
+    unsafe fn isPlatformTypeSupported(&self, kind: FIDString) -> tresult {
+        if kind.is_null() {
+            return kInvalidArgument;
+        }
+        let name = std::ffi::CStr::from_ptr(kind).to_str().unwrap_or("");
+        if name == "NSView" || name == "HWND" || name == "X11EmbedWindowID" {
+            kResultOk
+        } else {
+            kNotImplemented
+        }
+    }
+
+    unsafe fn attached(&self, parent: *mut c_void, kind: FIDString) -> tresult {
+        if parent.is_null() || self.isPlatformTypeSupported(kind) != kResultOk {
+            return kInvalidArgument;
+        }
+        kResultOk
+    }
+
+    unsafe fn removed(&self) -> tresult {
+        kResultOk
+    }
+
+    unsafe fn onWheel(&self, _distance: f32) -> tresult {
+        kResultFalse
+    }
+
+    unsafe fn onKeyDown(&self, _key: char16, _key_code: int16, _modifiers: int16) -> tresult {
+        kResultFalse
+    }
+
+    unsafe fn onKeyUp(&self, _key: char16, _key_code: int16, _modifiers: int16) -> tresult {
+        kResultFalse
+    }
+
+    unsafe fn getSize(&self, size: *mut ViewRect) -> tresult {
+        if size.is_null() {
+            return kInvalidArgument;
+        }
+        let rect = &mut *size;
+        rect.left = 0;
+        rect.top = 0;
+        rect.right = self.width.load(Ordering::Relaxed);
+        rect.bottom = self.height.load(Ordering::Relaxed);
+        kResultOk
+    }
+
+    unsafe fn onSize(&self, new_size: *mut ViewRect) -> tresult {
+        if new_size.is_null() {
+            return kInvalidArgument;
+        }
+        let rect = &*new_size;
+        let w = (rect.right - rect.left).max(120);
+        let h = (rect.bottom - rect.top).max(80);
+        self.width.store(w, Ordering::Relaxed);
+        self.height.store(h, Ordering::Relaxed);
+        kResultOk
+    }
+
+    unsafe fn onFocus(&self, _state: TBool) -> tresult {
+        kResultOk
+    }
+
+    unsafe fn setFrame(&self, _frame: *mut IPlugFrame) -> tresult {
+        kResultOk
+    }
+
+    unsafe fn canResize(&self) -> tresult {
+        kResultTrue
+    }
+
+    unsafe fn checkSizeConstraint(&self, rect: *mut ViewRect) -> tresult {
+        if rect.is_null() {
+            return kInvalidArgument;
+        }
+        let rect = &mut *rect;
+        if rect.right - rect.left < 120 {
+            rect.right = rect.left + 120;
+        }
+        if rect.bottom - rect.top < 80 {
+            rect.bottom = rect.top + 80;
+        }
+        kResultOk
     }
 }
 

@@ -8,7 +8,7 @@
 
 mod instance;
 mod vst3_instrument;
-pub use instance::Vst3Effect;
+pub use instance::{Vst3Effect, Vst3ViewInfo};
 pub use vst3_instrument::Vst3Instrument;
 
 #[cfg(target_os = "macos")]
@@ -19,6 +19,15 @@ pub use au::{AuEffect, AuInstrument};
 mod au_stub;
 #[cfg(not(target_os = "macos"))]
 pub use au_stub::{AuEffect, AuInstrument};
+
+#[cfg(target_os = "macos")]
+mod editor;
+#[cfg(target_os = "macos")]
+pub use editor::{AuEditor, Vst3Editor};
+#[cfg(not(target_os = "macos"))]
+mod editor_stub;
+#[cfg(not(target_os = "macos"))]
+pub use editor_stub::{AuEditor, Vst3Editor};
 
 use std::path::{Path, PathBuf};
 

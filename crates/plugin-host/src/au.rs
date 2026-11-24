@@ -494,6 +494,21 @@ impl AuEffect {
         }
         Ok(())
     }
+
+    pub(crate) fn raw_unit(&self) -> AudioUnit {
+        self.unit
+    }
+
+    /// Serializes all parameter values as `id=value;` text for `PluginSlot.state`.
+    #[must_use]
+    pub fn serialize_parameter_state(&self) -> String {
+        serialize_unit_parameters(self.unit)
+    }
+
+    /// Applies `id=value;` parameter entries stored in `PluginSlot.state`.
+    pub fn apply_parameter_state(&self, state: &str) {
+        apply_unit_parameters(self.unit, state);
+    }
 }
 
 impl Drop for AuEffect {
@@ -700,6 +715,41 @@ impl AuInstrument {
         }
         self.sample_time += frames as f64;
         Ok(())
+    }
+
+    pub(crate) fn raw_unit(&self) -> AudioUnit {
+        self.unit
+    }
+
+    /// Serializes all parameter values as `id=value;` text for `PluginSlot.state`.
+    #[must_use]
+    pub fn serialize_parameter_state(&self) -> String {
+        serialize_unit_parameters(self.unit)
+    }
+
+    /// Applies `id=value;` parameter entries stored in `PluginSlot.state`.
+    pub fn apply_parameter_state(&self, state: &str) {
+        apply_unit_parameters(self.unit, state);
+    }
+}
+
+fn serialize_unit_parameters(unit: AudioUnit) -> String {
+    let mut out = String::new();
+    for (id, _, value, _, _, _) in unit_parameters(unit) {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{id}={value};");
+    }
+    out
+}
+
+fn apply_unit_parameters(unit: AudioUnit, state: &str) {
+    for entry in state.split(';') {
+        if let Some((id, value)) = entry.split_once('=')
+            && let (Ok(id), Ok(value)) = (id.trim().parse::<u32>(), value.trim().parse::<f32>())
+            && value.is_finite()
+        {
+            let _ = unsafe { AudioUnitSetParameter(unit, id, SCOPE_GLOBAL, 0, value, 0) };
+        }
     }
 }
 

@@ -862,6 +862,41 @@ struct RenderedSong {
     loop_start: Option<music_core::Tick>,
 }
 
+enum NativeEditorKind {
+    Vst3(plugin_host::Vst3Editor),
+    Au(plugin_host::AuEditor),
+}
+
+struct OpenNativeEditor {
+    track: TrackId,
+    slot_id: u32,
+    name: String,
+    kind: NativeEditorKind,
+}
+
+impl OpenNativeEditor {
+    fn is_open(&self) -> bool {
+        match &self.kind {
+            NativeEditorKind::Vst3(editor) => editor.is_open(),
+            NativeEditorKind::Au(editor) => editor.is_open(),
+        }
+    }
+
+    fn capture_state(&self) -> Result<String, String> {
+        match &self.kind {
+            NativeEditorKind::Vst3(editor) => editor.save_state_base64(),
+            NativeEditorKind::Au(editor) => Ok(editor.save_parameter_state()),
+        }
+    }
+
+    fn close(&mut self) {
+        match &mut self.kind {
+            NativeEditorKind::Vst3(editor) => editor.close(),
+            NativeEditorKind::Au(editor) => editor.close(),
+        }
+    }
+}
+
 enum D05TaskResult {
     TempPatch(Result<(Box<midi_devices::d05::TempPatch>, usize), String>),
     BankNames(u8, Result<Vec<String>, String>),
@@ -1088,6 +1123,7 @@ pub struct ShellApp {
     d05_open: bool,
     d05_editor: crate::d05_editor::D05EditorState,
     d05_reply: Option<std::sync::mpsc::Receiver<D05TaskResult>>,
+    native_plugin_editor: Option<OpenNativeEditor>,
     takes_open: bool,
     xg_open: bool,
     xg_parts: [[u8; 4]; 16],
@@ -1481,6 +1517,7 @@ impl ShellApp {
             d05_open: std::env::var("ARRANGER_D05").is_ok(),
             d05_editor: crate::d05_editor::D05EditorState::default(),
             d05_reply: None,
+            native_plugin_editor: None,
             takes_open: std::env::var("ARRANGER_TAKES").is_ok(),
             xg_open: std::env::var("ARRANGER_XG").is_ok(),
             xg_parts: [[100, 64, 40, 0]; 16],
@@ -7289,6 +7326,91 @@ impl ShellApp {
         self.patch_open = open;
     }
 
+    fn close_native_plugin_editor(&mut self, save_state: bool) {
+        if let Some(mut open) = self.native_plugin_editor.take() {
+            if save_state
+                && let Ok(state) = open.capture_state()
+                && !state.is_empty()
+            {
+                let _ = self
+                    .editor
+                    .set_plugin_state(open.track, open.slot_id, &state);
+                self.status = Some(format!("saved native UI state for {}", open.name));
+            }
+            open.close();
+        }
+    }
+
+    fn poll_native_plugin_editor(&mut self) {
+        if self
+            .native_plugin_editor
+            .as_ref()
+            .is_some_and(|open| !open.is_open())
+        {
+            self.close_native_plugin_editor(true);
+        }
+    }
+
+    fn open_native_plugin_editor(&mut self, track: TrackId, slot: u32) {
+        self.close_native_plugin_editor(true);
+        let Some(plugin) = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.plugins.iter().find(|entry| entry.id == slot))
+            .cloned()
+        else {
+            self.status = Some(String::from("plug-in slot not found"));
+            return;
+        };
+        let opened = match plugin.format {
+            project::song::PluginFormat::Vst3 => plugin_host::Vst3Editor::open(
+                &plugin.name,
+                std::path::Path::new(&plugin.path),
+                &plugin.identifier,
+                &plugin.state,
+                48_000.0,
+            )
+            .map(|editor| {
+                let (w, h) = editor.size();
+                (
+                    NativeEditorKind::Vst3(editor),
+                    format!("opened native VST3 UI for {} ({w}x{h})", plugin.name),
+                )
+            }),
+            project::song::PluginFormat::AudioUnit => plugin_host::AuEditor::open(
+                &plugin.name,
+                &plugin.identifier,
+                &plugin.state,
+                48_000.0,
+            )
+            .map(|editor| {
+                let kind = if editor.used_custom_view() {
+                    "custom Cocoa"
+                } else {
+                    "AUGenericView"
+                };
+                (
+                    NativeEditorKind::Au(editor),
+                    format!("opened native AU UI ({kind}) for {}", plugin.name),
+                )
+            }),
+        };
+        match opened {
+            Ok((kind, message)) => {
+                self.native_plugin_editor = Some(OpenNativeEditor {
+                    track,
+                    slot_id: slot,
+                    name: plugin.name,
+                    kind,
+                });
+                self.status = Some(message);
+            }
+            Err(error) => self.status = Some(format!("native UI: {error}")),
+        }
+    }
+
     fn capture_vst3_state(&mut self, track: TrackId, slot: u32) {
         let Some(plugin) = self
             .song()
@@ -10378,6 +10500,25 @@ impl ShellApp {
                         {
                             self.status = Some(error);
                         }
+                        let is_native_open = self
+                            .native_plugin_editor
+                            .as_ref()
+                            .is_some_and(|open| open.track == track_id && open.slot_id == slot.id);
+                        if is_native_open {
+                            if ui
+                                .small_button("Close UI")
+                                .on_hover_text("Save state and close the native plug-in window")
+                                .clicked()
+                            {
+                                self.close_native_plugin_editor(true);
+                            }
+                        } else if ui
+                            .small_button("UI")
+                            .on_hover_text("Open native plug-in editor window")
+                            .clicked()
+                        {
+                            self.open_native_plugin_editor(track_id, slot.id);
+                        }
                         if slot.format == project::song::PluginFormat::AudioUnit
                             && ui.small_button("Params").clicked()
                         {
@@ -12886,6 +13027,7 @@ impl eframe::App for ShellApp {
         self.takes_window(context);
         self.midi_out_window(context);
         self.midi_monitor_window(context);
+        self.poll_native_plugin_editor();
         self.au_parameters_window(context);
         self.vst3_parameters_window(context);
         self.print_window(context);

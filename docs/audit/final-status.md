@@ -33,9 +33,13 @@ and tutorial; background rendering for Cecilia previews, waveforms and playback.
 
 ## Concrete blockers to full parity
 
-1. **Native plug-in editors** — VST3/AU scanning, hosting, processing, parameter
-   enumeration and opaque state work. No native editor window exists for either
-   format, and no stable header/plugin fixture was supplied to test one.
+1. **Native plug-in editors** — macOS native `NSWindow` editors now exist for
+   both VST3 (`Vst3Editor`, `IPlugView`/`IPlugFrame` `NSView`) and Audio Units
+   (`AuEditor`, `kAudioUnitProperty_CocoaUI` with `AUGenericView` fallback),
+   wired to Mixer slot **UI** / **Close UI** buttons with state capture on close
+   and live-verified on `R0Verb.vst3` (850×596), `appl:dcmp`, and `appl:dls`.
+   Windows/Linux native editor windows and live real-time audio inside open
+   editor windows remain unimplemented.
 2. **Korg PCG and L6max project files** — Korg PCG is deferred by request (the
    Pa5X manual does not specify the PCG binary layout, and no PCG fixture was
    supplied). The L6max device page sends the documented CC map and transport
@@ -77,5 +81,6 @@ choice; an AI/speech endpoint with credentials; or the hardware powered on.
   `Read from Synth`, `Get Sound Names`, `Send All`, Save/Load `.syx`), live-verified
   on powered hardware (`"Neo Horizon"`, 448 B / 468 B `.syx`, bank scans + DT1
   restore); XioSynth sound pages remain generic.
-- Take comping, buses, automation, plug-in state and freeze have model, command,
-  MCP and UI coverage; real plugin editor windows do not.
+- Take comping, buses, automation, plug-in state, freeze, and macOS native
+  VST3/AU editor windows have model, command, UI, and smoke coverage;
+  Windows/Linux native plug-in editors remain unimplemented.

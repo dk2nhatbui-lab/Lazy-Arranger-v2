@@ -7,10 +7,11 @@ use std::path::{Path, PathBuf};
 
 use vst3::Steinberg::Vst::{
     AudioBusBuffers, AudioBusBuffers__type0, BusDirections_, IAudioProcessor, IAudioProcessorTrait,
-    IComponent, IComponentTrait, IEditController, IEditControllerTrait, IHostApplication,
+    IComponent, IComponentHandler, IComponentHandlerTrait, IComponentTrait, IConnectionPoint,
+    IConnectionPointTrait, IEditController, IEditControllerTrait, IHostApplication,
     IHostApplicationTrait, IParamValueQueue, IParamValueQueueTrait, IParameterChanges,
-    IParameterChangesTrait, MediaTypes_, ProcessContext, ProcessData, ProcessSetup, String128,
-    SymbolicSampleSizes_,
+    IParameterChangesTrait, MediaTypes_, ParamID, ParamValue, ProcessContext, ProcessData,
+    ProcessSetup, String128, SymbolicSampleSizes_,
 };
 use vst3::Steinberg::{
     IBStream, IBStreamTrait, IPluginBaseTrait, IPluginFactory, IPluginFactoryTrait, TUID,
@@ -19,11 +20,25 @@ use vst3::Steinberg::{
 use vst3::com_scrape_types::Unknown;
 use vst3::{Class, ComPtr, ComWrapper, Interface};
 
+/// Metadata reported by a VST3 plug-in's `IPlugView` before attaching to a window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Vst3ViewInfo {
+    /// True when the view reports support for `NSView` on macOS.
+    pub supports_nsview: bool,
+    /// Preferred editor width in points/pixels.
+    pub width: i32,
+    /// Preferred editor height in points/pixels.
+    pub height: i32,
+    /// True when the view permits host-driven resizing.
+    pub can_resize: bool,
+}
+
 /// One active VST3 effect.
 pub struct Vst3Effect {
     component: ComPtr<IComponent>,
     processor: ComPtr<IAudioProcessor>,
     controller: Option<ComPtr<IEditController>>,
+    _handler: Option<ComPtr<IComponentHandler>>,
     _host: ComPtr<IHostApplication>,
     channels: usize,
     max_block: usize,
@@ -92,18 +107,39 @@ impl Vst3Effect {
             .cast::<IAudioProcessor>()
             .ok_or_else(|| String::from("component has no IAudioProcessor"))?;
         let mut controller_id: TUID = [0; 16];
+        let mut separate_controller = false;
         let controller =
             if unsafe { component.getControllerClassId(&mut controller_id) } == kResultOk {
                 match create::<IEditController>(&factory, &controller_id) {
                     Ok(controller) => {
                         let result = unsafe { controller.initialize(host.as_ptr().cast()) };
-                        (result == kResultOk).then_some(controller)
+                        if result == kResultOk {
+                            separate_controller = true;
+                            Some(controller)
+                        } else {
+                            None
+                        }
                     }
-                    Err(_) => None,
+                    Err(_) => component.cast::<IEditController>(),
                 }
             } else {
-                None
+                component.cast::<IEditController>()
             };
+        let handler = ComWrapper::new(HostComponentHandler).to_com_ptr::<IComponentHandler>();
+        if let Some(controller) = &controller {
+            if let Some(handler) = &handler {
+                let _ = unsafe { controller.setComponentHandler(handler.as_ptr()) };
+            }
+            if separate_controller
+                && let (Some(comp_cp), Some(ctrl_cp)) = (
+                    component.cast::<IConnectionPoint>(),
+                    controller.cast::<IConnectionPoint>(),
+                )
+            {
+                let _ = unsafe { comp_cp.connect(ctrl_cp.as_ptr()) };
+                let _ = unsafe { ctrl_cp.connect(comp_cp.as_ptr()) };
+            }
+        }
         let inputs = unsafe {
             component.getBusCount(MediaTypes_::kAudio as i32, BusDirections_::kInput as i32)
         }
@@ -154,6 +190,7 @@ impl Vst3Effect {
             component,
             processor,
             controller,
+            _handler: handler,
             _host: host,
             channels: 2,
             max_block: max_block.max(1),
@@ -348,7 +385,70 @@ impl Vst3Effect {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(state.trim())
             .map_err(|error| format!("base64 state: {error}"))?;
-        self.load_state(&bytes)
+        self.load_state(&bytes)?;
+        self.sync_controller_state();
+        Ok(())
+    }
+
+    /// Synchronizes the edit controller with the component's current state.
+    pub fn sync_controller_state(&self) {
+        let Some(controller) = &self.controller else {
+            return;
+        };
+        if let Ok(bytes) = self.save_state() {
+            let (stream, _) = MemoryStream::from_bytes(&bytes);
+            if let Some(pointer) = stream.to_com_ptr::<IBStream>() {
+                let _ = unsafe { controller.setComponentState(pointer.as_ptr()) };
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn controller(&self) -> Option<&ComPtr<IEditController>> {
+        self.controller.as_ref()
+    }
+
+    /// Probes whether this VST3 instance exposes a native `IPlugView` editor
+    /// without creating an OS window.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the plug-in has no edit controller or no editor view.
+    pub fn probe_view(&self) -> Result<Vst3ViewInfo, String> {
+        use vst3::Steinberg::Vst::ViewType;
+        use vst3::Steinberg::{IPlugView, IPlugViewTrait, ViewRect, kPlatformTypeNSView};
+
+        let controller = self
+            .controller
+            .as_ref()
+            .ok_or_else(|| String::from("plug-in has no IEditController"))?;
+        let raw_view = unsafe { controller.createView(ViewType::kEditor) };
+        let view = unsafe { ComPtr::<IPlugView>::from_raw(raw_view) }
+            .ok_or_else(|| String::from("plug-in returned no editor IPlugView"))?;
+        let supports_nsview =
+            unsafe { view.isPlatformTypeSupported(kPlatformTypeNSView) } == kResultOk;
+        let mut rect = ViewRect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        let (width, height) = if unsafe { view.getSize(&mut rect) } == kResultOk {
+            (
+                (rect.right - rect.left).max(0),
+                (rect.bottom - rect.top).max(0),
+            )
+        } else {
+            (0, 0)
+        };
+        let can_resize = unsafe { view.canResize() } == vst3::Steinberg::kResultTrue;
+        drop(view);
+        Ok(Vst3ViewInfo {
+            supports_nsview,
+            width,
+            height,
+            can_resize,
+        })
     }
 
     /// Parameters exposed by the edit controller: id, title, default and range.
@@ -649,6 +749,30 @@ impl IParameterChangesTrait for ParameterChanges {
 
     unsafe fn addParameterData(&self, _id: *const u32, _index: *mut i32) -> *mut IParamValueQueue {
         std::ptr::null_mut()
+    }
+}
+
+pub(crate) struct HostComponentHandler;
+
+impl Class for HostComponentHandler {
+    type Interfaces = (IComponentHandler,);
+}
+
+impl IComponentHandlerTrait for HostComponentHandler {
+    unsafe fn beginEdit(&self, _id: ParamID) -> vst3::Steinberg::tresult {
+        kResultOk
+    }
+
+    unsafe fn performEdit(&self, _id: ParamID, _value: ParamValue) -> vst3::Steinberg::tresult {
+        kResultOk
+    }
+
+    unsafe fn endEdit(&self, _id: ParamID) -> vst3::Steinberg::tresult {
+        kResultOk
+    }
+
+    unsafe fn restartComponent(&self, _flags: i32) -> vst3::Steinberg::tresult {
+        kResultOk
     }
 }
 

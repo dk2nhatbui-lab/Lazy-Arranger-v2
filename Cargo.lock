@@ -2452,6 +2452,7 @@ dependencies = [
  "base64 0.22.1",
  "lazy-arranger-test-plugin",
  "libloading",
+ "objc2 0.6.5",
  "serde",
  "serde_json",
  "vst3",
