@@ -10181,6 +10181,34 @@ impl ShellApp {
                 if sections.is_empty() {
                     ui.label("No sections: add markers to the song first.");
                 }
+                ui.separator();
+                ui.label(
+                    egui::RichText::new("Transition at playhead")
+                        .size(10.0)
+                        .color(theme::text_dim()),
+                );
+                ui.horizontal(|ui| {
+                    for (label, kind) in [
+                        ("Automatic", arranging::forms::Transition::Automatic),
+                        ("Fill", arranging::forms::Transition::DrumFill),
+                        ("Lead-in", arranging::forms::Transition::LeadIn),
+                        ("Hold", arranging::forms::Transition::Hold),
+                        ("Break", arranging::forms::Transition::Break),
+                    ] {
+                        if ui.button(label).clicked() {
+                            match self.editor.apply_transition(self.position, kind) {
+                                Ok(added) => {
+                                    self.status = Some(format!(
+                                        "{label}: {added} note(s) at tick {}",
+                                        self.position
+                                    ));
+                                }
+                                Err(error) => self.status = Some(error),
+                            }
+                        }
+                    }
+                });
+                ui.separator();
                 for (label, form) in [
                     ("Short", arranging::forms::short(&sections)),
                     ("Gig", arranging::forms::gig(&sections)),
