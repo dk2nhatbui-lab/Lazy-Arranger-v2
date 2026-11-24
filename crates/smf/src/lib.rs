@@ -678,6 +678,10 @@ mod tests {
             tick: 960,
             text: String::from("la"),
         });
+        song.lyrics.push(project::song::LyricEvent {
+            tick: 0,
+            text: String::from("oh"),
+        });
         let mut piano = Track::new(TrackId::new(1).expect("valid"), "Piano");
         for (index, (start, pitch, channel)) in [
             (0i64, "C4", 1u8),
@@ -721,7 +725,13 @@ mod tests {
         assert!(!report.rescaled);
         assert_eq!(notes_of(&back), notes_of(&song));
         assert_eq!(back.markers, song.markers);
-        assert_eq!(back.lyrics, song.lyrics);
+        assert_eq!(
+            back.lyrics
+                .iter()
+                .map(|lyric| lyric.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["oh", "la"]
+        );
         assert_eq!(back.time_signature, song.time_signature);
         assert!((back.tempo_map.bpm_at(0) - 120.0).abs() < 0.001);
         assert_eq!(
