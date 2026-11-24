@@ -201,6 +201,17 @@ enum Commands {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Recognize chords in a local audio file and print them.
+    AudioToChords {
+        /// Source audio file.
+        wav: PathBuf,
+        /// Tempo used to place notes; defaults to 120.
+        #[arg(long, default_value_t = 120.0)]
+        bpm: f64,
+        /// Segment length in seconds.
+        #[arg(long, default_value_t = 0.5)]
+        segment: f64,
+    },
     /// Transcribe monophonic audio to a MIDI file.
     AudioToMidi {
         /// Source audio file.
@@ -1188,6 +1199,26 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                     .map_err(|error| format!("could not write {}: {error}", path.display()))?;
                 println!("{} chord(s) -> {}", chords.len(), path.display());
             }
+            Ok(())
+        }
+        Commands::AudioToChords { wav, bpm, segment } => {
+            let decoded = audio::decode::decode_mono(&wav).or_else(|_| {
+                let bytes =
+                    fs::read(&wav).map_err(|error| format!("{}: {error}", wav.display()))?;
+                audio::wav::decode_mono(&bytes)
+            })?;
+            let found = audio::chords::recognize(&decoded.samples, decoded.sample_rate, segment);
+            let events: Vec<serde_json::Value> = found
+                .iter()
+                .map(|event| {
+                    serde_json::json!({
+                        "tick": audio::chords::to_ticks(event.start, bpm),
+                        "name": event.chord.format(music_core::Spelling::Sharp),
+                        "score": event.score
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&events)?);
             Ok(())
         }
         Commands::AudioToMidi {
