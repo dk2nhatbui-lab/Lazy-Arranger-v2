@@ -114,8 +114,9 @@ pub fn export(song: &Song, title: &str) -> String {
                 ));
                 let key = score::spelling::detect_key(song);
                 out.push_str(&format!(
-                    "        <key><fifths>{}</fifths></key>\n",
-                    key_fifths(key)
+                    "        <key><fifths>{}</fifths><mode>{}</mode></key>\n",
+                    key_fifths(key),
+                    if key.minor { "minor" } else { "major" }
                 ));
                 out.push_str(&format!(
                     "        <time><beats>{}</beats><beat-type>{}</beat-type></time>\n",

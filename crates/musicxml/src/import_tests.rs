@@ -57,6 +57,14 @@ mod tests {
         let key = imported.key.expect("key");
         assert_eq!(key.tonic.as_u8(), 2);
         assert!(!key.minor);
+        song.key = Some(KeySignature {
+            tonic: PitchClass::new(9),
+            minor: true,
+        });
+        let imported = import(&export(&song, "Minor")).expect("import");
+        let key = imported.key.expect("key");
+        assert_eq!(key.tonic.as_u8(), 9);
+        assert!(key.minor);
     }
 
     #[test]
