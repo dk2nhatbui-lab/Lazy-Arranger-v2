@@ -2185,12 +2185,11 @@ impl Editor {
         Ok(())
     }
 
-    /// Splits a plain audio reference at `at` into two comped takes.
+    /// Splits an audio reference or one of its comps at `at`.
     ///
     /// # Errors
     ///
-    /// Returns a message when the track has no audio, `at` is outside it, or the
-    /// track already has comps.
+    /// Returns a message when the track has no audio or `at` is outside it.
     pub fn split_audio(&mut self, track: TrackId, at: Tick) -> Result<(), String> {
         let entry = self
             .song()
@@ -2202,35 +2201,60 @@ impl Editor {
             .audio
             .clone()
             .ok_or_else(|| String::from("track has no audio reference"))?;
-        if !entry.comps.is_empty() {
-            return Err(String::from("track already has comps"));
-        }
-        let end = active.start.saturating_add(active.length);
-        if at <= active.start || at >= end {
-            return Err(String::from("split point must be inside the audio"));
-        }
-        let left = active.clone();
-        let mut right = active.clone();
-        right.offset = right.offset.saturating_add(at.saturating_sub(active.start));
-        right.start = at;
-        right.length = end.saturating_sub(at);
         let mut takes = entry.takes.clone();
-        let left_take = takes.len();
-        takes.push(left);
-        let right_take = takes.len();
-        takes.push(right);
-        let comps = vec![
-            project::song::AudioComp {
-                take: left_take,
-                start: active.start,
-                length: at.saturating_sub(active.start),
-            },
-            project::song::AudioComp {
-                take: right_take,
-                start: at,
-                length: end.saturating_sub(at),
-            },
-        ];
+        let mut comps = entry.comps.clone();
+        if comps.is_empty() {
+            let end = active.start.saturating_add(active.length);
+            if at <= active.start || at >= end {
+                return Err(String::from("split point must be inside the audio"));
+            }
+            let left = active.clone();
+            let mut right = active.clone();
+            right.offset = right.offset.saturating_add(at.saturating_sub(active.start));
+            right.start = at;
+            right.length = end.saturating_sub(at);
+            let left_take = takes.len();
+            takes.push(left);
+            let right_take = takes.len();
+            takes.push(right);
+            comps = vec![
+                project::song::AudioComp {
+                    take: left_take,
+                    start: active.start,
+                    length: at.saturating_sub(active.start),
+                },
+                project::song::AudioComp {
+                    take: right_take,
+                    start: at,
+                    length: end.saturating_sub(at),
+                },
+            ];
+        } else {
+            let index = comps
+                .iter()
+                .position(|comp| at > comp.start && at < comp.start.saturating_add(comp.length))
+                .ok_or_else(|| String::from("split point must be inside a comp"))?;
+            let comp = comps[index];
+            let Some(take) = takes.get(comp.take).cloned() else {
+                return Err(String::from("comp refers to a missing take"));
+            };
+            let offset = at.saturating_sub(comp.start);
+            let mut right_take = take.clone();
+            right_take.offset = right_take.offset.saturating_add(offset);
+            right_take.start = at;
+            right_take.length = right_take.length.saturating_sub(offset).max(1);
+            let right_index = takes.len();
+            takes.push(right_take);
+            comps[index].length = offset.max(1);
+            comps.insert(
+                index + 1,
+                project::song::AudioComp {
+                    take: right_index,
+                    start: at,
+                    length: comp.length.saturating_sub(offset).max(1),
+                },
+            );
+        }
         self.session
             .apply(app_commands::Command::SetAudioStateFull {
                 track,
@@ -3084,6 +3108,18 @@ mod tests {
         assert_eq!(entry.comps[1].start, 2 * music_core::PPQ);
         assert_eq!(entry.comps[1].length, 2 * music_core::PPQ);
         assert_eq!(entry.takes[1].offset, 2 * music_core::PPQ);
+        editor
+            .split_audio(track, music_core::PPQ)
+            .expect("second split");
+        let entry = &editor.song().tracks[0];
+        assert_eq!(entry.comps.len(), 3);
+        assert_eq!(entry.takes.len(), 3);
+        assert_eq!(entry.takes[2].offset, music_core::PPQ);
+        assert_eq!(entry.comps[0].length, music_core::PPQ);
+        assert_eq!(entry.comps[1].start, music_core::PPQ);
+        assert!(editor.undo());
+        let entry = &editor.song().tracks[0];
+        assert_eq!(entry.comps.len(), 2);
         assert!(editor.undo());
         assert!(editor.song().tracks[0].comps.is_empty());
         assert!(editor.song().tracks[0].takes.is_empty());
