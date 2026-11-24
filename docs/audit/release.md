@@ -33,3 +33,6 @@ The debug workspace gate (897 tests, clippy `-D warnings`, fmt, rustdoc) and the
 Windows/Linux/macOS CI matrix remain the authoritative checks; this file records
 that the optimized build and its tests also pass. Hardware remains powered down,
 so audio/MIDI/print hardware checks are not part of this snapshot.
+
+Runtime smoke at this commit: the bundled app opened its restored 1546x978 window, showed the Arrange timeline with the Add clip button and live meters, and closed cleanly (local screenshot, not committed).
+
