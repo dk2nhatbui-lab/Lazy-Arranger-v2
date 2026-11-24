@@ -6,18 +6,85 @@
 //! base-14 fonts carry no music sharp or flat.
 
 use std::fmt::Write as _;
+use std::path::Path;
 
 use crate::clef::{self, ClefImage};
+use crate::unicode_font::{UnicodePdfFont, pdf_utf16_hex_string};
 use crate::{Engraved, Settings};
 
-/// Writes the engraved document as PDF bytes.
+fn collect_non_winansi_chars<'a>(texts: impl IntoIterator<Item = &'a str>) -> Vec<char> {
+    let mut chars = Vec::new();
+    for text in texts {
+        for ch in text.chars() {
+            if !pdf_encodable(ch) && !chars.contains(&ch) {
+                chars.push(ch);
+            }
+        }
+    }
+    chars
+}
+
+fn write_text(
+    content: &mut String,
+    size: f32,
+    x: f32,
+    y: f32,
+    text: &str,
+    unicode: Option<&mut UnicodePdfFont>,
+) {
+    if !text.chars().all(pdf_encodable)
+        && let Some(font) = unicode
+    {
+        let hex = font.encode_hex(text);
+        let _ = writeln!(content, "BT /F2 {size:.0} Tf {x:.1} {y:.1} Td {hex} Tj ET");
+        return;
+    }
+    let _ = writeln!(
+        content,
+        "BT /F1 {size:.0} Tf {x:.1} {y:.1} Td ({}) Tj ET",
+        escape(text)
+    );
+}
+
+/// Writes the engraved document as PDF bytes, automatically embedding a
+/// subsetted Unicode TrueType font when non-Latin-1 (e.g. Vietnamese or CJK)
+/// text is present.
 #[must_use]
 pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
+    to_pdf_with_font(engraved, settings, title, None)
+}
+
+/// Writes the engraved document as PDF bytes using an optional explicit
+/// TrueType font path for non-Latin-1 text.
+#[must_use]
+pub fn to_pdf_with_font(
+    engraved: &Engraved,
+    settings: Settings,
+    title: &str,
+    font_path: Option<&Path>,
+) -> Vec<u8> {
     let page_count = engraved.pages.len().max(1);
     let treble_id = 4 + page_count * 2;
     let treble_mask = treble_id + 1;
     let bass_id = treble_id + 2;
     let bass_mask = bass_id + 1;
+    let unicode_font_id = bass_mask + 1;
+    let needed = collect_non_winansi_chars(
+        std::iter::once(title)
+            .chain(engraved.lyrics.iter().map(|lyric| lyric.text.as_str()))
+            .chain(
+                engraved
+                    .chord_symbols
+                    .iter()
+                    .map(|symbol| symbol.name.as_str()),
+            )
+            .chain(engraved.frames.iter().map(|frame| frame.name.as_str())),
+    );
+    let mut unicode_font = if needed.is_empty() {
+        None
+    } else {
+        UnicodePdfFont::resolve(font_path, &needed)
+    };
     let average_pitch = if engraved.notes.is_empty() {
         60.0
     } else {
@@ -54,12 +121,13 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
             w = settings.page_width,
             h = settings.page_height
         );
-        let _ = writeln!(
-            content,
-            "BT /F1 12 Tf {x:.1} {y:.1} Td ({title}) Tj ET",
-            x = settings.margin,
-            y = settings.page_height - settings.margin,
-            title = escape(title)
+        write_text(
+            &mut content,
+            12.0,
+            settings.margin,
+            settings.page_height - settings.margin,
+            title,
+            unicode_font.as_mut(),
         );
         let _ = writeln!(
             content,
@@ -214,12 +282,13 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                 );
             }
             for lyric in engraved.lyrics.iter().filter(|lyric| lyric.page == index) {
-                let _ = writeln!(
-                    content,
-                    "BT /F1 9 Tf {x:.1} {y:.1} Td ({text}) Tj ET",
-                    x = lyric.x - 6.0,
-                    y = settings.page_height - lyric.y,
-                    text = escape(&lyric.text)
+                write_text(
+                    &mut content,
+                    9.0,
+                    lyric.x - 6.0,
+                    settings.page_height - lyric.y,
+                    &lyric.text,
+                    unicode_font.as_mut(),
                 );
             }
             for symbol in engraved
@@ -227,12 +296,13 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                 .iter()
                 .filter(|symbol| symbol.page == index)
             {
-                let _ = writeln!(
-                    content,
-                    "BT /F1 10 Tf {:.1} {:.1} Td ({}) Tj ET",
+                write_text(
+                    &mut content,
+                    10.0,
                     symbol.x,
                     settings.page_height - symbol.y,
-                    escape(&symbol.name)
+                    &symbol.name,
+                    unicode_font.as_mut(),
                 );
             }
             for frame in engraved.frames.iter().filter(|frame| frame.page == index) {
@@ -443,9 +513,14 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
                 }
             }
         }
+        let font_res = if unicode_font.is_some() {
+            format!("/F1 3 0 R /F2 {unicode_font_id} 0 R")
+        } else {
+            String::from("/F1 3 0 R")
+        };
         objects.push(
             format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Resources << /Font << /F1 3 0 R >> /XObject << /ClefTreble {treble_id} 0 R /ClefBass {bass_id} 0 R >> >> /Contents {contents} 0 R >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Resources << /Font << {font_res} >> /XObject << /ClefTreble {treble_id} 0 R /ClefBass {bass_id} 0 R >> >> /Contents {contents} 0 R >>",
                 w = settings.page_width,
                 h = settings.page_height,
                 contents = 5 + index * 2
@@ -466,6 +541,9 @@ pub fn to_pdf(engraved: &Engraved, settings: Settings, title: &str) -> Vec<u8> {
     let bass = clef::bass();
     objects.push(image_stream(bass, bass_mask));
     objects.push(alpha_stream(bass));
+    if let Some(font) = unicode_font.as_ref() {
+        objects.extend(font.build_pdf_objects(unicode_font_id));
+    }
 
     finish_pdf(objects, title)
 }
@@ -515,6 +593,20 @@ pub fn to_full_pdf_with_frames(
     title: &str,
     track_ids: &[project::TrackId],
     frames: bool,
+) -> Vec<u8> {
+    to_full_pdf_with_options(song, settings, title, track_ids, frames, None)
+}
+
+/// Writes an all-track full score with optional guitar chord frames and an
+/// optional explicit TrueType Unicode/CJK font path.
+#[must_use]
+pub fn to_full_pdf_with_options(
+    song: &project::Song,
+    settings: Settings,
+    title: &str,
+    track_ids: &[project::TrackId],
+    frames: bool,
+    font_path: Option<&Path>,
 ) -> Vec<u8> {
     let mut staves: Vec<FullStaff> = Vec::new();
     for id in track_ids {
@@ -582,6 +674,23 @@ pub fn to_full_pdf_with_frames(
     let treble_mask = treble_id + 1;
     let bass_id = treble_id + 2;
     let bass_mask = bass_id + 1;
+    let unicode_font_id = bass_mask + 1;
+    let needed = collect_non_winansi_chars(
+        std::iter::once(title)
+            .chain(staves.iter().map(|staff| staff.name.as_str()))
+            .chain(song.markers.iter().map(|marker| marker.name.as_str()))
+            .chain(song.lyrics.iter().map(|lyric| lyric.text.as_str()))
+            .chain(
+                staves
+                    .iter()
+                    .flat_map(|staff| staff.chords.iter().map(|chord| chord.name.as_str())),
+            ),
+    );
+    let mut unicode_font = if needed.is_empty() {
+        None
+    } else {
+        UnicodePdfFont::resolve(font_path, &needed)
+    };
     let mut objects: Vec<Vec<u8>> = Vec::new();
     objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
     let kids: Vec<String> = (0..page_count)
@@ -610,12 +719,13 @@ pub fn to_full_pdf_with_frames(
             w = settings.page_width,
             h = settings.page_height
         );
-        let _ = writeln!(
-            content,
-            "BT /F1 12 Tf {x:.1} {y:.1} Td ({title}) Tj ET",
-            x = settings.margin,
-            y = settings.page_height - settings.margin,
-            title = escape(title)
+        write_text(
+            &mut content,
+            12.0,
+            settings.margin,
+            settings.page_height - settings.margin,
+            title,
+            unicode_font.as_mut(),
         );
         if let Some(staff) = staves.first() {
             let _ = writeln!(
@@ -728,11 +838,14 @@ pub fn to_full_pdf_with_frames(
                     image,
                     settings.page_height,
                 );
-                let _ = writeln!(
-                    content,
-                    "BT /F1 7 Tf 4 {y:.1} Td ({}) Tj ET",
-                    escape(&short_track_name(&staff.name)),
-                    y = settings.page_height - (top + 2.0 * line_gap)
+                let label = short_track_name(&staff.name);
+                write_text(
+                    &mut content,
+                    7.0,
+                    4.0,
+                    settings.page_height - (top + 2.0 * line_gap),
+                    &label,
+                    unicode_font.as_mut(),
                 );
                 if system_index == total_systems.saturating_sub(1)
                     && let Some(last) = system.measures.last()
@@ -831,11 +944,13 @@ pub fn to_full_pdf_with_frames(
                         };
                         let x = measure.x + (measure.x_end - measure.x) * ratio;
                         let x = first_system.map_or(x, |sys| crate::full_score_x(system, sys, x));
-                        let _ = writeln!(
-                            content,
-                            "BT /F1 7 Tf {x:.1} {:.1} Td ({}) Tj ET",
+                        write_text(
+                            &mut content,
+                            7.0,
+                            x,
                             settings.page_height - (top - 5.0 * line_gap),
-                            escape(&marker.name)
+                            &marker.name,
+                            unicode_font.as_mut(),
                         );
                     }
                     for chord in staff.chords.iter().filter(|chord| {
@@ -844,11 +959,13 @@ pub fn to_full_pdf_with_frames(
                         let x = first_system
                             .map_or(chord.x, |sys| crate::full_score_x(system, sys, chord.x));
                         let y = top + (chord.y - system.y) * (line_gap / settings.staff_space);
-                        let _ = writeln!(
-                            content,
-                            "BT /F1 8 Tf {x:.1} {:.1} Td ({}) Tj ET",
+                        write_text(
+                            &mut content,
+                            8.0,
+                            x,
                             settings.page_height - y,
-                            escape(&chord.name)
+                            &chord.name,
+                            unicode_font.as_mut(),
                         );
                     }
                 }
@@ -943,11 +1060,13 @@ pub fn to_full_pdf_with_frames(
                         let x = first_system
                             .map_or(lyric.x, |sys| crate::full_score_x(system, sys, lyric.x));
                         let y = top + (lyric.y - system.y) * (line_gap / settings.staff_space);
-                        let _ = writeln!(
-                            content,
-                            "BT /F1 7 Tf {x:.1} {:.1} Td ({}) Tj ET",
+                        write_text(
+                            &mut content,
+                            7.0,
+                            x,
                             settings.page_height - y,
-                            escape(&lyric.text)
+                            &lyric.text,
+                            unicode_font.as_mut(),
                         );
                     }
                 }
@@ -1125,9 +1244,14 @@ pub fn to_full_pdf_with_frames(
             }
         }
         let contents = 5 + page_index * 2;
+        let font_res = if unicode_font.is_some() {
+            format!("/F1 3 0 R /F2 {unicode_font_id} 0 R")
+        } else {
+            String::from("/F1 3 0 R")
+        };
         objects.push(
             format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Resources << /Font << /F1 3 0 R >> /XObject << /ClefTreble {treble_id} 0 R /ClefBass {bass_id} 0 R >> >> /Contents {contents} 0 R >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Resources << /Font << {font_res} >> /XObject << /ClefTreble {treble_id} 0 R /ClefBass {bass_id} 0 R >> >> /Contents {contents} 0 R >>",
                 w = settings.page_width,
                 h = settings.page_height
             )
@@ -1146,12 +1270,19 @@ pub fn to_full_pdf_with_frames(
     let bass = clef::bass();
     objects.push(image_stream(bass, bass_mask));
     objects.push(alpha_stream(bass));
+    if let Some(font) = unicode_font.as_ref() {
+        objects.extend(font.build_pdf_objects(unicode_font_id));
+    }
     finish_pdf(objects, title)
 }
 
 fn finish_pdf(mut objects: Vec<Vec<u8>>, title: &str) -> Vec<u8> {
-    objects
-        .push(format!("<< /Title ({}) /Producer (Lazy Arranger) >>", escape(title)).into_bytes());
+    let title_pdf = if title.chars().all(pdf_encodable) {
+        format!("({})", escape(title))
+    } else {
+        pdf_utf16_hex_string(title)
+    };
+    objects.push(format!("<< /Title {title_pdf} /Producer (Lazy Arranger) >>").into_bytes());
     let info = objects.len();
     let mut out = Vec::new();
     out.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
@@ -1750,5 +1881,64 @@ mod tests {
     fn empty_documents_still_write_one_page() {
         let pdf = to_pdf(&engraved(0, small()), small(), "Empty");
         assert_eq!(page_count(&pdf), Some(1));
+    }
+
+    #[test]
+    fn unicode_vietnamese_and_cjk_text_embeds_type0_font_when_available() {
+        let latin = to_pdf(&engraved(1, small()), small(), "Plain Title");
+        assert!(
+            !String::from_utf8_lossy(&latin).contains("/Subtype /Type0"),
+            "Latin-1 scores should stay lightweight without embedding Type0"
+        );
+        let title = "Tiếng Việt · 夜の星 · 한국어";
+        let pdf = to_pdf(&engraved(1, small()), small(), title);
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/Title <FEFF"));
+        let chars: Vec<char> = title.chars().filter(|ch| !pdf_encodable(*ch)).collect();
+        if UnicodePdfFont::resolve(None, &chars).is_some() {
+            assert!(text.contains("/Subtype /Type0"));
+            assert!(text.contains("/Subtype /CIDFontType2"));
+            assert!(text.contains("/ToUnicode "));
+            assert!(text.contains("/F2 12 Tf"));
+            assert!(!text.contains("(???)"));
+        }
+    }
+
+    #[test]
+    fn full_score_unicode_pdf_embeds_vietnamese_and_cjk_lyrics_and_markers() {
+        let mut song = project::Song::new("Đêm Khuya 夜の星", 120.0);
+        let mut track =
+            project::song::Track::new(project::TrackId::new(1).expect("id"), "Đàn Tranh 琴");
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("note"),
+            start: 0,
+            duration: music_core::PPQ,
+            pitch: music_core::Pitch::from_name("C4").expect("pitch"),
+            velocity: music_core::Velocity::new(100).expect("vel"),
+            channel: music_core::Channel::first(),
+        });
+        song.tracks.push(track);
+        song.lyrics.push(project::song::LyricEvent {
+            tick: 0,
+            text: String::from("Trăng sáng 月"),
+        });
+        song.markers.push(project::ids::Marker {
+            tick: 0,
+            name: String::from("Đoạn A 第一部"),
+        });
+        let ids: Vec<_> = song.tracks.iter().map(|t| t.id).collect();
+        let pdf = to_full_pdf(&song, small(), &song.name, &ids);
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/Title <FEFF"));
+        let chars: Vec<char> = "Đêm Khuya 夜の星 Trăng sáng 月 Đoạn A 第一部"
+            .chars()
+            .filter(|ch| !pdf_encodable(*ch))
+            .collect();
+        if UnicodePdfFont::resolve(None, &chars).is_some() {
+            assert!(text.contains("/Subtype /Type0"));
+            assert!(text.contains("/ToUnicode "));
+            assert!(text.contains("/F2 12 Tf"));
+            assert!(text.contains("/F2 7 Tf"));
+        }
     }
 }

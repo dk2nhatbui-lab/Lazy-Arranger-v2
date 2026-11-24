@@ -54,7 +54,14 @@ and tutorial; background rendering for Cecilia previews, waveforms and playback.
    playhead, and a Tracks menu hides chosen tracks. The editable Score view still
    engraves one track.
 4. **SF3** — SF2 is supported; SF3 compressed samples are out of scope by request.
-5. **PDF CJK text** — WinAnsi covers Latin-1; unsupported scripts render as `?`.
+5. **PDF Unicode / Vietnamese / CJK text** — `crates/score/src/unicode_font.rs`
+   now automatically embeds a glyph-subsetted TrueType `Type0`/`CIDFontType2`
+   (`Identity-H` + `ToUnicode` CMap + `FlateDecode` `/FontFile2`, plus UTF-16BE
+   `/Title`) whenever non-WinAnsi characters (Vietnamese, Japanese, Chinese,
+   Korean, Cyrillic, Greek) appear in titles, track names, lyrics, chords, or
+   markers, resolving `ARRANGER_PDF_FONT` or installed system/OFL TrueType fonts
+   (keeping Latin-1 scores lightweight with `/F1` Helvetica). Bundling an OFL
+   font inside the release artefact for font-less containers remains optional.
 6. **AI/speech input** — the assistant is a local rule engine with an optional
    OpenAI-compatible endpoint; live speech input needs a model and microphone
    permission and is optional.

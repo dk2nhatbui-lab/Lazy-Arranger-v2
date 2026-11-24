@@ -13,6 +13,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 miniz_oxide = "0.8"
 music-core = { path = "../music-core" }
 project = { path = "../project" }
+ttf-parser = "0.25"
 
 [lints]
 workspace = true

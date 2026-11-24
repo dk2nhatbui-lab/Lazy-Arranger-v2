@@ -11,6 +11,7 @@ pub mod clef;
 pub mod guitar;
 pub mod pdf;
 pub mod spelling;
+pub mod unicode_font;
 
 use music_core::{Pitch, Tick};
 use project::TrackId;
