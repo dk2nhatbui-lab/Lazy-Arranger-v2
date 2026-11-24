@@ -547,12 +547,14 @@ pub fn to_full_pdf(
             time_signature: music_core::TimeSignature::default(),
         });
     }
-    let page_count = staves
+    let systems_per_page = 2;
+    let total_systems = staves
         .iter()
         .map(|staff| staff.systems.len())
         .max()
         .unwrap_or(0)
         .max(1);
+    let page_count = total_systems.div_ceil(systems_per_page);
     let treble_id = 4 + page_count * 2;
     let treble_mask = treble_id + 1;
     let bass_id = treble_id + 2;
@@ -574,8 +576,8 @@ pub fn to_full_pdf(
             .to_vec(),
     );
     let roster = staves.len().max(1);
-    let available = (settings.page_height - 2.0 * settings.margin - 24.0).max(24.0);
-    let span = (available / roster as f32).max(12.0);
+    let available = (settings.page_height - 2.0 * settings.margin - 36.0).max(24.0);
+    let span = (available / (systems_per_page * roster) as f32).max(12.0);
     let line_gap = ((span - 4.0) / 4.0).clamp(1.5, settings.staff_space);
     for (page_index, _) in (0..page_count).enumerate() {
         let mut content = String::new();
@@ -613,270 +615,310 @@ pub fn to_full_pdf(
                 x = settings.page_width / 2.0 - 16.0
             );
         }
-        let first_system = staves
-            .first()
-            .and_then(|staff| staff.systems.get(page_index))
-            .map(|(_, system)| system);
-        for (staff_index, staff) in staves.iter().enumerate() {
-            let Some((page, system)) = staff.systems.get(page_index) else {
-                continue;
-            };
-            let top = settings.margin + 12.0 + staff_index as f32 * span;
-            for line in 0..5 {
-                let y = settings.page_height - (top + line as f32 * line_gap);
-                let _ = writeln!(
-                    content,
-                    "{:.1} {y:.1} m {:.1} {y:.1} l S",
-                    settings.margin,
-                    settings.page_width - settings.margin
-                );
+        for slot in 0..systems_per_page {
+            let system_index = page_index * systems_per_page + slot;
+            if system_index >= total_systems {
+                break;
             }
-            let average = staff
-                .notes
-                .iter()
-                .filter(|note| note.page == *page)
-                .map(|note| f32::from(note.pitch.as_u8()))
-                .sum::<f32>()
-                / staff
+            let staff_height = (roster.saturating_sub(1)) as f32 * span + 4.0 * line_gap;
+            let slot_top = settings.margin
+                + 12.0
+                + slot as f32 * (roster as f32 * span + 12.0)
+                + (roster as f32 * span - staff_height) * 0.5;
+            let first_system = staves
+                .first()
+                .and_then(|staff| staff.systems.get(system_index))
+                .map(|(_, system)| system);
+            for (staff_index, staff) in staves.iter().enumerate() {
+                let Some((page, system)) = staff.systems.get(system_index) else {
+                    continue;
+                };
+                let first_number = system.measures.first().map_or(0, |measure| measure.number);
+                let last_number = system.measures.last().map_or(0, |measure| measure.number);
+                let first_x = system.measures.first().map_or(0.0, |measure| measure.x);
+                let last_x = system
+                    .measures
+                    .last()
+                    .map_or(f32::MAX, |measure| measure.x_end);
+                let first_tick = system.measures.first().map_or(0, |measure| measure.start);
+                let last_tick = system.measures.last().map_or(i64::MAX, |measure| {
+                    measure.start.saturating_add(measure.length)
+                });
+                let top = slot_top + staff_index as f32 * span;
+                for line in 0..5 {
+                    let y = settings.page_height - (top + line as f32 * line_gap);
+                    let _ = writeln!(
+                        content,
+                        "{:.1} {y:.1} m {:.1} {y:.1} l S",
+                        settings.margin,
+                        settings.page_width - settings.margin
+                    );
+                }
+                let average = staff
                     .notes
                     .iter()
                     .filter(|note| note.page == *page)
-                    .count()
-                    .max(1) as f32;
-            let image = if average < 52.0 {
-                clef::bass()
-            } else {
-                clef::treble()
-            };
-            draw_image(
-                &mut content,
-                if average < 52.0 {
-                    "ClefBass"
+                    .map(|note| f32::from(note.pitch.as_u8()))
+                    .sum::<f32>()
+                    / staff
+                        .notes
+                        .iter()
+                        .filter(|note| note.page == *page)
+                        .count()
+                        .max(1) as f32;
+                let image = if average < 52.0 {
+                    clef::bass()
                 } else {
-                    "ClefTreble"
-                },
-                settings.margin - 20.0,
-                top - 2.0 * settings.staff_space,
-                7.0 * settings.staff_space,
-                image,
-                settings.page_height,
-            );
-            let _ = writeln!(
-                content,
-                "BT /F1 7 Tf 4 {y:.1} Td ({}) Tj ET",
-                escape(&short_track_name(&staff.name)),
-                y = settings.page_height - (top + 2.0 * line_gap)
-            );
-            for rest in staff.rests.iter().filter(|rest| rest.page == *page) {
-                let x = first_system.map_or(rest.x, |sys| crate::full_score_x(system, sys, rest.x));
-                let y = top + (rest.y - system.y) * (line_gap / settings.staff_space);
+                    clef::treble()
+                };
+                draw_image(
+                    &mut content,
+                    if average < 52.0 {
+                        "ClefBass"
+                    } else {
+                        "ClefTreble"
+                    },
+                    settings.margin - 20.0,
+                    top - 2.0 * settings.staff_space,
+                    7.0 * settings.staff_space,
+                    image,
+                    settings.page_height,
+                );
                 let _ = writeln!(
                     content,
-                    "{:.1} {:.1} m {:.1} {:.1} l S",
-                    x - 3.0,
-                    settings.page_height - y,
-                    x + 3.0,
-                    settings.page_height - y
+                    "BT /F1 7 Tf 4 {y:.1} Td ({}) Tj ET",
+                    escape(&short_track_name(&staff.name)),
+                    y = settings.page_height - (top + 2.0 * line_gap)
                 );
-            }
-            if staff_index == 0 {
-                for chord in staff.chords.iter().filter(|chord| chord.page == *page) {
-                    let x = first_system
-                        .map_or(chord.x, |sys| crate::full_score_x(system, sys, chord.x));
-                    let y = top + (chord.y - system.y) * (line_gap / settings.staff_space);
+                for rest in staff.rests.iter().filter(|rest| {
+                    rest.page == *page
+                        && rest.measure + 1 >= first_number
+                        && rest.measure < last_number
+                }) {
+                    let x =
+                        first_system.map_or(rest.x, |sys| crate::full_score_x(system, sys, rest.x));
+                    let y = top + (rest.y - system.y) * (line_gap / settings.staff_space);
                     let _ = writeln!(
                         content,
-                        "BT /F1 8 Tf {x:.1} {:.1} Td ({}) Tj ET",
+                        "{:.1} {:.1} m {:.1} {:.1} l S",
+                        x - 3.0,
                         settings.page_height - y,
-                        escape(&chord.name)
+                        x + 3.0,
+                        settings.page_height - y
                     );
                 }
-            }
-            for note in staff.notes.iter().filter(|note| note.page == *page) {
-                if note.measure + 1 < system.measures.first().map_or(0, |m| m.number)
-                    || note.measure + 1 > system.measures.last().map_or(0, |m| m.number)
-                {
-                    continue;
-                }
-                let x =
-                    first_system.map_or(note.x, |first| crate::full_score_x(system, first, note.x));
-                let relative = (note.y - system.y) * (line_gap / settings.staff_space);
-                let note_y = top + relative;
-                let y = settings.page_height - note_y;
-                circle(&mut content, x, y, line_gap * 0.55);
-                if let Some(alter) = note.spelled.accidental {
-                    let accidental = match alter {
-                        1 => "#",
-                        -1 => "b",
-                        2 => "x",
-                        -2 => "bb",
-                        _ => "",
-                    };
-                    if !accidental.is_empty() {
+                if staff_index == 0 {
+                    for chord in staff.chords.iter().filter(|chord| {
+                        chord.page == *page && chord.x >= first_x && chord.x <= last_x
+                    }) {
+                        let x = first_system
+                            .map_or(chord.x, |sys| crate::full_score_x(system, sys, chord.x));
+                        let y = top + (chord.y - system.y) * (line_gap / settings.staff_space);
                         let _ = writeln!(
                             content,
-                            "BT /F1 7 Tf {:.1} {:.1} Td ({accidental}) Tj ET",
-                            x - 5.5,
-                            y - 2.0
+                            "BT /F1 8 Tf {x:.1} {:.1} Td ({}) Tj ET",
+                            settings.page_height - y,
+                            escape(&chord.name)
                         );
                     }
                 }
-                let stem = if note.pitch.as_u8() < 71 {
-                    note_y + 3.0 * line_gap
-                } else {
-                    note_y - 3.0 * line_gap
-                };
-                let _ = writeln!(
-                    content,
-                    "{:.1} {y:.1} m {:.1} {:.1} l S",
-                    x,
-                    x,
-                    settings.page_height - stem
-                );
-            }
-            if staff_index == 0 {
-                for lyric in staff.lyrics.iter().filter(|lyric| lyric.page == *page) {
+                for note in staff.notes.iter().filter(|note| note.page == *page) {
+                    if note.measure + 1 < system.measures.first().map_or(0, |m| m.number)
+                        || note.measure + 1 > system.measures.last().map_or(0, |m| m.number)
+                    {
+                        continue;
+                    }
                     let x = first_system
-                        .map_or(lyric.x, |sys| crate::full_score_x(system, sys, lyric.x));
-                    let y = top + (lyric.y - system.y) * (line_gap / settings.staff_space);
-                    let _ = writeln!(
-                        content,
-                        "BT /F1 7 Tf {x:.1} {:.1} Td ({}) Tj ET",
-                        settings.page_height - y,
-                        escape(&lyric.text)
-                    );
-                }
-            }
-            if staff_index == 0 {
-                for mark in staff.marks.iter().filter(|mark| mark.page == *page) {
-                    let x =
-                        first_system.map_or(mark.x, |sys| crate::full_score_x(system, sys, mark.x));
-                    let y = top + (mark.y - system.y) * (line_gap / settings.staff_space);
-                    let text = match mark.kind {
-                        project::song::MarkKind::Dynamic(dynamic) => dynamic.text().to_string(),
-                        project::song::MarkKind::Articulation(articulation) => {
-                            format!("{articulation:?}").to_lowercase()
+                        .map_or(note.x, |first| crate::full_score_x(system, first, note.x));
+                    let relative = (note.y - system.y) * (line_gap / settings.staff_space);
+                    let note_y = top + relative;
+                    let y = settings.page_height - note_y;
+                    circle(&mut content, x, y, line_gap * 0.55);
+                    if let Some(alter) = note.spelled.accidental {
+                        let accidental = match alter {
+                            1 => "#",
+                            -1 => "b",
+                            2 => "x",
+                            -2 => "bb",
+                            _ => "",
+                        };
+                        if !accidental.is_empty() {
+                            let _ = writeln!(
+                                content,
+                                "BT /F1 7 Tf {:.1} {:.1} Td ({accidental}) Tj ET",
+                                x - 5.5,
+                                y - 2.0
+                            );
                         }
+                    }
+                    let stem = if note.pitch.as_u8() < 71 {
+                        note_y + 3.0 * line_gap
+                    } else {
+                        note_y - 3.0 * line_gap
                     };
                     let _ = writeln!(
                         content,
-                        "BT /F1 7 Tf {x:.1} {:.1} Td ({}) Tj ET",
-                        settings.page_height - y,
-                        escape(&text)
+                        "{:.1} {y:.1} m {:.1} {:.1} l S",
+                        x,
+                        x,
+                        settings.page_height - stem
                     );
                 }
-            }
-            let mut shorts: Vec<&crate::PlacedNote> = staff
-                .notes
-                .iter()
-                .filter(|note| note.page == *page && note.duration <= music_core::PPQ / 2)
-                .collect();
-            shorts.sort_by_key(|note| note.tick);
-            for pair in shorts.windows(2) {
-                let [first, second] = pair else {
-                    continue;
-                };
-                if first.measure != second.measure || second.tick - first.tick > music_core::PPQ / 2
-                {
-                    continue;
+                if staff_index == 0 {
+                    for lyric in staff.lyrics.iter().filter(|lyric| {
+                        lyric.page == *page && lyric.tick >= first_tick && lyric.tick < last_tick
+                    }) {
+                        let x = first_system
+                            .map_or(lyric.x, |sys| crate::full_score_x(system, sys, lyric.x));
+                        let y = top + (lyric.y - system.y) * (line_gap / settings.staff_space);
+                        let _ = writeln!(
+                            content,
+                            "BT /F1 7 Tf {x:.1} {:.1} Td ({}) Tj ET",
+                            settings.page_height - y,
+                            escape(&lyric.text)
+                        );
+                    }
                 }
-                let first_y = top + (first.y - system.y) * (line_gap / settings.staff_space);
-                let second_y = top + (second.y - system.y) * (line_gap / settings.staff_space);
-                let upward = first.pitch.as_u8() < 71 && second.pitch.as_u8() < 71;
-                let offset = if upward {
-                    3.0 * line_gap
-                } else {
-                    -3.0 * line_gap
-                };
-                let first_x =
-                    first_system.map_or(first.x, |sys| crate::full_score_x(system, sys, first.x));
-                let second_x =
-                    first_system.map_or(second.x, |sys| crate::full_score_x(system, sys, second.x));
-                let _ = writeln!(
-                    content,
-                    "{:.1} {:.1} m {:.1} {:.1} l S",
-                    first_x,
-                    settings.page_height - (first_y + offset),
-                    second_x,
-                    settings.page_height - (second_y + offset)
-                );
-                if first.duration <= music_core::PPQ / 4 && second.duration <= music_core::PPQ / 4 {
+                if staff_index == 0 {
+                    for mark in staff.marks.iter().filter(|mark| {
+                        mark.page == *page && mark.tick >= first_tick && mark.tick < last_tick
+                    }) {
+                        let x = first_system
+                            .map_or(mark.x, |sys| crate::full_score_x(system, sys, mark.x));
+                        let y = top + (mark.y - system.y) * (line_gap / settings.staff_space);
+                        let text = match mark.kind {
+                            project::song::MarkKind::Dynamic(dynamic) => dynamic.text().to_string(),
+                            project::song::MarkKind::Articulation(articulation) => {
+                                format!("{articulation:?}").to_lowercase()
+                            }
+                        };
+                        let _ = writeln!(
+                            content,
+                            "BT /F1 7 Tf {x:.1} {:.1} Td ({}) Tj ET",
+                            settings.page_height - y,
+                            escape(&text)
+                        );
+                    }
+                }
+                let mut shorts: Vec<&crate::PlacedNote> = staff
+                    .notes
+                    .iter()
+                    .filter(|note| note.page == *page && note.duration <= music_core::PPQ / 2)
+                    .collect();
+                shorts.sort_by_key(|note| note.tick);
+                for pair in shorts.windows(2) {
+                    let [first, second] = pair else {
+                        continue;
+                    };
+                    if first.measure != second.measure
+                        || second.tick - first.tick > music_core::PPQ / 2
+                    {
+                        continue;
+                    }
+                    let first_y = top + (first.y - system.y) * (line_gap / settings.staff_space);
+                    let second_y = top + (second.y - system.y) * (line_gap / settings.staff_space);
+                    let upward = first.pitch.as_u8() < 71 && second.pitch.as_u8() < 71;
+                    let offset = if upward {
+                        3.0 * line_gap
+                    } else {
+                        -3.0 * line_gap
+                    };
+                    let first_x = first_system
+                        .map_or(first.x, |sys| crate::full_score_x(system, sys, first.x));
+                    let second_x = first_system
+                        .map_or(second.x, |sys| crate::full_score_x(system, sys, second.x));
                     let _ = writeln!(
                         content,
                         "{:.1} {:.1} m {:.1} {:.1} l S",
                         first_x,
-                        settings.page_height - (first_y + offset + 1.5),
+                        settings.page_height - (first_y + offset),
                         second_x,
-                        settings.page_height - (second_y + offset + 1.5)
+                        settings.page_height - (second_y + offset)
+                    );
+                    if first.duration <= music_core::PPQ / 4
+                        && second.duration <= music_core::PPQ / 4
+                    {
+                        let _ = writeln!(
+                            content,
+                            "{:.1} {:.1} m {:.1} {:.1} l S",
+                            first_x,
+                            settings.page_height - (first_y + offset + 1.5),
+                            second_x,
+                            settings.page_height - (second_y + offset + 1.5)
+                        );
+                    }
+                }
+                for tie in staff.ties.iter().filter(|tie| {
+                    tie.page == *page && tie.start_x >= first_x && tie.start_x <= last_x
+                }) {
+                    let y = settings.page_height
+                        - (top + (tie.y - system.y) * (line_gap / settings.staff_space));
+                    let start_x = first_system.map_or(tie.start_x, |sys| {
+                        crate::full_score_x(system, sys, tie.start_x)
+                    });
+                    let end_x = first_system
+                        .map_or(tie.end_x, |sys| crate::full_score_x(system, sys, tie.end_x));
+                    let control = (end_x - start_x).abs() * 0.33;
+                    let _ = writeln!(
+                        content,
+                        "{:.1} {y:.1} m {:.1} {:.1} {:.1} {:.1} {:.1} {y:.1} c S",
+                        start_x,
+                        start_x + control,
+                        y + 3.0,
+                        end_x - control,
+                        y + 3.0,
+                        end_x
+                    );
+                }
+                for tuplet in staff.tuplets.iter().filter(|tuplet| {
+                    tuplet.page == *page && tuplet.start_x >= first_x && tuplet.start_x <= last_x
+                }) {
+                    let y = settings.page_height
+                        - (top + (tuplet.y - system.y) * (line_gap / settings.staff_space));
+                    let _ = writeln!(
+                        content,
+                        "{:.1} {y:.1} m {:.1} {y:.1} l S {:.1} {:.1} m {:.1} {:.1} l S {:.1} {:.1} m {:.1} {:.1} l S",
+                        tuplet.start_x,
+                        tuplet.end_x,
+                        tuplet.start_x,
+                        y,
+                        tuplet.start_x,
+                        y + 3.0,
+                        tuplet.end_x,
+                        y,
+                        tuplet.end_x,
+                        y + 3.0
+                    );
+                    let _ = writeln!(
+                        content,
+                        "BT /F1 7 Tf {:.1} {:.1} Td ({} ) Tj ET",
+                        (tuplet.start_x + tuplet.end_x) / 2.0,
+                        y + 4.0,
+                        tuplet.count
                     );
                 }
             }
-            for tie in staff.ties.iter().filter(|tie| tie.page == *page) {
-                let y = settings.page_height
-                    - (top + (tie.y - system.y) * (line_gap / settings.staff_space));
-                let start_x = first_system.map_or(tie.start_x, |sys| {
-                    crate::full_score_x(system, sys, tie.start_x)
-                });
-                let end_x = first_system
-                    .map_or(tie.end_x, |sys| crate::full_score_x(system, sys, tie.end_x));
-                let control = (end_x - start_x).abs() * 0.33;
-                let _ = writeln!(
-                    content,
-                    "{:.1} {y:.1} m {:.1} {:.1} {:.1} {:.1} {:.1} {y:.1} c S",
-                    start_x,
-                    start_x + control,
-                    y + 3.0,
-                    end_x - control,
-                    y + 3.0,
-                    end_x
-                );
-            }
-            for tuplet in staff.tuplets.iter().filter(|tuplet| tuplet.page == *page) {
-                let y = settings.page_height
-                    - (top + (tuplet.y - system.y) * (line_gap / settings.staff_space));
-                let _ = writeln!(
-                    content,
-                    "{:.1} {y:.1} m {:.1} {y:.1} l S {:.1} {:.1} m {:.1} {:.1} l S {:.1} {:.1} m {:.1} {:.1} l S",
-                    tuplet.start_x,
-                    tuplet.end_x,
-                    tuplet.start_x,
-                    y,
-                    tuplet.start_x,
-                    y + 3.0,
-                    tuplet.end_x,
-                    y,
-                    tuplet.end_x,
-                    y + 3.0
-                );
-                let _ = writeln!(
-                    content,
-                    "BT /F1 7 Tf {:.1} {:.1} Td ({} ) Tj ET",
-                    (tuplet.start_x + tuplet.end_x) / 2.0,
-                    y + 4.0,
-                    tuplet.count
-                );
-            }
-        }
-        if let Some(staff) = staves.first()
-            && let Some((_, system)) = staff.systems.get(page_index)
-        {
-            let top = settings.margin + 12.0;
-            let bottom = top + roster as f32 * span - 4.0;
-            for measure in &system.measures {
-                let _ = writeln!(
-                    content,
-                    "BT /F1 6 Tf {:.1} {:.1} Td ({}) Tj ET",
-                    measure.x + 1.0,
-                    settings.page_height - (top - 5.0),
-                    measure.number
-                );
-                for x in [measure.x, measure.x_end] {
+            if let Some(staff) = staves.first()
+                && let Some((_, system)) = staff.systems.get(system_index)
+            {
+                let top = slot_top;
+                let bottom = top + (roster.saturating_sub(1)) as f32 * span + 4.0 * line_gap;
+                for measure in &system.measures {
                     let _ = writeln!(
                         content,
-                        "{x:.1} {:.1} m {x:.1} {:.1} l S",
-                        settings.page_height - bottom,
-                        settings.page_height - top
+                        "BT /F1 6 Tf {:.1} {:.1} Td ({}) Tj ET",
+                        measure.x + 1.0,
+                        settings.page_height - (top - 5.0),
+                        measure.number
                     );
+                    for x in [measure.x, measure.x_end] {
+                        let _ = writeln!(
+                            content,
+                            "{x:.1} {:.1} m {x:.1} {:.1} l S",
+                            settings.page_height - bottom,
+                            settings.page_height - top
+                        );
+                    }
                 }
             }
         }
@@ -1243,6 +1285,34 @@ mod tests {
         let text = String::from_utf8_lossy(&one);
         assert!(text.contains("(Piano) Tj"));
         assert!(!text.contains("(Bass) Tj"));
+    }
+
+    #[test]
+    fn a_long_full_score_uses_two_systems_per_page() {
+        let mut song = Song::new("Long", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        for bar in 0..16 {
+            track.notes.push(Note {
+                id: project::NoteId::new(bar + 1).expect("valid"),
+                start: i64::from(bar) * 4 * PPQ,
+                duration: PPQ,
+                pitch: Pitch::from_name("C4").expect("valid"),
+                velocity: Velocity::new(100).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks.push(track);
+        let settings = small();
+        let engraved = crate::engrave(&song, TrackId::new(1).expect("valid"), settings);
+        let systems = engraved
+            .pages
+            .iter()
+            .map(|page| page.systems.len())
+            .sum::<usize>()
+            .max(1);
+        let pdf = to_full_pdf(&song, settings, "Long", &[TrackId::new(1).expect("valid")]);
+        assert_eq!(page_count(&pdf), Some(systems.div_ceil(2)));
+        assert!(systems >= 2, "test song needs more than one system");
     }
 
     #[test]

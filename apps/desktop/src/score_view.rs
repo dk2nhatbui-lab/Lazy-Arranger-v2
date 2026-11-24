@@ -331,7 +331,8 @@ pub fn show_full(
     position: music_core::Tick,
 ) -> usize {
     let settings = Settings::default();
-    let page_count = tracks
+    let systems_per_page = 2;
+    let total_systems = tracks
         .iter()
         .map(|(_, engraved)| {
             engraved
@@ -343,6 +344,7 @@ pub fn show_full(
         .max()
         .unwrap_or(1)
         .max(1);
+    let page_count = total_systems.div_ceil(systems_per_page);
     let page_index = page.min(page_count.saturating_sub(1));
     if state.clef_treble.is_none() {
         let image = score::clef::treble();
@@ -409,323 +411,346 @@ pub fn show_full(
         );
     }
     let roster = tracks.len().max(1);
-    let available = (settings.page_height - 2.0 * settings.margin - 24.0).max(24.0);
-    let span = (available / roster as f32).max(12.0);
+    let available = (settings.page_height - 2.0 * settings.margin - 36.0).max(24.0);
+    let span = (available / (systems_per_page * roster) as f32).max(12.0);
     let line_gap = ((span - 4.0) / 4.0).clamp(1.5, settings.staff_space);
     let left = page_rect.left() + settings.margin * scale;
     let right = page_rect.right() - settings.margin * scale;
     let top0 = page_rect.top() + (settings.margin + 12.0) * scale;
-    let first_system = tracks.first().and_then(|(_, engraved)| {
-        engraved
-            .pages
-            .iter()
-            .flat_map(|page| page.systems.iter())
-            .nth(page_index)
-    });
-    for (index, (name, engraved)) in tracks.iter().enumerate() {
-        let Some((source_page, system)) = engraved
-            .pages
-            .iter()
-            .enumerate()
-            .flat_map(|(page, data)| data.systems.iter().map(move |system| (page, system)))
-            .nth(page_index)
-        else {
-            continue;
-        };
-        let top = top0 + index as f32 * span * scale;
-        for line in 0..5 {
-            let y = top + line as f32 * line_gap * scale;
-            painter.line_segment(
-                [Pos2::new(left, y), Pos2::new(right, y)],
-                Stroke::new(0.6_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
-            );
+    for slot in 0..systems_per_page {
+        let system_index = page_index * systems_per_page + slot;
+        if system_index >= total_systems {
+            break;
         }
-        painter.text(
-            Pos2::new(page_rect.left() + 4.0, top + 2.0 * line_gap * scale),
-            egui::Align2::LEFT_CENTER,
-            short_track_name(name),
-            egui::FontId::proportional(7.0 * zoom),
-            Color32::from_rgb(0x40, 0x40, 0x40),
-        );
-        let average = if engraved.notes.is_empty() {
-            60.0
-        } else {
+        let staff_height = (roster.saturating_sub(1)) as f32 * span + 4.0 * line_gap;
+        let slot_top = top0
+            + (slot as f32 * (roster as f32 * span + 12.0)
+                + (roster as f32 * span - staff_height) * 0.5)
+                * scale;
+        let first_system = tracks.first().and_then(|(_, engraved)| {
             engraved
-                .notes
+                .pages
                 .iter()
-                .map(|note| f32::from(note.pitch.as_u8()))
-                .sum::<f32>()
-                / engraved.notes.len() as f32
-        };
-        let bass = average < 52.0;
-        let texture = if bass {
-            state.clef_bass.as_ref()
-        } else {
-            state.clef_treble.as_ref()
-        };
-        if let Some(texture) = texture {
-            let image = if bass {
-                score::clef::bass()
-            } else {
-                score::clef::treble()
-            };
-            let height = 7.0 * settings.staff_space * scale;
-            let width = height * image.width as f32 / image.height as f32;
-            let rect = egui::Rect::from_min_size(
-                Pos2::new(left - width, top - 2.0 * settings.staff_space * scale),
-                Vec2::new(width, height),
-            );
-            painter.image(
-                texture.id(),
-                rect,
-                egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                Color32::WHITE,
-            );
-        }
-        for rest in engraved
-            .rests
-            .iter()
-            .filter(|rest| rest.page == source_page)
-        {
-            let x = page_rect.left()
-                + first_system.map_or(rest.x, |sys| score::full_score_x(system, sys, rest.x))
-                    * scale;
-            let y = top + (rest.y - system.y) * (line_gap / settings.staff_space) * scale;
-            painter.line_segment(
-                [Pos2::new(x - 3.0 * scale, y), Pos2::new(x + 3.0 * scale, y)],
-                Stroke::new(0.8_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
-            );
-        }
-        if index == 0 {
-            for chord in engraved
-                .chord_symbols
+                .flat_map(|page| page.systems.iter())
+                .nth(system_index)
+        });
+        for (index, (name, engraved)) in tracks.iter().enumerate() {
+            let Some((source_page, system)) = engraved
+                .pages
                 .iter()
-                .filter(|chord| chord.page == source_page)
-            {
-                let x = page_rect.left()
-                    + first_system.map_or(chord.x, |sys| score::full_score_x(system, sys, chord.x))
-                        * scale;
-                let y = top + (chord.y - system.y) * (line_gap / settings.staff_space) * scale;
-                painter.text(
-                    Pos2::new(x, y),
-                    egui::Align2::LEFT_CENTER,
-                    &chord.name,
-                    egui::FontId::proportional(8.0 * zoom),
-                    Color32::from_rgb(0x10, 0x10, 0x10),
-                );
-            }
-        }
-        if index == 0 {
-            for lyric in engraved
-                .lyrics
-                .iter()
-                .filter(|lyric| lyric.page == source_page)
-            {
-                let x = page_rect.left()
-                    + first_system.map_or(lyric.x, |sys| score::full_score_x(system, sys, lyric.x))
-                        * scale;
-                let y = top + (lyric.y - system.y) * (line_gap / settings.staff_space) * scale;
-                painter.text(
-                    Pos2::new(x, y),
-                    egui::Align2::LEFT_CENTER,
-                    &lyric.text,
-                    egui::FontId::proportional(7.0 * zoom),
-                    Color32::from_rgb(0x20, 0x20, 0x20),
-                );
-            }
-        }
-        if index == 0 {
-            for mark in engraved
-                .marks
-                .iter()
-                .filter(|mark| mark.page == source_page)
-            {
-                let x = page_rect.left()
-                    + first_system.map_or(mark.x, |sys| score::full_score_x(system, sys, mark.x))
-                        * scale;
-                let y = top + (mark.y - system.y) * (line_gap / settings.staff_space) * scale;
-                let text = match mark.kind {
-                    project::song::MarkKind::Dynamic(dynamic) => dynamic.text().to_string(),
-                    project::song::MarkKind::Articulation(articulation) => {
-                        format!("{articulation:?}").to_lowercase()
-                    }
-                };
-                painter.text(
-                    Pos2::new(x, y),
-                    egui::Align2::LEFT_CENTER,
-                    text,
-                    egui::FontId::proportional(7.0 * zoom),
-                    Color32::from_rgb(0x20, 0x20, 0x20),
-                );
-            }
-        }
-        for note in engraved
-            .notes
-            .iter()
-            .filter(|note| note.page == source_page)
-        {
-            if note.measure + 1 < system.measures.first().map_or(0, |m| m.number)
-                || note.measure + 1 > system.measures.last().map_or(0, |m| m.number)
-            {
+                .enumerate()
+                .flat_map(|(page, data)| data.systems.iter().map(move |system| (page, system)))
+                .nth(system_index)
+            else {
                 continue;
-            }
-            let y = top + (note.y - system.y) * (line_gap / settings.staff_space) * scale;
-            let note_x =
-                first_system.map_or(note.x, |first| score::full_score_x(system, first, note.x));
-            let x = page_rect.left() + note_x * scale;
-            painter.circle_filled(
-                Pos2::new(x, y),
-                line_gap * 0.55 * scale,
-                Color32::from_rgb(0x10, 0x10, 0x10),
-            );
-            let stem = if note.pitch.as_u8() < 71 {
-                y + 3.0 * line_gap * scale
-            } else {
-                y - 3.0 * line_gap * scale
             };
-            painter.line_segment(
-                [Pos2::new(x, y), Pos2::new(x, stem)],
-                Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+            let first_number = system.measures.first().map_or(0, |measure| measure.number);
+            let last_number = system.measures.last().map_or(0, |measure| measure.number);
+            let first_x = system.measures.first().map_or(0.0, |measure| measure.x);
+            let last_x = system
+                .measures
+                .last()
+                .map_or(f32::MAX, |measure| measure.x_end);
+            let first_tick = system.measures.first().map_or(0, |measure| measure.start);
+            let last_tick = system.measures.last().map_or(i64::MAX, |measure| {
+                measure.start.saturating_add(measure.length)
+            });
+            let top = slot_top + index as f32 * span * scale;
+            for line in 0..5 {
+                let y = top + line as f32 * line_gap * scale;
+                painter.line_segment(
+                    [Pos2::new(left, y), Pos2::new(right, y)],
+                    Stroke::new(0.6_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
+                );
+            }
+            painter.text(
+                Pos2::new(page_rect.left() + 4.0, top + 2.0 * line_gap * scale),
+                egui::Align2::LEFT_CENTER,
+                short_track_name(name),
+                egui::FontId::proportional(7.0 * zoom),
+                Color32::from_rgb(0x40, 0x40, 0x40),
             );
-            if let Some(alter) = note.spelled.accidental {
-                let accidental = match alter {
-                    1 => "#",
-                    -1 => "b",
-                    2 => "x",
-                    -2 => "bb",
-                    _ => "",
+            let average = if engraved.notes.is_empty() {
+                60.0
+            } else {
+                engraved
+                    .notes
+                    .iter()
+                    .map(|note| f32::from(note.pitch.as_u8()))
+                    .sum::<f32>()
+                    / engraved.notes.len() as f32
+            };
+            let bass = average < 52.0;
+            let texture = if bass {
+                state.clef_bass.as_ref()
+            } else {
+                state.clef_treble.as_ref()
+            };
+            if let Some(texture) = texture {
+                let image = if bass {
+                    score::clef::bass()
+                } else {
+                    score::clef::treble()
                 };
-                if !accidental.is_empty() {
+                let height = 7.0 * settings.staff_space * scale;
+                let width = height * image.width as f32 / image.height as f32;
+                let rect = egui::Rect::from_min_size(
+                    Pos2::new(left - width, top - 2.0 * settings.staff_space * scale),
+                    Vec2::new(width, height),
+                );
+                painter.image(
+                    texture.id(),
+                    rect,
+                    egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+            }
+            for rest in engraved.rests.iter().filter(|rest| {
+                rest.page == source_page
+                    && rest.measure + 1 >= first_number
+                    && rest.measure < last_number
+            }) {
+                let x = page_rect.left()
+                    + first_system.map_or(rest.x, |sys| score::full_score_x(system, sys, rest.x))
+                        * scale;
+                let y = top + (rest.y - system.y) * (line_gap / settings.staff_space) * scale;
+                painter.line_segment(
+                    [Pos2::new(x - 3.0 * scale, y), Pos2::new(x + 3.0 * scale, y)],
+                    Stroke::new(0.8_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+                );
+            }
+            if index == 0 {
+                for chord in engraved.chord_symbols.iter().filter(|chord| {
+                    chord.page == source_page && chord.x >= first_x && chord.x <= last_x
+                }) {
+                    let x = page_rect.left()
+                        + first_system
+                            .map_or(chord.x, |sys| score::full_score_x(system, sys, chord.x))
+                            * scale;
+                    let y = top + (chord.y - system.y) * (line_gap / settings.staff_space) * scale;
                     painter.text(
-                        Pos2::new(x - 4.0 * scale, y - 1.0 * scale),
-                        egui::Align2::RIGHT_CENTER,
-                        accidental,
-                        egui::FontId::proportional(7.0 * zoom),
+                        Pos2::new(x, y),
+                        egui::Align2::LEFT_CENTER,
+                        &chord.name,
+                        egui::FontId::proportional(8.0 * zoom),
                         Color32::from_rgb(0x10, 0x10, 0x10),
                     );
                 }
             }
-        }
-        let mut shorts: Vec<&score::PlacedNote> = engraved
-            .notes
-            .iter()
-            .filter(|note| note.page == source_page && note.duration <= music_core::PPQ / 2)
-            .collect();
-        shorts.sort_by_key(|note| note.tick);
-        for pair in shorts.windows(2) {
-            let [first, second] = pair else {
-                continue;
-            };
-            if first.measure != second.measure || second.tick - first.tick > music_core::PPQ / 2 {
-                continue;
+            if index == 0 {
+                for lyric in engraved.lyrics.iter().filter(|lyric| {
+                    lyric.page == source_page && lyric.tick >= first_tick && lyric.tick < last_tick
+                }) {
+                    let x = page_rect.left()
+                        + first_system
+                            .map_or(lyric.x, |sys| score::full_score_x(system, sys, lyric.x))
+                            * scale;
+                    let y = top + (lyric.y - system.y) * (line_gap / settings.staff_space) * scale;
+                    painter.text(
+                        Pos2::new(x, y),
+                        egui::Align2::LEFT_CENTER,
+                        &lyric.text,
+                        egui::FontId::proportional(7.0 * zoom),
+                        Color32::from_rgb(0x20, 0x20, 0x20),
+                    );
+                }
             }
-            if first.measure + 1 < system.measures.first().map_or(0, |m| m.number)
-                || first.measure + 1 > system.measures.last().map_or(0, |m| m.number)
+            if index == 0 {
+                for mark in engraved.marks.iter().filter(|mark| {
+                    mark.page == source_page && mark.tick >= first_tick && mark.tick < last_tick
+                }) {
+                    let x = page_rect.left()
+                        + first_system
+                            .map_or(mark.x, |sys| score::full_score_x(system, sys, mark.x))
+                            * scale;
+                    let y = top + (mark.y - system.y) * (line_gap / settings.staff_space) * scale;
+                    let text = match mark.kind {
+                        project::song::MarkKind::Dynamic(dynamic) => dynamic.text().to_string(),
+                        project::song::MarkKind::Articulation(articulation) => {
+                            format!("{articulation:?}").to_lowercase()
+                        }
+                    };
+                    painter.text(
+                        Pos2::new(x, y),
+                        egui::Align2::LEFT_CENTER,
+                        text,
+                        egui::FontId::proportional(7.0 * zoom),
+                        Color32::from_rgb(0x20, 0x20, 0x20),
+                    );
+                }
+            }
+            for note in engraved
+                .notes
+                .iter()
+                .filter(|note| note.page == source_page)
             {
-                continue;
+                if note.measure + 1 < system.measures.first().map_or(0, |m| m.number)
+                    || note.measure + 1 > system.measures.last().map_or(0, |m| m.number)
+                {
+                    continue;
+                }
+                let y = top + (note.y - system.y) * (line_gap / settings.staff_space) * scale;
+                let note_x =
+                    first_system.map_or(note.x, |first| score::full_score_x(system, first, note.x));
+                let x = page_rect.left() + note_x * scale;
+                painter.circle_filled(
+                    Pos2::new(x, y),
+                    line_gap * 0.55 * scale,
+                    Color32::from_rgb(0x10, 0x10, 0x10),
+                );
+                let stem = if note.pitch.as_u8() < 71 {
+                    y + 3.0 * line_gap * scale
+                } else {
+                    y - 3.0 * line_gap * scale
+                };
+                painter.line_segment(
+                    [Pos2::new(x, y), Pos2::new(x, stem)],
+                    Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+                );
+                if let Some(alter) = note.spelled.accidental {
+                    let accidental = match alter {
+                        1 => "#",
+                        -1 => "b",
+                        2 => "x",
+                        -2 => "bb",
+                        _ => "",
+                    };
+                    if !accidental.is_empty() {
+                        painter.text(
+                            Pos2::new(x - 4.0 * scale, y - 1.0 * scale),
+                            egui::Align2::RIGHT_CENTER,
+                            accidental,
+                            egui::FontId::proportional(7.0 * zoom),
+                            Color32::from_rgb(0x10, 0x10, 0x10),
+                        );
+                    }
+                }
             }
-            let first_y = top + (first.y - system.y) * (line_gap / settings.staff_space) * scale;
-            let second_y = top + (second.y - system.y) * (line_gap / settings.staff_space) * scale;
-            let upward = first.pitch.as_u8() < 71 && second.pitch.as_u8() < 71;
-            let offset = if upward {
-                3.0 * line_gap * scale
-            } else {
-                -3.0 * line_gap * scale
-            };
-            let first_x = page_rect.left()
-                + first_system.map_or(first.x, |sys| score::full_score_x(system, sys, first.x))
-                    * scale;
-            let second_x = page_rect.left()
-                + first_system.map_or(second.x, |sys| score::full_score_x(system, sys, second.x))
-                    * scale;
-            painter.line_segment(
-                [
-                    Pos2::new(first_x, first_y + offset),
-                    Pos2::new(second_x, second_y + offset),
-                ],
-                Stroke::new(0.7_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
-            );
-            if first.duration <= music_core::PPQ / 4 && second.duration <= music_core::PPQ / 4 {
+            let mut shorts: Vec<&score::PlacedNote> = engraved
+                .notes
+                .iter()
+                .filter(|note| note.page == source_page && note.duration <= music_core::PPQ / 2)
+                .collect();
+            shorts.sort_by_key(|note| note.tick);
+            for pair in shorts.windows(2) {
+                let [first, second] = pair else {
+                    continue;
+                };
+                if first.measure != second.measure || second.tick - first.tick > music_core::PPQ / 2
+                {
+                    continue;
+                }
+                if first.measure + 1 < system.measures.first().map_or(0, |m| m.number)
+                    || first.measure + 1 > system.measures.last().map_or(0, |m| m.number)
+                {
+                    continue;
+                }
+                let first_y =
+                    top + (first.y - system.y) * (line_gap / settings.staff_space) * scale;
+                let second_y =
+                    top + (second.y - system.y) * (line_gap / settings.staff_space) * scale;
+                let upward = first.pitch.as_u8() < 71 && second.pitch.as_u8() < 71;
+                let offset = if upward {
+                    3.0 * line_gap * scale
+                } else {
+                    -3.0 * line_gap * scale
+                };
+                let first_x = page_rect.left()
+                    + first_system.map_or(first.x, |sys| score::full_score_x(system, sys, first.x))
+                        * scale;
+                let second_x = page_rect.left()
+                    + first_system
+                        .map_or(second.x, |sys| score::full_score_x(system, sys, second.x))
+                        * scale;
                 painter.line_segment(
                     [
-                        Pos2::new(first_x, first_y + offset + 1.5 * scale),
-                        Pos2::new(second_x, second_y + offset + 1.5 * scale),
+                        Pos2::new(first_x, first_y + offset),
+                        Pos2::new(second_x, second_y + offset),
                     ],
                     Stroke::new(0.7_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
                 );
+                if first.duration <= music_core::PPQ / 4 && second.duration <= music_core::PPQ / 4 {
+                    painter.line_segment(
+                        [
+                            Pos2::new(first_x, first_y + offset + 1.5 * scale),
+                            Pos2::new(second_x, second_y + offset + 1.5 * scale),
+                        ],
+                        Stroke::new(0.7_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+                    );
+                }
+            }
+            for tie in engraved.ties.iter().filter(|tie| tie.page == source_page) {
+                let y = top + (tie.y - system.y) * (line_gap / settings.staff_space) * scale;
+                let start = page_rect.left()
+                    + first_system.map_or(tie.start_x, |sys| {
+                        score::full_score_x(system, sys, tie.start_x)
+                    }) * scale;
+                let end = page_rect.left()
+                    + first_system
+                        .map_or(tie.end_x, |sys| score::full_score_x(system, sys, tie.end_x))
+                        * scale;
+                painter.add(egui::Shape::line(
+                    vec![
+                        Pos2::new(start, y),
+                        Pos2::new((start + end) / 2.0, y + 2.0 * scale),
+                        Pos2::new(end, y),
+                    ],
+                    Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+                ));
+            }
+            for tuplet in engraved.tuplets.iter().filter(|tuplet| {
+                tuplet.page == source_page && tuplet.start_x >= first_x && tuplet.start_x <= last_x
+            }) {
+                let y = top + (tuplet.y - system.y) * (line_gap / settings.staff_space) * scale;
+                let start = page_rect.left()
+                    + first_system.map_or(tuplet.start_x, |sys| {
+                        score::full_score_x(system, sys, tuplet.start_x)
+                    }) * scale;
+                let end = page_rect.left()
+                    + first_system.map_or(tuplet.end_x, |sys| {
+                        score::full_score_x(system, sys, tuplet.end_x)
+                    }) * scale;
+                painter.line_segment(
+                    [Pos2::new(start, y), Pos2::new(end, y)],
+                    Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
+                );
+                painter.text(
+                    Pos2::new((start + end) / 2.0, y - 1.0 * scale),
+                    egui::Align2::CENTER_BOTTOM,
+                    format!("{}", tuplet.count),
+                    egui::FontId::proportional(6.0 * zoom),
+                    Color32::from_rgb(0x10, 0x10, 0x10),
+                );
             }
         }
-        for tie in engraved.ties.iter().filter(|tie| tie.page == source_page) {
-            let y = top + (tie.y - system.y) * (line_gap / settings.staff_space) * scale;
-            let start = page_rect.left()
-                + first_system.map_or(tie.start_x, |sys| {
-                    score::full_score_x(system, sys, tie.start_x)
-                }) * scale;
-            let end = page_rect.left()
-                + first_system.map_or(tie.end_x, |sys| score::full_score_x(system, sys, tie.end_x))
-                    * scale;
-            painter.add(egui::Shape::line(
-                vec![
-                    Pos2::new(start, y),
-                    Pos2::new((start + end) / 2.0, y + 2.0 * scale),
-                    Pos2::new(end, y),
-                ],
-                Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
-            ));
-        }
-        for tuplet in engraved
-            .tuplets
-            .iter()
-            .filter(|tuplet| tuplet.page == source_page)
+        if let Some((_, engraved)) = tracks.first()
+            && let Some(system) = engraved
+                .pages
+                .iter()
+                .flat_map(|page| page.systems.iter())
+                .nth(system_index)
         {
-            let y = top + (tuplet.y - system.y) * (line_gap / settings.staff_space) * scale;
-            let start = page_rect.left()
-                + first_system.map_or(tuplet.start_x, |sys| {
-                    score::full_score_x(system, sys, tuplet.start_x)
-                }) * scale;
-            let end = page_rect.left()
-                + first_system.map_or(tuplet.end_x, |sys| {
-                    score::full_score_x(system, sys, tuplet.end_x)
-                }) * scale;
-            painter.line_segment(
-                [Pos2::new(start, y), Pos2::new(end, y)],
-                Stroke::new(0.6_f32, Color32::from_rgb(0x10, 0x10, 0x10)),
-            );
-            painter.text(
-                Pos2::new((start + end) / 2.0, y - 1.0 * scale),
-                egui::Align2::CENTER_BOTTOM,
-                format!("{}", tuplet.count),
-                egui::FontId::proportional(6.0 * zoom),
-                Color32::from_rgb(0x10, 0x10, 0x10),
-            );
-        }
-    }
-    if let Some((_, engraved)) = tracks.first()
-        && let Some(system) = engraved
-            .pages
-            .iter()
-            .flat_map(|page| page.systems.iter())
-            .nth(page_index)
-    {
-        let top = top0;
-        let bottom = top + roster as f32 * span * scale - 4.0 * scale;
-        for measure in &system.measures {
-            painter.text(
-                Pos2::new(
-                    page_rect.left() + measure.x * scale + 2.0,
-                    top0 - 2.0 * scale,
-                ),
-                egui::Align2::LEFT_BOTTOM,
-                format!("{}", measure.number),
-                egui::FontId::proportional(6.0 * zoom),
-                Color32::from_rgb(0x50, 0x50, 0x50),
-            );
-            for x in [measure.x, measure.x_end] {
-                let x = page_rect.left() + x * scale;
-                painter.line_segment(
-                    [Pos2::new(x, top), Pos2::new(x, bottom)],
-                    Stroke::new(0.6_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
+            let top = slot_top;
+            let bottom =
+                top + (roster.saturating_sub(1)) as f32 * span * scale + 4.0 * line_gap * scale;
+            for measure in &system.measures {
+                painter.text(
+                    Pos2::new(
+                        page_rect.left() + measure.x * scale + 2.0,
+                        slot_top - 2.0 * scale,
+                    ),
+                    egui::Align2::LEFT_BOTTOM,
+                    format!("{}", measure.number),
+                    egui::FontId::proportional(6.0 * zoom),
+                    Color32::from_rgb(0x50, 0x50, 0x50),
                 );
+                for x in [measure.x, measure.x_end] {
+                    let x = page_rect.left() + x * scale;
+                    painter.line_segment(
+                        [Pos2::new(x, top), Pos2::new(x, bottom)],
+                        Stroke::new(0.6_f32, Color32::from_rgb(0x3A, 0x3A, 0x3A)),
+                    );
+                }
             }
         }
     }
