@@ -79,6 +79,7 @@ pub fn serve_stream(
     token: &str,
     stream: TcpStream,
 ) -> std::io::Result<()> {
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
     loop {
