@@ -90,6 +90,32 @@ fn read_mark(direction: roxmltree::Node<'_, '_>, tick: Tick) -> Option<project::
     })
 }
 
+fn key_from_fifths(fifths: i32, minor: bool) -> Option<project::song::KeySignature> {
+    let major = match fifths.clamp(-7, 7) {
+        0 => 0,
+        1 => 7,
+        2 => 2,
+        3 => 9,
+        4 => 4,
+        5 => 11,
+        6 => 6,
+        7 => 1,
+        -1 => 5,
+        -2 => 10,
+        -3 => 3,
+        -4 => 8,
+        -5 => 1,
+        -6 => 6,
+        -7 => 11,
+        _ => return None,
+    };
+    let tonic = if minor { (major + 9) % 12 } else { major };
+    Some(project::song::KeySignature {
+        tonic: music_core::PitchClass::new(tonic),
+        minor,
+    })
+}
+
 fn text_of(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<String> {
     node.children()
         .find(|child| child.has_tag_name(tag))
@@ -138,6 +164,14 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
         .filter(|value| value.is_finite() && *value > 0.0)
         .unwrap_or(120.0);
     let mut song = Song::new(title, tempo);
+    song.key = document
+        .descendants()
+        .find(|node| node.has_tag_name("key"))
+        .and_then(|key| {
+            let fifths = number_of(key, "fifths")? as i32;
+            let minor = text_of(key, "mode").is_some_and(|mode| mode.eq_ignore_ascii_case("minor"));
+            key_from_fifths(fifths, minor)
+        });
     let mut divisions = 1.0_f64;
     let names: Vec<(String, String)> = document
         .descendants()

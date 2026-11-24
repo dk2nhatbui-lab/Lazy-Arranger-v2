@@ -41,6 +41,25 @@ mod tests {
     }
 
     #[test]
+    fn selected_key_survives_our_export() {
+        use music_core::PitchClass;
+        use project::song::KeySignature;
+        let mut song = Song::new("Key", 120.0);
+        song.key = Some(KeySignature {
+            tonic: PitchClass::new(2),
+            minor: false,
+        });
+        song.tracks.push(Track::new(
+            project::TrackId::new(1).expect("valid"),
+            "Piano",
+        ));
+        let imported = import(&export(&song, "Key")).expect("import");
+        let key = imported.key.expect("key");
+        assert_eq!(key.tonic.as_u8(), 2);
+        assert!(!key.minor);
+    }
+
+    #[test]
     fn tempo_changes_survive_our_export() {
         let mut song = Song::new("Tempo", 120.0);
         let mut track = Track::new(project::TrackId::new(1).expect("valid"), "Piano");

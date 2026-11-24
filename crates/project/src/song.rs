@@ -707,6 +707,60 @@ impl ArrangerEvent {
     }
 }
 
+/// A user-selected key signature.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeySignature {
+    /// Tonic pitch class.
+    pub tonic: music_core::PitchClass,
+    /// True for a minor key.
+    #[serde(default)]
+    pub minor: bool,
+}
+
+fn deserialize_key<'de, D>(deserializer: D) -> Result<Option<KeySignature>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum RawKey {
+        Structured(KeySignature),
+        Text(String),
+    }
+    let raw = Option::<RawKey>::deserialize(deserializer)?;
+    Ok(match raw {
+        None => None,
+        Some(RawKey::Structured(key)) => Some(key),
+        Some(RawKey::Text(text)) => parse_key_text(&text),
+    })
+}
+
+fn parse_key_text(text: &str) -> Option<KeySignature> {
+    let mut parts = text.split_whitespace();
+    let tonic = parts.next()?;
+    let minor =
+        text.to_ascii_lowercase().contains("minor") || text.to_ascii_lowercase().ends_with('m');
+    let semitone = match tonic {
+        "C" => 0,
+        "C#" | "Db" => 1,
+        "D" => 2,
+        "D#" | "Eb" => 3,
+        "E" => 4,
+        "F" => 5,
+        "F#" | "Gb" => 6,
+        "G" => 7,
+        "G#" | "Ab" => 8,
+        "A" => 9,
+        "A#" | "Bb" => 10,
+        "B" => 11,
+        _ => return None,
+    };
+    Some(KeySignature {
+        tonic: music_core::PitchClass::new(semitone),
+        minor,
+    })
+}
+
 /// The song: everything needed to play and edit an arrangement, and nothing
 /// that belongs to a device or a window.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -719,6 +773,13 @@ pub struct Song {
     /// Meter of the song. Schema version 1 allows one signature.
     #[serde(default)]
     pub time_signature: TimeSignature,
+    /// User-selected key, or `None` to detect it from the notes.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_key"
+    )]
+    pub key: Option<KeySignature>,
     /// Tracks in display order.
     #[serde(default)]
     pub tracks: Vec<Track>,
@@ -1161,6 +1222,21 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[test]
+    fn legacy_key_strings_parse_into_key_signatures() {
+        let song = Song {
+            key: parse_key_text("C minor"),
+            ..Song::default()
+        };
+        let key = song.key.expect("key");
+        assert_eq!(key.tonic.as_u8(), 0);
+        assert!(key.minor);
+        let key = parse_key_text("F# major").expect("key");
+        assert_eq!(key.tonic.as_u8(), 6);
+        assert!(!key.minor);
+        assert!(parse_key_text("H major").is_none());
     }
 
     #[test]

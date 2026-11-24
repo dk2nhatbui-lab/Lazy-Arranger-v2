@@ -881,6 +881,19 @@ impl Editor {
         Ok(())
     }
 
+    /// Sets or clears the song key signature.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_song_key(&mut self, key: Option<project::song::KeySignature>) -> Result<(), String> {
+        self.session
+            .apply(app_commands::Command::SetSongKey { key })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Adds one dynamic or articulation at a tick.
     ///
     /// # Errors

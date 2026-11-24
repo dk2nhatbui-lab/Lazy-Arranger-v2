@@ -425,6 +425,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
         name: String::new(),
         tempo_map,
         time_signature: time_signature.unwrap_or_default(),
+        key: None,
         tracks,
         chords: Vec::new(),
         arranger: Vec::new(),

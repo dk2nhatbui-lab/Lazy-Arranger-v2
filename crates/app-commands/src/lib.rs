@@ -264,6 +264,11 @@ pub enum Command {
         /// New marks.
         marks: Vec<project::song::Mark>,
     },
+    /// Set or clear the song's key signature.
+    SetSongKey {
+        /// Selected key, or `None` to detect it.
+        key: Option<project::song::KeySignature>,
+    },
     /// Replace the clip-grid scene names as one edit.
     SetSceneNames {
         /// Names by scene index.
@@ -323,6 +328,7 @@ impl Command {
             Self::SetTempo { .. } => "set tempo",
             Self::RenameTrack { .. } => "rename track",
             Self::SetSongName { .. } => "set song name",
+            Self::SetSongKey { .. } => "set song key",
             Self::SetTimeSignature { .. } => "set time signature",
             Self::InsertTrack { .. } | Self::InsertTrackAt { .. } => "insert track",
             Self::RemoveTrack { .. } => "remove track",
@@ -798,6 +804,9 @@ impl EditSession {
                     note: note.id,
                 }
             }
+            Command::SetSongKey { .. } => Command::SetSongKey {
+                key: self.song().key,
+            },
             Command::SetNoteDuration { track, note, .. } => Command::SetNoteDuration {
                 track: *track,
                 note: *note,
@@ -1264,6 +1273,9 @@ impl EditSession {
             Command::SetMarks { marks } => {
                 self.project.song.marks = marks.clone();
             }
+            Command::SetSongKey { key } => {
+                self.project.song.key = *key;
+            }
             Command::SetMarkers { markers } => {
                 self.project.song.markers = markers.clone();
                 self.project.song.markers.sort_by_key(|marker| marker.tick);
@@ -1433,6 +1445,14 @@ fn describe(command: &Command) -> String {
         Command::SetSceneNames { names } => format!("set {} scene name(s)", names.len()),
         Command::SetLyrics { lyrics } => format!("set {} lyric(s)", lyrics.len()),
         Command::SetMarks { marks } => format!("set {} mark(s)", marks.len()),
+        Command::SetSongKey { key } => match key {
+            Some(key) => format!(
+                "set song key to {}{}",
+                key.tonic.name_sharp(),
+                if key.minor { " minor" } else { " major" }
+            ),
+            None => String::from("clear the song key"),
+        },
         Command::SetClips { track, clips } => {
             format!("set {} clip(s) on track {track}", clips.len())
         }

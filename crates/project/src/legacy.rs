@@ -148,6 +148,7 @@ pub fn import_cpp_project(text: &str) -> Result<ImportedProject, ProjectError> {
         name,
         tempo_map,
         time_signature,
+        key: None,
         tracks,
         chords,
         arranger: Vec::new(),

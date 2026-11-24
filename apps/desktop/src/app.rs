@@ -833,6 +833,7 @@ pub struct ShellApp {
     song_name_input: String,
     markers_open: bool,
     theory_open: bool,
+    theory_minor: bool,
     songs_open: bool,
     lessons_open: bool,
     lesson_kind: music_core::lesson::LessonKind,
@@ -1173,6 +1174,7 @@ impl ShellApp {
             song_name_input,
             markers_open: initial_window == "markers",
             theory_open: initial_window == "theory",
+            theory_minor: false,
             songs_open: initial_window == "songs",
             lessons_open: initial_window == "lessons",
             lesson_kind: music_core::lesson::LessonKind::ChordQuality,
@@ -7200,13 +7202,45 @@ impl ShellApp {
                 for line in lines {
                     ui.label(line);
                 }
-                ui.label(
-                    egui::RichText::new(
-                        "Read-only; scales, roman labels, cadence and voice-leading cost.",
-                    )
-                    .size(10.0)
-                    .color(theme::text_dim()),
-                );
+                ui.separator();
+                let mut tonic = self.key;
+                ui.horizontal(|ui| {
+                    ui.label("Song key");
+                    egui::ComboBox::from_id_salt("theory-key")
+                        .selected_text(tonic.name_sharp())
+                        .show_ui(ui, |ui| {
+                            for semitone in 0..12 {
+                                let candidate = music_core::PitchClass::new(semitone);
+                                ui.selectable_value(&mut tonic, candidate, candidate.name_sharp());
+                            }
+                        });
+                    ui.checkbox(&mut self.theory_minor, "minor");
+                });
+                self.key = tonic;
+                let mut key_change = None;
+                ui.horizontal(|ui| {
+                    if ui.button("Set song key").clicked() {
+                        key_change = Some(Some(project::song::KeySignature {
+                            tonic: self.key,
+                            minor: self.theory_minor,
+                        }));
+                    }
+                    if ui.button("Auto-detect").clicked() {
+                        key_change = Some(None);
+                    }
+                    ui.label(
+                        egui::RichText::new(
+                            "Read-only analysis above; setting the key is one undo step.",
+                        )
+                        .size(10.0)
+                        .color(theme::text_dim()),
+                    );
+                });
+                if let Some(key) = key_change
+                    && let Err(error) = self.editor.set_song_key(key)
+                {
+                    self.status = Some(error);
+                }
             });
         self.theory_open = open;
     }

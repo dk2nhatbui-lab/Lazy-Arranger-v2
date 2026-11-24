@@ -100,6 +100,12 @@ pub struct Spelled {
 /// Detects the key from the chords, then from the notes.
 #[must_use]
 pub fn detect_key(song: &Song) -> Key {
+    if let Some(key) = song.key {
+        return Key {
+            tonic: key.tonic,
+            minor: key.minor,
+        };
+    }
     if let Some(chord) = song.chords.last().map(|event| event.chord) {
         let minor = matches!(
             chord.quality,

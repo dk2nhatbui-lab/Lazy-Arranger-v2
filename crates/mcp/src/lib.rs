@@ -358,6 +358,18 @@ pub fn tools() -> Vec<Tool> {
             input_schema: json!({"type": "object"}),
         },
         Tool {
+            name: "set_song_key",
+            description: "Set the song key (tonic 0..=11 and minor), or clear it with null.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "tonic": {"type": ["integer", "null"]},
+                    "minor": {"type": "boolean"}
+                },
+                "required": ["tonic"]
+            }),
+        },
+        Tool {
             name: "set_lyrics",
             description: "Replace all lyric syllables.",
             input_schema: json!({
@@ -1741,6 +1753,34 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 "numerator": meter.numerator,
                 "denominator": meter.denominator,
                 "bar_ticks": meter.bar_ticks()
+            }))
+        }
+        "set_song_key" => {
+            let key = match arguments.get("tonic").filter(|value| !value.is_null()) {
+                None => None,
+                Some(value) => {
+                    let tonic = value
+                        .as_u64()
+                        .and_then(|value| u8::try_from(value).ok())
+                        .filter(|value| *value < 12)
+                        .ok_or_else(|| {
+                            ToolError::Arguments(String::from("tonic must be 0..=11"))
+                        })?;
+                    Some(project::song::KeySignature {
+                        tonic: music_core::PitchClass::new(i32::from(tonic)),
+                        minor: arguments
+                            .get("minor")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    })
+                }
+            };
+            session.apply(Command::SetSongKey { key })?;
+            Ok(json!({
+                "key": key.map(|key| json!({
+                    "tonic": key.tonic.as_u8(),
+                    "minor": key.minor
+                }))
             }))
         }
         "set_lyrics" => {
@@ -3698,6 +3738,7 @@ fn song_summary(song: &project::song::Song) -> Value {
         "name": song.name,
         "tempo": song.tempo_map.bpm_at(0),
         "meter": [song.time_signature.numerator, song.time_signature.denominator],
+        "key": song.key.map(|key| json!({"tonic": key.tonic.as_u8(), "minor": key.minor})),
         "tracks": tracks,
         "chords": song.chords.len(),
         "markers": song.markers.len(),
@@ -3880,7 +3921,7 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_documented_tool_count() {
-        assert_eq!(tools().len(), 102);
+        assert_eq!(tools().len(), 103);
         let names: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
         assert!(names.contains(&"get_song"));
         assert!(names.contains(&"set_time_signature"));
@@ -4374,6 +4415,23 @@ mod tests {
         .expect("restore");
         assert_eq!(session.song().tracks[0].notes.len(), 1);
         assert!(session.song().tracks[0].audio.is_none());
+    }
+
+    #[test]
+    fn song_key_tools_work() {
+        let mut session = session_with_track();
+        call(
+            &mut session,
+            "set_song_key",
+            &json!({"tonic": 9, "minor": true}),
+        )
+        .expect("set key");
+        let song = call(&mut session, "get_song", &json!({})).expect("song");
+        assert_eq!(song["key"]["tonic"], 9);
+        assert_eq!(song["key"]["minor"], true);
+        call(&mut session, "set_song_key", &json!({"tonic": null})).expect("clear");
+        let song = call(&mut session, "get_song", &json!({})).expect("song");
+        assert!(song["key"].is_null());
     }
 
     #[test]
