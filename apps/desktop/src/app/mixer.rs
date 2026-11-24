@@ -1,7 +1,7 @@
 //! The mixer, effects buses and plugin windows of [`ShellApp`].
 
 use super::*;
-use crate::widgets::MIXER_KNOB_SIZE;
+use crate::widgets::{MIXER_KNOB_SIZE, mixer_panel_background, mixer_strip};
 
 /// Height of every mixer fader. Track, bus and master strips keep the same
 /// rows above it (two knob rows, one button row) so their faders line up.
@@ -57,6 +57,7 @@ impl ShellApp {
                     .inner_margin(egui::Margin::symmetric(8, 6)),
             )
             .show(context, |ui| {
+                mixer_panel_background(ui);
                 egui::ScrollArea::horizontal().show(ui, |ui| {
                     ui.horizontal_top(|ui| {
                         for (index, track) in tracks.iter().enumerate() {
@@ -67,7 +68,7 @@ impl ShellApp {
                             let mut muted = track.muted;
                             let mut soloed = track.soloed;
                             let mut armed = track.armed;
-                            ui.allocate_ui(egui::vec2(108.0, 220.0), |ui| {
+                            mixer_strip(ui, egui::vec2(108.0, 220.0), |ui| {
                                 ui.vertical(|ui| {
                                     painter_strip(ui, color);
                                     ui.label(
@@ -212,7 +213,7 @@ impl ShellApp {
                             let mut bus_pan = bus.pan;
                             let mut bus_muted = bus.muted;
                             let mut bus_soloed = bus.soloed;
-                            ui.allocate_ui(egui::vec2(96.0, 220.0), |ui| {
+                            mixer_strip(ui, egui::vec2(96.0, 220.0), |ui| {
                                 ui.vertical(|ui| {
                                     painter_strip(ui, theme::accent());
                                     ui.label(egui::RichText::new(&bus.name).size(11.0).strong());
@@ -298,7 +299,7 @@ impl ShellApp {
                             |player| player.meter().peak.clamp(0.0, 1.0),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                            ui.allocate_ui(egui::vec2(110.0, 220.0), |ui| {
+                            mixer_strip(ui, egui::vec2(110.0, 220.0), |ui| {
                                 ui.vertical(|ui| {
                                     painter_strip(ui, theme::text_muted());
                                     ui.label(egui::RichText::new("Master").size(11.0).strong());

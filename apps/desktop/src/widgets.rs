@@ -692,6 +692,216 @@ pub(crate) fn pan_label(pan: f32) -> String {
     }
 }
 
+/// Draws a machined metal knob: drop shadow, a dark skirt and a cap whose
+/// shine turns with the angle, like light on a brushed aluminium cone.
+fn metal_knob(painter: &egui::Painter, center: Pos2, radius: f32, enabled: bool) {
+    for (grow, alpha) in [(3.0, 0.12), (1.5, 0.22)] {
+        painter.circle_filled(
+            center + Vec2::new(0.0, 2.5),
+            radius + grow,
+            Color32::BLACK.gamma_multiply(alpha),
+        );
+    }
+    painter.circle_filled(center, radius, Color32::from_rgb(0x1e, 0x21, 0x25));
+    painter.circle_stroke(
+        center,
+        radius,
+        Stroke::new(1.0_f32, Color32::from_rgb(0x0c, 0x0d, 0x0f)),
+    );
+
+    let cap = radius - 3.0;
+    let (light, dark) = if enabled {
+        (
+            Color32::from_rgb(0xee, 0xf0, 0xf3),
+            Color32::from_rgb(0x6a, 0x70, 0x78),
+        )
+    } else {
+        (
+            Color32::from_rgb(0x9a, 0x9e, 0xa4),
+            Color32::from_rgb(0x55, 0x59, 0x5f),
+        )
+    };
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(center, lerp_colour(dark, light, 0.55));
+    let segments = 48_u32;
+    for index in 0..segments {
+        let angle = std::f32::consts::TAU * index as f32 / segments as f32;
+        // Two highlights opposite each other (conical brushing), brighter at the top left.
+        let cone = 0.5 + 0.5 * (2.0 * (angle + std::f32::consts::FRAC_PI_4)).cos();
+        let top = 0.5 - 0.5 * (angle + std::f32::consts::FRAC_PI_4).sin();
+        let shade = (0.65 * cone + 0.35 * top).clamp(0.0, 1.0);
+        mesh.colored_vertex(
+            center + Vec2::angled(angle) * cap,
+            lerp_colour(dark, light, shade),
+        );
+        let next = (index + 1) % segments;
+        mesh.add_triangle(0, index + 1, next + 1);
+    }
+    painter.add(egui::Shape::mesh(mesh));
+    painter.circle_stroke(
+        center,
+        cap,
+        Stroke::new(1.0_f32, Color32::WHITE.gamma_multiply(0.35)),
+    );
+}
+
+/// Mixes two colours: `t` = 0 gives `from`, 1 gives `to`.
+fn lerp_colour(from: Color32, to: Color32, t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let mix =
+        |a: u8, b: u8| -> u8 { (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8 };
+    Color32::from_rgb(
+        mix(from.r(), to.r()),
+        mix(from.g(), to.g()),
+        mix(from.b(), to.b()),
+    )
+}
+
+/// Background colours of the mixer: (panel top, panel bottom, strip top, strip bottom).
+fn mixer_metal() -> [Color32; 4] {
+    if theme::light() {
+        [
+            Color32::from_rgb(0xcf, 0xd2, 0xd6),
+            Color32::from_rgb(0xb8, 0xbc, 0xc2),
+            Color32::from_rgb(0xf1, 0xf2, 0xf4),
+            Color32::from_rgb(0xd3, 0xd6, 0xdb),
+        ]
+    } else {
+        [
+            Color32::from_rgb(0x1f, 0x22, 0x26),
+            Color32::from_rgb(0x12, 0x14, 0x17),
+            Color32::from_rgb(0x3a, 0x3f, 0x46),
+            Color32::from_rgb(0x23, 0x27, 0x2c),
+        ]
+    }
+}
+
+/// Fine horizontal lines with a fixed pseudo-random pattern, so the
+/// brushing does not shimmer between frames.
+fn brushing(painter: &egui::Painter, rect: Rect, strength: f32) {
+    let mut y = rect.top() + 1.0;
+    let mut seed = 0x9e37_79b9_u32;
+    while y < rect.bottom() - 1.0 {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        let alpha = (seed % 100) as f32 / 100.0 * strength;
+        let colour = if seed.is_multiple_of(2) {
+            Color32::WHITE
+        } else {
+            Color32::BLACK
+        };
+        painter.line_segment(
+            [
+                Pos2::new(rect.left() + 1.0, y),
+                Pos2::new(rect.right() - 1.0, y),
+            ],
+            Stroke::new(1.0_f32, colour.gamma_multiply(alpha)),
+        );
+        y += 2.0;
+    }
+}
+
+/// Paints the brushed metal behind the mixer panel. Call it first in the
+/// panel so the strips draw on top.
+pub(crate) fn mixer_panel_background(ui: &egui::Ui) {
+    let [top, bottom, _, _] = mixer_metal();
+    let rect = ui.clip_rect();
+    let painter = ui.painter();
+    vertical_gradient(painter, rect, &[(0.0, top), (1.0, bottom)]);
+    brushing(painter, rect, 0.035);
+    // A lit top edge where the panel meets the timeline.
+    painter.line_segment(
+        [
+            Pos2::new(rect.left(), rect.top() + 0.5),
+            Pos2::new(rect.right(), rect.top() + 0.5),
+        ],
+        Stroke::new(1.0_f32, Color32::WHITE.gamma_multiply(0.10)),
+    );
+}
+
+/// Inner margin of a [`mixer_strip`].
+const STRIP_MARGIN: f32 = 6.0;
+const STRIP_RADIUS: f32 = 6.0;
+
+/// A raised metal channel strip with a drop shadow. `size` is the room for
+/// the contents; the strip adds its own margin around it.
+pub(crate) fn mixer_strip<R>(
+    ui: &mut egui::Ui,
+    size: Vec2,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<R> {
+    // Reserve the background layers now so they sit under the contents.
+    let shadow_slot = ui.painter().add(egui::Shape::Noop);
+    let body_slot = ui.painter().add(egui::Shape::Noop);
+    let outer = size + Vec2::splat(STRIP_MARGIN * 2.0);
+    let inner = ui.allocate_ui(outer, |ui| {
+        egui::Frame::new()
+            .inner_margin(STRIP_MARGIN)
+            .show(ui, |ui| {
+                ui.set_width(size.x);
+                add_contents(ui)
+            })
+            .inner
+    });
+    let rect = inner.response.rect;
+    let [_, _, top, bottom] = mixer_metal();
+    let shadow = egui::Shadow {
+        offset: [0, 4],
+        blur: 10,
+        spread: 0,
+        color: Color32::from_black_alpha(if theme::light() { 70 } else { 150 }),
+    };
+    ui.painter()
+        .set(shadow_slot, shadow.as_shape(rect, STRIP_RADIUS));
+
+    let painter = ui.painter();
+    let mut body = Vec::new();
+    // Rounded ends in the end colours, a gradient between them.
+    let cap_height = STRIP_RADIUS * 2.0;
+    body.push(egui::Shape::rect_filled(
+        Rect::from_min_size(rect.min, Vec2::new(rect.width(), cap_height)),
+        STRIP_RADIUS,
+        top,
+    ));
+    body.push(egui::Shape::rect_filled(
+        Rect::from_min_max(Pos2::new(rect.left(), rect.bottom() - cap_height), rect.max),
+        STRIP_RADIUS,
+        bottom,
+    ));
+    let middle = rect.shrink2(Vec2::new(0.0, STRIP_RADIUS));
+    let mut mesh = egui::Mesh::default();
+    for (index, colour) in [top, bottom].into_iter().enumerate() {
+        let y = if index == 0 {
+            middle.top()
+        } else {
+            middle.bottom()
+        };
+        mesh.colored_vertex(Pos2::new(middle.left(), y), colour);
+        mesh.colored_vertex(Pos2::new(middle.right(), y), colour);
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(1, 2, 3);
+    body.push(egui::Shape::mesh(mesh));
+    painter.set(body_slot, egui::Shape::Vec(body));
+
+    // Outline and a lit top edge for the bevel.
+    painter.rect_stroke(
+        rect,
+        STRIP_RADIUS,
+        Stroke::new(1.0_f32, Color32::BLACK.gamma_multiply(0.55)),
+        StrokeKind::Outside,
+    );
+    painter.line_segment(
+        [
+            Pos2::new(rect.left() + STRIP_RADIUS, rect.top() + 0.5),
+            Pos2::new(rect.right() - STRIP_RADIUS, rect.top() + 0.5),
+        ],
+        Stroke::new(1.0_f32, Color32::WHITE.gamma_multiply(0.22)),
+    );
+    inner
+}
+
 pub(crate) fn mixer_knob(
     ui: &mut egui::Ui,
     value: &mut f32,
@@ -708,14 +918,7 @@ pub(crate) fn mixer_knob(
     let changed = enabled && response.dragged() && ui.input(|input| input.pointer.delta().y != 0.0);
     let center = egui::pos2(rect.center().x, rect.top() + 15.0);
     let radius = 13.0;
-    let fill = if enabled {
-        theme::raised()
-    } else {
-        theme::panel()
-    };
-    ui.painter().circle_filled(center, radius, fill);
-    ui.painter()
-        .circle_stroke(center, radius, egui::Stroke::new(1.0_f32, theme::line()));
+    metal_knob(ui.painter(), center, radius, enabled);
     let ratio = ((*value - min) / (max - min).max(0.0001)).clamp(0.0, 1.0);
     let angle = (-std::f32::consts::FRAC_PI_2 - 2.356) + ratio * 4.712;
     let end = egui::pos2(
