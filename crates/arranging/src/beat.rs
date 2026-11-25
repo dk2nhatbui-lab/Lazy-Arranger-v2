@@ -440,8 +440,8 @@ mod tests {
     fn all_eight_v1_drum_rows_round_trip() {
         assert_eq!(ROWS.len(), 8);
         let mut pattern = BeatPattern::default();
-        for row in 0..ROWS.len() {
-            pattern.grid[row][row] = 100;
+        for (row, steps) in pattern.grid.iter_mut().enumerate().take(ROWS.len()) {
+            steps[row] = 100;
         }
         let notes = pattern.to_notes(0, 3840, Channel::new(9).expect("valid"));
         assert_eq!(notes.len(), 8);
