@@ -8,6 +8,7 @@
 
 pub mod cecilia;
 pub mod clef;
+pub mod full;
 pub mod guitar;
 pub mod pdf;
 pub mod spelling;

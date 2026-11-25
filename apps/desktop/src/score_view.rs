@@ -244,11 +244,6 @@ pub fn preview_cursor_x(
     None
 }
 
-fn is_percussion(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.contains("drum") || lower.contains("kit") || lower.contains("perc")
-}
-
 /// Cheap content hash for caching an all-track engraving.
 #[must_use]
 pub fn full_score_hash(song: &project::Song, title: &str) -> u64 {
@@ -1273,6 +1268,7 @@ mod tests {
 
     #[test]
     fn percussion_track_names_are_recognised() {
+        use score::full::is_percussion;
         assert!(is_percussion("Drums"));
         assert!(is_percussion("Drum Kit"));
         assert!(is_percussion("Percussion"));
