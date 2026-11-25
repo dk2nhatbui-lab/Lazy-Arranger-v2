@@ -1123,7 +1123,8 @@ impl ShellApp {
             about_open: initial_window == "about",
             mixer_visible: true,
             kids_last_activity: None,
-            timeline_mode: true,
+            // `ARRANGER_WINDOW=piano-roll` opens the docked editor, like v1 `--editor`.
+            timeline_mode: initial_window != "piano-roll",
             timeline_zoom: initial_timeline_zoom,
             pending_clip_edit: None,
             inspector_name_track: None,

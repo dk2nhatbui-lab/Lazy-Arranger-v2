@@ -113,6 +113,8 @@ pub struct RollState {
     pub snap: bool,
     /// Tick band from the last marquee drag, for the app to apply.
     pub band: Option<(Tick, Tick)>,
+    /// The track the view was last fitted to, so it fits once per opening.
+    pub fitted: Option<TrackId>,
     drag: Option<NoteDrag>,
     marquee: Option<Pos2>,
 }
@@ -126,6 +128,7 @@ impl Default for RollState {
             hover: None,
             snap: true,
             band: None,
+            fitted: None,
             drag: None,
             marquee: None,
         }
@@ -133,6 +136,23 @@ impl Default for RollState {
 }
 
 impl RollState {
+    /// Fits the view to a track's notes, as v1 does when the editor opens:
+    /// the whole song across `width` points and the highest notes on top.
+    pub fn fit(&mut self, song: &Song, track: TrackId, width: f32) {
+        self.fitted = Some(track);
+        let end = song.end_tick().max(song.time_signature.bar_ticks().max(1));
+        self.ticks_per_point = end as f32 / width.max(100.0);
+        if let Some(high) = song
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .and_then(|entry| entry.notes.iter().map(|note| note.pitch.as_u8()).max())
+        {
+            self.top_pitch = high.saturating_add(4);
+        }
+        self.clamp();
+    }
+
     /// Clamps zoom and scroll after an input event.
     pub fn clamp(&mut self) {
         self.ticks_per_point = self

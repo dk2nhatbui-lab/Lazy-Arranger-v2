@@ -3390,25 +3390,6 @@ impl ShellApp {
                 let project = editor.project();
                 match view {
                     View::Arrange => {
-                        if !timeline_mode {
-                            ui.horizontal(|ui| {
-                                if ui
-                                    .button("Timeline")
-                                    .on_hover_text("Back to the coloured track lanes")
-                                    .clicked()
-                                {
-                                    self.timeline_mode = true;
-                                }
-                                ui.label(
-                                    egui::RichText::new("Piano roll")
-                                        .size(11.0)
-                                        .color(theme::text_muted()),
-                                );
-                                ui.checkbox(&mut roll.snap, "Snap 1/16").on_hover_text(
-                                    "Snap note drags and insertions to a sixteenth",
-                                );
-                            });
-                        }
                         if let Some((track_id, path, peaks)) = &waveform
                             && roll.selected == Some(*track_id)
                         {
@@ -3611,6 +3592,113 @@ impl ShellApp {
                                 &self.timeline_waveforms,
                             )
                         } else {
+                            // MainComponent::resized: the editor docks under the
+                            // timeline, 45% of the height (240 to 520 pt).
+                            let total = ui.available_height();
+                            let editor_height =
+                                (total * 0.45).clamp(240.0_f32.min(total / 2.0), 520.0);
+                            let timeline_height = (total - editor_height - 6.0).max(60.0);
+                            let (_, docked_track, docked_edit) = egui::ScrollArea::vertical()
+                                .id_salt("docked-timeline")
+                                .max_height(timeline_height)
+                                .min_scrolled_height(timeline_height)
+                                .show(ui, |ui| {
+                                    crate::timeline::show(
+                                        ui,
+                                        &project.song,
+                                        position,
+                                        roll.selected,
+                                        timeline_zoom,
+                                        self.playing,
+                                        &self.timeline_waveforms,
+                                    )
+                                })
+                                .inner;
+                            let (line, _) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), 1.0),
+                                egui::Sense::hover(),
+                            );
+                            ui.painter().rect_filled(line, 0.0, theme::line_strong());
+                            // The editor bar: the track's dot and name, its
+                            // note count, the grid and Close, like v1.
+                            let edited = roll.selected.and_then(|id| {
+                                project
+                                    .song
+                                    .tracks
+                                    .iter()
+                                    .position(|track| track.id == id)
+                                    .map(|index| (index, &project.song.tracks[index]))
+                            });
+                            let (bar, _) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), 36.0),
+                                egui::Sense::hover(),
+                            );
+                            let mut bar_ui = ui.new_child(
+                                egui::UiBuilder::new()
+                                    .max_rect(bar.shrink2(egui::vec2(12.0, 3.0)))
+                                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                            );
+                            theme::v1_fields(bar_ui.visuals_mut());
+                            if let Some((index, track)) = edited {
+                                let (dot, _) = bar_ui
+                                    .allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                                bar_ui.painter().circle_filled(
+                                    dot.center(),
+                                    5.0,
+                                    theme::track_colour(index),
+                                );
+                                bar_ui.label(
+                                    egui::RichText::new(&track.name)
+                                        .font(theme::semibold(14.0))
+                                        .color(theme::text()),
+                                );
+                                bar_ui.add_space(24.0);
+                                bar_ui.label(
+                                    egui::RichText::new(format!(
+                                        "{} \u{b7} {} notes",
+                                        track.name,
+                                        track.notes.len()
+                                    ))
+                                    .size(12.0)
+                                    .color(theme::text_muted()),
+                                );
+                            } else {
+                                bar_ui.label(
+                                    egui::RichText::new("Select a track to edit its notes")
+                                        .size(12.0)
+                                        .color(theme::text_muted()),
+                                );
+                            }
+                            bar_ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .add_sized([64.0, 28.0], egui::Button::new("Close"))
+                                        .on_hover_text("Close the piano roll")
+                                        .clicked()
+                                    {
+                                        self.timeline_mode = true;
+                                        roll.fitted = None;
+                                    }
+                                    ui.add_space(4.0);
+                                    egui::ComboBox::from_id_salt("roll-grid")
+                                        .selected_text(if roll.snap { "1/16" } else { "Off" })
+                                        .width(72.0)
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(&mut roll.snap, true, "1/16");
+                                            ui.selectable_value(&mut roll.snap, false, "Off");
+                                        })
+                                        .response
+                                        .on_hover_text(
+                                            "Snap note drags and insertions to a sixteenth",
+                                        );
+                                },
+                            );
+                            if let Some(track) = roll.selected
+                                && roll.fitted != Some(track)
+                            {
+                                roll.fit(&project.song, track, ui.available_width() - 60.0);
+                            }
                             (
                                 piano_roll::show(
                                     ui,
@@ -3619,8 +3707,8 @@ impl ShellApp {
                                     position,
                                     &selected_clips,
                                 ),
-                                None,
-                                None,
+                                docked_track,
+                                docked_edit,
                             )
                         };
                         if let Some(track) = timeline_track {
