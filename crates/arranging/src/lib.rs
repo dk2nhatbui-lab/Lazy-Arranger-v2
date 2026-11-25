@@ -14,6 +14,7 @@ pub mod generate;
 pub mod grid;
 pub mod groove;
 pub mod groove_file;
+pub mod loops;
 
 use std::collections::BTreeMap;
 

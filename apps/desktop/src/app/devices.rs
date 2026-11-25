@@ -499,7 +499,9 @@ impl ShellApp {
                 }
             }
             Action::Scene(index) => {
-                self.launcher.launch(index);
+                let song = self.song().clone();
+                self.launcher.launch_scene(&song, index);
+                self.loops_changed();
                 self.status = Some(format!("scene {}", index + 1));
             }
             Action::Pad(note) => {

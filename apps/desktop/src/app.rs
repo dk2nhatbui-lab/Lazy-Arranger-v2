@@ -20,6 +20,7 @@ use crate::widgets::{draw_track_icon, mixer_fader, mixer_knob, painter_strip, pa
 mod assistant;
 mod devices;
 mod files;
+mod jam;
 mod layout;
 mod mixer;
 mod style;
@@ -754,7 +755,8 @@ pub struct ShellApp {
     beat_bars: usize,
     waveform_zoom: f32,
     waveform_position: f32,
-    launcher: arranging::grid::Launcher,
+    launcher: arranging::loops::Launcher,
+    jam_next: Option<jam::JamNext>,
     recent: Vec<std::path::PathBuf>,
     recent_file: std::path::PathBuf,
     midi_input: Option<midi_devices::devices::LiveInputs>,
@@ -892,7 +894,12 @@ pub struct ShellApp {
     record_seconds: f64,
     rename_scene: Option<usize>,
     rename_scene_input: String,
-    last_bar: i64,
+    slot_clipboard: Option<project::song::SlotClip>,
+    rename_slot: Option<(usize, TrackId)>,
+    loops_fill: Option<u32>,
+    chosen_slot: Option<(usize, TrackId)>,
+    loops_quantise_bars: u32,
+    jam_recording: bool,
     synth: arranging::SynthSpec,
     project_path: Option<PathBuf>,
     view: View,
@@ -1070,7 +1077,8 @@ impl ShellApp {
             beat_bars: 1,
             waveform_zoom: initial_waveform_zoom,
             waveform_position: 0.0,
-            launcher: arranging::grid::Launcher::default(),
+            launcher: arranging::loops::Launcher::default(),
+            jam_next: None,
             recent_file,
             recent,
             midi_input: None,
@@ -1334,7 +1342,12 @@ impl ShellApp {
             record_seconds: 4.0,
             rename_scene: None,
             rename_scene_input: String::new(),
-            last_bar: 0,
+            slot_clipboard: None,
+            rename_slot: None,
+            loops_fill: None,
+            chosen_slot: None,
+            loops_quantise_bars: 1,
+            jam_recording: false,
             synth: arranging::SynthSpec::default(),
             project_path,
             view: initial_view,
@@ -2603,18 +2616,6 @@ impl ShellApp {
                 });
             });
         self.chord_dialog = open && self.chord_dialog;
-    }
-
-    /// Commits a queued scene when the playhead crosses a bar line.
-    fn advance_launcher(&mut self) {
-        let bar = self.song().time_signature.bar_ticks().max(1);
-        let bar_index = self.position.div_euclid(bar);
-        if self.launcher.playing && bar_index != self.last_bar {
-            self.last_bar = bar_index;
-            if let Some(scene) = self.launcher.advance(bar_index * bar) {
-                self.status = Some(format!("scene {}", scene + 1));
-            }
-        }
     }
 
     /// Loads and caches audio waveform peaks for the meters and timeline.
@@ -4630,7 +4631,22 @@ impl ShellApp {
         } else {
             self.position.max(0)
         };
-        let song = self.song().clone();
+        let song = if self.launcher.active() {
+            self.jam_song(&self.launcher.now_playing(), resume)
+        } else {
+            self.song().clone()
+        };
+        let receiver = self.spawn_render(song, self.view == View::Mix);
+        self.render_pending = Some((receiver, resume));
+        self.status = Some(String::from("rendering audio"));
+    }
+
+    /// Renders a song in the background with the metronome and master bus.
+    fn spawn_render(
+        &self,
+        song: project::song::Song,
+        stems_wanted: bool,
+    ) -> std::sync::mpsc::Receiver<Result<RenderedSong, String>> {
         let metronome = self.settings.metronome;
         let accent = self.settings.metronome_accent;
         let master = audio::master::Master {
@@ -4639,11 +4655,8 @@ impl ShellApp {
             reverb: self.settings.master_reverb,
             chorus: self.settings.master_chorus,
         };
-        let stems_wanted = self.view == View::Mix;
         let output_name = self.settings.audio_output.clone();
         let (sender, receiver) = std::sync::mpsc::channel();
-        self.render_pending = Some((receiver, resume));
-        self.status = Some(String::from("rendering audio"));
         std::thread::spawn(move || {
             let rate =
                 audio::player::preferred_sample_rate(output_name.as_deref(), audio::SAMPLE_RATE);
@@ -4667,6 +4680,7 @@ impl ShellApp {
                 problems,
             }));
         });
+        receiver
     }
 
     /// Turns looping on or off; with no loop region yet, loops the current bar.
@@ -4752,7 +4766,9 @@ impl ShellApp {
     }
 
     fn stop_playback(&mut self) {
+        self.finish_jam();
         self.render_pending = None;
+        self.reset_loops();
         if let Some(player) = self.player.take() {
             player.stop();
             player.release();

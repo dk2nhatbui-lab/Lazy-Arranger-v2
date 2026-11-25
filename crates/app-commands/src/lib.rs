@@ -290,6 +290,14 @@ pub enum Command {
         /// Names by scene index.
         names: Vec<String>,
     },
+    /// Replace the Loops slots of some tracks, and optionally the scene
+    /// names, as one edit.
+    SetLoops {
+        /// Each track with its new slot list.
+        tracks: Vec<(TrackId, Vec<Option<project::song::SlotClip>>)>,
+        /// New scene names, or `None` to keep them.
+        names: Option<Vec<String>>,
+    },
     /// Replace the song's markers as one edit.
     SetMarkers {
         /// The new markers, sorted by tick.
@@ -381,6 +389,7 @@ impl Command {
             Self::SetTrackRouting { .. } => "set track routing",
             Self::SetMarkers { .. } => "set markers",
             Self::SetSceneNames { .. } => "set scene names",
+            Self::SetLoops { .. } => "edit loops",
             Self::SetLyrics { .. } => "set lyrics",
             Self::SetMarks { .. } => "set marks",
             Self::SetClips { .. } => "set clips",
@@ -1045,6 +1054,13 @@ impl EditSession {
             Command::SetSceneNames { .. } => Command::SetSceneNames {
                 names: self.song().scene_names.clone(),
             },
+            Command::SetLoops { tracks, names } => Command::SetLoops {
+                tracks: tracks
+                    .iter()
+                    .map(|(track, _)| Ok((*track, self.track(*track)?.slots.clone())))
+                    .collect::<Result<_, CommandError>>()?,
+                names: names.as_ref().map(|_| self.song().scene_names.clone()),
+            },
             Command::SetLyrics { .. } => Command::SetLyrics {
                 lyrics: self.song().lyrics.clone(),
             },
@@ -1341,6 +1357,18 @@ impl EditSession {
             Command::SetSceneNames { names } => {
                 self.project.song.scene_names = names.clone();
             }
+            Command::SetLoops { tracks, names } => {
+                for (track, slots) in tracks {
+                    let entry = self.track_mut(*track)?;
+                    entry.slots = slots.clone();
+                    while entry.slots.last().is_some_and(Option::is_none) {
+                        entry.slots.pop();
+                    }
+                }
+                if let Some(names) = names {
+                    self.project.song.scene_names = names.clone();
+                }
+            }
             Command::SetLyrics { lyrics } => {
                 self.project.song.lyrics = lyrics.clone();
             }
@@ -1544,6 +1572,7 @@ fn describe(command: &Command) -> String {
         },
         Command::SetMarkers { markers } => format!("set {} marker(s)", markers.len()),
         Command::SetSceneNames { names } => format!("set {} scene name(s)", names.len()),
+        Command::SetLoops { tracks, .. } => format!("edit loops on {} track(s)", tracks.len()),
         Command::SetLyrics { lyrics } => format!("set {} lyric(s)", lyrics.len()),
         Command::SetMarks { marks } => format!("set {} mark(s)", marks.len()),
         Command::SetSongKey { key } => match key {

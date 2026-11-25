@@ -144,6 +144,13 @@ pub fn import_cpp_project(text: &str) -> Result<ImportedProject, ProjectError> {
     report.tracks = tracks.len();
     let chords = read_chords(song_object, &mut warnings)?;
 
+    let scene_names = match song_object.get("scenes") {
+        Some(Value::Array(names)) => names
+            .iter()
+            .map(|name| name.as_str().unwrap_or_default().to_string())
+            .collect(),
+        _ => Vec::new(),
+    };
     let mut song = Song {
         name,
         tempo_map,
@@ -152,7 +159,7 @@ pub fn import_cpp_project(text: &str) -> Result<ImportedProject, ProjectError> {
         tracks,
         chords,
         arranger: Vec::new(),
-        scene_names: Vec::new(),
+        scene_names,
         buses: Vec::new(),
         master_plugins: Vec::new(),
         marks: Vec::new(),
@@ -345,8 +352,11 @@ fn read_tracks(
         read_clips_into(
             object, track_id, channel, &mut track, &path, warnings, report,
         )?;
+        if let Some(Value::Array(slots)) = object.get("slots") {
+            track.slots = read_slots(slots, channel, &path, warnings)?;
+        }
         for (key, extra) in object {
-            if matches!(key.as_str(), "id" | "name" | "clips" | "notes") {
+            if matches!(key.as_str(), "id" | "name" | "clips" | "notes" | "slots") {
                 continue;
             }
             *report.deferred.entry(key.clone()).or_insert(0) += 1;
@@ -438,6 +448,68 @@ fn read_clips_into(
         *report.deferred.entry(String::from("clips")).or_insert(0) += 1;
     }
     Ok(())
+}
+
+/// Reads the Loops slots of a track: `null` or a clip per scene.
+fn read_slots(
+    slots: &[Value],
+    channel: Channel,
+    path: &str,
+    warnings: &mut Vec<ImportWarning>,
+) -> Result<Vec<Option<crate::song::SlotClip>>, ProjectError> {
+    let mut out = Vec::with_capacity(slots.len());
+    for (index, slot) in slots.iter().enumerate() {
+        let Some(object) = slot.as_object() else {
+            out.push(None);
+            continue;
+        };
+        let slot_path = format!("{path}.slots[{index}]");
+        let length = object
+            .get("length")
+            .and_then(Value::as_i64)
+            .filter(|length| *length > 0);
+        let Some(length) = length else {
+            warnings.push(ImportWarning {
+                path: slot_path,
+                message: String::from("slot clip has no length; left empty"),
+            });
+            out.push(None);
+            continue;
+        };
+        let mut holder = Track::new(TrackId::new(1).map_err(|err| legacy(err.to_string()))?, "");
+        if let Some(Value::Array(notes)) = object.get("notes") {
+            let mut scratch = ImportReport {
+                source_format: String::new(),
+                source_version: 0,
+                tracks: 0,
+                notes: 0,
+                deferred: BTreeMap::new(),
+                warnings: Vec::new(),
+            };
+            read_notes(
+                notes,
+                0,
+                channel,
+                &mut holder,
+                &slot_path,
+                warnings,
+                &mut scratch,
+            )?;
+        }
+        out.push(Some(crate::song::SlotClip {
+            name: object
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            length,
+            notes: holder.notes,
+        }));
+    }
+    while out.last().is_some_and(Option::is_none) {
+        out.pop();
+    }
+    Ok(out)
 }
 
 fn read_notes(
@@ -605,6 +677,25 @@ mod tests {
             .expect("strings track");
         let first = strings.notes.iter().map(|note| note.start).min();
         assert_eq!(first, Some(15_360));
+    }
+
+    #[test]
+    fn loops_slots_and_scene_names_are_imported() {
+        let imported = import_cpp_project(DEMO).expect("demo should import");
+        let song = &imported.project.song;
+        assert!(!song.scene_names.is_empty());
+        assert!(song.tracks.iter().any(|track| {
+            track
+                .slots
+                .iter()
+                .flatten()
+                .any(|clip| !clip.notes.is_empty())
+        }));
+        let json = imported.project.to_json_pretty().expect("serialize");
+        let back = crate::song::ProjectFile::from_json(&json).expect("reparse");
+        for (back, track) in back.song.tracks.iter().zip(&song.tracks) {
+            assert_eq!(back.slots, track.slots);
+        }
     }
 
     #[test]
