@@ -1385,3 +1385,79 @@ fn ai_menu_writes_a_part_on_the_selected_track() {
     app.run_menu_command(&context, menu::MenuCommand::Generate("humanize"));
     assert_eq!(app.editor.undo_depth(), depth + 1, "{:?}", app.status);
 }
+
+#[test]
+fn notes_menu_copies_pastes_and_deletes_notes() {
+    use super::notes_menu::NoteAction;
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let track = app
+        .song()
+        .tracks
+        .iter()
+        .find(|entry| !entry.notes.is_empty())
+        .map(|entry| entry.id)
+        .expect("a track with notes");
+    app.roll.selected = Some(track);
+    let count = |app: &ShellApp| {
+        app.song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map_or(0, |entry| entry.notes.len())
+    };
+    let before = count(&app);
+    let first = app
+        .song()
+        .tracks
+        .iter()
+        .find(|entry| entry.id == track)
+        .and_then(|entry| entry.notes.first())
+        .map(|note| note.id)
+        .expect("a note");
+    app.selected_note = Some((track, first));
+    app.run_note_action(NoteAction::Copy);
+    assert!(app.editor.has_note_clipboard());
+    let far = app.song().end_tick() + 4 * music_core::PPQ;
+    app.run_note_action(NoteAction::Paste(Some(far)));
+    assert_eq!(count(&app), before + 1, "{:?}", app.status);
+    app.run_note_action(NoteAction::Delete);
+    assert_eq!(count(&app), before);
+    app.run_note_action(NoteAction::SelectAll);
+    assert_eq!(app.selected_notes.len(), before);
+    app.run_note_action(NoteAction::Lyrics);
+    assert!(app.lyrics_open);
+}
+
+#[test]
+fn mixer_menu_routes_tracks_and_manages_buses() {
+    use super::mixer::MixerAction;
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let track = app.song().tracks[0].id;
+    let buses = app.song().buses.len();
+    app.run_mixer_action(MixerAction::AddBus);
+    assert_eq!(app.song().buses.len(), buses + 1);
+    let bus = app.song().buses.last().map(|bus| bus.id).expect("a bus");
+    app.run_mixer_action(MixerAction::Output(track, Some(bus)));
+    app.run_mixer_action(MixerAction::Send(track, Some(bus)));
+    let routed = |app: &ShellApp| {
+        app.song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map(|entry| (entry.bus, entry.send))
+    };
+    assert_eq!(
+        routed(&app),
+        Some((Some(bus), Some(bus))),
+        "{:?}",
+        app.status
+    );
+    app.run_mixer_action(MixerAction::RemoveBus(bus));
+    assert_eq!(app.song().buses.len(), buses);
+    assert_eq!(routed(&app), Some((None, None)));
+    app.run_mixer_action(MixerAction::Effects(track));
+    assert!(app.plugins_open);
+    assert_eq!(app.roll.selected, Some(track));
+}

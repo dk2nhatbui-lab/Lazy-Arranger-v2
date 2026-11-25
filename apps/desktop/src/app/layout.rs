@@ -2250,6 +2250,10 @@ impl ShellApp {
                             slot_action = Some((scene, track, SlotAction::New));
                         }
                     }
+                    ui.separator();
+                    if pick(ui, "Chord rules…", true) {
+                        self.style.rules_open = true;
+                    }
                 });
             }
         }
@@ -4134,6 +4138,20 @@ impl ShellApp {
                             self.selected_clip = clips.last().map(|clip| (track_id, *clip));
                         }
                         clicked = outcome.click;
+                        if let Some(hit) = outcome.menu {
+                            if let Some(note) = hit.note
+                                && !self.selected_notes.contains(&note)
+                            {
+                                self.selected_note = Some(note);
+                                self.selected_notes.clear();
+                            }
+                            self.notes_menu = Some(super::notes_menu::NotesMenu::at_pointer(
+                                ui.ctx(),
+                                super::notes_menu::NotesPlace::Roll,
+                                Some(hit.tick),
+                            ));
+                            self.timeline_menu_hit = None;
+                        }
                         if let Some(edit) = outcome.edit {
                             scroll_edit = Some(edit);
                         }
@@ -4643,6 +4661,14 @@ impl ShellApp {
                                     self.score.entry.then_some(self.score.cursor),
                                 )
                             };
+                            if outcome.menu {
+                                self.notes_menu = Some(super::notes_menu::NotesMenu::at_pointer(
+                                    ui.ctx(),
+                                    super::notes_menu::NotesPlace::Score,
+                                    None,
+                                ));
+                                self.timeline_menu_hit = None;
+                            }
                             if let Some(drag) = outcome.drag {
                                 if let Some(found) = project
                                     .song
@@ -4703,6 +4729,8 @@ impl ShellApp {
                                     && let Some(found) = entry.notes.iter().find(|note| {
                                         note.start == tick && note.pitch.as_u8() == pitch
                                     })
+                                    && !(outcome.menu
+                                        && self.selected_notes.contains(&(track, found.id)))
                                 {
                                     self.selected_note = Some((track, found.id));
                                     self.selected_notes.clear();

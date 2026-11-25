@@ -220,6 +220,9 @@ pub struct RollOutcome {
     pub seek: Option<Tick>,
     /// Lyric tick clicked in the lyric lane.
     pub lyric: Option<Tick>,
+    /// A right-click on the notes, for the app's menu. `note` is the
+    /// selected track's note under the pointer.
+    pub menu: Option<RollClick>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -602,6 +605,32 @@ pub fn show(
     let Some(pointer) = response.interact_pointer_pos() else {
         return RollOutcome::default();
     };
+    if response.secondary_clicked() && pointer.x >= geometry.origin.x {
+        let note = state
+            .selected
+            .and_then(|id| song.tracks.iter().find(|track| track.id == id))
+            .and_then(|track| {
+                track
+                    .notes
+                    .iter()
+                    .find(|note| {
+                        geometry
+                            .note_rect(note.start, note.duration, note.pitch.as_u8())
+                            .contains(pointer)
+                    })
+                    .map(|note| (track.id, note.id))
+            });
+        return RollOutcome {
+            menu: Some(RollClick {
+                tick: geometry.tick_at(pointer.x).max(0),
+                pitch: geometry.pitch_at(pointer.y),
+                note,
+                clip: None,
+                shift: false,
+            }),
+            ..RollOutcome::default()
+        };
+    }
     if response.clicked() && pointer.y < rect.top() + RULER_HEIGHT {
         return RollOutcome {
             seek: Some(geometry.tick_at(pointer.x).max(0)),
@@ -675,6 +704,7 @@ pub fn show(
                     chord: None,
                     seek: None,
                     lyric: None,
+                    menu: None,
                 };
             }
         }
@@ -707,6 +737,7 @@ pub fn show(
                     chord: None,
                     seek: None,
                     lyric: None,
+                    menu: None,
                 };
             }
         }
@@ -721,6 +752,7 @@ pub fn show(
         chord: None,
         seek: None,
         lyric: None,
+        menu: None,
     }
 }
 

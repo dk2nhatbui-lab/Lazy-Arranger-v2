@@ -575,6 +575,15 @@ impl ShellApp {
     /// Snaps the starts of the notes in a clip to sixteenths.
     fn quantise_clip(&mut self, track: TrackId, clip: ClipId) -> Result<Option<String>, String> {
         let ids = self.notes_in_clip(track, clip);
+        self.quantise_notes(track, &ids)
+    }
+
+    /// Snaps the starts of some of a track's notes to a sixteenth.
+    pub(super) fn quantise_notes(
+        &mut self,
+        track: TrackId,
+        ids: &[project::NoteId],
+    ) -> Result<Option<String>, String> {
         let grid = PPQ / 4;
         let Some(entry) = self.song().tracks.iter().find(|entry| entry.id == track) else {
             return Ok(None);
@@ -589,7 +598,7 @@ impl ShellApp {
             }
         }
         if changed == 0 {
-            return Ok(Some(String::from("the clip is already on the grid")));
+            return Ok(Some(String::from("the notes are already on the grid")));
         }
         notes.sort_by_key(|note| note.start);
         self.editor.replace_track_notes(track, notes)?;

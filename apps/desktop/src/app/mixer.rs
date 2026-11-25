@@ -20,6 +20,102 @@ const ARM_LAMP: egui::Color32 = egui::Color32::from_rgb(0xe8, 0x4a, 0x3c);
 /// Name tab colour of the master strip.
 const MASTER_TAB: egui::Color32 = egui::Color32::from_rgb(0xd9, 0xdb, 0xde);
 
+/// Something a mixer strip's right-click menu does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum MixerAction {
+    /// Selects the track and shows its name in the inspector.
+    Rename(TrackId),
+    /// Sends the track's output to a bus, or to the master with `None`.
+    Output(TrackId, Option<u8>),
+    /// Sets the track's send bus, or none.
+    Send(TrackId, Option<u8>),
+    /// The plug-ins window for the track.
+    Effects(TrackId),
+    /// The effects window for the bus at this index.
+    BusEffects(usize),
+    MasterEffects,
+    AddBus,
+    RemoveBus(u8),
+}
+
+/// The menu on a track strip's name tab, as in the C++ mixer.
+fn track_strip_menu(
+    ui: &mut egui::Ui,
+    track: &project::song::Track,
+    buses: &[project::song::Bus],
+) -> Option<MixerAction> {
+    let mut chosen = None;
+    let id = track.id;
+    if ui.button("Rename…").clicked() {
+        chosen = Some(MixerAction::Rename(id));
+    }
+    if ui.button("Effects…").clicked() {
+        chosen = Some(MixerAction::Effects(id));
+    }
+    ui.separator();
+    ui.menu_button("Output", |ui| {
+        if ui
+            .add(egui::Button::new("Master").selected(track.bus.is_none()))
+            .clicked()
+        {
+            chosen = Some(MixerAction::Output(id, None));
+        }
+        for bus in buses {
+            if ui
+                .add(egui::Button::new(&bus.name).selected(track.bus == Some(bus.id)))
+                .clicked()
+            {
+                chosen = Some(MixerAction::Output(id, Some(bus.id)));
+            }
+        }
+    });
+    ui.add_enabled_ui(!buses.is_empty(), |ui| {
+        ui.menu_button("Send", |ui| {
+            if ui
+                .add(egui::Button::new("None").selected(track.send.is_none()))
+                .clicked()
+            {
+                chosen = Some(MixerAction::Send(id, None));
+            }
+            for bus in buses {
+                if ui
+                    .add(egui::Button::new(&bus.name).selected(track.send == Some(bus.id)))
+                    .clicked()
+                {
+                    chosen = Some(MixerAction::Send(id, Some(bus.id)));
+                }
+            }
+        });
+    });
+    ui.separator();
+    if ui.button("Add Bus").clicked() {
+        chosen = Some(MixerAction::AddBus);
+    }
+    if chosen.is_some() {
+        ui.close_menu();
+    }
+    chosen
+}
+
+/// The menu on a bus strip's name tab.
+fn bus_strip_menu(ui: &mut egui::Ui, index: usize, bus: u8) -> Option<MixerAction> {
+    let mut chosen = None;
+    if ui.button("Effects…").clicked() {
+        chosen = Some(MixerAction::BusEffects(index));
+    }
+    ui.separator();
+    if ui.button("Remove Bus").clicked() {
+        chosen = Some(MixerAction::RemoveBus(bus));
+    }
+    if ui.button("Add Bus").clicked() {
+        chosen = Some(MixerAction::AddBus);
+    }
+    if chosen.is_some() {
+        ui.close_menu();
+    }
+    chosen
+}
+
 /// Reserves a row of `height` so a strip without that control keeps its
 /// fader level with the other strips.
 fn empty_strip_slot(ui: &mut egui::Ui, height: f32) {
@@ -34,6 +130,7 @@ impl ShellApp {
         let tracks = self.song().tracks.clone();
         let buses = self.song().buses.clone();
         let mut edits: Vec<(TrackId, u8, u8, bool, bool, u8, bool)> = Vec::new();
+        let mut mixer_action = None;
         let mut bus_edits: Vec<(u8, u8, u8, bool, bool)> = Vec::new();
         let bus_levels: Vec<f32> = buses
             .iter()
@@ -141,7 +238,12 @@ impl ShellApp {
                                             &track.name
                                         },
                                         color,
-                                    );
+                                    )
+                                    .context_menu(|ui| {
+                                        if let Some(action) = track_strip_menu(ui, track, &buses) {
+                                            mixer_action = Some(action);
+                                        }
+                                    });
                                 });
                             });
                             if let Some((volume, pan, muted, soloed, send, armed)) = edit {
@@ -213,7 +315,12 @@ impl ShellApp {
                                             bus.id, bus_volume, bus_pan, bus_muted, bus_soloed,
                                         ));
                                     }
-                                    name_tab(ui, &bus.name, theme::accent());
+                                    name_tab(ui, &bus.name, theme::accent()).context_menu(|ui| {
+                                        if let Some(action) = bus_strip_menu(ui, bus_index, bus.id)
+                                        {
+                                            mixer_action = Some(action);
+                                        }
+                                    });
                                 });
                             });
                         }
@@ -261,7 +368,16 @@ impl ShellApp {
                                         0.0,
                                         master_level,
                                     );
-                                    name_tab(ui, "Master", MASTER_TAB);
+                                    name_tab(ui, "Master", MASTER_TAB).context_menu(|ui| {
+                                        if ui.button("Master Effects…").clicked() {
+                                            mixer_action = Some(MixerAction::MasterEffects);
+                                            ui.close_menu();
+                                        }
+                                        if ui.button("Add Bus").clicked() {
+                                            mixer_action = Some(MixerAction::AddBus);
+                                            ui.close_menu();
+                                        }
+                                    });
                                 });
                             });
                         });
@@ -269,6 +385,9 @@ impl ShellApp {
                 });
             });
         self.settings.master_gain_db = master_gain;
+        if let Some(action) = mixer_action {
+            self.run_mixer_action(action);
+        }
         if !bus_edits.is_empty() {
             let mut updated = self.song().buses.clone();
             for (id, volume, pan, muted, soloed) in &bus_edits {
@@ -292,6 +411,98 @@ impl ShellApp {
                     .editor
                     .set_track_routing(id, track.bus, track.send, send_level);
             }
+        }
+    }
+
+    /// Runs a mixer strip menu item.
+    pub(super) fn run_mixer_action(&mut self, action: MixerAction) {
+        let routing = |track: TrackId| {
+            self.song()
+                .tracks
+                .iter()
+                .find(|entry| entry.id == track)
+                .map(|entry| (entry.bus, entry.send, entry.send_level))
+        };
+        let result = match action {
+            MixerAction::Rename(track) => {
+                self.roll.selected = Some(track);
+                self.inspector_open = true;
+                Ok(())
+            }
+            MixerAction::Output(track, bus) => match routing(track) {
+                Some((_, send, level)) => self.editor.set_track_routing(track, bus, send, level),
+                None => Ok(()),
+            },
+            MixerAction::Send(track, send) => match routing(track) {
+                Some((bus, _, level)) => {
+                    // A new send starts at a usable level.
+                    let level = if send.is_some() && level == 0 {
+                        64
+                    } else {
+                        level
+                    };
+                    self.editor.set_track_routing(track, bus, send, level)
+                }
+                None => Ok(()),
+            },
+            MixerAction::Effects(track) => {
+                self.roll.selected = Some(track);
+                self.plugins_open = true;
+                Ok(())
+            }
+            MixerAction::BusEffects(index) => {
+                self.bus_fx_choice = index;
+                self.bus_fx_open = true;
+                Ok(())
+            }
+            MixerAction::MasterEffects => {
+                self.master_fx_open = true;
+                Ok(())
+            }
+            MixerAction::AddBus => {
+                let mut buses = self.song().buses.clone();
+                let id = buses
+                    .iter()
+                    .map(|bus| bus.id)
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_add(1);
+                buses.push(project::song::Bus::new(id, format!("Bus {id}")));
+                self.editor.set_buses(buses)
+            }
+            MixerAction::RemoveBus(id) => {
+                let routed: Vec<(TrackId, Option<u8>, Option<u8>, u8)> = self
+                    .song()
+                    .tracks
+                    .iter()
+                    .filter(|track| track.bus == Some(id) || track.send == Some(id))
+                    .map(|track| {
+                        (
+                            track.id,
+                            track.bus.filter(|bus| *bus != id),
+                            track.send.filter(|send| *send != id),
+                            track.send_level,
+                        )
+                    })
+                    .collect();
+                let mut result = Ok(());
+                for (track, bus, send, level) in routed {
+                    if let Err(error) = self.editor.set_track_routing(track, bus, send, level) {
+                        result = Err(error);
+                    }
+                }
+                let buses = self
+                    .song()
+                    .buses
+                    .iter()
+                    .filter(|bus| bus.id != id)
+                    .cloned()
+                    .collect();
+                result.and_then(|()| self.editor.set_buses(buses))
+            }
+        };
+        if let Err(error) = result {
+            self.status = Some(error);
         }
     }
 

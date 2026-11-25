@@ -27,6 +27,7 @@ mod map;
 mod menu;
 mod mixer;
 mod native_menu;
+mod notes_menu;
 mod style;
 mod timeline_menu;
 mod user_instruments;
@@ -708,6 +709,7 @@ pub struct ShellApp {
     clip_note_offset: Tick,
     /// The timeline right-click whose menu is open.
     timeline_menu_hit: Option<crate::timeline::ContextHit>,
+    notes_menu: Option<notes_menu::NotesMenu>,
     chord_dialog: bool,
     chord_dialog_target: Tick,
     reharmonize_dialog: bool,
@@ -942,7 +944,7 @@ pub struct ShellApp {
 
 /// The shortcut presses `handle_keys` reads once per frame, in the order it
 /// consumes them.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 struct KeyPresses {
     undo: bool,
     redo: bool,
@@ -1043,6 +1045,7 @@ impl ShellApp {
             clip_clipboard: Vec::new(),
             clip_note_offset: 0,
             timeline_menu_hit: None,
+            notes_menu: None,
             chord_dialog: false,
             chord_dialog_target: 0,
             reharmonize_dialog: false,
@@ -1519,11 +1522,17 @@ impl ShellApp {
             self.selected_clip = None;
             self.selected_clips.clear();
         }
-        if select_all
-            && let Some(track) = self
-                .roll
-                .selected
-                .or_else(|| self.song().tracks.first().map(|track| track.id))
+        if select_all {
+            self.select_all_notes();
+        }
+    }
+
+    /// Selects every note of the selected track (or the first track).
+    fn select_all_notes(&mut self) {
+        if let Some(track) = self
+            .roll
+            .selected
+            .or_else(|| self.song().tracks.first().map(|track| track.id))
         {
             self.selected_notes = self
                 .song()
@@ -4914,6 +4923,7 @@ impl eframe::App for ShellApp {
         self.draw_windows(context);
         self.central_panel(context);
         self.timeline_menu(context);
+        self.notes_menu(context);
         if !self.shown {
             self.shown = true;
             context.send_viewport_cmd(ViewportCommand::Visible(true));

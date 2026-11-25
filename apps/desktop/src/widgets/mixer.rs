@@ -311,9 +311,9 @@ pub(crate) fn strip_button(ui: &mut Ui, text: &str, on: bool, lamp: Color32, hin
 }
 
 /// The coloured name tab at the foot of a strip.
-pub(crate) fn name_tab(ui: &mut Ui, name: &str, colour: Color32) {
+pub(crate) fn name_tab(ui: &mut Ui, name: &str, colour: Color32) -> egui::Response {
     let width = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 18.0), Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 18.0), Sense::click());
     let painter = ui.painter();
     painter.rect_filled(rect, 2.0, colour);
     painter.rect_stroke(
@@ -341,6 +341,7 @@ pub(crate) fn name_tab(ui: &mut Ui, name: &str, colour: Color32) {
         rect.center().y - galley.size().y / 2.0,
     );
     painter.with_clip_rect(rect).galley(pos, galley, ink);
+    response
 }
 
 /// A console channel fader filling the strip's width: black slot with a dB

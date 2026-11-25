@@ -39,6 +39,9 @@ pub struct ScoreOutcome {
     pub note: Option<(Tick, u8)>,
     /// A finished drag from one note position to another.
     pub drag: Option<ScoreDrag>,
+    /// A right-click, for the app's menu; `note` then holds the notehead
+    /// under the pointer, if any.
+    pub menu: bool,
 }
 
 /// A drag from one score position to another.
@@ -1755,6 +1758,15 @@ pub fn show(
                     resize,
                     duration: new_duration,
                 }),
+                ..ScoreOutcome::default()
+            };
+        }
+        if let Some(position) = response.interact_pointer_pos()
+            && response.secondary_clicked()
+        {
+            return ScoreOutcome {
+                note: hit_note(engraved, page_index, zoom, origin, position),
+                menu: true,
                 ..ScoreOutcome::default()
             };
         }
