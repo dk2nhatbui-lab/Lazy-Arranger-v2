@@ -20,10 +20,10 @@ use crate::widgets::{draw_track_icon, mixer_fader, mixer_knob, painter_strip, pa
 mod assistant;
 mod devices;
 mod files;
+mod instruments;
 mod layout;
 mod mixer;
 mod style;
-mod instruments;
 
 use assistant::AssistantState;
 use devices::AudioChordsState;

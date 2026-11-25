@@ -100,6 +100,47 @@ fn psr_registrations_round_trip_as_lines() {
 }
 
 #[test]
+fn removing_an_instrument_hides_its_editor_and_profile() {
+    use crate::instruments::{Installed, Instrument};
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    app.apply_instruments(Installed::all());
+    assert!(
+        app.device_profiles
+            .iter()
+            .any(|profile| profile.id == "d05")
+    );
+    app.d05.open = true;
+    app.l6max.mixer_open = true;
+    let mut choice = Installed::all();
+    choice.set(Instrument::RolandD05, false);
+    choice.set(Instrument::ZoomL6max, false);
+    app.apply_instruments(choice);
+    assert!(!app.d05.open);
+    assert!(!app.l6max.mixer_open);
+    assert!(
+        !app.device_profiles
+            .iter()
+            .any(|profile| profile.id == "d05")
+    );
+    assert!(
+        app.device_profiles
+            .iter()
+            .any(|profile| profile.id == "psr-s970")
+    );
+    assert!(
+        app.device_profiles
+            .iter()
+            .any(|profile| profile.id == "generic-gs")
+    );
+    // A window flag set some other way still draws nothing.
+    app.d05.open = true;
+    let _ = context.run(egui::RawInput::default(), |context| {
+        app.d05_editor_window(context)
+    });
+}
+
+#[test]
 fn a_port_name_selects_a_profile() {
     let folder = std::env::temp_dir().join("lazy-arranger-port-profiles");
     let _ = std::fs::remove_dir_all(&folder);
@@ -992,45 +1033,4 @@ fn playhead_ticks_stay_accurate_at_44100_hz() {
     playback.seek_frame(88_200);
     assert!((playback.seconds() - 2.0).abs() < 1.0e-9);
     assert_eq!(tempo_map.tick_at_seconds(playback.seconds()), 3840);
-}
-
-#[test]
-fn removing_an_instrument_hides_its_editor_and_profile() {
-    use crate::instruments::{Installed, Instrument};
-    let context = egui::Context::default();
-    let mut app = ShellApp::new(&context, demo_project(), None);
-    app.apply_instruments(Installed::all());
-    assert!(
-        app.device_profiles
-            .iter()
-            .any(|profile| profile.id == "d05")
-    );
-    app.d05.open = true;
-    app.l6max.mixer_open = true;
-    let mut choice = Installed::all();
-    choice.set(Instrument::RolandD05, false);
-    choice.set(Instrument::ZoomL6max, false);
-    app.apply_instruments(choice);
-    assert!(!app.d05.open);
-    assert!(!app.l6max.mixer_open);
-    assert!(
-        !app.device_profiles
-            .iter()
-            .any(|profile| profile.id == "d05")
-    );
-    assert!(
-        app.device_profiles
-            .iter()
-            .any(|profile| profile.id == "psr-s970")
-    );
-    assert!(
-        app.device_profiles
-            .iter()
-            .any(|profile| profile.id == "generic-gs")
-    );
-    // A window flag set some other way still draws nothing.
-    app.d05.open = true;
-    let _ = context.run(egui::RawInput::default(), |context| {
-        app.d05_editor_window(context)
-    });
 }
