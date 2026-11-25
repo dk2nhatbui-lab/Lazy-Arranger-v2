@@ -338,6 +338,33 @@ pub fn visuals() -> egui::Visuals {
     visuals.widgets.active.weak_bg_fill = accent().gamma_multiply(0.25);
     visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, accent());
     visuals.window_stroke = egui::Stroke::new(1.0_f32, line_strong());
+    // AppLookAndFeel: controls outlined in lineStrong, and square corners
+    // everywhere (docs/design/v1-visual-language.md).
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, line_strong());
+    let square = egui::CornerRadius::same(0);
+    for widget in [
+        &mut visuals.widgets.noninteractive,
+        &mut visuals.widgets.inactive,
+        &mut visuals.widgets.hovered,
+        &mut visuals.widgets.active,
+        &mut visuals.widgets.open,
+    ] {
+        widget.corner_radius = square;
+    }
+    visuals.window_corner_radius = square;
+    visuals.menu_corner_radius = square;
+    visuals.window_shadow = egui::Shadow {
+        offset: [0, 6],
+        blur: 18,
+        spread: 0,
+        color: egui::Color32::from_black_alpha(if light() { 40 } else { 110 }),
+    };
+    visuals.popup_shadow = egui::Shadow {
+        offset: [0, 4],
+        blur: 10,
+        spread: 0,
+        color: egui::Color32::from_black_alpha(if light() { 30 } else { 90 }),
+    };
     visuals
 }
 
