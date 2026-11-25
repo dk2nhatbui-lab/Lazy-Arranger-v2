@@ -1,5 +1,8 @@
 //! Desktop entry point. All behaviour lives in the library so tests can reach it.
 
+// Release builds on Windows are GUI apps: no console window opens behind them.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 

@@ -1,0 +1,145 @@
+name: Release
+
+# Builds the Mac, Windows and Linux downloads and publishes a GitHub release.
+# Start it by pushing a tag (git push origin v0.1.0-beta.1) or from the Actions
+# tab with "Run workflow" (that creates the tag on the chosen commit).
+# Tags with a suffix such as -beta.1 are published as pre-releases.
+
+on:
+  push:
+    tags: ["v*"]
+  # Pull requests that touch packaging build the files without publishing.
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/bundle-macos.sh
+      - scripts/package-release.sh
+      - apps/desktop/build.rs
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, for example v0.1.0-beta.1 (must match Cargo.toml)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG: ${{ github.event.inputs.tag || (github.event_name == 'push' && github.ref_name) || '' }}
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { platform: macos, os: macos-latest }
+          - { platform: windows, os: windows-latest }
+          # The oldest supported Ubuntu runner, so the binary runs on older glibc.
+          - { platform: linux, os: ubuntu-22.04 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libxkbcommon-dev libwayland-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Check the tag matches the version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ -z "$TAG" ]; then TAG="v$version"; echo "TAG=$TAG" >> "$GITHUB_ENV"; fi
+          test "v$version" = "$TAG" || { echo "::error::tag $TAG does not match Cargo.toml version $version"; exit 1; }
+
+      - name: Build (macOS, Apple Silicon + Intel)
+        if: runner.os == 'macOS'
+        run: UNIVERSAL=1 ./scripts/bundle-macos.sh
+
+      - name: Build (Windows, Linux)
+        if: runner.os != 'macOS'
+        run: |
+          ./scripts/rust.sh build --release -p lazy-arranger-desktop -p lazy-arranger-cli
+          ./scripts/rust.sh build --release -p plugin-host --bin lazy-arranger-plugin-scan
+
+      - name: Package
+        run: ./scripts/package-release.sh "${{ matrix.platform }}" "$TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist/release/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Check the files
+        run: |
+          cd dist
+          ls -la
+          sha256sum -c ./*.sha256
+          for suffix in macos-universal.dmg windows-x64.zip linux-x64.tar.gz; do
+            test -f "LazyArranger-$TAG-$suffix" || { echo "::error::missing $suffix"; exit 1; }
+          done
+
+      - name: Release notes
+        run: |
+          # The CHANGELOG section for this version, up to the next "## " heading.
+          awk -v v="${TAG#v}" '
+            /^## / { if (found) exit; if (index($0, "[" v "]")) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          test -s notes.md || echo "See CHANGELOG.md." > notes.md
+          cat >> notes.md <<'TXT'
+
+          ### Downloads
+          - **macOS** (Apple Silicon and Intel): `.dmg`. Ad-hoc signed, not notarized: the first time, right-click the app and choose **Open**.
+          - **Windows** (x64): `.zip`. Not code-signed: if SmartScreen warns, click **More info > Run anyway**.
+          - **Linux** (x64): `.tar.gz`. Run `./install.sh` once to add it to the app menu.
+
+          Each file has a `.sha256` checksum next to it.
+          TXT
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* $prerelease \
+              --target "$GITHUB_SHA" \
+              --title "Lazy Arranger Midi DAW $TAG" \
+              --notes-file notes.md
+          fi

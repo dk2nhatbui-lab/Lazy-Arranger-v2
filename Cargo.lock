@@ -145,7 +145,7 @@ dependencies = [
 
 [[package]]
 name = "app-commands"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "audio",
  "music-core",
@@ -176,7 +176,7 @@ dependencies = [
 
 [[package]]
 name = "arranger"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "music-core",
  "project",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "arranging"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "app-commands",
  "arranger",
@@ -230,7 +230,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "audio"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "arranger",
  "cpal",
@@ -1569,7 +1569,7 @@ dependencies = [
 
 [[package]]
 name = "lazy-arranger-cli"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "app-commands",
  "arranger",
@@ -1593,7 +1593,7 @@ dependencies = [
 
 [[package]]
 name = "lazy-arranger-desktop"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "app-commands",
  "arboard",
@@ -1617,11 +1617,12 @@ dependencies = [
  "serde_json",
  "smf",
  "style-formats",
+ "winresource",
 ]
 
 [[package]]
 name = "lazy-arranger-test-plugin"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "vst3",
 ]
@@ -1650,7 +1651,7 @@ dependencies = [
 
 [[package]]
 name = "library"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1728,7 +1729,7 @@ dependencies = [
 
 [[package]]
 name = "mcp"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "app-commands",
  "arranger",
@@ -1787,7 +1788,7 @@ dependencies = [
 
 [[package]]
 name = "midi-devices"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "midir",
  "music-core",
@@ -1872,7 +1873,7 @@ dependencies = [
 
 [[package]]
 name = "music-core"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1881,7 +1882,7 @@ dependencies = [
 
 [[package]]
 name = "musicxml"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "music-core",
  "project",
@@ -2430,7 +2431,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "performance"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "app-commands",
  "arranger",
@@ -2492,7 +2493,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-host"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "base64 0.22.1",
  "lazy-arranger-test-plugin",
@@ -2505,7 +2506,7 @@ dependencies = [
 
 [[package]]
 name = "plugins"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "plist",
  "plugin-host",
@@ -2609,7 +2610,7 @@ checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 
 [[package]]
 name = "project"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "music-core",
  "serde",
@@ -2865,7 +2866,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "score"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "cecilia-core",
  "cecilia-engrave",
@@ -2884,7 +2885,7 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "sequencer"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "music-core",
  "project",
@@ -2934,6 +2935,15 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "serde_spanned"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c187e0a369471c550af028cba56d4f4fa2a489ad28151ae95a4d340a2a8b782"
+dependencies = [
+ "serde_core",
 ]
 
 [[package]]
@@ -2987,7 +2997,7 @@ checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 
 [[package]]
 name = "smf"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "midly",
  "music-core",
@@ -3131,7 +3141,7 @@ dependencies = [
 
 [[package]]
 name = "style-formats"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "arranger",
  "audio",
@@ -3511,6 +3521,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml"
+version = "1.2.3+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26b1f26e9485c1fa43ee89fe76e9f3fb9e2e52bb227f8594b4d687496b83d073"
+dependencies = [
+ "indexmap",
+ "serde_core",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_parser",
+ "toml_writer",
+ "winnow",
+]
+
+[[package]]
 name = "toml_datetime"
 version = "1.1.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3533,12 +3558,18 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.1.6+spec-1.1.0"
+version = "1.1.7+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6769c452d71ba30696c6b37770c439a9cc9110f47f7d5cdbeda79840ef5ea31"
+checksum = "0bb28d6e049a9766c3bd91a8326e6179f5b132dec87906bb97018ef7a2f3431a"
 dependencies = [
  "winnow",
 ]
+
+[[package]]
+name = "toml_writer"
+version = "1.2.0+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
 
 [[package]]
 name = "tracing"
@@ -4399,6 +4430,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c3b93199df0ab874cdf0c6a94f0a0dc3423fe41f1cafb62b8bd7b1deb277aef"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "winresource"
+version = "0.1.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2bc6d36480b829272a5bdabf08e6dca8004761c1da7e35efef800540c66221b"
+dependencies = [
+ "toml",
+ "version_check",
 ]
 
 [[package]]
