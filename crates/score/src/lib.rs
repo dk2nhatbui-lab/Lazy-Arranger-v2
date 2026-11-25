@@ -661,7 +661,44 @@ fn placed_rests(notes: &[PlacedNote], pages: &[Page], settings: Settings) -> Vec
             }
         }
     }
+    avoid_rest_collisions(&mut rests, notes, settings.staff_space);
     rests
+}
+
+/// Shifts rests vertically away from horizontally overlapping noteheads on the
+/// same page and measure, snapping the displaced rest to half-space increments.
+pub fn avoid_rest_collisions(rests: &mut [PlacedRest], notes: &[PlacedNote], staff_space: f32) {
+    let space = staff_space.max(1.0);
+    let x_margin = 1.8 * space;
+    let y_margin = 1.15 * space;
+    let half = 0.5 * space;
+    for rest in rests {
+        let mut min_y = f32::INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+        let mut collides = false;
+        for note in notes {
+            if note.page != rest.page || note.measure != rest.measure {
+                continue;
+            }
+            if (note.x - rest.x).abs() <= x_margin {
+                min_y = min_y.min(note.y);
+                max_y = max_y.max(note.y);
+                if (note.y - rest.y).abs() < y_margin {
+                    collides = true;
+                }
+            }
+        }
+        if !collides || !min_y.is_finite() {
+            continue;
+        }
+        let above = ((min_y - 1.75 * space) / half).floor() * half;
+        let below = ((max_y + 1.75 * space) / half).ceil() * half;
+        rest.y = if (above - rest.y).abs() <= (below - rest.y).abs() {
+            above
+        } else {
+            below
+        };
+    }
 }
 
 fn tie_pairs(notes: &[PlacedNote]) -> Vec<Tie> {
@@ -1892,5 +1929,70 @@ mod frame_tests {
             Settings::default(),
         );
         assert_eq!(engraved.frames.len(), 1, "only the listed shape remains");
+    }
+
+    #[test]
+    fn rests_shift_away_from_colliding_notes() {
+        let space = 8.0_f32;
+        let center_y = 120.0_f32;
+        let note_at = |x: f32, y: f32| PlacedNote {
+            tick: 0,
+            duration: PPQ,
+            pitch: Pitch::new(60).expect("valid"),
+            x,
+            y,
+            page: 0,
+            measure: 0,
+            spelled: spelling::Spelled {
+                step: 0,
+                alter: 0,
+                octave: 4,
+                accidental: None,
+            },
+            tie_start: false,
+            tied: false,
+            accidental_shift: 0.0,
+            dots: 0,
+        };
+        let rest_at = |x: f32| PlacedRest {
+            page: 0,
+            x,
+            y: center_y,
+            kind: RestKind::Quarter,
+            ticks: PPQ,
+            dots: 0,
+            measure: 0,
+        };
+
+        // Unobstructed rest stays at staff center.
+        let mut clear = vec![rest_at(200.0)];
+        avoid_rest_collisions(&mut clear, &[note_at(80.0, center_y)], space);
+        assert_eq!(clear[0].y, center_y);
+
+        // Rest colliding with a low note cluster shifts upward away from the noteheads.
+        let mut low_collision = vec![rest_at(100.0)];
+        let low_notes = [
+            note_at(102.0, center_y + 2.0),
+            note_at(102.0, center_y + 18.0),
+        ];
+        avoid_rest_collisions(&mut low_collision, &low_notes, space);
+        assert!(
+            low_collision[0].y < center_y - space,
+            "rest should shift above low colliding notes, got {}",
+            low_collision[0].y
+        );
+
+        // Rest colliding with a high note cluster shifts downward away from the noteheads.
+        let mut high_collision = vec![rest_at(100.0)];
+        let high_notes = [
+            note_at(101.0, center_y - 2.0),
+            note_at(101.0, center_y - 18.0),
+        ];
+        avoid_rest_collisions(&mut high_collision, &high_notes, space);
+        assert!(
+            high_collision[0].y > center_y + space,
+            "rest should shift below high colliding notes, got {}",
+            high_collision[0].y
+        );
     }
 }

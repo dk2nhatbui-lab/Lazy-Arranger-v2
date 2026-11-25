@@ -46,41 +46,74 @@ pub(crate) fn draw_metronome_icon(painter: &egui::Painter, rect: Rect, color: eg
     );
 }
 
-pub(crate) fn metronome_button(ui: &mut egui::Ui, rect: Rect, active: bool) -> bool {
-    let response = ui.interact(rect, ui.id().with("metronome-button"), egui::Sense::click());
-    let fill = if active {
-        theme::accent().gamma_multiply(0.25)
-    } else if response.hovered() {
-        theme::line()
+/// The v1 header button: a raised square with a `lineStrong` outline
+/// (`IconButton::paintButton`). Returns the response so callers can add
+/// their own tooltip.
+fn icon_button_frame(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    id: &str,
+    active: bool,
+    on_colour: egui::Color32,
+) -> egui::Response {
+    let response = ui.interact(rect, ui.id().with(id), egui::Sense::click());
+    let raised = theme::raised();
+    let mut fill = if active {
+        blend(raised, on_colour, 0.22)
     } else {
-        theme::raised()
+        raised
     };
-    ui.painter().rect_filled(rect, 4.0, fill);
+    if response.is_pointer_button_down_on() {
+        fill = blend(fill, egui::Color32::BLACK, 0.2);
+    } else if response.hovered() {
+        fill = blend(fill, egui::Color32::WHITE, 0.08);
+    }
+    let r = rect.shrink(0.5);
+    ui.painter().rect_filled(r, theme::RADIUS, fill);
     ui.painter().rect_stroke(
-        rect,
-        4.0,
+        r,
+        theme::RADIUS,
         egui::Stroke::new(
             1.0_f32,
             if active {
-                theme::accent()
+                on_colour.gamma_multiply(0.65)
             } else {
-                theme::line()
+                theme::line_strong()
             },
         ),
         egui::StrokeKind::Inside,
     );
-    draw_metronome_icon(
-        ui.painter(),
-        rect.shrink(6.0),
-        if active {
-            theme::accent()
-        } else {
-            theme::text()
-        },
-    );
-    response.on_hover_text("Metronome").clicked()
+    response
 }
 
+/// Mixes `amount` of `over` into `base`, ignoring alpha.
+pub(crate) fn blend(base: egui::Color32, over: egui::Color32, amount: f32) -> egui::Color32 {
+    let mix = |a: u8, b: u8| -> u8 {
+        (f32::from(a) + (f32::from(b) - f32::from(a)) * amount).round() as u8
+    };
+    egui::Color32::from_rgb(
+        mix(base.r(), over.r()),
+        mix(base.g(), over.g()),
+        mix(base.b(), over.b()),
+    )
+}
+
+pub(crate) fn metronome_button(ui: &mut egui::Ui, rect: Rect, active: bool) -> bool {
+    let response = icon_button_frame(ui, rect, "metronome-button", active, theme::accent());
+    let colour = if active {
+        theme::accent()
+    } else {
+        theme::text_muted()
+    };
+    draw_metronome_icon(
+        ui.painter(),
+        Rect::from_center_size(rect.center(), egui::vec2(18.0, 18.0)),
+        colour,
+    );
+    response.on_hover_text("Metronome on/off").clicked()
+}
+
+/// Draws a transport glyph inside `rect`, shaped like `icons::draw` in v1.
 pub(crate) fn draw_transport_icon(
     painter: &egui::Painter,
     rect: Rect,
@@ -90,114 +123,157 @@ pub(crate) fn draw_transport_icon(
     let c = rect.center();
     let s = rect.width().min(rect.height());
     match glyph {
-        "\u{25A0}" => {
+        STOP => {
             painter.rect_filled(
-                Rect::from_center_size(c, egui::vec2(s * 0.42, s * 0.42)),
-                2.0,
+                Rect::from_center_size(c, egui::vec2(s * 0.56, s * 0.56)),
+                s * 0.08,
                 color,
             );
         }
-        "\u{25B6}" => {
+        PLAY => {
             painter.add(egui::Shape::convex_polygon(
                 vec![
-                    egui::pos2(c.x - s * 0.22, c.y - s * 0.30),
-                    egui::pos2(c.x - s * 0.22, c.y + s * 0.30),
-                    egui::pos2(c.x + s * 0.30, c.y),
+                    egui::pos2(c.x - s * 0.28, c.y - s * 0.34),
+                    egui::pos2(c.x + s * 0.36, c.y),
+                    egui::pos2(c.x - s * 0.28, c.y + s * 0.34),
                 ],
                 color,
                 egui::Stroke::NONE,
             ));
         }
-        "\u{2016}" => {
-            for offset in [-1.0_f32, 1.0] {
-                painter.rect_filled(
-                    Rect::from_center_size(
-                        egui::pos2(c.x + offset * s * 0.13, c.y),
-                        egui::vec2(s * 0.12, s * 0.44),
-                    ),
-                    1.0,
-                    color,
-                );
-            }
+        RECORD => {
+            painter.circle_filled(c, s * 0.30, color);
         }
-        "\u{25CF}" => {
-            painter.circle_filled(c, s * 0.28, color);
-        }
-        "\u{21B6}" => {
+        LOOP => {
+            let w = s * 0.62;
+            let h = s * 0.42;
             let stroke = egui::Stroke::new((s * 0.09).max(1.2), color);
-            let tip = egui::pos2(c.x - s * 0.30, c.y + s * 0.28);
-            let base = egui::pos2(tip.x + s * 0.14, tip.y - s * 0.14);
-            let barb = s * 0.085;
-            painter.line_segment([tip, egui::pos2(base.x + barb, base.y + barb)], stroke);
-            painter.line_segment([tip, egui::pos2(base.x - barb, base.y - barb)], stroke);
-            let control = egui::pos2(c.x + s * 0.22, c.y - s * 0.16);
-            let end = egui::pos2(c.x + s * 0.12, c.y - s * 0.36);
-            let points: Vec<egui::Pos2> = (0..=16)
-                .map(|index| {
-                    let t = index as f32 / 16.0;
-                    let one = 1.0 - t;
-                    egui::pos2(
-                        one * one * base.x + 2.0 * one * t * control.x + t * t * end.x,
-                        one * one * base.y + 2.0 * one * t * control.y + t * t * end.y,
-                    )
-                })
-                .collect();
+            let arc_centre = egui::pos2(c.x + w / 2.0 - h / 2.0, c.y);
+            let mut points = vec![
+                egui::pos2(c.x - w / 2.0, c.y + h / 2.0),
+                egui::pos2(arc_centre.x, c.y + h / 2.0),
+            ];
+            for index in 1..=12 {
+                let angle = std::f32::consts::PI * index as f32 / 12.0;
+                points.push(egui::pos2(
+                    arc_centre.x + h / 2.0 * angle.sin(),
+                    arc_centre.y + h / 2.0 * angle.cos(),
+                ));
+            }
+            points.push(egui::pos2(c.x - w / 2.0 + 2.0, c.y - h / 2.0));
             painter.add(egui::Shape::line(points, stroke));
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    egui::pos2(c.x - w / 2.0 - s * 0.02, c.y - h / 2.0),
+                    egui::pos2(c.x - w / 2.0 + s * 0.16, c.y - h / 2.0 - s * 0.12),
+                    egui::pos2(c.x - w / 2.0 + s * 0.16, c.y - h / 2.0 + s * 0.12),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
         }
         _ => {
             painter.text(
                 c,
                 egui::Align2::CENTER_CENTER,
                 glyph,
-                egui::FontId::proportional(s * 0.32),
+                egui::FontId::proportional(s * 0.6),
                 color,
             );
         }
     }
 }
 
-pub(crate) fn transport_button(ui: &mut egui::Ui, rect: Rect, glyph: &str, active: bool) -> bool {
-    let response = ui.interact(rect, ui.id().with(glyph), egui::Sense::click());
-    let fill = if active {
-        theme::accent().gamma_multiply(0.25)
-    } else if response.hovered() {
-        theme::line()
-    } else {
-        theme::raised()
-    };
-    ui.painter().rect_filled(rect, 4.0, fill);
-    ui.painter().rect_stroke(
-        rect,
-        4.0,
-        egui::Stroke::new(
-            1.0_f32,
-            if active {
-                theme::accent()
-            } else {
-                theme::line()
-            },
-        ),
-        egui::StrokeKind::Inside,
-    );
-    let icon_colour = match glyph {
-        "\u{25CF}" => theme::recording(),
-        "\u{25B6}" => theme::playing(),
-        "\u{2016}" => theme::accent(),
-        _ => {
-            if active {
-                theme::accent()
-            } else {
-                theme::text()
+/// The v1 AI mark: a big four-point star with a small one at its top right.
+pub(crate) fn draw_sparkle(painter: &egui::Painter, rect: Rect, color: egui::Color32) {
+    let s = rect.width().min(rect.height());
+    let c = rect.center();
+    let star = |centre: egui::Pos2, r: f32| {
+        let k = r * 0.22;
+        let corners = [
+            (
+                egui::pos2(centre.x, centre.y - r),
+                egui::pos2(centre.x + k, centre.y - k),
+            ),
+            (
+                egui::pos2(centre.x + r, centre.y),
+                egui::pos2(centre.x + k, centre.y + k),
+            ),
+            (
+                egui::pos2(centre.x, centre.y + r),
+                egui::pos2(centre.x - k, centre.y + k),
+            ),
+            (
+                egui::pos2(centre.x - r, centre.y),
+                egui::pos2(centre.x - k, centre.y - k),
+            ),
+        ];
+        let mut points = Vec::with_capacity(4 * 8);
+        for (index, (start, control)) in corners.iter().enumerate() {
+            let end = corners[(index + 1) % 4].0;
+            for step in 0..8 {
+                let t = step as f32 / 8.0;
+                let one = 1.0 - t;
+                points.push(egui::pos2(
+                    one * one * start.x + 2.0 * one * t * control.x + t * t * end.x,
+                    one * one * start.y + 2.0 * one * t * control.y + t * t * end.y,
+                ));
             }
         }
+        // The star is concave but star-shaped around its centre: fill it as
+        // one triangle fan mesh, so no seams show between the triangles.
+        let mut mesh = egui::Mesh::default();
+        mesh.colored_vertex(centre, color);
+        for point in &points {
+            mesh.colored_vertex(*point, color);
+        }
+        let count = points.len() as u32;
+        for index in 0..count {
+            mesh.add_triangle(0, 1 + index, 1 + (index + 1) % count);
+        }
+        painter.add(mesh);
     };
-    draw_transport_icon(ui.painter(), rect, glyph, icon_colour);
+    star(egui::pos2(c.x - s * 0.08, c.y + s * 0.08), s * 0.4);
+    star(egui::pos2(c.x + s * 0.3, c.y - s * 0.3), s * 0.17);
+}
+
+/// Stop glyph.
+pub(crate) const STOP: &str = "\u{25A0}";
+/// Play glyph.
+pub(crate) const PLAY: &str = "\u{25B6}";
+/// Record glyph.
+pub(crate) const RECORD: &str = "\u{25CF}";
+/// Loop glyph.
+pub(crate) const LOOP: &str = "\u{27F2}";
+
+/// A v1 header transport button: stop, play, record or loop. Play keeps its
+/// triangle while playing and lights up instead, as in v1.
+pub(crate) fn transport_button(ui: &mut egui::Ui, rect: Rect, glyph: &str, active: bool) -> bool {
+    let on_colour = match glyph {
+        PLAY => theme::playing(),
+        RECORD => theme::recording(),
+        _ => theme::accent(),
+    };
+    let response = icon_button_frame(ui, rect, glyph, active, on_colour);
+    let icon_colour = match glyph {
+        RECORD => theme::recording(),
+        PLAY => theme::playing(),
+        LOOP if !active => theme::text_muted(),
+        _ if active => on_colour,
+        _ => theme::text(),
+    };
+    let icon_size = if glyph == PLAY { 24.0 } else { 18.0 };
+    draw_transport_icon(
+        ui.painter(),
+        Rect::from_center_size(rect.center(), egui::vec2(icon_size, icon_size)),
+        glyph,
+        icon_colour,
+    );
     let hint = match glyph {
-        "\u{25A0}" => "Stop",
-        "\u{25B6}" => "Play",
-        "\u{2016}" => "Pause",
-        "\u{25CF}" => "Record",
-        "\u{21B6}" => "Undo",
+        STOP => "Stop. Press twice to go back to the start",
+        PLAY => "Play / stop",
+        RECORD => "Record on the armed (or selected) track",
+        LOOP => "Loop between the locators. Drag in the ruler to set them.",
         _ => "Transport",
     };
     response.on_hover_text(hint).clicked()

@@ -203,6 +203,43 @@ impl Editor {
         Ok(())
     }
 
+    /// Adds a clip called `name` at `start` with `length`, choosing the next id.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the clips overlap.
+    pub fn add_named_clip(
+        &mut self,
+        track: TrackId,
+        start: Tick,
+        length: Tick,
+        name: &str,
+    ) -> Result<(), String> {
+        let entry = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .ok_or_else(|| String::from("unknown track"))?;
+        let id = entry
+            .clips
+            .iter()
+            .map(|clip| clip.id.get())
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        self.insert_clip(
+            track,
+            project::song::Clip {
+                id: project::ClipId::new(id).map_err(|error| error.to_string())?,
+                name: name.to_string(),
+                start,
+                length,
+            },
+        )
+        .map_err(|error| error.to_string())
+    }
+
     /// Adds a named clip at `start` with `length`, choosing the next id.
     ///
     /// # Errors
@@ -672,42 +709,117 @@ impl Editor {
         Ok(added)
     }
 
-    /// The clip grid for the current song.
-    #[must_use]
-    pub fn grid(&self, bars_per_scene: usize) -> arranging::grid::Grid {
-        arranging::grid::from_timeline(self.song(), bars_per_scene)
+    /// Fills the Loops slots from the timeline in scenes of `bars` bars.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn loops_from_timeline(&mut self, bars: u32) -> Result<usize, String> {
+        let length = arranging::loops::bars_to_ticks(self.song(), bars);
+        let scenes = arranging::loops::fill_from_timeline(&mut self.session, length)
+            .map_err(|error| error.to_string())?;
+        self.dirty |= scenes > 0;
+        Ok(scenes)
     }
 
-    /// Writes a played scene log to the timeline.
+    /// Writes a Loops jam to the timeline.
     ///
     /// # Errors
     ///
     /// Returns a message when an edit is rejected.
-    pub fn record_grid(&mut self, log: &[(usize, Tick)]) -> Result<usize, String> {
-        let grid = self.grid(2);
-        let copied = arranging::grid::record_to_timeline(&mut self.session, &grid, log)
+    pub fn record_loops(
+        &mut self,
+        changes: &[arranging::loops::Change],
+        end: Tick,
+    ) -> Result<usize, String> {
+        let written = arranging::loops::record_to_timeline(&mut self.session, changes, end)
             .map_err(|error| error.to_string())?;
-        self.dirty |= copied > 0;
-        Ok(copied)
+        self.dirty |= written > 0;
+        Ok(written)
     }
 
-    /// Renames one clip-grid scene, keeping other stored names.
+    /// Renames one Loops scene.
     ///
     /// # Errors
     ///
     /// Returns a message when the edit is rejected.
     pub fn rename_scene(&mut self, index: usize, name: &str) -> Result<(), String> {
-        let scenes = self.grid(2).rows.len();
-        let mut names = self.song().scene_names.clone();
-        names.resize(scenes.max(index + 1), String::new());
-        for (slot, entry) in names.iter_mut().enumerate() {
-            if entry.trim().is_empty() {
-                *entry = format!("Scene {}", slot + 1);
-            }
-        }
-        names[index] = name.trim().to_string();
+        arranging::loops::rename_scene(&mut self.session, index, name)
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Puts a clip in one Loops slot, or empties it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_slot(
+        &mut self,
+        scene: usize,
+        track: TrackId,
+        clip: Option<project::song::SlotClip>,
+    ) -> Result<(), String> {
+        arranging::loops::set_slot(&mut self.session, track, scene, clip)
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Makes an empty clip in one Loops slot.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn new_slot(&mut self, scene: usize, track: TrackId, length: Tick) -> Result<(), String> {
+        arranging::loops::new_slot(&mut self.session, track, scene, length)
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Replaces every note of a track as one edit.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn replace_track_notes(
+        &mut self,
+        track: TrackId,
+        notes: Vec<project::song::Note>,
+    ) -> Result<(), String> {
         self.session
-            .apply(Command::SetSceneNames { names })
+            .apply(Command::ReplaceTrackNotes { track, notes })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Replaces the notes of one Loops slot clip.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_slot_notes(
+        &mut self,
+        scene: usize,
+        track: TrackId,
+        notes: Vec<project::song::Note>,
+    ) -> Result<(), String> {
+        arranging::loops::set_slot_notes(&mut self.session, track, scene, notes)
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Renames one Loops slot clip.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn rename_slot(&mut self, scene: usize, track: TrackId, name: &str) -> Result<(), String> {
+        arranging::loops::rename_slot(&mut self.session, track, scene, name)
             .map_err(|error| error.to_string())?;
         self.dirty = true;
         Ok(())
@@ -2222,20 +2334,16 @@ impl Editor {
         Ok(())
     }
 
-    /// Removes one slot's clip.
+    /// Empties one Loops slot.
     ///
     /// # Errors
     ///
     /// Returns a message when the edit is rejected.
     pub fn clear_slot(&mut self, scene: usize, track: TrackId) -> Result<(), String> {
-        let grid = self.grid(2);
-        arranging::grid::clear_slot(&mut self.session, &grid, scene, track)
-            .map_err(|error| error.to_string())?;
-        self.dirty = true;
-        Ok(())
+        self.set_slot(scene, track, None)
     }
 
-    /// Sets one slot's clip length.
+    /// Sets one Loops slot's loop length.
     ///
     /// # Errors
     ///
@@ -2246,29 +2354,10 @@ impl Editor {
         track: TrackId,
         length: Tick,
     ) -> Result<(), String> {
-        let grid = self.grid(2);
-        arranging::grid::set_slot_length(&mut self.session, &grid, scene, track, length)
+        arranging::loops::set_slot_length(&mut self.session, track, scene, length)
             .map_err(|error| error.to_string())?;
         self.dirty = true;
         Ok(())
-    }
-
-    /// Copies one slot to a tick.
-    ///
-    /// # Errors
-    ///
-    /// Returns a message when the edit is rejected.
-    pub fn copy_slot(
-        &mut self,
-        scene: usize,
-        track: TrackId,
-        target: Tick,
-    ) -> Result<usize, String> {
-        let grid = self.grid(2);
-        let copied = arranging::grid::copy_slot(&mut self.session, &grid, scene, track, target)
-            .map_err(|error| error.to_string())?;
-        self.dirty |= copied > 0;
-        Ok(copied)
     }
 
     /// Sets an audio reference's clip gain in millibels.
@@ -2889,8 +2978,7 @@ mod tests {
         let mut editor = editor();
         editor.rename_scene(0, "Verse").expect("rename");
         assert_eq!(editor.song().scene_names[0], "Verse");
-        let grid = editor.grid(2);
-        assert_eq!(grid.rows[0].scene.name, "Verse");
+        assert_eq!(editor.song().scene_name(0), "Verse");
         assert!(editor.undo());
         assert!(editor.song().scene_names.is_empty());
     }
@@ -4048,23 +4136,17 @@ mod tests {
     fn slot_wrappers_clear_and_resize_through_commands() {
         let mut editor = editor();
         let track = TrackId::new(1).expect("valid");
-        editor
-            .insert_clip(
-                track,
-                project::song::Clip {
-                    id: project::ClipId::new(1).expect("valid"),
-                    name: String::from("A"),
-                    start: 0,
-                    length: 3840,
-                },
-            )
-            .expect("clip");
+        assert_eq!(editor.loops_from_timeline(4).expect("fill"), 1);
+        assert!(editor.song().tracks[0].slot(0).is_some());
         editor.set_slot_length(0, track, 1920).expect("length");
-        assert_eq!(editor.song().tracks[0].clips[0].length, 1920);
+        assert_eq!(
+            editor.song().tracks[0].slot(0).map(|clip| clip.length),
+            Some(1920)
+        );
         editor.clear_slot(0, track).expect("clear");
-        assert!(editor.song().tracks[0].clips.is_empty());
+        assert!(editor.song().tracks[0].slot(0).is_none());
         assert!(editor.undo());
-        assert_eq!(editor.song().tracks[0].clips.len(), 1);
+        assert!(editor.song().tracks[0].slot(0).is_some());
     }
 
     #[test]

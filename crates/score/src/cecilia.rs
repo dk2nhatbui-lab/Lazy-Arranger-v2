@@ -41,6 +41,28 @@ fn duration_for_ticks(ticks: Tick) -> Option<Duration> {
     None
 }
 
+/// The written value closest to `ticks` that fits in `limit` ticks, for
+/// notes that are a little short or long of a note value, as played notes
+/// usually are. Exact values, dots and triplets come first.
+fn nearest_duration(ticks: Tick, limit: Tick) -> Option<Duration> {
+    if let Some(exact) = duration_for_ticks(ticks) {
+        return Some(exact);
+    }
+    let limit = u32::try_from(limit.max(1)).ok()?;
+    let ticks = u32::try_from(ticks.max(1)).ok()?;
+    DurationValue::ALL
+        .into_iter()
+        .flat_map(|value| {
+            (0..=2).map(move |dots| Duration {
+                value,
+                dots,
+                tuplet: None,
+            })
+        })
+        .filter(|duration| duration.ticks() <= limit)
+        .min_by_key(|duration| duration.ticks().abs_diff(ticks))
+}
+
 /// Circle-of-fifths position for the detected project key.
 fn fifths(key: spelling::Key) -> i8 {
     let major = if key.minor {
@@ -159,11 +181,16 @@ pub fn build_score(
                 .map(|note| note.duration.min(available).max(1))
                 .min()
                 .unwrap_or(1);
-            let Some(duration) = duration_for_ticks(written) else {
+            // Room before the next chord, so a rounded-up value never overlaps it.
+            let room = notes
+                .get(end)
+                .map_or(available, |next| next.start - note_start);
+            let Some(duration) = nearest_duration(written, room) else {
                 return Err(format!(
                     "note duration {written} ticks has no Cecilia note value"
                 ));
             };
+            let written = Tick::from(duration.ticks());
             let chord = song
                 .chords
                 .iter()
@@ -407,5 +434,26 @@ mod tests {
         assert!(pages[0].starts_with(&[0x89, b'P', b'N', b'G']));
         let pdf = render_pdf(&song, 0, "Demo", true).expect("pdf");
         assert!(pdf.starts_with(b"%PDF-"));
+    }
+
+    #[test]
+    fn played_lengths_round_to_the_nearest_note_value() {
+        // A quarter played a little short, and one a little long that
+        // would overlap the next note.
+        let mut song = test_song();
+        song.tracks[0].notes[0].duration = music_core::PPQ - 20;
+        song.tracks[0].notes[1].duration = music_core::PPQ + 40;
+        let score = build_score(&song, 0, "Demo", true).expect("build");
+        let beats = &score.tracks[0].bars[0].voices[0].beats;
+        let total: u32 = beats.iter().map(|beat| beat.duration.ticks()).sum();
+        assert_eq!(Tick::from(total), song.time_signature.bar_ticks());
+        assert_eq!(
+            beats[0].duration.ticks(),
+            u32::try_from(music_core::PPQ).expect("ppq")
+        );
+        assert_eq!(
+            beats[1].duration.ticks(),
+            u32::try_from(music_core::PPQ).expect("ppq")
+        );
     }
 }

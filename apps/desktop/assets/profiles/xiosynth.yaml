@@ -1,28 +1,39 @@
 id: xiosynth
 name: Novation XioSynth
 voices:
-  - name: Soft Pad
-    program: 89
-  - name: Bright Lead
-    program: 81
-  - name: Electric Piano
-    program: 4
+  - name: Big Bass
+    program: 0
+  - name: Rezo Lead
+    program: 14
+  - name: SEMe Pad
+    program: 18
+  - name: Classic Pulse
+    program: 95
 controls:
-  - name: Cutoff
-    cc: 74
+  - name: Filter Frequency
+    cc: 105
     channel: 1
-  - name: Resonance
-    cc: 71
+  - name: Filter Resonance
+    cc: 106
     channel: 1
-  - name: Attack
-    cc: 73
+  - name: Filter Overdrive
+    cc: 104
     channel: 1
-  - name: Release
-    cc: 72
+  - name: Amp Attack
+    cc: 108
     channel: 1
-  - name: Volume
-    cc: 7
+  - name: Amp Release
+    cc: 111
+    channel: 1
+  - name: Mix Output Level
+    cc: 119
     channel: 1
   - name: Pan
     cc: 10
+    channel: 1
+  - name: Reverb Send
+    cc: 91
+    channel: 1
+  - name: Chorus Send
+    cc: 93
     channel: 1
