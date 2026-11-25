@@ -303,6 +303,18 @@ fn draw(
             music_core::Spelling::Sharp
         }
     };
+    if song.chords.is_empty() {
+        painter.text(
+            pos2(
+                content.left() + 10.0,
+                rect.top() + RULER_HEIGHT + CHORD_HEIGHT / 2.0,
+            ),
+            Align2::LEFT_CENTER,
+            "Double-click to type chords (Am F C G or vi IV I V)",
+            FontId::proportional(11.5),
+            theme::text_dim(),
+        );
+    }
     for event in &song.chords {
         if event.tick > end {
             continue;
@@ -329,13 +341,21 @@ fn draw(
         );
         let color = lane_color(index);
         let is_selected = selected == Some(track.id);
+        // Arrangement::paint: lanes on the timeline colour, every other one
+        // tinted, the selected one lifted.
         painter.rect_filled(
             Rect::from_min_max(
                 pos2(content.left(), top),
                 pos2(content.right(), top + LANE_HEIGHT),
             ),
             0.0,
-            color.gamma_multiply(if is_selected { 0.42 } else { 0.30 }),
+            if is_selected {
+                theme::raised()
+            } else if index % 2 == 1 {
+                theme::lane_alt()
+            } else {
+                theme::timeline()
+            },
         );
         if is_selected {
             painter.rect_stroke(
@@ -358,13 +378,84 @@ fn draw(
                 ),
             );
             clip_rects.push((track.id, clip.id, clip_rect, clip.start, clip.length));
-            painter.rect_filled(clip_rect, 3.0, color.gamma_multiply(0.55));
+        }
+        // Parts drawn like Arrangement::drawClip: solid track colour, a faint
+        // outline, a thin left accent, the name and the notes in dark ink.
+        // A track with notes but no clips shows one part over the whole
+        // song, as v1 does after a MIDI import.
+        let mut parts: Vec<(Tick, Tick, &str)> = track
+            .clips
+            .iter()
+            .map(|clip| (clip.start, clip.end(), clip.name.as_str()))
+            .collect();
+        if parts.is_empty() && !track.notes.is_empty() {
+            let to = ((song.end_tick() + bar - 1).div_euclid(bar) * bar).max(bar);
+            parts.push((0, to, track.name.as_str()));
+        }
+        let ink = if theme::light() {
+            theme::text()
+        } else {
+            Color32::from_rgb(0x11, 0x14, 0x17)
+        };
+        for (start, stop, name) in &parts {
+            let part = Rect::from_min_max(
+                pos2(x_for(*start), top + 3.0),
+                pos2(
+                    x_for(*stop).max(x_for(*start) + 2.0),
+                    top + LANE_HEIGHT - 3.0,
+                ),
+            )
+            .shrink(0.5);
+            painter.rect_filled(part, theme::RADIUS, color);
             painter.rect_stroke(
-                clip_rect,
-                3.0,
-                Stroke::new(1.0_f32, color),
+                part,
+                theme::RADIUS,
+                Stroke::new(1.0_f32, darken(color, 0.35).gamma_multiply(0.32)),
                 StrokeKind::Inside,
             );
+            painter.rect_filled(
+                Rect::from_min_size(
+                    pos2(part.left(), part.top() + 1.0),
+                    vec2(2.0, (part.height() - 2.0).max(1.0)),
+                ),
+                0.0,
+                darken(color, 0.2).gamma_multiply(0.6),
+            );
+            let clipped = painter.with_clip_rect(part);
+            clipped.text(
+                pos2(part.left() + 8.0, part.top() + 3.0),
+                Align2::LEFT_TOP,
+                *name,
+                crate::theme::semibold(11.0),
+                ink.gamma_multiply(0.95),
+            );
+            let notes: Vec<_> = track
+                .notes
+                .iter()
+                .filter(|note| note.start >= *start && note.start < *stop)
+                .collect();
+            if let (Some(low), Some(high)) = (
+                notes.iter().map(|note| note.pitch.as_u8()).min(),
+                notes.iter().map(|note| note.pitch.as_u8()).max(),
+            ) {
+                let area = Rect::from_min_max(
+                    pos2(part.left() + 5.0, part.top() + 17.0),
+                    pos2(part.right() - 5.0, part.bottom() - 5.0),
+                );
+                let range = f32::from((high - low + 1).max(12));
+                let row = (area.height() / range).clamp(1.0, 2.0);
+                for note in notes {
+                    let x1 = x_for(note.start);
+                    let x2 = x_for((note.start + note.duration).min(*stop));
+                    let y = area.bottom()
+                        - (f32::from(note.pitch.as_u8() - low) + 1.0) / range * area.height();
+                    clipped.rect_filled(
+                        Rect::from_min_size(pos2(x1, y), vec2((x2 - x1 - 1.0).max(1.5), row)),
+                        0.0,
+                        ink.gamma_multiply(0.88),
+                    );
+                }
+            }
         }
         if let Some(audio) = &track.audio {
             let audio_start = audio.start.max(0);
@@ -434,19 +525,6 @@ fn draw(
                 format!("audio · {name}"),
                 FontId::proportional(9.0),
                 theme::text(),
-            );
-        }
-        for note in &track.notes {
-            if note.start > end {
-                continue;
-            }
-            let x = x_for(note.start);
-            let note_width = (x_for(note.start + note.duration).max(x + 2.0) - x).max(2.0);
-            let y = note_lane_y(top, note.pitch.as_u8());
-            painter.rect_filled(
-                Rect::from_min_size(pos2(x, y), vec2(note_width.min(80.0), 3.0)),
-                0.0,
-                color.gamma_multiply(0.95),
             );
         }
         if let Some(pointer) = pointer
@@ -558,6 +636,16 @@ fn draw(
     (outcome, selected_track, None)
 }
 
+/// `juce::Colour::darker`: scales the colour towards black.
+fn darken(colour: Color32, amount: f32) -> Color32 {
+    let keep = 1.0 / (1.0 + amount);
+    Color32::from_rgb(
+        (f32::from(colour.r()) * keep) as u8,
+        (f32::from(colour.g()) * keep) as u8,
+        (f32::from(colour.b()) * keep) as u8,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -599,6 +687,7 @@ mod tests {
     #[test]
     fn the_timeline_draws_without_panicking() {
         let context = egui::Context::default();
+        crate::theme::install(&context);
         let mut ran = false;
         let _ = context.run(egui::RawInput::default(), |context| {
             egui::CentralPanel::default().show(context, |ui| {
