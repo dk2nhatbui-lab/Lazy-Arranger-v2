@@ -18,14 +18,14 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release, for example v0.1.0-beta.1 (must match Cargo.toml)"
+        description: "Version to release, for example v0.1.0-beta.1 (must match Cargo.toml; the v is optional)"
         required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -65,7 +65,9 @@ jobs:
       - name: Check the tag matches the version
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          if [ -z "$TAG" ]; then TAG="v$version"; echo "TAG=$TAG" >> "$GITHUB_ENV"; fi
+          # Accept "0.1.0-beta.1" as well as "v0.1.0-beta.1".
+          if [ -z "$TAG" ]; then TAG="v$version"; else TAG="v${TAG#v}"; fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
           test "v$version" = "$TAG" || { echo "::error::tag $TAG does not match Cargo.toml version $version"; exit 1; }
 
       - name: Build (macOS, Apple Silicon + Intel)
@@ -95,6 +97,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+
+      - name: Normalise the tag
+        run: echo "TAG=v${TAG#v}" >> "$GITHUB_ENV"
 
       - uses: actions/download-artifact@v4
         with:
