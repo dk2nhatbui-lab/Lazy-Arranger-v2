@@ -196,18 +196,6 @@ palette!(
         Color32::from_rgb(0x2c, 0x30, 0x2d)
     ),
     (
-        ok,
-        "Success, such as a running audio device.",
-        Color32::from_rgb(0x91, 0xad, 0x7c),
-        Color32::from_rgb(0x51, 0x7d, 0x45)
-    ),
-    (
-        warning,
-        "Warning, such as no audio device.",
-        Color32::from_rgb(0xdc, 0xa4, 0x5f),
-        Color32::from_rgb(0xb3, 0x76, 0x32)
-    ),
-    (
         lcd_text,
         "LCD text.",
         Color32::from_rgb(0xf1, 0xec, 0xe4),
