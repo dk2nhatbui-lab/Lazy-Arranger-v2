@@ -490,9 +490,9 @@ impl ShellApp {
         if self.settings.kids_mode && self.view == View::Perform {
             return;
         }
-        // v1 shows the track list with the timeline only; the score uses the
-        // whole width.
-        if self.view == View::Score {
+        // v1 shows the track list with the timeline only; the score and the
+        // loops use the whole width.
+        if matches!(self.view, View::Score | View::Loops) {
             return;
         }
         egui::SidePanel::left("tracks")
@@ -1915,116 +1915,437 @@ impl ShellApp {
         }
     }
 
-    /// The clip grid: scenes as rows, tracks as columns, launch and record.
+    /// The Loops view, drawn like v1 `ClipGridView`: a 52 pt header, track
+    /// names over the columns, a scene column with launch buttons, 46 pt
+    /// slots in the track colour with a picture of the notes, and a stop
+    /// row under the grid. Scenes are two-bar slices of the timeline.
     pub(super) fn grid_panel(&mut self, ui: &mut egui::Ui) {
-        ui.heading(format!(
-            "Clip grid · {} scene(s) of two bars",
-            self.editor.grid(2).rows.len()
-        ));
+        const HEADER: f32 = 52.0;
+        const NAMES: f32 = 36.0;
+        const SCENE_COLUMN: f32 = 132.0;
+        const ROW: f32 = 46.0;
+        const STOP_ROW: f32 = 36.0;
         let grid = self.editor.grid(2);
         let bar = self.song().time_signature.bar_ticks().max(1);
-        let track_ids = grid.tracks.clone();
-        let track_names: Vec<String> = track_ids
+        let tracks: Vec<project::song::Track> = grid
+            .tracks
             .iter()
-            .map(|track| {
+            .filter_map(|id| {
                 self.song()
                     .tracks
                     .iter()
-                    .find(|entry| entry.id == *track)
-                    .map_or_else(|| format!("track {track}"), |entry| entry.name.clone())
+                    .find(|track| track.id == *id)
+                    .cloned()
             })
             .collect();
+        let selected_track = self.roll.selected;
+        let (full, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+
+        // Header: title, Record to Timeline, Stop all.
+        let header = egui::Rect::from_min_size(full.min, egui::vec2(full.width(), HEADER))
+            .shrink2(egui::vec2(14.0, 10.0));
+        let stop_all =
+            egui::Rect::from_min_max(egui::pos2(header.right() - 84.0, header.top()), header.max);
+        let record = egui::Rect::from_min_max(
+            egui::pos2(stop_all.left() - 8.0 - 156.0, header.top()),
+            egui::pos2(stop_all.left() - 8.0, header.bottom()),
+        );
+        ui.painter().text(
+            header.left_center(),
+            egui::Align2::LEFT_CENTER,
+            "Loops",
+            theme::semibold(15.0),
+            theme::text(),
+        );
+        if widgets::text_button(ui, stop_all, "loops-stop-all", "Stop all", false)
+            .on_hover_text("Stop every loop; the tracks play the timeline again")
+            .clicked()
+        {
+            self.launcher.stop();
+            self.status = Some(String::from("stopped"));
+        }
+        let takes = self.launcher.log.len();
+        if widgets::text_button(ui, record, "loops-record", "Record to Timeline", false)
+            .on_hover_text(format!(
+                "Write the scenes you played ({takes} so far) to the timeline"
+            ))
+            .clicked()
+        {
+            let log = self.launcher.log.clone();
+            match self.editor.record_grid(&log) {
+                Ok(copied) => {
+                    self.status = Some(format!("take: {copied} note(s)"));
+                    self.launcher.log.clear();
+                }
+                Err(error) => self.status = Some(error),
+            }
+        }
+        if tracks.is_empty() {
+            ui.painter().text(
+                egui::pos2(full.center().x, full.top() + HEADER + 60.0),
+                egui::Align2::CENTER_CENTER,
+                "Add a track to use Loops.",
+                egui::FontId::proportional(15.0),
+                theme::text_dim(),
+            );
+            return;
+        }
+
+        // The grid area and scrolling.
+        let area = egui::Rect::from_min_max(
+            egui::pos2(full.left() + SCENE_COLUMN, full.top() + HEADER + NAMES),
+            egui::pos2(full.right() - 10.0, full.bottom() - STOP_ROW - 8.0),
+        );
+        let column = (area.width() / tracks.len() as f32).clamp(118.0, 200.0);
+        let scenes = grid.rows.len();
+        let scroll_id = ui.id().with("loops-scroll");
+        let mut scroll: egui::Vec2 = ui.data(|data| data.get_temp(scroll_id)).unwrap_or_default();
+        if ui.rect_contains_pointer(full) {
+            let delta = ui.input(|input| input.smooth_scroll_delta);
+            scroll -= delta;
+        }
+        scroll.x = scroll
+            .x
+            .clamp(0.0, (tracks.len() as f32 * column - area.width()).max(0.0));
+        scroll.y = scroll
+            .y
+            .clamp(0.0, (scenes as f32 * ROW - area.height()).max(0.0));
+        ui.data_mut(|data| data.insert_temp(scroll_id, scroll));
+        let cell = |track: usize, scene: usize| {
+            egui::Rect::from_min_size(
+                egui::pos2(
+                    area.left() + track as f32 * column - scroll.x,
+                    area.top() + scene as f32 * ROW - scroll.y,
+                ),
+                egui::vec2(column, ROW),
+            )
+            .shrink(1.0)
+        };
+        let ink = if theme::light() {
+            theme::text()
+        } else {
+            egui::Color32::from_rgb(0x11, 0x14, 0x17)
+        };
+        let playing_scene = self.launcher.current.filter(|_| self.launcher.playing);
+        let waiting_scene = self.launcher.waiting;
+        let mut launch = None;
+        let mut rename = None;
         enum SlotAction {
             Clear,
             Length(Tick),
             Copy(Tick),
         }
         let mut slot_action: Option<(usize, TrackId, SlotAction)> = None;
-        egui::Grid::new("clip-grid")
-            .num_columns(2 + track_ids.len())
-            .spacing([10.0, 4.0])
-            .show(ui, |ui| {
-                ui.label("");
-                ui.label(egui::RichText::new("Scene").strong());
-                for name in &track_names {
-                    ui.label(egui::RichText::new(name).strong());
+
+        // Slots.
+        let slots = ui.painter().with_clip_rect(area);
+        for (scene, row) in grid.rows.iter().enumerate() {
+            for (index, track) in tracks.iter().enumerate() {
+                let rect = cell(index, scene);
+                if !rect.intersects(area) {
+                    continue;
                 }
-                ui.end_row();
-                for (scene_index, row) in grid.rows.iter().enumerate() {
-                    if ui
-                        .small_button("Rename")
-                        .on_hover_text("Rename scene")
-                        .clicked()
-                    {
-                        self.rename_scene = Some(scene_index);
-                        self.rename_scene_input = row.scene.name.clone();
-                    }
-                    let playing = self.launcher.current == Some(scene_index);
-                    let waiting = self.launcher.waiting == Some(scene_index);
-                    let label = if playing {
-                        format!("▶ {}", row.scene.name)
-                    } else if waiting {
-                        format!("… {}", row.scene.name)
-                    } else {
-                        row.scene.name.clone()
-                    };
-                    if ui.selectable_label(playing || waiting, label).clicked() {
-                        if self.launcher.playing && self.launcher.current == Some(scene_index) {
-                            self.launcher.stop();
-                            self.status = Some(String::from("stopped"));
+                let colour = theme::track_colour(index);
+                let clip = row
+                    .slots
+                    .get(index)
+                    .and_then(|slot| slot.clip)
+                    .and_then(|clip| track.clips.iter().find(|entry| entry.id == clip));
+                let end = row.scene.start + row.scene.length;
+                let notes: Vec<&project::song::Note> = track
+                    .notes
+                    .iter()
+                    .filter(|note| note.start >= row.scene.start && note.start < end)
+                    .collect();
+                let filled = clip.is_some() || !notes.is_empty();
+                let playing = playing_scene == Some(scene);
+                let waiting = waiting_scene == Some(scene);
+                let button = egui::Rect::from_min_size(rect.min, egui::vec2(30.0, rect.height()));
+                if filled {
+                    slots.rect_filled(
+                        rect,
+                        theme::RADIUS,
+                        if playing {
+                            colour.lerp_to_gamma(egui::Color32::WHITE, 0.06)
                         } else {
-                            self.launcher.launch(scene_index);
-                            self.status = Some(format!("scene {} queued", scene_index + 1));
+                            colour
+                        },
+                    );
+                    let picture = egui::Rect::from_min_max(
+                        egui::pos2(rect.left() + 34.0, rect.top() + rect.height() * 0.55),
+                        egui::pos2(rect.right() - 6.0, rect.bottom() - 5.0),
+                    );
+                    if let (Some(low), Some(high)) = (
+                        notes.iter().map(|note| note.pitch.as_u8()).min(),
+                        notes.iter().map(|note| note.pitch.as_u8()).max(),
+                    ) {
+                        let range = f32::from((high - low).max(1));
+                        let length = row.scene.length.max(1) as f32;
+                        for note in &notes {
+                            let x = picture.left()
+                                + picture.width() * (note.start - row.scene.start) as f32 / length;
+                            let width = (picture.width() * note.duration as f32 / length)
+                                .max(2.0)
+                                .min(picture.right() - x);
+                            let y = picture.bottom()
+                                - 2.0
+                                - (picture.height() - 2.0) * f32::from(note.pitch.as_u8() - low)
+                                    / range;
+                            slots.rect_filled(
+                                egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(width, 2.0)),
+                                0.0,
+                                ink.gamma_multiply(0.82),
+                            );
                         }
                     }
-                    for (column, slot) in row.slots.iter().enumerate() {
-                        let Some(track) = track_ids.get(column).copied() else {
-                            ui.label("");
-                            continue;
-                        };
-                        let name = slot.clip.map_or_else(
-                            || String::from("—"),
-                            |clip| {
-                                self.song()
-                                    .tracks
-                                    .iter()
-                                    .find(|entry| entry.id == track)
-                                    .and_then(|entry| {
-                                        entry.clips.iter().find(|entry| entry.id == clip)
-                                    })
-                                    .map_or_else(
-                                        || format!("clip {clip}"),
-                                        |entry| entry.name.clone(),
-                                    )
-                            },
+                    let name = clip
+                        .map(|clip| clip.name.as_str())
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or("Clip");
+                    widgets::fitted_text(
+                        &slots,
+                        egui::Rect::from_min_max(
+                            egui::pos2(rect.left() + 34.0, rect.top()),
+                            egui::pos2(rect.right() - 6.0, rect.top() + rect.height() * 0.58),
+                        )
+                        .intersect(egui::Rect::from_min_size(
+                            egui::pos2(rect.left() + 34.0, rect.top()),
+                            egui::vec2(
+                                slots
+                                    .layout_no_wrap(name.to_owned(), theme::semibold(13.0), ink)
+                                    .size()
+                                    .x
+                                    .min(rect.width() - 40.0),
+                                rect.height() * 0.58,
+                            ),
+                        )),
+                        name,
+                        theme::semibold(13.0),
+                        ink,
+                    );
+                    crate::transport::draw_transport_icon(
+                        &slots,
+                        button.shrink2(egui::vec2(8.0, (button.height() - 14.0) / 2.0)),
+                        crate::transport::PLAY,
+                        if playing {
+                            ink
+                        } else {
+                            ink.gamma_multiply(0.75)
+                        },
+                    );
+                    if waiting {
+                        slots.rect_stroke(
+                            rect,
+                            theme::RADIUS,
+                            egui::Stroke::new(2.0_f32, theme::ok()),
+                            egui::StrokeKind::Inside,
                         );
-                        ui.button(name).context_menu(|ui| {
-                            if ui.button("Clear").clicked() {
-                                slot_action = Some((scene_index, track, SlotAction::Clear));
-                                ui.close_menu();
-                            }
-                            if ui.button("Length: 1 bar").clicked() {
-                                slot_action = Some((scene_index, track, SlotAction::Length(bar)));
-                                ui.close_menu();
-                            }
-                            if ui.button("Length: 2 bars").clicked() {
-                                slot_action =
-                                    Some((scene_index, track, SlotAction::Length(bar * 2)));
-                                ui.close_menu();
-                            }
-                            if ui.button("Copy to playhead").clicked() {
-                                slot_action = Some((
-                                    scene_index,
-                                    track,
-                                    SlotAction::Copy(self.position.max(0)),
-                                ));
-                                ui.close_menu();
-                            }
-                        });
                     }
-                    ui.end_row();
+                } else {
+                    slots.rect_filled(rect, theme::RADIUS, theme::background());
+                    slots.rect_stroke(
+                        rect,
+                        theme::RADIUS,
+                        egui::Stroke::new(1.0_f32, theme::line()),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+                let response = ui
+                    .interact(
+                        rect.intersect(area),
+                        ui.id().with(("loop-slot", scene, index)),
+                        egui::Sense::click(),
+                    )
+                    .on_hover_text("Click to start this scene; right-click for more");
+                if response.clicked() {
+                    launch = Some(scene);
+                }
+                response.context_menu(|ui| {
+                    let track = track.id;
+                    if ui.button("Clear").clicked() {
+                        slot_action = Some((scene, track, SlotAction::Clear));
+                        ui.close_menu();
+                    }
+                    if ui.button("Length: 1 bar").clicked() {
+                        slot_action = Some((scene, track, SlotAction::Length(bar)));
+                        ui.close_menu();
+                    }
+                    if ui.button("Length: 2 bars").clicked() {
+                        slot_action = Some((scene, track, SlotAction::Length(bar * 2)));
+                        ui.close_menu();
+                    }
+                    if ui.button("Copy to playhead").clicked() {
+                        slot_action = Some((scene, track, SlotAction::Copy(self.position.max(0))));
+                        ui.close_menu();
+                    }
+                });
+            }
+        }
+
+        // Scene names, with a launch button.
+        let scene_clip = egui::Rect::from_min_max(
+            egui::pos2(full.left(), area.top()),
+            egui::pos2(full.left() + SCENE_COLUMN, area.bottom()),
+        );
+        let names = ui.painter().with_clip_rect(scene_clip);
+        for (scene, row) in grid.rows.iter().enumerate() {
+            let rect = egui::Rect::from_min_size(
+                egui::pos2(full.left(), area.top() + scene as f32 * ROW - scroll.y),
+                egui::vec2(SCENE_COLUMN, ROW),
+            )
+            .shrink(1.0);
+            let rect =
+                egui::Rect::from_min_max(egui::pos2(rect.left() + 11.0, rect.top()), rect.max);
+            if !rect.intersects(scene_clip) {
+                continue;
+            }
+            let any = !row.slots.iter().all(|slot| slot.clip.is_none())
+                || tracks.iter().any(|track| {
+                    track.notes.iter().any(|note| {
+                        note.start >= row.scene.start
+                            && note.start < row.scene.start + row.scene.length
+                    })
+                });
+            let playing = playing_scene == Some(scene);
+            names.rect_filled(rect, theme::RADIUS, theme::raised());
+            crate::transport::draw_transport_icon(
+                &names,
+                egui::Rect::from_min_size(rect.min, egui::vec2(30.0, rect.height()))
+                    .shrink2(egui::vec2(8.0, (rect.height() - 14.0) / 2.0)),
+                crate::transport::PLAY,
+                if playing {
+                    theme::ok()
+                } else if any {
+                    theme::text().gamma_multiply(0.8)
+                } else {
+                    theme::text_dim().gamma_multiply(0.5)
+                },
+            );
+            names.text(
+                egui::pos2(rect.left() + 32.0, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                &row.scene.name,
+                egui::FontId::proportional(13.0),
+                if any {
+                    theme::text()
+                } else {
+                    theme::text_dim()
+                },
+            );
+            let response = ui
+                .interact(
+                    rect.intersect(scene_clip),
+                    ui.id().with(("loop-scene", scene)),
+                    egui::Sense::click(),
+                )
+                .on_hover_text("Click to start the scene; double-click to rename it");
+            if response.double_clicked() {
+                rename = Some(scene);
+            } else if response.clicked() {
+                launch = Some(scene);
+            }
+            response.context_menu(|ui| {
+                if ui.button("Rename...").clicked() {
+                    rename = Some(scene);
+                    ui.close_menu();
                 }
             });
+        }
+
+        // Track names above, stop buttons below.
+        let columns_clip = egui::Rect::from_min_max(
+            egui::pos2(area.left(), full.top() + HEADER),
+            egui::pos2(area.right(), full.bottom()),
+        );
+        let heads = ui.painter().with_clip_rect(columns_clip);
+        let stop_top = (area.top() + scenes as f32 * ROW).min(area.bottom()) + 4.0;
+        for (index, track) in tracks.iter().enumerate() {
+            let left = area.left() + index as f32 * column - scroll.x;
+            let name = egui::Rect::from_min_size(
+                egui::pos2(left, full.top() + HEADER),
+                egui::vec2(column, NAMES),
+            )
+            .shrink2(egui::vec2(1.0, 4.0));
+            heads.rect_filled(
+                egui::Rect::from_min_max(egui::pos2(name.left(), name.bottom() - 3.0), name.max),
+                theme::RADIUS,
+                theme::track_colour(index),
+            );
+            let chosen = selected_track == Some(track.id);
+            heads.text(
+                egui::pos2(name.left() + 4.0, name.center().y - 2.0),
+                egui::Align2::LEFT_CENTER,
+                &track.name,
+                if chosen {
+                    theme::semibold(13.0)
+                } else {
+                    egui::FontId::proportional(13.0)
+                },
+                if chosen {
+                    theme::text()
+                } else {
+                    theme::text_muted()
+                },
+            );
+            let stop =
+                egui::Rect::from_min_size(egui::pos2(left, stop_top), egui::vec2(column, STOP_ROW))
+                    .shrink(1.0);
+            let active = self.launcher.playing;
+            heads.rect_filled(stop, theme::RADIUS, theme::raised());
+            crate::transport::draw_transport_icon(
+                &heads,
+                egui::Rect::from_min_size(stop.min, egui::vec2(30.0, stop.height()))
+                    .shrink2(egui::vec2(8.0, (stop.height() - 14.0) / 2.0)),
+                crate::transport::STOP,
+                if active {
+                    theme::text()
+                } else {
+                    theme::text_dim().gamma_multiply(0.5)
+                },
+            );
+            heads.text(
+                egui::pos2(stop.left() + 32.0, stop.center().y),
+                egui::Align2::LEFT_CENTER,
+                if waiting_scene.is_some() && active {
+                    "Stops soon"
+                } else if active {
+                    "Stop"
+                } else {
+                    "Timeline"
+                },
+                egui::FontId::proportional(12.0),
+                if active {
+                    theme::text_muted()
+                } else {
+                    theme::text_dim()
+                },
+            );
+            if ui
+                .interact(
+                    stop.intersect(columns_clip),
+                    ui.id().with(("loop-stop", index)),
+                    egui::Sense::click(),
+                )
+                .on_hover_text("Stop the loops; the tracks play the timeline again")
+                .clicked()
+            {
+                self.launcher.stop();
+            }
+        }
+
+        if let Some(scene) = launch {
+            if self.launcher.playing && self.launcher.current == Some(scene) {
+                self.launcher.stop();
+                self.status = Some(String::from("stopped"));
+            } else {
+                self.launcher.launch(scene);
+                self.status = Some(format!("scene {} queued", scene + 1));
+            }
+        }
+        if let Some(scene) = rename {
+            self.rename_scene = Some(scene);
+            self.rename_scene_input = grid.rows[scene].scene.name.clone();
+        }
         if let Some((scene, track, action)) = slot_action {
             let result = match action {
                 SlotAction::Clear => self.editor.clear_slot(scene, track),
@@ -2035,34 +2356,6 @@ impl ShellApp {
                 self.status = Some(error);
             }
         }
-        ui.horizontal(|ui| {
-            if ui
-                .button(format!(
-                    "Record take ({} scene(s))",
-                    self.launcher.log.len()
-                ))
-                .clicked()
-            {
-                let log = self.launcher.log.clone();
-                match self.editor.record_grid(&log) {
-                    Ok(copied) => {
-                        self.status = Some(format!("take: {copied} note(s)"));
-                        self.launcher.log.clear();
-                    }
-                    Err(error) => self.status = Some(error),
-                }
-            }
-            if ui.button("Stop").clicked() {
-                self.launcher.stop();
-            }
-        });
-        ui.label(
-            egui::RichText::new(
-                "Click a scene to queue it; right-click a slot to clear, resize or copy it.",
-            )
-            .size(10.0)
-            .color(theme::text_dim()),
-        );
         if let Some(index) = self.rename_scene {
             let mut open = true;
             egui::Window::new("Rename scene")
