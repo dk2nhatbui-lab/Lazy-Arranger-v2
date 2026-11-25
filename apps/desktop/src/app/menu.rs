@@ -584,16 +584,6 @@ impl ShellApp {
         }
     }
 
-    /// Turns the loop on or off; a new loop covers the current bar.
-    pub(super) fn toggle_loop(&mut self) {
-        self.loop_enabled = !self.loop_enabled;
-        if self.loop_enabled && self.loop_region.is_none() {
-            let bar = self.song().time_signature.bar_ticks().max(1);
-            self.loop_region = Some(crate::transport::bar_region(self.position, bar));
-        }
-        self.sync_player_loop();
-    }
-
     /// Turns Kids Mode on or off and moves to a view it allows.
     pub(super) fn toggle_kids_mode(&mut self) {
         self.settings.kids_mode = !self.settings.kids_mode;
