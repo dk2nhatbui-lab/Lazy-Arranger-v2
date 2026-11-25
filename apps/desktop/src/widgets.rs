@@ -13,6 +13,8 @@ use crate::theme;
 pub const LCD_SIZE: Vec2 = Vec2::new(350.0, 52.0);
 /// Cell widths, from `LcdDisplay::cell`.
 const CELLS: [f32; 3] = [142.0, 116.0, 92.0];
+/// Width of the LCD meter cell, which opens the meter menu.
+pub const LCD_METER_WIDTH: f32 = CELLS[2];
 
 /// Bar, beat and sixteenth, one-based, as the LCD shows them.
 #[must_use]
@@ -247,6 +249,98 @@ pub fn fitted_text(painter: &egui::Painter, rect: Rect, text: &str, font: FontId
     };
     let pos = rect.center() - galley.size() * 0.5;
     painter.with_clip_rect(rect).galley(pos, galley, colour);
+}
+
+/// An inspector section heading (`sectionLabel` in Panels.cpp): 11 pt
+/// semibold capitals in `textDim`, slightly spaced, on the bottom of a row
+/// `height` points tall.
+pub fn section_label(ui: &mut Ui, text: &str, height: f32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::hover());
+    let galley_height = 14.0;
+    tracked_text(
+        ui.painter(),
+        Pos2::new(rect.left(), rect.bottom() - galley_height),
+        &text.to_uppercase(),
+        theme::semibold(11.0),
+        theme::text_dim(),
+        1.1,
+    );
+}
+
+/// A v1 toggle switch (`AppLookAndFeel::drawToggleButton`): the label on the
+/// left, a 34 x 20 switch on the right of `rect`. Returns true when clicked.
+pub fn toggle_switch(ui: &mut Ui, rect: Rect, id: &str, label: &str, on: bool) -> bool {
+    let response = ui.interact(rect, ui.id().with(id), Sense::click());
+    let switch = Rect::from_center_size(
+        Pos2::new(rect.right() - 17.0, rect.center().y),
+        Vec2::new(34.0, 20.0),
+    );
+    let track = if on {
+        theme::accent()
+    } else if response.hovered() {
+        theme::line_strong()
+    } else {
+        theme::line_strong().gamma_multiply(0.8)
+    };
+    ui.painter().rect_filled(switch, theme::RADIUS, track);
+    let knob_x = if on {
+        switch.right() - 10.0
+    } else {
+        switch.left() + 10.0
+    };
+    ui.painter().circle_filled(
+        Pos2::new(knob_x, switch.center().y),
+        7.0,
+        if on {
+            theme::accent_text()
+        } else {
+            theme::text()
+        },
+    );
+    if !label.is_empty() {
+        ui.painter().text(
+            Pos2::new(rect.left(), rect.center().y),
+            Align2::LEFT_CENTER,
+            label,
+            FontId::proportional(13.0),
+            theme::text(),
+        );
+    }
+    response.clicked()
+}
+
+/// A v1 horizontal slider without a text box (`drawLinearSlider`): a 4 pt
+/// `lineStrong` track, filled in accent up to the 14 pt round thumb.
+/// Returns true while the value changes.
+pub fn flat_slider(ui: &mut Ui, rect: Rect, id: &str, value: &mut f32) -> bool {
+    let response = ui.interact(rect, ui.id().with(id), Sense::click_and_drag());
+    let left = rect.left() + 7.0;
+    let right = rect.right() - 7.0;
+    let mut changed = false;
+    if (response.dragged() || response.clicked())
+        && let Some(pointer) = response.interact_pointer_pos()
+    {
+        let new = ((pointer.x - left) / (right - left).max(1.0)).clamp(0.0, 1.0);
+        if (new - *value).abs() > f32::EPSILON {
+            *value = new;
+            changed = true;
+        }
+    }
+    let track = Rect::from_min_max(
+        Pos2::new(left, rect.center().y - 2.0),
+        Pos2::new(right, rect.center().y + 2.0),
+    );
+    ui.painter()
+        .rect_filled(track, theme::RADIUS, theme::line_strong());
+    let x = left + (right - left) * value.clamp(0.0, 1.0);
+    ui.painter().rect_filled(
+        Rect::from_min_max(track.min, Pos2::new(x, track.bottom())),
+        theme::RADIUS,
+        theme::accent(),
+    );
+    ui.painter()
+        .circle_filled(Pos2::new(x, track.center().y), 7.0, theme::text());
+    changed
 }
 
 /// A v1 text button (`AppLookAndFeel::drawButtonBackground`): raised fill,

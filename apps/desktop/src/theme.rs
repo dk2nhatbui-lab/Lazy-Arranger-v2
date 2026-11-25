@@ -249,8 +249,8 @@ pub const HEADER_HEIGHT: f32 = 60.0;
 pub const STATUS_HEIGHT: f32 = 28.0;
 /// Browser width.
 pub const SIDEBAR_WIDTH: f32 = 248.0;
-/// Inspector width, reserved for later.
-pub const INSPECTOR_WIDTH: f32 = 296.0;
+/// Inspector width, as wide as the v1 inspector.
+pub const INSPECTOR_WIDTH: f32 = 320.0;
 /// One track lane height.
 pub const TRACK_HEIGHT: f32 = 64.0;
 /// Base font size.
