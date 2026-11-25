@@ -10,6 +10,7 @@
 //! with focus then gets it like a real key press, and the app's own key
 //! handling gets it otherwise, so both stay in one place.
 
+use crate::instruments::Instrument;
 use egui::{Context, Key, KeyboardShortcut, Modifiers};
 
 use super::{FileMode, ShellApp, View};
@@ -54,6 +55,7 @@ pub(super) enum Panel {
     Shortcuts,
     About,
     Settings,
+    InstrumentEditors,
 }
 
 /// The windows in the Window menu, in groups split by separators.
@@ -78,6 +80,7 @@ pub(super) const WINDOW_GROUPS: &[&[(Panel, &str)]] = &[
         (Panel::MidiOut, "MIDI Out"),
         (Panel::MidiMonitor, "MIDI Monitor"),
         (Panel::DeviceEditor, "Device Editor"),
+        (Panel::InstrumentEditors, "Instrument Editors…"),
     ],
     &[
         (Panel::L6maxMixer, "L6max Mixer"),
@@ -228,6 +231,18 @@ const VIEW_KEYS: [(View, &str, Key); 5] = [
 ];
 const MIXER_KEY: Key = Key::Num2;
 
+/// The instrument a panel belongs to, for panels that only make sense with
+/// one hardware instrument.
+pub(super) const fn instrument_for(panel: Panel) -> Option<Instrument> {
+    match panel {
+        Panel::XgPartMixer => Some(Instrument::YamahaXg),
+        Panel::L6maxMixer | Panel::L6maxDeviceMixer => Some(Instrument::ZoomL6max),
+        Panel::RolandD05 => Some(Instrument::RolandD05),
+        Panel::PsrRemote => Some(Instrument::YamahaPsrS970),
+        _ => None,
+    }
+}
+
 impl ShellApp {
     /// The whole menu bar for the current state.
     ///
@@ -267,13 +282,17 @@ impl ShellApp {
                 .key(user_binding(&settings.save_as_keys, "cmd+shift+s")),
             MenuEntry::Separator,
             item(MenuCommand::ImportAudio, "Import Audio File…"),
-            item(MenuCommand::ImportL6max, "Import L6max Recording…"),
+        ];
+        if self.instruments.has(Instrument::ZoomL6max) {
+            file.push(item(MenuCommand::ImportL6max, "Import L6max Recording…"));
+        }
+        file.extend([
             MenuEntry::Separator,
             item(MenuCommand::ExportMidi, "Export MIDI File…"),
             item(MenuCommand::ExportMusicXml, "Export MusicXML File…"),
             item(MenuCommand::ExportWav, "Export Audio File…"),
             item(MenuCommand::ExportStems, "Export Stems…"),
-        ];
+        ]);
         if !native {
             file.extend([
                 MenuEntry::Separator,
@@ -346,15 +365,21 @@ impl ShellApp {
         ]);
 
         let mut window = Vec::new();
-        for (index, group) in WINDOW_GROUPS.iter().enumerate() {
-            if index > 0 {
+        for group in WINDOW_GROUPS {
+            let shown: Vec<MenuEntry> = group
+                .iter()
+                .filter(|(panel, _)| {
+                    instrument_for(*panel).is_none_or(|instrument| self.instruments.has(instrument))
+                })
+                .map(|(panel, label)| item(MenuCommand::Show(*panel), *label))
+                .collect();
+            if shown.is_empty() {
+                continue;
+            }
+            if !window.is_empty() {
                 window.push(MenuEntry::Separator);
             }
-            window.extend(
-                group
-                    .iter()
-                    .map(|(panel, label)| item(MenuCommand::Show(*panel), *label)),
-            );
+            window.extend(shown);
         }
 
         let mut help = vec![
@@ -566,6 +591,7 @@ impl ShellApp {
             Panel::L6maxDeviceMixer => self.l6max.device_open = true,
             Panel::RolandD05 => self.d05.open = true,
             Panel::PsrRemote => self.psr.open = true,
+            Panel::InstrumentEditors => self.instruments_open = true,
             Panel::Assistant => self.assistant.open = true,
             Panel::GeneratePart => self.generate_open = true,
             Panel::StyleFromClips => self.style.clips_open = true,
