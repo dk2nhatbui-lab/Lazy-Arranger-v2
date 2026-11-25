@@ -1,6 +1,7 @@
 //! The main layout of [`ShellApp`]: top bar, sidebar, track rows, grid,
 //! inspector, status bar and the window dispatcher.
 
+use super::timeline_menu::TimelineAction;
 use super::*;
 
 /// The score view: note entry, paging, zoom and full-score options.
@@ -847,6 +848,37 @@ impl ShellApp {
                     self.position.max(0),
                     self.song().time_signature.bar_ticks().max(1),
                 ));
+                ui.close_menu();
+            }
+            ui.separator();
+            let index = self
+                .song()
+                .tracks
+                .iter()
+                .position(|track| track.id == row.id)
+                .unwrap_or(0);
+            let count = self.song().tracks.len();
+            for (enabled, label, action) in [
+                (true, "Duplicate", TimelineAction::DuplicateTrack(row.id)),
+                (
+                    index > 0,
+                    "Move Up",
+                    TimelineAction::MoveTrack(row.id, true),
+                ),
+                (
+                    index + 1 < count,
+                    "Move Down",
+                    TimelineAction::MoveTrack(row.id, false),
+                ),
+            ] {
+                if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+                    self.run_timeline_action(action);
+                    ui.close_menu();
+                }
+            }
+            ui.separator();
+            if ui.button("Delete Track").clicked() {
+                self.run_timeline_action(TimelineAction::DeleteTrack(row.id));
                 ui.close_menu();
             }
         });

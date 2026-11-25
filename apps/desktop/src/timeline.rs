@@ -199,6 +199,71 @@ pub fn show_with_loop(
 }
 
 const GEOMETRY: &str = "timeline-geometry";
+const CONTEXT_HIT: &str = "timeline-context-hit";
+
+/// What a right-click on the timeline landed on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContextTarget {
+    /// The chord strip under the ruler.
+    Chords,
+    /// The ruler.
+    Ruler,
+    /// A MIDI clip.
+    Clip(TrackId, ClipId),
+    /// A track's audio.
+    Audio(TrackId),
+    /// An empty place in a track's lane.
+    Lane(TrackId),
+    /// Below the last lane.
+    Empty,
+}
+
+/// A right-click on the timeline, for the caller to show a menu.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ContextHit {
+    /// What was hit.
+    pub target: ContextTarget,
+    /// The tick under the pointer.
+    pub tick: Tick,
+    /// Screen position of the click.
+    pub pos: egui::Pos2,
+}
+
+/// Takes the right-click the timeline saw since the last call, if any.
+#[must_use]
+pub fn take_context_hit(context: &egui::Context) -> Option<ContextHit> {
+    context.data_mut(|data| {
+        let id = egui::Id::new(CONTEXT_HIT);
+        let hit = data.get_temp::<ContextHit>(id);
+        data.remove::<ContextHit>(id);
+        hit
+    })
+}
+
+/// What sits at `y` (from the timeline's top) and `tick`.
+#[must_use]
+pub fn context_target(song: &Song, y: f32, tick: Tick) -> ContextTarget {
+    if y < RULER_HEIGHT {
+        return ContextTarget::Ruler;
+    }
+    if y < HEADER_HEIGHT {
+        return ContextTarget::Chords;
+    }
+    let index = ((y - HEADER_HEIGHT) / LANE_HEIGHT).floor() as usize;
+    let Some(track) = song.tracks.get(index) else {
+        return ContextTarget::Empty;
+    };
+    if let Some(clip) = track.clips.iter().find(|clip| clip.contains(tick)) {
+        return ContextTarget::Clip(track.id, clip.id);
+    }
+    if let Some(audio) = &track.audio
+        && tick >= audio.start
+        && tick < audio.start + audio.length.max(1)
+    {
+        return ContextTarget::Audio(track.id);
+    }
+    ContextTarget::Lane(track.id)
+}
 const SCROLL_REQUEST: &str = "timeline-scroll-request";
 
 /// Where the timeline lanes sit on screen, so the track list beside it can
@@ -681,6 +746,20 @@ fn draw(
         ],
         Stroke::new(1.5_f32, playhead_color),
     );
+    if response.secondary_clicked()
+        && let Some(pointer) = ui.input(|input| input.pointer.interact_pos())
+        && pointer.x >= content.left()
+    {
+        let tick = tick_for(pointer.x);
+        let target = context_target(song, pointer.y - rect.top(), tick);
+        let hit = ContextHit {
+            target,
+            tick,
+            pos: pointer,
+        };
+        ui.ctx()
+            .data_mut(|data| data.insert_temp(egui::Id::new(CONTEXT_HIT), hit));
+    }
     let mut outcome = RollOutcome::default();
     let mut selected_track = clicked_track;
     if response.clicked()
@@ -747,6 +826,28 @@ mod tests {
         let high_y = note_lane_y(top, 72);
         assert!(high_y < mid_y, "high {high_y} should be above mid {mid_y}");
         assert!(mid_y < low_y, "mid {mid_y} should be above low {low_y}");
+    }
+
+    #[test]
+    fn a_right_click_finds_what_is_under_it() {
+        let song = arranging::demo::demo_song();
+        assert_eq!(context_target(&song, 5.0, 0), ContextTarget::Ruler);
+        assert_eq!(
+            context_target(&song, RULER_HEIGHT + 2.0, 0),
+            ContextTarget::Chords
+        );
+        let first = &song.tracks[0];
+        let lane_y = HEADER_HEIGHT + LANE_HEIGHT / 2.0;
+        let expected = first
+            .clips
+            .iter()
+            .find(|clip| clip.contains(0))
+            .map_or(ContextTarget::Lane(first.id), |clip| {
+                ContextTarget::Clip(first.id, clip.id)
+            });
+        assert_eq!(context_target(&song, lane_y, 0), expected);
+        let below = HEADER_HEIGHT + LANE_HEIGHT * (song.tracks.len() as f32 + 1.0);
+        assert_eq!(context_target(&song, below, 0), ContextTarget::Empty);
     }
 
     #[test]
