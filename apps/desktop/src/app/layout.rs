@@ -492,7 +492,7 @@ impl ShellApp {
         }
         // v1 shows the track list with the timeline only; the score and the
         // loops use the whole width.
-        if matches!(self.view, View::Score | View::Loops) {
+        if matches!(self.view, View::Score | View::Loops | View::Drums) {
             return;
         }
         egui::SidePanel::left("tracks")
@@ -4328,109 +4328,7 @@ impl ShellApp {
                         }
                     }
                     View::Drums => {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Beat").size(16.0).strong());
-                            if ui
-                                .button("Open floating editor")
-                                .on_hover_text("Open the same grid in a window")
-                                .clicked()
-                            {
-                                self.beat_dialog = true;
-                            }
-                            if ui.small_button("◀").on_hover_text("Previous bar").clicked() {
-                                self.pending_beat_start =
-                                    Some((self.beat_start - self.beat_bar).max(0));
-                            }
-                            if ui.small_button("▶").on_hover_text("Next bar").clicked() {
-                                self.pending_beat_start =
-                                    Some((self.beat_start + self.beat_bar).max(0));
-                            }
-                            if let Some(track) = self.beat_track {
-                                let name = project
-                                    .song
-                                    .tracks
-                                    .iter()
-                                    .find(|entry| entry.id == track)
-                                    .map_or_else(
-                                        || format!("track {track}"),
-                                        |entry| entry.name.clone(),
-                                    );
-                                ui.label(
-                                    egui::RichText::new(name)
-                                        .size(10.0)
-                                        .color(theme::text_dim()),
-                                );
-                            }
-                        });
-                        if self.beat_track.is_none() {
-                            ui.label("Select a track to edit its beat.");
-                        } else {
-                            let mut reload = None;
-                            ui.horizontal(|ui| {
-                                for bars in [1_usize, 2, 4] {
-                                    if ui
-                                        .selectable_label(
-                                            self.beat_bars == bars,
-                                            format!("{bars} bar"),
-                                        )
-                                        .clicked()
-                                    {
-                                        reload = Some(bars);
-                                    }
-                                }
-                            });
-                            for (row, (_, label)) in arranging::beat::ROWS.iter().enumerate() {
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(*label)
-                                            .size(11.0)
-                                            .color(theme::text_dim()),
-                                    );
-                                    let steps = self.beat_pattern.grid[row].len();
-                                    for slot in 0..steps {
-                                        let level = self.beat_pattern.grid[row][slot];
-                                        let text = if level == 0 {
-                                            String::from("·")
-                                        } else {
-                                            level.to_string()
-                                        };
-                                        if ui
-                                            .add_sized([24.0, 24.0], egui::Button::new(text))
-                                            .clicked()
-                                        {
-                                            self.beat_pattern.cycle(row, slot);
-                                        }
-                                    }
-                                });
-                            }
-                            if let Some(bars) = reload
-                                && let Some(track) = self.beat_track
-                                && let Some((bar, pattern)) = self.editor.beat_pattern_bars(
-                                    track,
-                                    self.beat_start,
-                                    bars,
-                                )
-                            {
-                                self.beat_bar = bar;
-                                self.beat_pattern = pattern;
-                                self.beat_bars = bars;
-                            }
-                            if ui.button("Apply beat").clicked()
-                                && let Some(track) = self.beat_track
-                            {
-                                match self.editor.apply_beat(
-                                    track,
-                                    self.beat_start,
-                                    self.beat_bar,
-                                    &self.beat_pattern,
-                                ) {
-                                    Ok(added) => {
-                                        self.status = Some(format!("beat: {added} hit(s)"))
-                                    }
-                                    Err(error) => self.status = Some(error),
-                                }
-                            }
-                        }
+                        self.drums_panel(ui);
                     }
                     View::Map => {
                         ui.heading("MIDI Map");
@@ -5262,7 +5160,7 @@ fn sound_name(program: Option<u8>, drums: bool) -> String {
 }
 
 /// A child of a toolbar for one control: v1 field colours, 30 pt tall.
-fn toolbar_child(ui: &mut egui::Ui, rect: egui::Rect) -> egui::Ui {
+pub(super) fn toolbar_child(ui: &mut egui::Ui, rect: egui::Rect) -> egui::Ui {
     let mut child = ui.new_child(
         egui::UiBuilder::new()
             .max_rect(rect)

@@ -19,6 +19,7 @@ use crate::widgets::{draw_track_icon, mixer_fader, mixer_knob, pan_label};
 
 mod assistant;
 mod devices;
+mod drums;
 mod files;
 mod jam;
 mod layout;
@@ -899,6 +900,7 @@ pub struct ShellApp {
     loops_fill: Option<u32>,
     chosen_slot: Option<(usize, TrackId)>,
     slot_edit: Option<(usize, TrackId)>,
+    drums: drums::DrumsUi,
     slot_roll: piano_roll::RollState,
     slot_note: Option<project::NoteId>,
     loops_quantise_bars: u32,
@@ -1350,6 +1352,7 @@ impl ShellApp {
             loops_fill: None,
             chosen_slot: None,
             slot_edit: None,
+            drums: drums::DrumsUi::default(),
             slot_roll: piano_roll::RollState::default(),
             slot_note: None,
             loops_quantise_bars: 1,

@@ -197,6 +197,43 @@ impl Editor {
         Ok(())
     }
 
+    /// Adds a clip called `name` at `start` with `length`, choosing the next id.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the clips overlap.
+    pub fn add_named_clip(
+        &mut self,
+        track: TrackId,
+        start: Tick,
+        length: Tick,
+        name: &str,
+    ) -> Result<(), String> {
+        let entry = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .ok_or_else(|| String::from("unknown track"))?;
+        let id = entry
+            .clips
+            .iter()
+            .map(|clip| clip.id.get())
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        self.insert_clip(
+            track,
+            project::song::Clip {
+                id: project::ClipId::new(id).map_err(|error| error.to_string())?,
+                name: name.to_string(),
+                start,
+                length,
+            },
+        )
+        .map_err(|error| error.to_string())
+    }
+
     /// Adds a named clip at `start` with `length`, choosing the next id.
     ///
     /// # Errors
@@ -731,6 +768,23 @@ impl Editor {
     /// Returns a message when the edit is rejected.
     pub fn new_slot(&mut self, scene: usize, track: TrackId, length: Tick) -> Result<(), String> {
         arranging::loops::new_slot(&mut self.session, track, scene, length)
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Replaces every note of a track as one edit.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn replace_track_notes(
+        &mut self,
+        track: TrackId,
+        notes: Vec<project::song::Note>,
+    ) -> Result<(), String> {
+        self.session
+            .apply(Command::ReplaceTrackNotes { track, notes })
             .map_err(|error| error.to_string())?;
         self.dirty = true;
         Ok(())
