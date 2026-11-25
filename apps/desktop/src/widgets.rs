@@ -9,6 +9,12 @@ use music_core::{PPQ, Tick, TimeSignature};
 
 use crate::theme;
 
+mod mixer;
+pub(crate) use mixer::{
+    MIXER_KNOB_SIZE, mixer_fader, mixer_knob, mixer_panel_background, mixer_strip, name_tab,
+    strip_button, strip_caption,
+};
+
 /// LCD panel size, from `HeaderBar::resized`: 350 x 52.
 pub const LCD_SIZE: Vec2 = Vec2::new(350.0, 52.0);
 /// Cell widths, from `LcdDisplay::cell`.
@@ -578,66 +584,6 @@ pub(crate) fn draw_track_icon(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn mixer_fader(
-    ui: &mut egui::Ui,
-    value: &mut f32,
-    min: f32,
-    max: f32,
-    height: f32,
-    color: egui::Color32,
-    label: &str,
-    default_value: f32,
-) -> bool {
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(32.0, height), egui::Sense::click_and_drag());
-    let response =
-        response.on_hover_text(format!("{label}: drag (Shift fine), double-click to reset"));
-    let double_clicked = response.double_clicked();
-    let delta = ui.input(|input| input.pointer.delta().y);
-    let mut changed = false;
-    if double_clicked {
-        *value = default_value.clamp(min, max);
-        changed = true;
-    } else if response.dragged() && delta != 0.0 {
-        let scale = if ui.input(|input| input.modifiers.shift) {
-            0.25
-        } else {
-            1.0
-        };
-        *value = (*value - delta / height * (max - min) * scale).clamp(min, max);
-        changed = true;
-    }
-    let rect = egui::Rect::from_min_size(rect.min, egui::vec2(32.0, height));
-    let center_x = rect.center().x;
-    let track = egui::Rect::from_min_max(
-        egui::pos2(center_x - 2.0, rect.top() + 6.0),
-        egui::pos2(center_x + 2.0, rect.bottom() - 6.0),
-    );
-    ui.painter().rect_filled(track, 2.0, theme::raised());
-    let ratio = ((*value - min) / (max - min).max(0.0001)).clamp(0.0, 1.0);
-    let thumb_y = track.bottom() - ratio * track.height();
-    let filled = egui::Rect::from_min_max(
-        egui::pos2(center_x - 2.0, thumb_y),
-        egui::pos2(center_x + 2.0, track.bottom()),
-    );
-    ui.painter().rect_filled(filled, 2.0, color);
-    ui.painter()
-        .circle_filled(egui::pos2(center_x, thumb_y), 6.0, theme::raised());
-    ui.painter().circle_stroke(
-        egui::pos2(center_x, thumb_y),
-        6.0,
-        egui::Stroke::new(1.0_f32, theme::line()),
-    );
-    response.on_hover_text(label).clicked() || changed
-}
-
-pub(crate) fn painter_strip(ui: &mut egui::Ui, color: egui::Color32) {
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 3.0), egui::Sense::hover());
-    ui.painter().rect_filled(rect, 1.0, color);
-}
-
 pub(crate) fn pan_label(pan: f32) -> String {
     let value = pan.round() as i32;
     if value == 64 {
@@ -647,64 +593,6 @@ pub(crate) fn pan_label(pan: f32) -> String {
     } else {
         format!("R{}", value - 64)
     }
-}
-
-pub(crate) fn mixer_knob(
-    ui: &mut egui::Ui,
-    value: &mut f32,
-    min: f32,
-    max: f32,
-    label: &str,
-    enabled: bool,
-) -> bool {
-    let size = egui::vec2(44.0, 46.0);
-    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
-    if enabled && response.dragged() {
-        let delta = ui.input(|input| input.pointer.delta().y);
-        *value = (*value - delta / 90.0 * (max - min)).clamp(min, max);
-    }
-    let changed = enabled && response.dragged() && ui.input(|input| input.pointer.delta().y != 0.0);
-    let center = egui::pos2(rect.center().x, rect.top() + 15.0);
-    let radius = 13.0;
-    let fill = if enabled {
-        theme::raised()
-    } else {
-        theme::panel()
-    };
-    ui.painter().circle_filled(center, radius, fill);
-    ui.painter()
-        .circle_stroke(center, radius, egui::Stroke::new(1.0_f32, theme::line()));
-    let ratio = ((*value - min) / (max - min).max(0.0001)).clamp(0.0, 1.0);
-    let angle = (-std::f32::consts::FRAC_PI_2 - 2.356) + ratio * 4.712;
-    let end = egui::pos2(
-        center.x + angle.cos() * (radius - 3.0),
-        center.y + angle.sin() * (radius - 3.0),
-    );
-    ui.painter().line_segment(
-        [center, end],
-        egui::Stroke::new(
-            2.0_f32,
-            if enabled {
-                theme::accent()
-            } else {
-                theme::text_dim()
-            },
-        ),
-    );
-    ui.painter().text(
-        egui::pos2(rect.center().x, rect.bottom() - 6.0),
-        egui::Align2::CENTER_CENTER,
-        label,
-        egui::FontId::proportional(9.0),
-        theme::text_muted(),
-    );
-    let response = if enabled {
-        response.on_hover_text("Drag up or down")
-    } else {
-        response.on_hover_text("Chorus send is not routed")
-    };
-    let _ = response;
-    changed
 }
 
 #[cfg(test)]
