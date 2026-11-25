@@ -6,9 +6,12 @@
 //! The C++ writer stores notes as `[offset, length, pitch, velocity]` inside
 //! clips that sit at a timeline position, and puts the MIDI channel on the
 //! track output. This importer flattens clips onto tracks and copies the
-//! channel to every note. It does not read clip slots, scenes, mixer state or
-//! sound selection: those keys are preserved verbatim in `extra` and listed in
-//! the report as deferred.
+//! channel to every note. Audio clips become the track's audio reference
+//! (several clips on one track become takes with one comp span each), and the
+//! mixer's volume, pan, mute and solo plus the sound's program and bank are
+//! copied. Other keys are preserved verbatim in `extra` and listed in the
+//! report as deferred. Relative audio paths are kept as written; call
+//! [`resolve_audio_paths`] with the project's folder to make them absolute.
 //!
 //! The import is one-way on purpose. Writing the C++ format back needs its own
 //! golden round-trip tests, which is deferred to the parity backlog.
@@ -140,7 +143,7 @@ pub fn import_cpp_project(text: &str) -> Result<ImportedProject, ProjectError> {
     let name = string_field(song_object, "title")?.unwrap_or_default();
     let tempo_map = read_tempo_map(song_object, &mut warnings)?;
     let time_signature = read_time_signature(song_object, &mut warnings);
-    let tracks = read_tracks(song_object, &mut warnings, &mut report)?;
+    let tracks = read_tracks(song_object, &tempo_map, &mut warnings, &mut report)?;
     report.tracks = tracks.len();
     let chords = read_chords(song_object, &mut warnings)?;
 
@@ -311,6 +314,7 @@ fn read_time_signature(
 
 fn read_tracks(
     song: &Map<String, Value>,
+    tempo_map: &TempoMap,
     warnings: &mut Vec<ImportWarning>,
     report: &mut ImportReport,
 ) -> Result<Vec<Track>, ProjectError> {
@@ -355,8 +359,16 @@ fn read_tracks(
         if let Some(Value::Array(slots)) = object.get("slots") {
             track.slots = read_slots(slots, channel, &path, warnings)?;
         }
+        if let Some(Value::Array(clips)) = object.get("audio") {
+            read_audio_clips(clips, tempo_map, &mut track, &path, warnings);
+        }
+        read_mixer(object, &mut track);
+        read_sound(object, &mut track);
         for (key, extra) in object {
-            if matches!(key.as_str(), "id" | "name" | "clips" | "notes" | "slots") {
+            if matches!(
+                key.as_str(),
+                "id" | "name" | "clips" | "notes" | "slots" | "audio"
+            ) {
                 continue;
             }
             *report.deferred.entry(key.clone()).or_insert(0) += 1;
@@ -366,6 +378,200 @@ fn read_tracks(
         tracks.push(track);
     }
     Ok(tracks)
+}
+
+/// Copies the C++ mixer strip (volume, pan, mute, solo) onto the track.
+fn read_mixer(track: &Map<String, Value>, target: &mut Track) {
+    let Some(mixer) = track.get("mixer").and_then(Value::as_object) else {
+        return;
+    };
+    let level = |key: &str| {
+        mixer
+            .get(key)
+            .and_then(Value::as_i64)
+            .map(|value| u8::try_from(value.clamp(0, 127)).unwrap_or(127))
+    };
+    if let Some(volume) = level("volume") {
+        target.volume = volume;
+    }
+    if let Some(pan) = level("pan") {
+        target.pan = pan;
+    }
+    target.muted = mixer.get("mute").and_then(Value::as_bool).unwrap_or(false);
+    target.soloed = mixer.get("solo").and_then(Value::as_bool).unwrap_or(false);
+}
+
+/// Copies the C++ sound selection (program and bank) for MIDI tracks.
+fn read_sound(track: &Map<String, Value>, target: &mut Track) {
+    let is_audio = track
+        .get("output")
+        .and_then(|output| output.get("kind"))
+        .and_then(Value::as_str)
+        == Some("audio");
+    let Some(sound) = track.get("sound").and_then(Value::as_object) else {
+        return;
+    };
+    if is_audio {
+        return;
+    }
+    let byte = |key: &str| {
+        sound
+            .get(key)
+            .and_then(Value::as_i64)
+            .filter(|value| (0..=127).contains(value))
+            .and_then(|value| u8::try_from(value).ok())
+    };
+    target.program = byte("program");
+    if let Some(msb) = byte("bankMsb") {
+        target.bank = Some(crate::song::BankSelect {
+            msb,
+            lsb: byte("bankLsb").unwrap_or(0),
+        });
+    }
+}
+
+/// Reads the C++ audio clips of a track.
+///
+/// The first clip on the timeline becomes the track's audio reference. When a
+/// track has several clips, each one becomes a take with a comp span over its
+/// own range, so every clip still plays where it sits. Overlapping clips are
+/// trimmed so the later one wins, as in the C++ app on the same layer.
+fn read_audio_clips(
+    clips: &[Value],
+    tempo_map: &TempoMap,
+    target: &mut Track,
+    path: &str,
+    warnings: &mut Vec<ImportWarning>,
+) {
+    let mut references = Vec::new();
+    for (index, clip) in clips.iter().enumerate() {
+        let clip_path = format!("{path}.audio[{index}]");
+        let Some(object) = clip.as_object() else {
+            continue;
+        };
+        let file = object
+            .get("file")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if file.trim().is_empty() {
+            warnings.push(ImportWarning {
+                path: clip_path,
+                message: String::from("audio clip has no file; skipped"),
+            });
+            continue;
+        }
+        let start = object
+            .get("start")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .max(0);
+        let length = object
+            .get("length")
+            .and_then(Value::as_i64)
+            .unwrap_or(music_core::PPQ * 4)
+            .max(1);
+        let offset_seconds = object
+            .get("offset")
+            .and_then(Value::as_f64)
+            .filter(|seconds| seconds.is_finite())
+            .unwrap_or(0.0)
+            .max(0.0);
+        // The Rust renderer reads the in-point through the song tempo from
+        // tick 0, so convert the C++ seconds the same way.
+        let offset = if offset_seconds > 0.0 {
+            tempo_map.tick_at_seconds(offset_seconds).max(0)
+        } else {
+            0
+        };
+        let fade_in = object
+            .get("fadeIn")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .clamp(0, length);
+        let fade_out = object
+            .get("fadeOut")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .clamp(0, length - fade_in);
+        let gain_db = object
+            .get("gainDb")
+            .and_then(Value::as_f64)
+            .filter(|gain| gain.is_finite())
+            .unwrap_or(0.0)
+            .clamp(-32.0, 24.0);
+        #[allow(clippy::cast_possible_truncation)]
+        let gain_mb = (gain_db * 1_000.0).round() as i16;
+        let layer = object.get("layer").and_then(Value::as_i64).unwrap_or(0);
+        references.push((
+            layer,
+            crate::song::AudioRef {
+                path: file.to_string(),
+                start,
+                length,
+                offset,
+                fade_in,
+                fade_out,
+                stretch: false,
+                gain_mb,
+            },
+        ));
+    }
+    if references.is_empty() {
+        return;
+    }
+    if references.iter().any(|(layer, _)| *layer != 0) {
+        warnings.push(ImportWarning {
+            path: format!("{path}.audio"),
+            message: String::from(
+                "clip layers are not kept; where clips overlap the later one plays",
+            ),
+        });
+    }
+    let mut references: Vec<crate::song::AudioRef> = references
+        .into_iter()
+        .map(|(_, reference)| reference)
+        .collect();
+    references.sort_by_key(|reference| reference.start);
+    target.audio = Some(references[0].clone());
+    if references.len() == 1 {
+        return;
+    }
+    let mut comps = Vec::with_capacity(references.len());
+    for (index, reference) in references.iter().enumerate() {
+        let end = references
+            .get(index + 1)
+            .map_or(reference.start + reference.length, |next| {
+                next.start.min(reference.start + reference.length)
+            });
+        if end > reference.start {
+            comps.push(crate::song::AudioComp {
+                take: index,
+                start: reference.start,
+                length: end - reference.start,
+            });
+        }
+    }
+    target.takes = references;
+    target.comps = comps;
+}
+
+/// Makes relative audio paths absolute against `dir`, the folder that holds
+/// the imported C++ project. The C++ app writes paths relative to it.
+pub fn resolve_audio_paths(song: &mut Song, dir: &std::path::Path) {
+    let resolve = |reference: &mut crate::song::AudioRef| {
+        let path = std::path::Path::new(&reference.path);
+        if path.is_relative() {
+            reference.path = dir.join(path).display().to_string();
+        }
+    };
+    for track in &mut song.tracks {
+        if let Some(reference) = &mut track.audio {
+            resolve(reference);
+        }
+        for take in &mut track.takes {
+            resolve(take);
+        }
+    }
 }
 
 fn allocate(next_id: &mut u32, used: &BTreeMap<u32, ()>) -> u32 {
@@ -763,6 +969,72 @@ mod tests {
             assert!(song.extra.contains_key(key), "{key} was dropped");
         }
         assert!((song.tempo_map.bpm_at(0) - 126.000_126).abs() < 1e-6);
+        let drums = &song.tracks[0];
+        let audio = drums
+            .audio
+            .as_ref()
+            .expect("audio clip becomes the reference");
+        assert_eq!(audio.path, "Stems/01 Drums.ogg");
+        assert_eq!((audio.start, audio.length), (0, 281_478));
+        assert!(song.tracks.iter().all(|track| track.audio.is_some()));
+        assert!(!drums.extra.contains_key("audio"));
+    }
+
+    #[test]
+    fn resolves_relative_audio_paths_against_the_project_folder() {
+        let mut song = import_cpp_project(AUDIO_V4).expect("import").project.song;
+        let dir = std::path::Path::new("/songs/Copper Lights");
+        resolve_audio_paths(&mut song, dir);
+        let path = &song.tracks[0].audio.as_ref().expect("audio").path;
+        assert_eq!(
+            std::path::Path::new(path),
+            dir.join("Stems/01 Drums.ogg").as_path()
+        );
+    }
+
+    #[test]
+    fn several_audio_clips_become_comped_takes_and_mixer_is_copied() {
+        let json = r#"{
+            "format": "arranger-midi-daw-project",
+            "version": 4,
+            "song": {
+                "title": "Takes",
+                "tempo": [[0, 120.0]],
+                "timeSignature": [4, 4],
+                "tracks": [{"id": 1, "name": "Vox", "output": {"kind": "audio", "channel": 1},
+                            "mixer": {"volume": 90, "pan": 30, "mute": true, "solo": false},
+                            "clips": [],
+                            "audio": [
+                                {"file": "b.wav", "start": 7680, "length": 3840, "offset": 0.5,
+                                 "gainDb": -6.0, "fadeIn": 100, "fadeOut": 100},
+                                {"file": "a.wav", "start": 0, "length": 9600}
+                            ]},
+                           {"id": 2, "name": "Keys", "output": {"kind": "midi", "channel": 2},
+                            "sound": {"program": 4, "bankMsb": 0, "bankLsb": 112},
+                            "clips": []}]
+            }
+        }"#;
+        let imported = import_cpp_project(json).expect("import");
+        let song = &imported.project.song;
+        let vox = &song.tracks[0];
+        assert_eq!(
+            (vox.volume, vox.pan, vox.muted, vox.soloed),
+            (90, 30, true, false)
+        );
+        assert_eq!(vox.audio.as_ref().expect("audio").path, "a.wav");
+        assert_eq!(vox.takes.len(), 2);
+        assert_eq!(vox.takes[1].path, "b.wav");
+        assert_eq!(vox.takes[1].offset, 960, "0.5 s at 120 bpm is one beat");
+        assert_eq!(vox.takes[1].gain_mb, -6_000);
+        let spans: Vec<(usize, i64, i64)> = vox
+            .comps
+            .iter()
+            .map(|comp| (comp.take, comp.start, comp.length))
+            .collect();
+        assert_eq!(spans, vec![(0, 0, 7680), (1, 7680, 3840)]);
+        let keys = &song.tracks[1];
+        assert_eq!(keys.program, Some(4));
+        assert_eq!(keys.bank.map(|bank| (bank.msb, bank.lsb)), Some((0, 112)));
     }
 
     #[test]

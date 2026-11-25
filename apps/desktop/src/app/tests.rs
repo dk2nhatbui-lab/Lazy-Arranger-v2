@@ -1222,6 +1222,27 @@ fn a_cpp_app_project_opens_as_an_import() {
     assert!(app.project_path.is_none());
 }
 
+#[test]
+fn a_cpp_audio_project_opens_with_its_stems() {
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/legacy-cpp-v4.arranger");
+    let project = load_project(&fixture).expect("the C++ audio project imports");
+    let folder = fixture
+        .parent()
+        .expect("folder")
+        .canonicalize()
+        .expect("folder");
+    for track in &project.song.tracks {
+        let audio = track
+            .audio
+            .as_ref()
+            .expect("each stem track keeps its audio");
+        let path = std::path::Path::new(&audio.path);
+        assert!(path.is_absolute(), "{}", audio.path);
+        assert!(path.starts_with(&folder), "{}", audio.path);
+    }
+}
+
 fn first_clip(app: &ShellApp) -> (TrackId, project::ClipId, project::song::Clip) {
     app.song()
         .tracks

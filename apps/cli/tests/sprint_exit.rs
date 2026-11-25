@@ -156,10 +156,11 @@ fn legacy_project_imports_renders_and_exports() {
     assert_eq!(imported.report.notes, 265);
     let song = imported.project.song.clone();
 
+    // The Pad track (24 notes) is muted in the C++ mixer, and stays muted.
     let events = schedule(&song, 48_000, 128);
-    assert_eq!(events.len(), 530, "two events per imported note");
+    assert_eq!(events.len(), 482, "two events per audible imported note");
     let summary = run_transport(&song, 48_000, 128, false).expect("transport runs");
-    assert_eq!(summary.events, 530);
+    assert_eq!(summary.events, 482);
     assert_eq!(summary.overflowed, 0);
 
     let bytes = smf::encode(&song).expect("encode");
