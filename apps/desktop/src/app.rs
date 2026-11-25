@@ -23,6 +23,7 @@ mod drums;
 mod files;
 mod jam;
 mod layout;
+mod live_mix;
 mod map;
 mod menu;
 mod mixer;
@@ -936,6 +937,10 @@ pub struct ShellApp {
         std::sync::mpsc::Receiver<Result<RenderedSong, String>>,
         music_core::Tick,
     )>,
+    /// A render that will replace the playing buffer after a mixer change.
+    live_remix: Option<live_mix::LiveRemix>,
+    /// Mix fingerprint of the buffer that is playing or rendering.
+    mix_rendered: u64,
     autosave: Autosave,
     recovery: Option<std::path::PathBuf>,
     shown: bool,
@@ -1031,6 +1036,8 @@ impl ShellApp {
             icon,
             player: None,
             render_pending: None,
+            live_remix: None,
+            mix_rendered: 0,
             autosave: Autosave::new(std::time::Duration::from_secs(10)),
             recovery: project_path
                 .as_ref()
@@ -4679,6 +4686,8 @@ impl ShellApp {
         } else {
             self.song().clone()
         };
+        self.mix_rendered = self.current_mix_signature();
+        self.live_remix = None;
         let receiver = self.spawn_render(song, self.view == View::Mix);
         self.render_pending = Some((receiver, resume));
         self.status = Some(String::from("rendering audio"));
@@ -4811,6 +4820,7 @@ impl ShellApp {
     fn stop_playback(&mut self) {
         self.finish_jam();
         self.render_pending = None;
+        self.live_remix = None;
         self.reset_loops();
         if let Some(player) = self.player.take() {
             player.stop();
@@ -4907,6 +4917,7 @@ impl eframe::App for ShellApp {
         }
         self.sync_monitor();
         self.poll_render(context);
+        self.poll_live_remix(context);
         let _ = frame;
         // ADR-011: paint the first themed frame before the window becomes visible.
         let mut style = (*context.style()).clone();
