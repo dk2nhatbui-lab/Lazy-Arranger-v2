@@ -186,19 +186,19 @@ pub fn to_pdf_with_font(
                     };
                     let space = settings.staff_space;
                     if treble {
-                        let image = clef::treble();
+                        let glyph = clef::treble_glyph();
                         draw_image(
                             &mut content,
                             "ClefTreble",
                             settings.margin - 42.0,
-                            system.y - 2.0 * space,
-                            7.0 * space,
-                            image,
+                            system.y + (3.0 + glyph.top) * space,
+                            glyph.height * space,
+                            &glyph.image,
                             settings.page_height,
                         );
                     }
                     if bass {
-                        let image = clef::bass();
+                        let glyph = clef::bass_glyph();
                         let offset = if engraved.staves == 2 {
                             6.0 * space
                         } else {
@@ -207,10 +207,10 @@ pub fn to_pdf_with_font(
                         draw_image(
                             &mut content,
                             "ClefBass",
-                            settings.margin - 48.0,
-                            system.y + offset - 0.3 * space,
-                            3.2 * space,
-                            image,
+                            settings.margin - 42.0,
+                            system.y + offset + (1.0 + glyph.top) * space,
+                            glyph.height * space,
+                            &glyph.image,
                             settings.page_height,
                         );
                     }
@@ -669,10 +669,10 @@ pub fn to_full_pdf_with_options(
         stream.extend_from_slice(b"endstream");
         objects.push(stream);
     }
-    let treble = &clef::treble_glyph().image;
+    let treble = clef::treble();
     objects.push(image_stream(treble, treble_mask));
     objects.push(alpha_stream(treble));
-    let bass = &clef::bass_glyph().image;
+    let bass = clef::bass();
     objects.push(image_stream(bass, bass_mask));
     objects.push(alpha_stream(bass));
     if let Some(font) = unicode_font.as_ref() {

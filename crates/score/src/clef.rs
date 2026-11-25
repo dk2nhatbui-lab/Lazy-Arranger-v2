@@ -13,24 +13,16 @@ pub struct ClefImage {
     pub rgba: Vec<u8>,
 }
 
-/// Treble-clef PNG bytes (public domain, see `assets/ATTRIBUTION.md`).
-pub const TREBLE_PNG: &[u8] = include_bytes!("../assets/treble_clef.png");
-/// Bass-clef PNG bytes (public domain, see `assets/ATTRIBUTION.md`).
-pub const BASS_PNG: &[u8] = include_bytes!("../assets/bass_clef.png");
-
-static TREBLE: OnceLock<ClefImage> = OnceLock::new();
-static BASS: OnceLock<ClefImage> = OnceLock::new();
-
-/// The decoded treble clef.
+/// The treble clef image (Bravura, see [`treble_glyph`] for its placement).
 #[must_use]
 pub fn treble() -> &'static ClefImage {
-    TREBLE.get_or_init(|| decode(TREBLE_PNG))
+    &treble_glyph().image
 }
 
-/// The decoded bass clef.
+/// The bass clef image (Bravura, see [`bass_glyph`] for its placement).
 #[must_use]
 pub fn bass() -> &'static ClefImage {
-    BASS.get_or_init(|| decode(BASS_PNG))
+    &bass_glyph().image
 }
 
 /// A clef drawn from the Bravura music font (bundled with Cecilia, SIL OFL),
@@ -128,17 +120,6 @@ fn render_glyph(ch: char) -> ClefGlyph {
     }
 }
 
-fn decode(bytes: &[u8]) -> ClefImage {
-    let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
-        .expect("bundled clef PNG")
-        .to_rgba8();
-    ClefImage {
-        width: image.width(),
-        height: image.height(),
-        rgba: image.into_raw(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn clef_images_decode_with_alpha() {
+    fn clef_images_have_alpha() {
         for image in [treble(), bass()] {
             assert!(image.width > 0 && image.height > 0);
             assert_eq!(

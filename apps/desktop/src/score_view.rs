@@ -69,8 +69,6 @@ pub struct ScoreState {
     drag: Option<(Tick, u8, Tick, bool)>,
     clef_treble: Option<egui::TextureHandle>,
     clef_bass: Option<egui::TextureHandle>,
-    glyph_treble: Option<egui::TextureHandle>,
-    glyph_bass: Option<egui::TextureHandle>,
     cecilia_pages: Vec<egui::TextureHandle>,
     cecilia_key: Option<String>,
     cecilia_pending: Option<(String, CeciliaReceiver)>,
@@ -327,16 +325,6 @@ fn ensure_clefs(context: &egui::Context, state: &mut ScoreState) {
             score::clef::treble(),
         ),
         (&mut state.clef_bass, "score-bass-clef", score::clef::bass()),
-        (
-            &mut state.glyph_treble,
-            "score-treble-glyph",
-            &score::clef::treble_glyph().image,
-        ),
-        (
-            &mut state.glyph_bass,
-            "score-bass-glyph",
-            &score::clef::bass_glyph().image,
-        ),
     ] {
         if slot.is_none() {
             *slot = Some(context.load_texture(
@@ -638,15 +626,14 @@ pub fn show(
                     (!single_bass, single_bass)
                 };
                 if treble && let Some(texture) = &state.clef_treble {
-                    let image = score::clef::treble();
-                    let height = 7.0 * space;
-                    let width = height * image.width as f32 / image.height as f32;
+                    // The curl sits on the G line, the second line from the bottom.
+                    let glyph = score::clef::treble_glyph();
                     let rect = egui::Rect::from_min_size(
                         egui::Pos2::new(
                             origin.x + (settings.margin - 42.0) * zoom,
-                            origin.y + (system.y - 2.0 * space) * zoom,
+                            origin.y + (system.y + (3.0 + glyph.top) * space) * zoom,
                         ),
-                        egui::Vec2::new(width * zoom, height * zoom),
+                        egui::Vec2::new(glyph.width * space * zoom, glyph.height * space * zoom),
                     );
                     painter.image(
                         texture.id(),
@@ -656,9 +643,8 @@ pub fn show(
                     );
                 }
                 if bass && let Some(texture) = &state.clef_bass {
-                    let image = score::clef::bass();
-                    let height = 3.2 * space;
-                    let width = height * image.width as f32 / image.height as f32;
+                    // The dots sit around the F line, the second line from the top.
+                    let glyph = score::clef::bass_glyph();
                     let offset = if engraved.staves == 2 {
                         6.0 * space
                     } else {
@@ -666,10 +652,10 @@ pub fn show(
                     };
                     let rect = egui::Rect::from_min_size(
                         egui::Pos2::new(
-                            origin.x + (settings.margin - 48.0) * zoom,
-                            origin.y + (system.y + offset - 0.3 * space) * zoom,
+                            origin.x + (settings.margin - 42.0) * zoom,
+                            origin.y + (system.y + offset + (1.0 + glyph.top) * space) * zoom,
                         ),
-                        egui::Vec2::new(width * zoom, height * zoom),
+                        egui::Vec2::new(glyph.width * space * zoom, glyph.height * space * zoom),
                     );
                     painter.image(
                         texture.id(),
