@@ -137,40 +137,103 @@ pub fn show_with_loop(
     let mut result = (RollOutcome::default(), None, None);
     let drag_id = ui.id().with("timeline-clip-drag");
     let edit_id = ui.id().with("timeline-clip-edit");
-    egui::ScrollArea::both()
+    let request = ui
+        .ctx()
+        .data_mut(|data| data.remove_temp::<f32>(egui::Id::new(SCROLL_REQUEST)));
+    let mut area = egui::ScrollArea::both()
         .id_salt("timeline-scroll")
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            result = draw(
-                ui,
-                song,
-                position,
-                selected,
-                width,
-                drag_id,
-                edit_id,
-                loop_region,
-                waveforms,
-            );
-            result.2 = ui.data_mut(|data| {
-                let edit = data.get_temp::<ClipEdit>(edit_id);
-                data.remove::<ClipEdit>(edit_id);
-                edit
-            });
-            if follow_playhead {
-                let end = song.end_tick().max(bar * 8).max(1);
-                let fraction = position.min(end) as f32 / end as f32;
-                let x = ui.min_rect().left() + LABEL_WIDTH + fraction * (width - LABEL_WIDTH);
-                let playhead = Rect::from_min_size(
-                    pos2(x, ui.min_rect().top()),
-                    vec2(2.0, ui.min_rect().height()),
-                );
-                if !ui.clip_rect().contains_rect(playhead) {
-                    ui.scroll_to_rect(playhead, Some(egui::Align::Center));
-                }
-            }
+        .auto_shrink([false, false]);
+    if let Some(offset) = request {
+        area = area.vertical_scroll_offset(offset.max(0.0));
+    }
+    let output = area.show(ui, |ui| {
+        result = draw(
+            ui,
+            song,
+            position,
+            selected,
+            width,
+            drag_id,
+            edit_id,
+            loop_region,
+            waveforms,
+        );
+        result.2 = ui.data_mut(|data| {
+            let edit = data.get_temp::<ClipEdit>(edit_id);
+            data.remove::<ClipEdit>(edit_id);
+            edit
         });
+        if follow_playhead {
+            let end = song.end_tick().max(bar * 8).max(1);
+            let fraction = position.min(end) as f32 / end as f32;
+            let x = ui.min_rect().left() + LABEL_WIDTH + fraction * (width - LABEL_WIDTH);
+            let playhead = Rect::from_min_size(
+                pos2(x, ui.min_rect().top()),
+                vec2(2.0, ui.min_rect().height()),
+            );
+            if !ui.clip_rect().contains_rect(playhead) {
+                ui.scroll_to_rect(playhead, Some(egui::Align::Center));
+            }
+        }
+    });
+    let geometry = Geometry {
+        top: output.inner_rect.top(),
+        bottom: output.inner_rect.bottom(),
+        offset: output.state.offset.y,
+        pass: ui.ctx().cumulative_pass_nr(),
+    };
+    let moved = ui.ctx().data_mut(|data| {
+        let before = data.get_temp::<Geometry>(egui::Id::new(GEOMETRY));
+        data.insert_temp(egui::Id::new(GEOMETRY), geometry);
+        before.is_none_or(|before| {
+            before.top != geometry.top
+                || before.bottom != geometry.bottom
+                || before.offset != geometry.offset
+        })
+    });
+    if moved {
+        // The track list drew with the old place; draw it again.
+        ui.ctx().request_repaint();
+    }
     result
+}
+
+const GEOMETRY: &str = "timeline-geometry";
+const SCROLL_REQUEST: &str = "timeline-scroll-request";
+
+/// Where the timeline lanes sit on screen, so the track list beside it can
+/// line its rows up with them, as in v1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Geometry {
+    /// Screen top of the visible timeline area.
+    pub top: f32,
+    /// Screen bottom of the visible timeline area.
+    pub bottom: f32,
+    /// Vertical scroll offset.
+    pub offset: f32,
+    /// Pass it was measured in.
+    pass: u64,
+}
+
+impl Geometry {
+    /// Screen top of the first lane.
+    #[must_use]
+    pub fn lanes_top(&self) -> f32 {
+        self.top + HEADER_HEIGHT - self.offset
+    }
+}
+
+/// The timeline's geometry from this pass or the one before, if it drew.
+#[must_use]
+pub fn geometry(context: &egui::Context) -> Option<Geometry> {
+    let geometry = context.data(|data| data.get_temp::<Geometry>(egui::Id::new(GEOMETRY)))?;
+    (geometry.pass + 1 >= context.cumulative_pass_nr()).then_some(geometry)
+}
+
+/// Asks the timeline to scroll its lanes to `offset` on the next pass.
+pub fn scroll_lanes_to(context: &egui::Context, offset: f32) {
+    context.data_mut(|data| data.insert_temp(egui::Id::new(SCROLL_REQUEST), offset));
+    context.request_repaint();
 }
 
 #[allow(clippy::too_many_arguments)]

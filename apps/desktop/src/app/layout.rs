@@ -1,7 +1,6 @@
 //! The main layout of [`ShellApp`]: top bar, sidebar, track rows, grid,
 //! inspector, status bar and the window dispatcher.
 
-use super::menu::Panel;
 use super::*;
 
 /// The score view: note entry, paging, zoom and full-score options.
@@ -503,342 +502,8 @@ impl ShellApp {
             .resizable(true)
             .default_width(theme::SIDEBAR_WIDTH)
             .width_range(180.0..=420.0)
-            .frame(
-                egui::Frame::new()
-                    .fill(theme::panel())
-                    .inner_margin(egui::Margin::same(8)),
-            )
-            .show(context, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Tracks").size(13.0).strong());
-                    ui.label(
-                        egui::RichText::new(self.song().tracks.len().to_string())
-                            .size(10.0)
-                            .color(theme::text_dim()),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("+").on_hover_text("Add a track").clicked() {
-                            match self.editor.add_empty_track() {
-                                Ok(id) => {
-                                    self.roll.selected = Some(id);
-                                    self.status = Some(String::from("track added"));
-                                }
-                                Err(error) => self.status = Some(error),
-                            }
-                        }
-                    });
-                });
-                let chord_track = self
-                    .roll
-                    .selected
-                    .and_then(|id| self.song().tracks.iter().find(|track| track.id == id))
-                    .or_else(|| {
-                        self.song()
-                            .tracks
-                            .iter()
-                            .max_by_key(|track| track.notes.len())
-                    })
-                    .map(|track| track.name.clone())
-                    .unwrap_or_else(|| String::from("no track"));
-                ui.label(
-                    egui::RichText::new(format!("Chords on {chord_track}"))
-                        .size(9.0)
-                        .color(theme::text_dim()),
-                );
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui
-                        .selectable_label(self.loop_enabled, "Loop")
-                        .on_hover_text("Repeat the loop region")
-                        .clicked()
-                    {
-                        self.toggle_loop();
-                    }
-                    if ui
-                        .small_button("From bar")
-                        .on_hover_text("Set the loop to the current bar")
-                        .clicked()
-                    {
-                        let bar = self.song().time_signature.bar_ticks().max(1);
-                        self.loop_region = Some(crate::transport::bar_region(self.position, bar));
-                        self.loop_enabled = true;
-                        self.sync_player_loop();
-                    }
-                });
-                ui.add_space(4.0);
-                let rows: Vec<Row> = self
-                    .song()
-                    .tracks
-                    .iter()
-                    .enumerate()
-                    .map(|(index, track)| Row {
-                        index,
-                        id: track.id,
-                        name: track.name.clone(),
-                        notes: track.notes.len(),
-                        program: track.program,
-                        audio: track.audio.is_some(),
-                        muted: track.muted,
-                        soloed: track.soloed,
-                        armed: track.armed,
-                    })
-                    .collect();
-                egui::ScrollArea::vertical()
-                    .id_salt("track-list")
-                    .auto_shrink([false, false])
-                    .max_height((ui.available_height() - 110.0).max(120.0))
-                    .show(ui, |ui| {
-                        for row in rows {
-                            self.track_row(ui, &row);
-                        }
-                        if self.song().tracks.is_empty() {
-                            ui.label(egui::RichText::new("no tracks").color(theme::text_dim()));
-                        }
-                    });
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    if self.settings.kids_mode {
-                        ui.horizontal(|ui| {
-                            let size = egui::Vec2::new(74.0, 30.0);
-                            if ui.add_sized(size, egui::Button::new("Undo")).clicked() {
-                                let _ = self.editor.undo();
-                            }
-                            if ui.add_sized(size, egui::Button::new("Redo")).clicked() {
-                                let _ = self.editor.redo();
-                            }
-                            let play = if self.playing { "Pause" } else { "Play" };
-                            if ui.add_sized(size, egui::Button::new(play)).clicked() {
-                                self.toggle_playback();
-                            }
-                            if ui.add_sized(size, egui::Button::new("Stop")).clicked() {
-                                self.stop_playback();
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            if ui.button("Settings").clicked() {
-                                self.settings_open = true;
-                            }
-                            if ui.button("Lessons").clicked() {
-                                self.lessons_open = true;
-                            }
-                            if ui.button("Theory").clicked() {
-                                self.theory_open = true;
-                            }
-                        });
-                    } else {
-                        ui.horizontal(|ui| {
-                            let label = if self.recording.is_some() {
-                                "Recording…"
-                            } else {
-                                "Record"
-                            };
-                            if ui.small_button(label).clicked() && self.recording.is_none() {
-                                self.start_midi_recording();
-                            }
-                            ui.add(
-                                egui::DragValue::new(&mut self.record_seconds)
-                                    .range(1.0..=60.0)
-                                    .suffix(" s"),
-                            );
-                            ui.add(
-                                egui::DragValue::new(&mut self.settings.record_count_in)
-                                    .range(0..=2)
-                                    .suffix(" bar"),
-                            )
-                            .on_hover_text("Count-in before MIDI or audio recording");
-                            let audio_label = if self.audio_recording.is_some() {
-                                "Recording audio…"
-                            } else {
-                                "Rec audio"
-                            };
-                            if ui
-                                .add_enabled(
-                                    self.audio_recording.is_none(),
-                                    egui::Button::new(audio_label),
-                                )
-                                .clicked()
-                            {
-                                let folder = crate::settings::Settings::data_dir().join("audio");
-                                let stamp = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .map(|duration| duration.as_nanos())
-                                    .unwrap_or(0);
-                                let path = folder.join(format!("take-{stamp}.wav"));
-                                let _ = std::fs::create_dir_all(&folder);
-                                let seconds = self.audio_record_seconds;
-                                let start = self.position.max(0);
-                                let input = self.settings.audio_input.clone();
-                                let input_channel = (self.settings.audio_input_channel > 0)
-                                    .then_some(usize::from(self.settings.audio_input_channel - 1));
-                                let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
-                                let meter = self.song().time_signature;
-                                let count_in = self.settings.record_count_in;
-                                let delay = count_in_seconds(bpm, count_in, meter);
-                                let (sender, receiver) = std::sync::mpsc::channel();
-                                std::thread::spawn(move || {
-                                    if delay > 0.0 {
-                                        if let Ok(player) = audio::player::Player::new(
-                                            count_in_audio(bpm, count_in, meter),
-                                        ) {
-                                            player.play();
-                                            std::thread::sleep(std::time::Duration::from_secs_f64(
-                                                delay,
-                                            ));
-                                            player.release();
-                                        } else {
-                                            std::thread::sleep(std::time::Duration::from_secs_f64(
-                                                delay,
-                                            ));
-                                        }
-                                    }
-                                    let result = audio::record::record_seconds_from_channel(
-                                        input.as_deref(),
-                                        input_channel,
-                                        seconds,
-                                    )
-                                    .and_then(|rendered| {
-                                        std::fs::write(&path, rendered.to_wav24())
-                                            .map_err(|error| format!("{}: {error}", path.display()))
-                                    })
-                                    .map(|()| path);
-                                    let _ = sender.send(result);
-                                });
-                                self.audio_recording = Some(receiver);
-                                self.audio_record_start = start;
-                                self.audio_record_target = self
-                                    .song()
-                                    .tracks
-                                    .iter()
-                                    .find(|track| track.armed)
-                                    .map(|track| track.id);
-                                self.status = Some(if count_in == 0 {
-                                    format!("recording {:.1} s of audio", seconds)
-                                } else {
-                                    format!("count-in {count_in} bar(s), then {seconds:.1} s audio")
-                                });
-                            }
-                            ui.add(
-                                egui::DragValue::new(&mut self.audio_record_seconds)
-                                    .range(1.0..=60.0)
-                                    .suffix(" s"),
-                            );
-                        });
-                        ui.menu_button("Windows", |ui| {
-                            for (index, group) in super::menu::WINDOW_GROUPS.iter().enumerate() {
-                                if index > 0 {
-                                    ui.separator();
-                                }
-                                for (panel, label) in *group {
-                                    let installed = super::menu::instrument_for(*panel)
-                                        .is_none_or(|instrument| self.instruments.has(instrument));
-                                    if installed && ui.button(*label).clicked() {
-                                        self.open_panel(*panel);
-                                        ui.close_menu();
-                                    }
-                                }
-                            }
-                            ui.separator();
-                            for (panel, label) in [
-                                (Panel::Help, "Help"),
-                                (Panel::Shortcuts, "Shortcuts"),
-                                (Panel::About, "About Lazy Arranger Midi DAW"),
-                            ] {
-                                if ui.button(label).clicked() {
-                                    self.open_panel(panel);
-                                    ui.close_menu();
-                                }
-                            }
-                            ui.separator();
-                            for (mode, label) in [
-                                (FileMode::ImportL6max, "Import L6max"),
-                                (FileMode::ImportAudio, "Import audio"),
-                                (FileMode::ExportMidi, "Export MIDI"),
-                                (FileMode::ExportStems, "Export stems"),
-                                (FileMode::ExportWav, "Export WAV"),
-                                (FileMode::ExportMusicXml, "Export XML"),
-                            ] {
-                                if ui.button(label).clicked() {
-                                    self.choose_file(mode);
-                                    ui.close_menu();
-                                }
-                            }
-                            ui.separator();
-                            if ui.button("Settings").clicked() {
-                                self.open_panel(Panel::Settings);
-                                ui.close_menu();
-                            }
-                        });
-                    }
-                    if !self.recent.is_empty() {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new("RECENT")
-                                    .size(9.0)
-                                    .color(theme::text_dim()),
-                            );
-                            if ui.small_button("Clear").clicked() {
-                                match project::recent::clear(&self.recent_file) {
-                                    Ok(()) => {
-                                        self.recent.clear();
-                                        self.status = Some(String::from("recent list cleared"));
-                                    }
-                                    Err(error) => self.status = Some(error),
-                                }
-                            }
-                        });
-                        let entries = self.recent.clone();
-                        for entry in entries {
-                            let label = entry
-                                .file_name()
-                                .and_then(|name| name.to_str())
-                                .unwrap_or("project")
-                                .to_string();
-                            if ui
-                                .button(label)
-                                .on_hover_text(entry.display().to_string())
-                                .clicked()
-                            {
-                                self.open(&entry);
-                            }
-                        }
-                    }
-                    ui.horizontal_wrapped(|ui| {
-                        if ui
-                            .button("New")
-                            .on_hover_text("Start an empty project")
-                            .clicked()
-                        {
-                            self.replace_project(
-                                ProjectFile::new(project::song::Song::new("Untitled", 120.0)),
-                                "new project",
-                            );
-                        }
-                        if ui.button("Open project…").clicked() {
-                            self.choose_file(FileMode::Open);
-                        }
-                        if let Some(last) = self.settings.last_project.clone()
-                            && std::path::Path::new(&last).is_file()
-                        {
-                            let name = std::path::Path::new(&last)
-                                .file_name()
-                                .and_then(|name| name.to_str())
-                                .unwrap_or(&last);
-                            if ui.button(format!("Reopen {name}")).clicked() {
-                                self.open(&std::path::PathBuf::from(&last));
-                            }
-                        }
-                        if ui.button("Save").clicked() {
-                            if let Some(path) = self.project_path.clone() {
-                                self.save_to(path);
-                            } else {
-                                self.choose_file(FileMode::SaveAs);
-                            }
-                        }
-                        if ui.button("Save as…").clicked() {
-                            self.choose_file(FileMode::SaveAs);
-                        }
-                    });
-                });
-            });
+            .frame(egui::Frame::new().fill(theme::panel()))
+            .show(context, |ui| self.track_list(ui));
         if let Some(error) = self.load_error.clone() {
             egui::Window::new("Could not open project")
                 .collapsible(false)
@@ -851,91 +516,400 @@ impl ShellApp {
         }
     }
 
-    pub(super) fn track_row(&mut self, ui: &mut egui::Ui, row: &Row) {
+    /// TrackListView: a header with the count and +, the chord lane's
+    /// track, then one row per track lined up with its timeline lane.
+    fn track_list(&mut self, ui: &mut egui::Ui) {
+        use crate::timeline::{HEADER_HEIGHT, LANE_HEIGHT};
+        const CHORD_BAND: f32 = 22.0;
+        let panel = ui.max_rect();
+        // Claim the whole panel so it keeps its width.
+        ui.allocate_rect(panel, egui::Sense::hover());
+        let context = ui.ctx().clone();
+        let geometry = if self.view == View::Arrange {
+            crate::timeline::geometry(&context)
+        } else {
+            None
+        };
+        let header_bottom = geometry
+            .map_or(panel.top() + HEADER_HEIGHT, |g| g.top + HEADER_HEIGHT)
+            .clamp(panel.top() + HEADER_HEIGHT, panel.bottom());
+        // Header: "Tracks", a count badge and the add button.
+        let title_rect = egui::Rect::from_min_max(
+            panel.min,
+            egui::pos2(panel.right(), header_bottom - CHORD_BAND),
+        );
+        let painter = ui.painter().clone();
+        let title = painter.text(
+            egui::pos2(title_rect.left() + 14.0, title_rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            "Tracks",
+            theme::semibold(15.0),
+            theme::text(),
+        );
+        let count = self.song().tracks.len().to_string();
+        let badge_galley =
+            painter.layout_no_wrap(count, theme::semibold(11.0), theme::text_muted());
+        let badge = egui::Rect::from_min_size(
+            egui::pos2(title.right() + 8.0, title_rect.center().y - 9.0),
+            egui::vec2(badge_galley.size().x + 12.0, 18.0),
+        );
+        painter.rect_filled(badge, 0.0, theme::raised());
+        painter.galley(
+            badge.center() - badge_galley.size() / 2.0,
+            badge_galley,
+            theme::text_muted(),
+        );
+        let add = egui::Rect::from_center_size(
+            egui::pos2(title_rect.right() - 22.0, title_rect.center().y),
+            egui::vec2(22.0, 20.0),
+        );
+        if square_button(ui, add, "track-list-add", "+", false, theme::accent())
+            .on_hover_text("Add a track")
+            .clicked()
+        {
+            match self.editor.add_empty_track() {
+                Ok(id) => {
+                    self.roll.selected = Some(id);
+                    self.status = Some(String::from("track added"));
+                }
+                Err(error) => self.status = Some(error),
+            }
+        }
+        // The chord lane's track, beside the chord lane.
+        let chord_track = self
+            .roll
+            .selected
+            .and_then(|id| self.song().tracks.iter().find(|track| track.id == id))
+            .or_else(|| {
+                self.song()
+                    .tracks
+                    .iter()
+                    .max_by_key(|track| track.notes.len())
+            })
+            .map(|track| track.name.clone())
+            .unwrap_or_else(|| String::from("no track"));
+        let band = egui::Rect::from_min_max(
+            egui::pos2(panel.left(), header_bottom - CHORD_BAND),
+            egui::pos2(panel.right(), header_bottom),
+        );
+        painter.hline(
+            band.x_range(),
+            band.top(),
+            egui::Stroke::new(1.0_f32, theme::line()),
+        );
+        painter.text(
+            egui::pos2(band.left() + 14.0, band.center().y),
+            egui::Align2::LEFT_CENTER,
+            format!("Chord lane on {chord_track}"),
+            egui::FontId::proportional(11.0),
+            theme::text_dim(),
+        );
+        painter.hline(
+            band.x_range(),
+            band.bottom(),
+            egui::Stroke::new(1.0_f32, theme::line()),
+        );
+
+        // Kids Mode keeps its big buttons under the list.
+        let kids_height = if self.settings.kids_mode { 84.0 } else { 0.0 };
+        let list_bottom = geometry
+            .map_or(panel.bottom(), |g| g.bottom.min(panel.bottom()))
+            .min(panel.bottom() - kids_height)
+            .max(header_bottom);
+        let list_rect = egui::Rect::from_min_max(
+            egui::pos2(panel.left(), header_bottom),
+            egui::pos2(panel.right(), list_bottom),
+        );
+        // Rows follow the timeline's scroll; without a timeline the list
+        // scrolls on its own.
+        let own_offset_id = egui::Id::new("track-list-offset");
+        let rows_height = self.song().tracks.len() as f32 * LANE_HEIGHT;
+        let max_offset = (rows_height - list_rect.height()).max(0.0);
+        let own_offset = context
+            .data(|data| data.get_temp::<f32>(own_offset_id))
+            .unwrap_or(0.0)
+            .clamp(0.0, max_offset);
+        let lanes_top = geometry.map_or(list_rect.top() - own_offset, |g| g.lanes_top());
+        let list_response = ui.interact(
+            list_rect,
+            egui::Id::new("track-list-area"),
+            egui::Sense::hover(),
+        );
+        if list_response.hovered() {
+            let delta = ui.input(|input| input.smooth_scroll_delta.y);
+            if delta != 0.0 {
+                match geometry {
+                    Some(g) => crate::timeline::scroll_lanes_to(&context, g.offset - delta),
+                    None => context.data_mut(|data| {
+                        data.insert_temp(
+                            own_offset_id,
+                            (own_offset - delta).clamp(0.0, max_offset),
+                        );
+                    }),
+                }
+            }
+        }
+        let rows: Vec<Row> = self
+            .song()
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(index, track)| Row {
+                index,
+                id: track.id,
+                name: track.name.clone(),
+                notes: track.notes.len(),
+                program: track.program,
+                audio: track.audio.is_some(),
+                muted: track.muted,
+                soloed: track.soloed,
+                armed: track.armed,
+            })
+            .collect();
+        let mut list = ui.new_child(egui::UiBuilder::new().max_rect(list_rect));
+        list.set_clip_rect(list_rect.intersect(ui.clip_rect()));
+        if rows.is_empty() {
+            list.painter().text(
+                egui::pos2(list_rect.left() + 14.0, list_rect.top() + 20.0),
+                egui::Align2::LEFT_CENTER,
+                "no tracks",
+                egui::FontId::proportional(12.0),
+                theme::text_dim(),
+            );
+        }
+        for row in rows {
+            let rect = egui::Rect::from_min_size(
+                egui::pos2(list_rect.left(), lanes_top + row.index as f32 * LANE_HEIGHT),
+                egui::vec2(list_rect.width(), LANE_HEIGHT),
+            );
+            if rect.intersects(list_rect) {
+                self.track_row(&mut list, rect, &row);
+            }
+        }
+        if self.settings.kids_mode {
+            let bottom = egui::Rect::from_min_max(
+                egui::pos2(panel.left() + 8.0, panel.bottom() - kids_height),
+                egui::pos2(panel.right() - 8.0, panel.bottom() - 4.0),
+            );
+            let mut kids = ui.new_child(egui::UiBuilder::new().max_rect(bottom));
+            kids.horizontal(|ui| {
+                let size = egui::Vec2::new(74.0, 30.0);
+                if ui.add_sized(size, egui::Button::new("Undo")).clicked() {
+                    let _ = self.editor.undo();
+                }
+                if ui.add_sized(size, egui::Button::new("Redo")).clicked() {
+                    let _ = self.editor.redo();
+                }
+                let play = if self.playing { "Pause" } else { "Play" };
+                if ui.add_sized(size, egui::Button::new(play)).clicked() {
+                    self.toggle_playback();
+                }
+                if ui.add_sized(size, egui::Button::new("Stop")).clicked() {
+                    self.stop_playback();
+                }
+            });
+            kids.horizontal(|ui| {
+                if ui.button("Settings").clicked() {
+                    self.settings_open = true;
+                }
+                if ui.button("Lessons").clicked() {
+                    self.lessons_open = true;
+                }
+                if ui.button("Theory").clicked() {
+                    self.theory_open = true;
+                }
+            });
+        }
+    }
+
+    /// TrackRowComponent: colour bar, instrument icon, name and sound, and
+    /// square M S R buttons, one lane high.
+    pub(super) fn track_row(&mut self, ui: &mut egui::Ui, rect: egui::Rect, row: &Row) {
         let selected = self.roll.selected == Some(row.id);
         let colour = theme::track_colour(row.index);
-        let mut flags_changed = false;
-        let response = egui::Frame::new()
-            .fill(if selected {
-                theme::raised()
+        let response = ui.interact(
+            rect,
+            egui::Id::new(("track-row", row.id)),
+            egui::Sense::click(),
+        );
+        let painter = ui.painter().clone();
+        if selected {
+            painter.rect_filled(rect, 0.0, theme::raised());
+            painter.rect_filled(
+                egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height())),
+                0.0,
+                colour,
+            );
+        } else if response.hovered() {
+            painter.rect_filled(rect, 0.0, theme::raised().gamma_multiply(0.5));
+        }
+        painter.hline(
+            rect.x_range(),
+            rect.bottom() - 0.5,
+            egui::Stroke::new(1.0_f32, theme::line()),
+        );
+        painter.rect_filled(
+            egui::Rect::from_min_max(
+                egui::pos2(rect.left() + 14.0, rect.top() + 10.0),
+                egui::pos2(rect.left() + 17.0, rect.bottom() - 10.0),
+            ),
+            0.0,
+            colour,
+        );
+        let icon = egui::Rect::from_center_size(
+            egui::pos2(rect.left() + 40.0, rect.center().y),
+            egui::vec2(26.0, 26.0),
+        );
+        draw_track_icon(ui, icon, &row.name, row.program, row.audio, colour);
+        // M S R, right-aligned.
+        let size = egui::vec2(24.0, 24.0);
+        let mut x = rect.right() - 10.0 - size.x;
+        let mut flags_clicked = false;
+        let buttons = [
+            ("R", row.armed, theme::recording(), "Record-arm this track"),
+            ("S", row.soloed, theme::warning(), "Solo"),
+            ("M", row.muted, theme::accent(), "Mute"),
+        ];
+        let mut text_right = rect.right();
+        for (label, on, active, tip) in buttons {
+            let button =
+                egui::Rect::from_min_size(egui::pos2(x, rect.center().y - size.y / 2.0), size);
+            text_right = button.left() - 6.0;
+            if square_button(ui, button, ("track-flag", row.id, label), label, on, active)
+                .on_hover_text(tip)
+                .clicked()
+            {
+                flags_clicked = true;
+                let _ = match label {
+                    "R" => self
+                        .editor
+                        .set_track_flags(row.id, row.muted, row.soloed, !row.armed),
+                    "S" => self
+                        .editor
+                        .set_track_flags(row.id, row.muted, !row.soloed, false),
+                    _ => self
+                        .editor
+                        .set_track_flags(row.id, !row.muted, row.soloed, false),
+                };
+            }
+            x -= size.x + 4.0;
+        }
+        // Name and sound, cut with an ellipsis to fit.
+        let text_left = rect.left() + 62.0;
+        let width = (text_right - text_left).max(10.0);
+        let name = if row.name.is_empty() {
+            "untitled"
+        } else {
+            row.name.as_str()
+        };
+        let detail = if row.name.to_ascii_lowercase().contains("drum") {
+            String::from("Electronic Kit")
+        } else if let Some(program) = row.program {
+            format!("SoundFont · {}", midi_devices::programs::name(program))
+        } else {
+            format!("SoundFont · {} notes", row.notes)
+        };
+        let line = |text: &str, font: egui::FontId, colour: egui::Color32| {
+            let mut job = egui::text::LayoutJob::single_section(
+                text.to_string(),
+                egui::TextFormat::simple(font, colour),
+            );
+            job.wrap = egui::text::TextWrapping::truncate_at_width(width);
+            ui.fonts(|fonts| fonts.layout_job(job))
+        };
+        let name_galley = line(
+            name,
+            theme::semibold(14.0),
+            if selected {
+                theme::text()
             } else {
-                egui::Color32::TRANSPARENT
-            })
-            .inner_margin(egui::Margin::symmetric(2, 2))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let (rect, _) =
-                        ui.allocate_exact_size(egui::vec2(6.0, 60.0), egui::Sense::hover());
-                    ui.painter().rect_filled(rect, 0.0, colour);
-                    let (icon_rect, _) =
-                        ui.allocate_exact_size(egui::vec2(28.0, 34.0), egui::Sense::hover());
-                    draw_track_icon(ui, icon_rect, &row.name, row.program, row.audio, colour);
-                    ui.allocate_ui_with_layout(
-                        egui::vec2((ui.available_width() - 62.0).max(40.0), 60.0),
-                        egui::Layout::top_down(egui::Align::LEFT),
-                        |ui| {
-                            let name = if row.name.is_empty() {
-                                "untitled"
-                            } else {
-                                row.name.as_str()
-                            };
-                            ui.label(egui::RichText::new(name).size(12.0).color(if selected {
-                                theme::text()
-                            } else {
-                                theme::text_muted()
-                            }));
-                            let detail = if row.name.to_ascii_lowercase().contains("drum") {
-                                String::from("Electronic Kit")
-                            } else if let Some(program) = row.program {
-                                format!("SoundFont · {}", midi_devices::programs::name(program))
-                            } else {
-                                format!("SoundFont · {} notes", row.notes)
-                            };
-                            ui.label(
-                                egui::RichText::new(detail)
-                                    .size(9.0)
-                                    .color(theme::text_dim()),
-                            );
-                        },
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .selectable_label(row.armed, "R")
-                            .on_hover_text("Record-arm this track")
-                            .clicked()
-                        {
-                            flags_changed = true;
-                            let _ = self
-                                .editor
-                                .set_track_flags(row.id, row.muted, row.soloed, !row.armed);
-                        }
-                        if ui
-                            .selectable_label(row.soloed, "S")
-                            .on_hover_text("Solo")
-                            .clicked()
-                        {
-                            flags_changed = true;
-                            let _ =
-                                self.editor
-                                    .set_track_flags(row.id, row.muted, !row.soloed, false);
-                        }
-                        if ui
-                            .selectable_label(row.muted, "M")
-                            .on_hover_text("Mute")
-                            .clicked()
-                        {
-                            flags_changed = true;
-                            let _ = self
-                                .editor
-                                .set_track_flags(row.id, !row.muted, row.soloed, false);
-                        }
-                    });
-                });
-            })
-            .response;
-        if !flags_changed && response.interact(egui::Sense::click()).clicked() {
+                theme::text_muted()
+            },
+        );
+        let detail_galley = line(&detail, egui::FontId::proportional(11.0), theme::text_dim());
+        painter.galley(
+            egui::pos2(text_left, rect.center().y - name_galley.size().y),
+            name_galley,
+            theme::text(),
+        );
+        painter.galley(
+            egui::pos2(text_left, rect.center().y + 2.0),
+            detail_galley,
+            theme::text_dim(),
+        );
+        if !flags_clicked && response.clicked() {
             self.roll.selected = if selected { None } else { Some(row.id) };
         }
+        response.context_menu(|ui| {
+            if ui.button("Add clip at playhead").clicked() {
+                self.pending_clip_add = Some((
+                    row.id,
+                    self.position.max(0),
+                    self.song().time_signature.bar_ticks().max(1),
+                ));
+                ui.close_menu();
+            }
+        });
+    }
+
+    /// Starts an audio take on the armed track, after the count-in.
+    pub(super) fn start_audio_recording(&mut self) {
+        if self.audio_recording.is_some() {
+            return;
+        }
+        let folder = crate::settings::Settings::data_dir().join("audio");
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let path = folder.join(format!("take-{stamp}.wav"));
+        let _ = std::fs::create_dir_all(&folder);
+        let seconds = self.audio_record_seconds;
+        let start = self.position.max(0);
+        let input = self.settings.audio_input.clone();
+        let input_channel = (self.settings.audio_input_channel > 0)
+            .then_some(usize::from(self.settings.audio_input_channel - 1));
+        let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
+        let meter = self.song().time_signature;
+        let count_in = self.settings.record_count_in;
+        let delay = count_in_seconds(bpm, count_in, meter);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            if delay > 0.0 {
+                if let Ok(player) = audio::player::Player::new(count_in_audio(bpm, count_in, meter))
+                {
+                    player.play();
+                    std::thread::sleep(std::time::Duration::from_secs_f64(delay));
+                    player.release();
+                } else {
+                    std::thread::sleep(std::time::Duration::from_secs_f64(delay));
+                }
+            }
+            let result = audio::record::record_seconds_from_channel(
+                input.as_deref(),
+                input_channel,
+                seconds,
+            )
+            .and_then(|rendered| {
+                std::fs::write(&path, rendered.to_wav24())
+                    .map_err(|error| format!("{}: {error}", path.display()))
+            })
+            .map(|()| path);
+            let _ = sender.send(result);
+        });
+        self.audio_recording = Some(receiver);
+        self.audio_record_start = start;
+        self.audio_record_target = self
+            .song()
+            .tracks
+            .iter()
+            .find(|track| track.armed)
+            .map(|track| track.id);
+        self.status = Some(if count_in == 0 {
+            format!("recording {:.1} s of audio", seconds)
+        } else {
+            format!("count-in {count_in} bar(s), then {seconds:.1} s audio")
+        });
     }
 
     pub(super) fn status_bar(&mut self, context: &Context) {
@@ -1461,6 +1435,49 @@ impl ShellApp {
                             }
                         });
                     }
+                    widgets::section_label(ui, "Recording", 32.0);
+                    ui.horizontal(|ui| {
+                        let label = if self.recording.is_some() {
+                            "Recording…"
+                        } else {
+                            "Record MIDI"
+                        };
+                        if ui.button(label).clicked() && self.recording.is_none() {
+                            self.start_midi_recording();
+                        }
+                        ui.add(
+                            egui::DragValue::new(&mut self.record_seconds)
+                                .range(1.0..=60.0)
+                                .suffix(" s"),
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        let label = if self.audio_recording.is_some() {
+                            "Recording audio…"
+                        } else {
+                            "Record audio"
+                        };
+                        if ui
+                            .add_enabled(self.audio_recording.is_none(), egui::Button::new(label))
+                            .on_hover_text("Records into the armed track")
+                            .clicked()
+                        {
+                            self.start_audio_recording();
+                        }
+                        ui.add(
+                            egui::DragValue::new(&mut self.audio_record_seconds)
+                                .range(1.0..=60.0)
+                                .suffix(" s"),
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Count-in").size(13.0).color(theme::text_muted()));
+                        ui.add(
+                            egui::DragValue::new(&mut self.settings.record_count_in)
+                                .range(0..=2)
+                                .suffix(" bar"),
+                        );
+                    });
                 });
                 let chat_rect = egui::Rect::from_min_max(
                     egui::pos2(full.left(), full.bottom() - chat_height),
@@ -3932,22 +3949,6 @@ impl ShellApp {
                                 );
                             }
                         }
-                        if timeline_mode {
-                            ui.horizontal(|ui| {
-                                if let Some(track) = roll.selected
-                                    && ui
-                                        .button("Add clip")
-                                        .on_hover_text("Add a one-bar clip at the playhead")
-                                        .clicked()
-                                {
-                                    self.pending_clip_add = Some((
-                                        track,
-                                        position,
-                                        project.song.time_signature.bar_ticks().max(1),
-                                    ));
-                                }
-                            });
-                        }
                         let selected_clips = self.selected_clips.clone();
                         let (outcome, timeline_track, clip_edit) = if timeline_mode {
                             crate::timeline::show(
@@ -5007,4 +5008,44 @@ pub(super) fn toolbar_child(ui: &mut egui::Ui, rect: egui::Rect) -> egui::Ui {
 /// The clip in one Loops slot.
 fn track_slot(song: &Song, track: TrackId, scene: usize) -> Option<&project::song::SlotClip> {
     arranging::loops::slot(song, track, scene)
+}
+
+/// A square, bordered button like v1's track row buttons; `on` fills it with
+/// `active`.
+fn square_button(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    id: impl std::hash::Hash,
+    label: &str,
+    on: bool,
+    active: egui::Color32,
+) -> egui::Response {
+    let response = ui.interact(rect, egui::Id::new(id), egui::Sense::click());
+    let painter = ui.painter();
+    let fill = if on {
+        active
+    } else if response.hovered() {
+        theme::raised()
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    painter.rect_filled(rect, 0.0, fill);
+    painter.rect_stroke(
+        rect,
+        0.0,
+        egui::Stroke::new(1.0_f32, if on { active } else { theme::line_strong() }),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        theme::semibold(12.0),
+        if on {
+            theme::accent_text()
+        } else {
+            theme::text_muted()
+        },
+    );
+    response
 }
