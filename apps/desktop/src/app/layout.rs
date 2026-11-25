@@ -1931,7 +1931,23 @@ impl ShellApp {
         let scenes = song.scene_count();
         let bar = song.time_signature.bar_ticks().max(1);
         let selected_track = self.roll.selected;
-        let (full, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+        if self
+            .slot_edit
+            .is_some_and(|(scene, track)| track_slot(&song, track, scene).is_none())
+        {
+            self.slot_edit = None;
+        }
+        // MainComponent: the editor docks under the view, 45% of the height.
+        let total = ui.available_height();
+        let editor_height = if self.slot_edit.is_some() {
+            (total * 0.45).clamp(240.0_f32.min(total / 2.0), 520.0)
+        } else {
+            0.0
+        };
+        let (full, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), total - editor_height),
+            egui::Sense::hover(),
+        );
         let mut changed = false;
 
         // Header: title, Loops start, From Timeline, Record to Timeline, Stop all.
@@ -2074,6 +2090,7 @@ impl ShellApp {
         }
         enum SlotAction {
             New,
+            Edit,
             Rename,
             Length(Tick),
             CopyToTimeline,
@@ -2248,7 +2265,7 @@ impl ShellApp {
                     if clip.is_none() {
                         slot_action = Some((scene, track.id, SlotAction::New));
                     } else {
-                        slot_action = Some((scene, track.id, SlotAction::Rename));
+                        slot_action = Some((scene, track.id, SlotAction::Edit));
                     }
                 } else if response.clicked() {
                     self.chosen_slot = Some((scene, track.id));
@@ -2293,6 +2310,9 @@ impl ShellApp {
                             self.launcher.toggle(track, scene);
                             changed = true;
                             ui.close_menu();
+                        }
+                        if pick(ui, "Edit notes", true) {
+                            slot_action = Some((scene, track, SlotAction::Edit));
                         }
                         if pick(ui, "Rename", true) {
                             slot_action = Some((scene, track, SlotAction::Rename));
@@ -2521,7 +2541,12 @@ impl ShellApp {
             let result = match action {
                 SlotAction::New => self.editor.new_slot(scene, track, bar).map(|()| {
                     let _ = self.editor.rename_slot(scene, track, "Clip");
+                    self.open_slot_editor(scene, track);
                 }),
+                SlotAction::Edit => {
+                    self.open_slot_editor(scene, track);
+                    Ok(())
+                }
                 SlotAction::Rename => {
                     self.rename_slot = Some((scene, track));
                     self.rename_scene_input = clip.map(|clip| clip.name).unwrap_or_default();
@@ -2580,7 +2605,189 @@ impl ShellApp {
         if changed {
             self.loops_changed();
         }
+        if self.slot_edit.is_some() {
+            self.slot_editor(ui);
+        }
         self.loops_dialogs(ui);
+    }
+
+    /// Opens a Loops clip in the docked piano roll.
+    fn open_slot_editor(&mut self, scene: usize, track: TrackId) {
+        self.slot_edit = Some((scene, track));
+        self.slot_roll.fitted = None;
+        self.slot_note = None;
+        self.chosen_slot = Some((scene, track));
+    }
+
+    /// The piano roll docked under the Loops grid, editing one clip's notes.
+    /// Notes are measured from the clip start; each change is one undo step.
+    fn slot_editor(&mut self, ui: &mut egui::Ui) {
+        let Some((scene, track_id)) = self.slot_edit else {
+            return;
+        };
+        let song = self.song().clone();
+        let Some(index) = song.tracks.iter().position(|track| track.id == track_id) else {
+            self.slot_edit = None;
+            return;
+        };
+        let Some(clip) = song.tracks[index].slot(scene).cloned() else {
+            self.slot_edit = None;
+            return;
+        };
+        // A one-track song holding the clip, so the roll draws it unchanged.
+        let mut view = song.clone();
+        let channel = song.tracks[index]
+            .notes
+            .first()
+            .or(clip.notes.first())
+            .map_or_else(music_core::Channel::first, |note| note.channel);
+        let mut track = view.tracks[index].clone();
+        track.notes = clip.notes.clone();
+        track.clips = Vec::new();
+        view.tracks = vec![track];
+        view.chords.clear();
+        view.lyrics.clear();
+        view.markers.clear();
+        let since = self.launcher.since.get(&track_id).copied();
+        let playhead = match since {
+            Some(since) if self.launcher.playing.get(&track_id) == Some(&scene) => {
+                (self.position - since).rem_euclid(clip.length.max(1))
+            }
+            _ => -1,
+        };
+
+        let (line, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+        ui.painter().rect_filled(line, 0.0, theme::line_strong());
+        let (bar, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 36.0), egui::Sense::hover());
+        let mut bar_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(bar.shrink2(egui::vec2(12.0, 3.0)))
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        theme::v1_fields(bar_ui.visuals_mut());
+        let (dot, _) = bar_ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+        bar_ui
+            .painter()
+            .circle_filled(dot.center(), 5.0, theme::track_colour(index));
+        let name = if clip.name.is_empty() {
+            "Clip"
+        } else {
+            clip.name.as_str()
+        };
+        bar_ui.label(
+            egui::RichText::new(name)
+                .font(theme::semibold(14.0))
+                .color(theme::text()),
+        );
+        bar_ui.add_space(24.0);
+        bar_ui.label(
+            egui::RichText::new(format!(
+                "{} \u{b7} {} \u{b7} {} notes",
+                song.tracks[index].name,
+                song.scene_name(scene),
+                clip.notes.len()
+            ))
+            .size(12.0)
+            .color(theme::text_muted()),
+        );
+        let mut close = false;
+        bar_ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            close = ui
+                .add_sized([64.0, 28.0], egui::Button::new("Close"))
+                .on_hover_text("Close the piano roll")
+                .clicked();
+            ui.add_space(4.0);
+            egui::ComboBox::from_id_salt("slot-roll-grid")
+                .selected_text(if self.slot_roll.snap { "1/16" } else { "Off" })
+                .width(72.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.slot_roll.snap, true, "1/16");
+                    ui.selectable_value(&mut self.slot_roll.snap, false, "Off");
+                });
+        });
+        if close {
+            self.slot_edit = None;
+            return;
+        }
+
+        self.slot_roll.selected = Some(track_id);
+        if self.slot_roll.fitted != Some(track_id) {
+            self.slot_roll
+                .fit(&view, track_id, ui.available_width() - 60.0);
+        }
+        let outcome = crate::piano_roll::show(ui, &view, &mut self.slot_roll, playhead, &[]);
+        self.slot_roll.band = None;
+
+        let mut notes = clip.notes.clone();
+        let mut dirty = false;
+        if let Some(click) = outcome.click {
+            if let Some((_, note)) = click.note {
+                self.slot_note = Some(note);
+            } else if let Ok(pitch) = music_core::Pitch::new(click.pitch) {
+                let start = if self.slot_roll.snap {
+                    (click.tick.max(0) / (PPQ / 4)) * (PPQ / 4)
+                } else {
+                    click.tick.max(0)
+                };
+                if start < clip.length {
+                    let id = notes.iter().map(|note| note.id.get()).max().unwrap_or(0) + 1;
+                    if let Ok(id) = project::NoteId::new(id)
+                        && let Ok(velocity) = music_core::Velocity::new(100)
+                    {
+                        notes.push(project::song::Note {
+                            id,
+                            start,
+                            duration: PPQ.min(clip.length - start),
+                            pitch,
+                            velocity,
+                            channel,
+                        });
+                        self.slot_note = Some(id);
+                        dirty = true;
+                    }
+                }
+            }
+        }
+        if let Some(edit) = outcome.edit
+            && let Some(note) = notes.iter_mut().find(|note| note.id == edit.note)
+        {
+            match edit.mode {
+                crate::piano_roll::DragMode::Resize => note.duration = edit.duration.max(1),
+                crate::piano_roll::DragMode::Move => {
+                    if let Ok(pitch) = music_core::Pitch::new(edit.pitch) {
+                        note.pitch = pitch;
+                    }
+                    note.start = edit.start.clamp(0, clip.length - 1);
+                }
+            }
+            dirty = true;
+        }
+        if let Some((_, id, velocity)) = outcome.velocity
+            && let Some(note) = notes.iter_mut().find(|note| note.id == id)
+            && let Ok(velocity) = music_core::Velocity::new(velocity.clamp(1, 127))
+        {
+            note.velocity = velocity;
+            dirty = true;
+        }
+        if let Some(pitch) = outcome.preview {
+            self.preview_pitch(pitch);
+        }
+        if let Some(selected) = self.slot_note
+            && !ui.ctx().wants_keyboard_input()
+            && ui.input_mut(|input| {
+                input.consume_key(egui::Modifiers::NONE, egui::Key::Delete)
+                    || input.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)
+            })
+        {
+            notes.retain(|note| note.id != selected);
+            self.slot_note = None;
+            dirty = true;
+        }
+        if dirty && let Err(error) = self.editor.set_slot_notes(scene, track_id, notes) {
+            self.status = Some(error);
+        }
     }
 
     /// The Loops view's dialogs: From Timeline, rename a scene or a clip.

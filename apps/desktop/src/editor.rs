@@ -736,6 +736,23 @@ impl Editor {
         Ok(())
     }
 
+    /// Replaces the notes of one Loops slot clip.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn set_slot_notes(
+        &mut self,
+        scene: usize,
+        track: TrackId,
+        notes: Vec<project::song::Note>,
+    ) -> Result<(), String> {
+        arranging::loops::set_slot_notes(&mut self.session, track, scene, notes)
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Renames one Loops slot clip.
     ///
     /// # Errors
