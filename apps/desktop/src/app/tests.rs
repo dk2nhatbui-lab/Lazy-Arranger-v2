@@ -990,3 +990,147 @@ fn playhead_ticks_stay_accurate_at_44100_hz() {
     assert!((playback.seconds() - 2.0).abs() < 1.0e-9);
     assert_eq!(tempo_map.tick_at_seconds(playback.seconds()), 3840);
 }
+
+fn menu_items(menus: &[menu::Menu]) -> Vec<(menu::MenuCommand, String)> {
+    fn walk(entries: &[menu::MenuEntry], out: &mut Vec<(menu::MenuCommand, String)>) {
+        for entry in entries {
+            match entry {
+                menu::MenuEntry::Item { command, label, .. } => out.push((*command, label.clone())),
+                menu::MenuEntry::Submenu { entries, .. } => walk(entries, out),
+                menu::MenuEntry::Separator => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for menu in menus {
+        walk(&menu.entries, &mut out);
+    }
+    out
+}
+
+#[test]
+fn the_menu_bar_has_the_usual_menus() {
+    let context = egui::Context::default();
+    let app = ShellApp::new(&context, demo_project(), None);
+    let titles: Vec<&str> = app
+        .menu_model(false)
+        .iter()
+        .map(|menu| menu.title)
+        .collect();
+    assert_eq!(
+        titles,
+        ["File", "Edit", "Transport", "View", "Window", "Help"]
+    );
+    let drawn = menu_items(&app.menu_model(false));
+    assert!(
+        drawn
+            .iter()
+            .any(|(command, _)| *command == menu::MenuCommand::Quit)
+    );
+    // The macOS app menu holds Settings, About and Quit instead.
+    let native = menu_items(&app.menu_model(true));
+    for command in [
+        menu::MenuCommand::Quit,
+        menu::MenuCommand::Show(menu::Panel::Settings),
+        menu::MenuCommand::Show(menu::Panel::About),
+    ] {
+        assert!(!native.iter().any(|(other, _)| *other == command));
+    }
+}
+
+#[test]
+fn every_window_in_the_window_menu_opens() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    for group in menu::WINDOW_GROUPS {
+        for (panel, label) in *group {
+            app.open_panel(*panel);
+            assert!(!label.is_empty());
+        }
+    }
+    assert!(app.inspector_open && app.library_open && app.theory_open && app.groove_open);
+    assert!(app.l6max.mixer_open && app.d05.open && app.psr.open && app.style.file_open);
+}
+
+#[test]
+fn menu_commands_change_the_app() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let looped = app.loop_enabled;
+    app.run_menu_command(&context, menu::MenuCommand::Loop);
+    assert_ne!(app.loop_enabled, looped);
+    assert!(app.loop_region.is_some());
+
+    app.settings.kids_mode = false;
+    app.run_menu_command(&context, menu::MenuCommand::ShowView(View::Score));
+    assert_eq!(app.view, View::Score);
+    app.run_menu_command(&context, menu::MenuCommand::KidsMode);
+    assert_eq!(app.view, View::Perform);
+    // Kids Mode does not offer the score.
+    app.run_menu_command(&context, menu::MenuCommand::ShowView(View::Score));
+    assert_eq!(app.view, View::Perform);
+    app.run_menu_command(&context, menu::MenuCommand::KidsMode);
+    assert!(!app.settings.kids_mode);
+}
+
+#[test]
+fn edit_menu_items_send_their_key_press() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    app.run_menu_command(&context, menu::MenuCommand::Copy);
+    let mut raw = egui::RawInput::default();
+    app.feed_menu_input(&mut raw);
+    assert!(raw.events.iter().any(|event| matches!(
+        event,
+        egui::Event::Key {
+            key: egui::Key::C,
+            pressed: true,
+            modifiers,
+            ..
+        } if modifiers.command
+    )));
+    assert!(raw.events.contains(&egui::Event::Copy));
+    // The queue empties once fed.
+    let mut again = egui::RawInput::default();
+    app.feed_menu_input(&mut again);
+    assert!(again.events.is_empty());
+}
+
+#[test]
+fn undo_is_greyed_out_until_there_is_something_to_undo() {
+    let context = egui::Context::default();
+    let app = ShellApp::new(&context, demo_project(), None);
+    let menus = app.menu_model(false);
+    let edit = menus
+        .iter()
+        .find(|menu| menu.title == "Edit")
+        .expect("edit");
+    let undo = edit.entries.iter().find_map(|entry| match entry {
+        menu::MenuEntry::Item {
+            command: menu::MenuCommand::Undo,
+            enabled,
+            ..
+        } => Some(*enabled),
+        _ => None,
+    });
+    assert_eq!(undo, Some(app.editor.undo_depth() > 0));
+}
+
+#[test]
+fn a_cpp_app_project_opens_as_an_import() {
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/legacy-cpp-v3.arranger");
+    assert_eq!(project_kind(&fixture), ProjectKind::Json);
+    assert_eq!(file_kind(&fixture), ProjectKind::CppProject);
+    let project = load_project(&fixture).expect("the C++ project imports");
+    assert!(!project.song.tracks.is_empty());
+    // Opening it must not let Save write over the C++ file.
+    let (_, path, error) = load_startup_project(Some(&fixture));
+    assert!(error.is_none());
+    assert!(path.is_none());
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    app.open(&fixture);
+    assert!(app.load_error.is_none());
+    assert!(app.project_path.is_none());
+}

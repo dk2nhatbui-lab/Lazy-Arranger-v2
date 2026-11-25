@@ -59,6 +59,12 @@ impl Editor {
         self.session.undo_depth()
     }
 
+    /// Number of redo steps.
+    #[must_use]
+    pub fn redo_depth(&self) -> usize {
+        self.session.redo_depth()
+    }
+
     /// Inserts one note of one beat at a snapped tick.
     ///
     /// # Errors
