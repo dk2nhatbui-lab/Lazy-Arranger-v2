@@ -4,6 +4,57 @@
 use super::timeline_menu::TimelineAction;
 use super::*;
 
+/// Track list width limits (MainComponent `kLeftPanelMin`, 520 pt).
+const TRACK_LIST_MIN: f32 = 140.0;
+const TRACK_LIST_MAX: f32 = 520.0;
+/// Inspector width limits (MainComponent::setSidePanelWidth).
+const INSPECTOR_MIN: f32 = 280.0;
+const INSPECTOR_MAX: f32 = 560.0;
+/// AI chat height limits, and the inspector room it leaves above.
+const AI_PANEL_MIN: f32 = 110.0;
+const AI_PANEL_MAX: f32 = 600.0;
+const INSPECTOR_MIN_HEIGHT: f32 = 160.0;
+/// Width of a seam's drag bar; it straddles the seam, half on each side.
+const SEAM_HANDLE: f32 = 8.0;
+
+/// A panel seam with a drag bar on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Seam {
+    /// The right edge of the track list.
+    TrackList,
+    /// The left edge of the inspector.
+    Inspector,
+}
+
+impl Seam {
+    fn id(self) -> egui::Id {
+        egui::Id::new(("panel-seam", self as u8))
+    }
+
+    /// Notes where the panel drew this pass, and its widest width, for
+    /// [`ShellApp::panel_handles`].
+    fn place(self, context: &Context, panel: egui::Rect, most: f32) {
+        let x = match self {
+            Self::TrackList => panel.right(),
+            Self::Inspector => panel.left(),
+        };
+        let bar = egui::Rect::from_x_y_ranges(
+            x - SEAM_HANDLE / 2.0..=x + SEAM_HANDLE / 2.0,
+            panel.y_range(),
+        );
+        context.data_mut(|data| data.insert_temp(self.id(), (bar, most)));
+    }
+
+    /// The width after dragging the seam `moved` points to the right, from
+    /// `start`: the track list grows, the inspector shrinks.
+    fn dragged(self, start: f32, moved: f32) -> f32 {
+        match self {
+            Self::TrackList => start + moved,
+            Self::Inspector => start - moved,
+        }
+    }
+}
+
 /// The score view: note entry, paging, zoom and full-score options.
 pub(super) struct ScoreUi {
     pub(super) entry: bool,
@@ -414,16 +465,25 @@ impl ShellApp {
                 }
 
                 for (button, glyph, factor, hint) in [
-                    (minus_rect, "-", 1.2_f32, "Zoom out in time"),
-                    (plus_rect, "+", 1.0 / 1.2, "Zoom in in time"),
+                    (minus_rect, "-", 1.2_f32, "Zoom out in time (Cmd/Ctrl+wheel)"),
+                    (plus_rect, "+", 1.0 / 1.2, "Zoom in in time (Cmd/Ctrl+wheel)"),
                 ] {
                     if widgets::text_button(ui, button, glyph, glyph, false)
                         .on_hover_text(hint)
                         .clicked()
                     {
-                        if self.view == View::Arrange && self.timeline_mode {
-                            self.timeline_zoom = (self.timeline_zoom * factor).clamp(0.5, 3.0);
-                        } else {
+                        if self.view == View::Arrange {
+                            // The factor is in ticks per point; the timeline
+                            // zoom is the other way round.
+                            self.timeline_zoom = crate::timeline::Zoom {
+                                time: self.timeline_zoom.time / factor,
+                                ..self.timeline_zoom
+                            }
+                            .clamped();
+                        }
+                        if self.view == View::Drums {
+                            self.drums.zoom_by(1.0 / factor);
+                        } else if !(self.view == View::Arrange && self.timeline_mode) {
                             self.roll.ticks_per_point =
                                 (self.roll.ticks_per_point * factor).clamp(2.0, 64.0);
                         }
@@ -499,12 +559,19 @@ impl ShellApp {
         ) {
             return;
         }
-        egui::SidePanel::left("tracks")
-            .resizable(true)
-            .default_width(theme::SIDEBAR_WIDTH)
-            .width_range(180.0..=420.0)
+        // MainComponent::setLeftPanelWidth: 140 pt up to 520 pt, leaving
+        // the timeline at least 360 pt.
+        let most = (context.screen_rect().width() - self.settings.inspector_width - 360.0)
+            .clamp(TRACK_LIST_MIN, TRACK_LIST_MAX);
+        // The width comes from the settings; `panel_handles` drags it.
+        let width = self.settings.track_list_width.clamp(TRACK_LIST_MIN, most);
+        let panel = egui::SidePanel::left("tracks")
+            .resizable(false)
+            .show_separator_line(false)
+            .exact_width(width)
             .frame(egui::Frame::new().fill(theme::panel()))
             .show(context, |ui| self.track_list(ui));
+        Seam::TrackList.place(context, panel.response.rect, most);
         if let Some(error) = self.load_error.clone() {
             egui::Window::new("Could not open project")
                 .collapsible(false)
@@ -520,7 +587,7 @@ impl ShellApp {
     /// TrackListView: a header with the count and +, the chord lane's
     /// track, then one row per track lined up with its timeline lane.
     fn track_list(&mut self, ui: &mut egui::Ui) {
-        use crate::timeline::{HEADER_HEIGHT, LANE_HEIGHT};
+        use crate::timeline::HEADER_HEIGHT;
         const CHORD_BAND: f32 = 22.0;
         let panel = ui.max_rect();
         // Claim the whole panel so it keeps its width.
@@ -624,7 +691,8 @@ impl ShellApp {
         // Rows follow the timeline's scroll; without a timeline the list
         // scrolls on its own.
         let own_offset_id = egui::Id::new("track-list-offset");
-        let rows_height = self.song().tracks.len() as f32 * LANE_HEIGHT;
+        let lane_height = geometry.map_or(self.timeline_zoom.lane, |g| g.lane);
+        let rows_height = self.song().tracks.len() as f32 * lane_height;
         let max_offset = (rows_height - list_rect.height()).max(0.0);
         let own_offset = context
             .data(|data| data.get_temp::<f32>(own_offset_id))
@@ -637,6 +705,11 @@ impl ShellApp {
             egui::Sense::hover(),
         );
         if list_response.hovered() {
+            // TrackList::mouseWheelMove: Cmd/Ctrl+Shift+wheel zooms the
+            // track height.
+            if let Some(factor) = crate::timeline::lane_wheel_factor(ui) {
+                crate::timeline::zoom_lanes(&context, factor);
+            }
             let delta = ui.input(|input| input.smooth_scroll_delta.y);
             if delta != 0.0 {
                 match geometry {
@@ -680,8 +753,8 @@ impl ShellApp {
         }
         for row in rows {
             let rect = egui::Rect::from_min_size(
-                egui::pos2(list_rect.left(), lanes_top + row.index as f32 * LANE_HEIGHT),
-                egui::vec2(list_rect.width(), LANE_HEIGHT),
+                egui::pos2(list_rect.left(), lanes_top + row.index as f32 * lane_height),
+                egui::vec2(list_rect.width(), lane_height),
             );
             if rect.intersects(list_rect) {
                 self.track_row(&mut list, rect, &row);
@@ -1069,10 +1142,14 @@ impl ShellApp {
                 .cloned()
         });
         let held_chord = self.midi_chord.clone();
-        egui::SidePanel::right("right-inspector")
-            .resizable(true)
-            .default_width(theme::INSPECTOR_WIDTH)
-            .width_range(theme::INSPECTOR_WIDTH..=480.0)
+        // MainComponent::setSidePanelWidth: 280 pt up to 560 pt, leaving
+        // the view at least 360 pt.
+        let most = (context.screen_rect().width() - 360.0).clamp(INSPECTOR_MIN, INSPECTOR_MAX);
+        let width = self.settings.inspector_width.clamp(INSPECTOR_MIN, most);
+        let panel = egui::SidePanel::right("right-inspector")
+            .resizable(false)
+            .show_separator_line(false)
+            .exact_width(width)
             .frame(
                 egui::Frame::new()
                     .fill(theme::panel())
@@ -1080,7 +1157,15 @@ impl ShellApp {
             )
             .show(context, |ui| {
                 let full = ui.max_rect();
-                let chat_height = 190.0_f32.min((full.height() * 0.42).max(110.0));
+                // The bar between the inspector and the AI chat
+                // (MainComponent::aiBar): drag to change the chat's height,
+                // double-click to reset it.
+                let chat_most = (full.height() - INSPECTOR_MIN_HEIGHT).max(AI_PANEL_MIN);
+                let chat_height = self.settings.ai_panel_height.clamp(AI_PANEL_MIN, chat_most);
+                let bar = egui::Rect::from_center_size(
+                    egui::pos2(full.center().x, full.bottom() - chat_height - 3.0),
+                    egui::vec2(full.width() + 40.0, 8.0),
+                );
                 let top_rect = egui::Rect::from_min_max(
                     full.min,
                     egui::pos2(full.right(), full.bottom() - chat_height - 6.0),
@@ -1521,7 +1606,98 @@ impl ShellApp {
                         .layout(egui::Layout::top_down(egui::Align::LEFT)),
                 );
                 self.assistant_inline(&mut chat_ui, chat_height);
+                // On top of the contents, so the bar gets the pointer.
+                let bar_response =
+                    ui.interact(bar, ui.id().with("ai-panel-bar"), egui::Sense::click_and_drag());
+                if bar_response.hovered() || bar_response.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+                if bar_response.dragged() {
+                    self.settings.ai_panel_height = (chat_height - bar_response.drag_delta().y)
+                        .clamp(AI_PANEL_MIN, chat_most.min(AI_PANEL_MAX));
+                }
+                if bar_response.double_clicked() {
+                    self.settings.ai_panel_height = 300.0_f32.min(chat_most);
+                }
+                if bar_response.hovered() || bar_response.dragged() {
+                    ui.painter().hline(
+                        full.left() - 20.0..=full.right() + 20.0,
+                        bar.center().y,
+                        egui::Stroke::new(2.0_f32, theme::accent()),
+                    );
+                }
             });
+        Seam::Inspector.place(context, panel.response.rect, most);
+    }
+
+    /// The bars on the panel seams (MainComponent::WidthResizeBar): drag to
+    /// change the track list's or the inspector's width, double-click to
+    /// reset it. They go in after the central view, so the timeline under a
+    /// seam can't take the pointer from them (the old egui handles lost it
+    /// and the panel jumped back).
+    pub(super) fn panel_handles(&mut self, context: &Context) {
+        let ui = egui::Ui::new(
+            context.clone(),
+            egui::Id::new("panel-handles"),
+            egui::UiBuilder::new()
+                .layer_id(egui::LayerId::background())
+                .max_rect(context.screen_rect()),
+        );
+        for seam in [Seam::TrackList, Seam::Inspector] {
+            let Some((rect, most)) = context.data_mut(|data| {
+                let placed = data.get_temp::<(egui::Rect, f32)>(seam.id());
+                data.remove::<(egui::Rect, f32)>(seam.id());
+                placed
+            }) else {
+                continue;
+            };
+            let response = ui.interact(rect, seam.id().with("bar"), egui::Sense::click_and_drag());
+            let (width, least, reset) = match seam {
+                Seam::TrackList => (
+                    &mut self.settings.track_list_width,
+                    TRACK_LIST_MIN,
+                    theme::SIDEBAR_WIDTH,
+                ),
+                Seam::Inspector => (
+                    &mut self.settings.inspector_width,
+                    INSPECTOR_MIN,
+                    theme::INSPECTOR_WIDTH,
+                ),
+            };
+            let start_id = seam.id().with("start");
+            if response.drag_started() {
+                context.data_mut(|data| data.insert_temp(start_id, *width));
+            }
+            if response.dragged()
+                && let Some(start) = context.data(|data| data.get_temp::<f32>(start_id))
+                && let Some((origin, pointer)) = ui.input(|input| {
+                    input
+                        .pointer
+                        .press_origin()
+                        .zip(input.pointer.interact_pos())
+                })
+            {
+                let moved = pointer.x - origin.x;
+                *width = seam.dragged(start, moved).clamp(least, most);
+            }
+            if response.double_clicked() {
+                *width = reset.clamp(least, most);
+            }
+            if response.hovered() || response.dragged() {
+                context.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                ui.painter().vline(
+                    rect.center().x,
+                    rect.y_range(),
+                    egui::Stroke::new(2.0_f32, theme::accent()),
+                );
+            } else {
+                ui.painter().vline(
+                    rect.center().x,
+                    rect.y_range(),
+                    egui::Stroke::new(1.0_f32, theme::line()),
+                );
+            }
+        }
     }
 
     /// The score toolbar, laid out like `ScoreView::resized`: a 52 pt bar
@@ -3801,7 +3977,6 @@ impl ShellApp {
                 let mut lyric_click: Option<Tick> = None;
                 let mut seek: Option<Tick> = None;
                 let timeline_mode = self.timeline_mode;
-                let timeline_zoom = self.timeline_zoom;
                 let Self { editor, roll, .. } = self;
                 let project = editor.project();
                 match view {
@@ -3992,7 +4167,7 @@ impl ShellApp {
                                 &project.song,
                                 position,
                                 roll.selected,
-                                timeline_zoom,
+                                &mut self.timeline_zoom,
                                 self.playing,
                                 &self.timeline_waveforms,
                             )
@@ -4013,7 +4188,7 @@ impl ShellApp {
                                         &project.song,
                                         position,
                                         roll.selected,
-                                        timeline_zoom,
+                                        &mut self.timeline_zoom,
                                         self.playing,
                                         &self.timeline_waveforms,
                                     )
