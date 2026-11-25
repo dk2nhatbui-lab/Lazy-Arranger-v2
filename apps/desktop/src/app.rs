@@ -29,6 +29,7 @@ mod mixer;
 mod native_menu;
 mod style;
 mod timeline_menu;
+mod user_instruments;
 
 use assistant::AssistantState;
 use devices::AudioChordsState;
@@ -820,6 +821,10 @@ pub struct ShellApp {
     pending_clip_edit: Option<crate::timeline::ClipEdit>,
     inspector_name_track: Option<TrackId>,
     inspector_name: String,
+    /// Instrument editors this user installed.
+    instruments: crate::instruments::Installed,
+    /// The instrument chooser window.
+    instruments_open: bool,
     device_profiles: Vec<midi_devices::profiles::LoadedProfile>,
     device_editor_open: bool,
     device_editor_profile: usize,
@@ -963,6 +968,8 @@ impl ShellApp {
 
     #[must_use]
     pub fn new(context: &Context, project: ProjectFile, project_path: Option<PathBuf>) -> Self {
+        let (instruments, ask_instruments) =
+            crate::instruments::startup(&crate::settings::Settings::data_dir());
         let settings = crate::settings::Settings::load(&crate::settings::Settings::path());
         let initial_lesson_kind = music_core::lesson::LessonKind::ALL
             .get(settings.lesson_kind)
@@ -1156,6 +1163,8 @@ impl ShellApp {
             pending_clip_edit: None,
             inspector_name_track: None,
             inspector_name: String::new(),
+            instruments,
+            instruments_open: ask_instruments || initial_window == "instruments",
             device_profiles: load_device_profiles(),
             device_editor_open: initial_window == "device",
             device_editor_profile: 0,
@@ -2161,6 +2170,7 @@ impl ShellApp {
         self.l6max_mixer_window(context);
         self.l6max_device_window(context);
         self.d05_editor_window(context);
+        self.instruments_window(context);
         self.marks_window(context);
         self.audio_style_window(context);
         self.style_rules_window(context);

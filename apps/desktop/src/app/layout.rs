@@ -2866,6 +2866,12 @@ impl ShellApp {
                             self.device_profiles = load_device_profiles();
                         }
                     });
+                    ui.horizontal(|ui| {
+                        ui.label("Instrument editors");
+                        if ui.button("Choose instruments…").clicked() {
+                            self.instruments_open = true;
+                        }
+                    });
                     ui.add(egui::Slider::new(&mut self.settings.grade, 1..=9).text("chord grade"));
                     let mut keyboard = self.settings.keyboard.clone().unwrap_or_default();
                     if ui

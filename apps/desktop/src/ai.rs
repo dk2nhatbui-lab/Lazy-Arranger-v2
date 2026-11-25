@@ -32,7 +32,10 @@ be combined, and only one changing tool is applied. Otherwise answer normally.";
 /// Builds the chat-completions message list: system, history, then the prompt.
 #[must_use]
 pub fn messages(history: &[(String, String)], prompt: &str) -> Value {
-    let mut messages = vec![json!({"role": "system", "content": SYSTEM})];
+    let mut messages = vec![json!({
+        "role": "system",
+        "content": format!("{SYSTEM} {}", crate::device_files::HELP),
+    })];
     for (role, content) in history
         .iter()
         .rev()

@@ -12,6 +12,22 @@ pub(super) struct AssistantState {
 }
 
 impl ShellApp {
+    /// Runs one assistant line: the device-file tools here, everything else
+    /// through the project's tools.
+    pub(super) fn run_tool(&mut self, input: &str) -> mcp::assistant::Reply {
+        if let Some(outcome) = crate::device_files::handle(input, &devices::profiles_folder()) {
+            if outcome.saved {
+                self.device_profiles = load_device_profiles();
+            }
+            return mcp::assistant::Reply {
+                text: outcome.text,
+                json: None,
+                changed: false,
+            };
+        }
+        self.editor.assistant(input)
+    }
+
     pub(super) fn assistant_history(&self) -> Vec<(String, String)> {
         self.assistant
             .log
@@ -87,7 +103,7 @@ impl ShellApp {
                 self.selected_note = None;
                 self.selected_clip = None;
                 self.selected_clips.clear();
-                let result = self.editor.assistant(command);
+                let result = self.run_tool(command);
                 text.push('\n');
                 text.push_str(&result.text);
             }
@@ -261,7 +277,7 @@ impl ShellApp {
             self.selected_note = None;
             self.selected_clip = None;
             self.selected_clips.clear();
-            let result = self.editor.assistant(&proposal.command);
+            let result = self.run_tool(&proposal.command);
             self.assistant.log.push(result.text);
         }
         if cancel_proposal && self.assistant.proposal.take().is_some() {
