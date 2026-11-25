@@ -373,7 +373,12 @@ pub fn load_project(path: &PathBuf) -> Result<ProjectFile, ProjectError> {
     let text = String::from_utf8(bytes)
         .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
     if is_cpp_project(&text) {
-        return project::legacy::import_cpp_project(&text).map(|imported| imported.project);
+        let mut project = project::legacy::import_cpp_project(&text)?.project;
+        if let Some(dir) = path.parent() {
+            let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+            project::legacy::resolve_audio_paths(&mut project.song, &dir);
+        }
+        return Ok(project);
     }
     ProjectFile::from_json(&text)
 }
