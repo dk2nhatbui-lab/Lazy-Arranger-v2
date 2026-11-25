@@ -1,112 +1,124 @@
-# Lazy Arranger — Rust
+# Lazy Arranger Midi DAW
 
-A Rust reimplementation of the Lazy Arranger MIDI arranger DAW. It imports and
-exports Yamaha styles and MIDI, hosts VST3/AU plug-ins, renders audio, records
-MIDI and audio, and provides a desktop editor, CLI and MCP server.
+A desktop studio for people who arrange songs. Write with styles and chords,
+let the AI help with the arrangement, print the score, and play it all on your
+own keyboards and synths. Native and light, for macOS, Windows and Linux.
 
-The current release is a **beta**. It targets the feature set of
-the C++ v1.0.0-beta.1 app, but **parity is not claimed**. The audited feature-by-feature status lives
-in [`docs/audit/cpp-features-crosscheck.md`](docs/audit/cpp-features-crosscheck.md).
+This is the new version of Lazy Arranger, rebuilt in Rust. It is a **beta**.
 
-## Install
+[Download the latest release](https://github.com/nhth-mibu/Lazy-Arranger-v2/releases/latest)
+· [User manual](docs/manual/user-manual.md) ([PDF](docs/manual/user-manual.pdf))
 
-Download the file for your computer from the
-[Releases page](https://github.com/nhth-mibu/Lazy-Arranger-v2/releases):
+![The main window](docs/manual/images/main-window.png)
 
-| System | File | First run |
-| --- | --- | --- |
-| macOS 12+ (Apple Silicon and Intel) | `LazyArranger-<version>-macos-universal.dmg` | Drag the app to Applications. The app is not notarized: right-click it, choose **Open**, then **Open** again. |
-| Windows 10/11 (x64) | `LazyArranger-<version>-windows-x64.zip` | Unzip anywhere and run `Lazy Arranger Midi DAW.exe`. If SmartScreen warns, click **More info > Run anyway**. |
-| Linux (x64) | `LazyArranger-<version>-linux-x64.tar.gz` | Extract and run `./lazy-arranger-desktop`. Run `./install.sh` once to add it to the app menu. Needs ALSA and Vulkan or OpenGL drivers. |
+## Arranger keyboard styles, on the computer
 
-Each file has a `.sha256` checksum. **Settings > Check for updates** tells you
-when a newer build is out. What changed in each release is in
-[CHANGELOG.md](CHANGELOG.md).
+Open Yamaha styles (`.sty`, `.prs` and the SFF format). Play the sections with
+chords, or fill tracks from a style: the parts follow the chords of your song.
+Save a new style, or make one from your own clips or from a recording.
 
-## Making a release
+When the song is ready, export it for the Yamaha PSR-S970, with programs,
+tempo, chords and lyrics, and play it on the keyboard without the computer.
 
-1. Set `version` in the root `Cargo.toml` (for example `0.1.0-beta.2`) and add
-   a `## [0.1.0-beta.2]` section to `CHANGELOG.md`. Merge to `main`.
-2. Push the tag `v0.1.0-beta.2`, or run the **Release** workflow from the
-   Actions tab with that tag.
-3. The workflow builds all three downloads and publishes the GitHub release.
-   It is marked as the latest release. Tick **prerelease** in Run workflow
-   for a test build that should not be marked latest.
+## An AI that works inside your song
 
-## Requirements (building from source)
+Click **Ask AI** and type what you want: "add a bass track", "make the drums
+quieter". Each change is one undo step. Use an OpenAI-compatible service (also
+a local one, such as Ollama) or a local AI command. Without a service, the
+assistant still runs the app commands on your computer. Speak to it and let it
+read the answers aloud.
 
-- Rust 1.89 or newer (MSRV declared in `Cargo.toml` via `rust-version = "1.89"`)
-- macOS for Audio Units and the desktop bundle; Linux and Windows build the
-  desktop shell and all core crates
-- Optional: SoundFont 2 banks, VST3/AU plug-ins, `yt-dlp`, `ffmpeg`, `lp`
+The app is also an MCP server, so Claude Desktop, Claude Code and other MCP
+clients can open and change your song from outside the app.
 
-## Build and run
+The **AI** menu has music tools too: humanise, drumify, write a bass, pad,
+arpeggio or melody part, and continue the last bars.
 
-```sh
-# All release gates: fmt, clippy, tests and rustdoc.
-./scripts/check.sh
+![The AI assistant](docs/manual/images/assistant.png)
 
-# Debug desktop app.
-./scripts/rust.sh run -p lazy-arranger-desktop
+## Arranging help
 
-# CLI.
-./scripts/rust.sh run -p lazy-arranger-cli -- --help
+- **Arrangement Doctor** finds crowded bars and parts that repeat too much,
+  and proposes fixes.
+- **Fit to My Synths** checks the song against the note range and polyphony
+  of your hardware synths.
+- **Groove** puts the feel of one track on the other tracks.
+- **Song Forms** makes a short version, a long intro, a gig version or an
+  instrumental, with drum fills and lead-ins where sections meet.
 
-# macOS application bundle (ad-hoc signed, not notarized).
-# UNIVERSAL=1 builds for Apple Silicon and Intel.
-./scripts/bundle-macos.sh
-open "dist/Lazy Arranger Midi DAW.app"
-```
+Each tool shows its proposal first. Nothing changes until you say so.
 
-The first launch opens a built-in demo. Open or import a project with
-`Cmd/Ctrl+O`; `.mid`, `.midi`, `.musicxml` and `.xml` import as untitled
-projects.
+## Smart chords
 
-## Workspace
+Type `Am F C G` or `vi IV I V` into the chord lane. The app finds the chords
+in your notes, reharmonises a bar, and gives you 16 chord pads in the key of
+the song.
 
-| Path | Purpose |
-| --- | --- |
-| `apps/desktop` | egui/eframe shell, editors, mixer, score, controllers |
-| `apps/cli` | Headless import/export, rendering, hardware checks |
-| `crates/project` | Project schema, migrations, validation, recent files |
-| `crates/music-core` | Pitch, chord, tempo, MIDI message and timing types |
-| `crates/style-formats` | Yamaha SFF1/SFF2, CASM and PSR/PSR-S970 export |
-| `crates/audio` | SoundFont/plug-in render, WAV/compressed decode, cpal playback |
-| `crates/plugin-host` | The only crate allowed to contain `unsafe` code |
-| `crates/mcp` | JSON-RPC tool server over loopback |
-| `crates/score` | Vector score layout and PDF; Cecilia adapter |
-| `crates/arranging` | Chords, grooves, forms, generated parts, styles from clips |
-| `crates/performance` | Recorded performance sections and provenance |
+![Chord pads](docs/manual/images/perform.png)
 
-## Verification
+## A real score
 
-```sh
-./scripts/rust.sh test --workspace
-```
+Every song is also printed music: chord symbols, guitar chords, lyrics,
+dynamics and drum staves. Write notes with the mouse. Print, or export PDF
+and MusicXML.
 
-Latest local result: **923 tests pass**. GitHub Actions runs the same lint,
-test, build, documentation and headless-demo steps on macOS, Linux and Windows.
+![The Score view](docs/manual/images/score.png)
 
-Hardware checks and their limits are recorded in
-[`docs/audit/hardware.md`](docs/audit/hardware.md). Current verified hardware:
-MIDI sends and panic on five outputs, physical note input on Launchkey,
-PSR-S970, XioSynth and X-TOUCH, CC capture on Launchkey/X-TOUCH, L6max CH1 mute,
-L6max Editor Port SysEx identity (`v0110`) and 48 kHz USB audio capture,
-Roland D-05 SysEx temporary-patch read/write (448 B / `.syx`) and Internal/Preset
-bank name scans, cpal output on Mac mini Speakers and one printed score page on
-a Brother printer. D-05 key/audio output, XioSynth sound page, and L6max
-project/mixer readback and physical transport reaction remain unverified.
+## Drums, loops and a metal mixer
 
-## Documentation
+Program beats in the **Drums** step grid. Play scenes live in the **Loops**
+grid, then record them into the song. Mix on a console with knobs, faders,
+meters, buses, sends, master effects and VST3 plug-ins (and Audio Units on a
+Mac).
 
-- [Feature crosscheck](docs/audit/cpp-features-crosscheck.md)
-- [Architecture contracts](docs/architecture/contracts.md)
-- [ADRs](docs/adr/README.md)
-- [Hardware evidence](docs/audit/hardware.md)
-- [Final status](docs/audit/final-status.md)
-- [C++ feature reference](docs/reference/cpp-features.md)
+![The Loops view](docs/manual/images/loops.png)
+
+## Made for your keyboards and synths
+
+- Plug in a keyboard or a controller and play.
+- Choose the instruments that you own at the first start. Editors for the
+  Roland D-05, Yamaha PSR-S970, Yamaha XG, Novation XioSynth and Zoom LiveTrak
+  L6max. The AI can make a profile for a synth that is not in the list.
+- Send sounds and SysEx dumps to your synth from the device editor.
+- Connect any controller knob, fader or pad in the **MIDI Map** with MIDI
+  Learn.
+- Import a multitrack recording from the Zoom LiveTrak L6max.
+
+![The MIDI Map](docs/manual/images/midi-map.png)
+
+## Kids Mode
+
+A child presses any key and the song plays, as if the child plays it. Stop
+pressing, and the song waits.
+
+![Kids Mode](docs/manual/images/kids-mode.png)
+
+## And a full DAW
+
+MIDI and audio tracks, a piano roll with a velocity lane, audio import (WAV,
+FLAC, MP3, M4A, AIFF, OGG), recording, automation, SoundFonts, and export to
+MIDI, MusicXML, WAV and stems. Eight interface languages, light and dark
+themes. It also opens songs from the older C++ version of Lazy Arranger.
+
+## Learn more
+
+- [User manual](docs/manual/user-manual.md) ([PDF](docs/manual/user-manual.pdf)):
+  how to use the app, with pictures
+- [Changelog](CHANGELOG.md): what changed in each release
+- [Building from source](docs/building.md): requirements, build, tests, code
+  layout and how to make a release
+- [Architecture contracts](docs/architecture/contracts.md) and
+  [design decisions (ADRs)](docs/adr/README.md)
+- [Feature crosscheck](docs/audit/cpp-features-crosscheck.md): the status of
+  each feature compared with the C++ app
+- [Hardware tests](docs/audit/hardware.md) and [final status](docs/audit/final-status.md)
+- [Licensing and provenance](docs/audit/licensing.md)
+
+Tested with the Yamaha PSR-S970, Roland D-05, Novation Launchkey, Novation
+XioSynth, Behringer X-Touch and Zoom LiveTrak L6max. Other models were not
+tested.
 
 ## Licence
 
-Apache-2.0. Third-party crate licences are listed in `Cargo.lock`; see
-[`docs/audit/licensing.md`](docs/audit/licensing.md).
+Apache-2.0. Third-party licences are listed in
+[licensing and provenance](docs/audit/licensing.md).
