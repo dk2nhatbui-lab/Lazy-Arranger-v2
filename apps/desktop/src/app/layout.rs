@@ -728,7 +728,9 @@ impl ShellApp {
                                     ui.separator();
                                 }
                                 for (panel, label) in *group {
-                                    if ui.button(*label).clicked() {
+                                    let installed = super::menu::instrument_for(*panel)
+                                        .is_none_or(|instrument| self.instruments.has(instrument));
+                                    if installed && ui.button(*label).clicked() {
                                         self.open_panel(*panel);
                                         ui.close_menu();
                                     }
