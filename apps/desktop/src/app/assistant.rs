@@ -207,7 +207,7 @@ impl ShellApp {
                                 self.selected_clip = None;
                                 self.selected_clips.clear();
                             }
-                            let reply = self.run_tool(&input);
+                            let reply = self.editor.assistant(&input);
                             if self.settings.speech
                                 && let Err(error) = crate::speech::speak_with(&reply.text, &self.settings.speak_command)
                             {
@@ -333,7 +333,7 @@ impl ShellApp {
                     self.selected_clip = None;
                     self.selected_clips.clear();
                 }
-                let reply = self.run_tool(&input);
+                let reply = self.editor.assistant(&input);
                 self.assistant.log.push(format!("> {input}"));
                 self.assistant.log.push(reply.text);
                 self.assistant.input.clear();
