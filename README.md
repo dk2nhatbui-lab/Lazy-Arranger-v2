@@ -4,7 +4,7 @@ A Rust reimplementation of the Lazy Arranger MIDI arranger DAW. It imports and
 exports Yamaha styles and MIDI, hosts VST3/AU plug-ins, renders audio, records
 MIDI and audio, and provides a desktop editor, CLI and MCP server.
 
-The current release is a **pre-release (beta)**. It targets the feature set of
+The current release is a **beta**. It targets the feature set of
 the C++ v1.0.0-beta.1 app, but **parity is not claimed**. The audited feature-by-feature status lives
 in [`docs/audit/cpp-features-crosscheck.md`](docs/audit/cpp-features-crosscheck.md).
 
@@ -30,7 +30,8 @@ when a newer build is out. What changed in each release is in
 2. Push the tag `v0.1.0-beta.2`, or run the **Release** workflow from the
    Actions tab with that tag.
 3. The workflow builds all three downloads and publishes the GitHub release.
-   A tag with a `-` suffix becomes a pre-release.
+   It is marked as the latest release. Tick **prerelease** in Run workflow
+   for a test build that should not be marked latest.
 
 ## Requirements (building from source)
 

@@ -21,7 +21,7 @@ trap 'rm -rf "$stage"' EXIT
 
 notes() {
   cat <<TXT
-Lazy Arranger Midi DAW $tag (pre-release)
+Lazy Arranger Midi DAW $tag
 
 $1
 

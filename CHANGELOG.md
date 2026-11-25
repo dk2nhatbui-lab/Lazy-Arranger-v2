@@ -1,7 +1,7 @@
 # Changelog
 
 All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
-[semver](https://semver.org/); a `-beta.N` suffix marks a pre-release.
+[semver](https://semver.org/); a `-beta.N` suffix marks a beta build.
 
 ## [0.1.0-beta.1] - 2026-11-25
 

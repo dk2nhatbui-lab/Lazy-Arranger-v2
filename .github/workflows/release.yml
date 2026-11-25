@@ -3,7 +3,8 @@ name: Release
 # Builds the Mac, Windows and Linux downloads and publishes a GitHub release.
 # Start it by pushing a tag (git push origin v0.1.0-beta.1) or from the Actions
 # tab with "Run workflow" (that creates the tag on the chosen commit).
-# Tags with a suffix such as -beta.1 are published as pre-releases.
+# Every release is published as the latest release. Tick "prerelease" in
+# Run workflow to publish a test build that is not marked latest.
 
 on:
   push:
@@ -20,6 +21,10 @@ on:
       tag:
         description: "Version to release, for example v0.1.0-beta.1 (must match Cargo.toml; the v is optional)"
         required: true
+      prerelease:
+        description: "Publish as a pre-release (not marked latest)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -138,8 +143,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          prerelease=""
-          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          prerelease="--latest"
+          if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then prerelease="--prerelease"; fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
           else
