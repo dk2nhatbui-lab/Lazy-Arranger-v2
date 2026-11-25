@@ -11,7 +11,67 @@ use project::song::Song;
 use std::collections::HashMap;
 
 const LABEL_WIDTH: f32 = 0.0;
-const DRAG_GRID: Tick = 240;
+/// Points per quarter note at zoom 1: a 4/4 bar is 96 pt, as in v1
+/// (`TimelineGeometry::pixelsPerTick`).
+const POINTS_PER_QUARTER: f32 = 24.0;
+/// Zoom limits: a 4/4 bar from 4 pt to 2000 pt wide, as in v1.
+pub const MIN_ZOOM: f32 = 4.0 / 96.0;
+/// See [`MIN_ZOOM`].
+pub const MAX_ZOOM: f32 = 2000.0 / 96.0;
+/// Track lane height limits (`TimelineGeometry::minTrackHeight`).
+pub const MIN_LANE_HEIGHT: f32 = 40.0;
+/// See [`MIN_LANE_HEIGHT`].
+pub const MAX_LANE_HEIGHT: f32 = 160.0;
+/// Width of the grab zone at a part's right edge.
+const EDGE_GRAB: f32 = 8.0;
+
+/// How the timeline is zoomed: in time, and in track height.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Zoom {
+    /// Time zoom: 1.0 draws a 4/4 bar 96 pt wide.
+    pub time: f32,
+    /// Height of one track lane, in points.
+    pub lane: f32,
+}
+
+impl Default for Zoom {
+    fn default() -> Self {
+        Self {
+            time: 1.0,
+            lane: LANE_HEIGHT,
+        }
+    }
+}
+
+impl Zoom {
+    /// Points per tick at this zoom.
+    #[must_use]
+    pub fn points_per_tick(&self) -> f32 {
+        POINTS_PER_QUARTER * self.time.clamp(MIN_ZOOM, MAX_ZOOM) / music_core::PPQ as f32
+    }
+
+    /// The zoom with both values inside their limits.
+    #[must_use]
+    pub fn clamped(self) -> Self {
+        Self {
+            time: self.time.clamp(MIN_ZOOM, MAX_ZOOM),
+            lane: self.lane.round().clamp(MIN_LANE_HEIGHT, MAX_LANE_HEIGHT),
+        }
+    }
+
+    /// The snap unit for drags (`Arrangement::snap`): beats when a beat is
+    /// wide enough to aim at, else bars; free with Alt held.
+    #[must_use]
+    pub fn snap_unit(&self, beat: Tick, bar: Tick, free: bool) -> Tick {
+        if free {
+            1
+        } else if beat as f32 * self.points_per_tick() > 24.0 {
+            beat.max(1)
+        } else {
+            bar.max(1)
+        }
+    }
+}
 
 /// How a timeline clip drag changes the clip.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,8 +87,13 @@ pub enum ClipEditKind {
 pub struct ClipEdit {
     /// Track that owns the clip.
     pub track: TrackId,
-    /// Clip being edited.
-    pub clip: ClipId,
+    /// Clip being edited; `None` is the part a track without clips shows
+    /// over the whole song, which the edit turns into a real clip.
+    pub clip: Option<ClipId>,
+    /// Start before the drag.
+    pub old_start: Tick,
+    /// Length before the drag.
+    pub old_length: Tick,
     /// New start for a move.
     pub start: Tick,
     /// New length for a resize.
@@ -40,33 +105,45 @@ pub struct ClipEdit {
 #[derive(Clone, Debug)]
 struct ClipDrag {
     track: TrackId,
-    clip: ClipId,
+    clip: Option<ClipId>,
     anchor_tick: Tick,
     start: Tick,
     length: Tick,
     kind: ClipEditKind,
 }
 
-fn dragged_edit(drag: &ClipDrag, pointer_tick: Tick) -> ClipEdit {
+/// Rounds `tick` to the nearest multiple of `unit`.
+fn snap(tick: Tick, unit: Tick) -> Tick {
+    let unit = unit.max(1);
+    (tick + unit / 2).div_euclid(unit) * unit
+}
+
+/// The edit a drag makes with the pointer at `pointer_tick`, snapped to
+/// `unit`; a resized part keeps at least `shortest` ticks
+/// (`Arrangement::mouseDrag`).
+fn dragged_edit(drag: &ClipDrag, pointer_tick: Tick, unit: Tick, shortest: Tick) -> ClipEdit {
     match drag.kind {
         ClipEditKind::Move => {
             let delta = pointer_tick - drag.anchor_tick;
-            let start = (drag.start + delta).max(0);
             ClipEdit {
                 track: drag.track,
                 clip: drag.clip,
-                start: (start + DRAG_GRID / 2) / DRAG_GRID * DRAG_GRID,
+                old_start: drag.start,
+                old_length: drag.length,
+                start: snap(drag.start + delta, unit).max(0),
                 length: drag.length,
                 kind: ClipEditKind::Move,
             }
         }
         ClipEditKind::Resize => {
-            let length = pointer_tick.saturating_sub(drag.start).max(DRAG_GRID);
+            let end = snap(pointer_tick, unit);
             ClipEdit {
                 track: drag.track,
                 clip: drag.clip,
+                old_start: drag.start,
+                old_length: drag.length,
                 start: drag.start,
-                length: (length + DRAG_GRID / 2) / DRAG_GRID * DRAG_GRID,
+                length: (end - drag.start).max(shortest.max(1)),
                 kind: ClipEditKind::Resize,
             }
         }
@@ -97,12 +174,15 @@ pub fn lane_color(index: usize) -> Color32 {
 }
 
 /// Draws the timeline and returns the same outcome shape as the piano roll.
+///
+/// Cmd/Ctrl+wheel (or a pinch) zooms time around the pointer; with Shift
+/// it zooms the track height, as in v1. `zoom` holds the result.
 pub fn show(
     ui: &mut egui::Ui,
     song: &Song,
     position: Tick,
     selected: Option<TrackId>,
-    zoom: f32,
+    zoom: &mut Zoom,
     follow_playhead: bool,
     waveforms: &HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
 ) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
@@ -118,6 +198,77 @@ pub fn show(
     )
 }
 
+/// The view as it was last drawn, to keep the place under the pointer
+/// still while zooming.
+#[derive(Clone, Copy, Debug)]
+struct LastView {
+    zoom: Zoom,
+    offset: egui::Vec2,
+    inner: Rect,
+}
+
+/// Reads this pass's zoom gestures over `viewport` and returns the factors
+/// for time and lane height.
+fn zoom_gestures(ui: &egui::Ui, viewport: Rect) -> (f32, f32) {
+    if !ui.rect_contains_pointer(viewport) {
+        return (1.0, 1.0);
+    }
+    let (pinch, raw, command, shift) = ui.input(|input| {
+        (
+            input.zoom_delta(),
+            input.raw_scroll_delta,
+            input.modifiers.command || input.modifiers.ctrl,
+            input.modifiers.shift,
+        )
+    });
+    if command && shift {
+        // egui turns Shift+wheel sideways and leaves no zoom for it.
+        let delta = if raw.y.abs() >= raw.x.abs() {
+            raw.y
+        } else {
+            raw.x
+        };
+        return (1.0, wheel_factor(delta) * pinch);
+    }
+    if shift { (1.0, pinch) } else { (pinch, 1.0) }
+}
+
+/// `pow (1.15, delta * 8)` in v1, for a wheel delta in points.
+fn wheel_factor(delta: f32) -> f32 {
+    1.15_f32.powf(delta / 40.0)
+}
+
+const LANE_ZOOM_REQUEST: &str = "timeline-lane-zoom-request";
+
+/// Asks the timeline to make its lanes taller (`factor` > 1) or shorter on
+/// the next pass, for Cmd/Ctrl+Shift+wheel over the track list.
+pub fn zoom_lanes(context: &egui::Context, factor: f32) {
+    context.data_mut(|data| {
+        let id = egui::Id::new(LANE_ZOOM_REQUEST);
+        let before = data.get_temp::<f32>(id).unwrap_or(1.0);
+        data.insert_temp(id, before * factor);
+    });
+    context.request_repaint();
+}
+
+/// Cmd/Ctrl+Shift+wheel over the track list: the lane zoom factor, if any.
+#[must_use]
+pub fn lane_wheel_factor(ui: &egui::Ui) -> Option<f32> {
+    let (raw, command, shift) = ui.input(|input| {
+        (
+            input.raw_scroll_delta,
+            input.modifiers.command || input.modifiers.ctrl,
+            input.modifiers.shift,
+        )
+    });
+    let delta = if raw.y.abs() >= raw.x.abs() {
+        raw.y
+    } else {
+        raw.x
+    };
+    (command && shift && delta != 0.0).then(|| wheel_factor(delta))
+}
+
 /// Draws the timeline with an optional highlighted loop region.
 #[allow(clippy::too_many_arguments)]
 pub fn show_with_loop(
@@ -125,25 +276,65 @@ pub fn show_with_loop(
     song: &Song,
     position: Tick,
     selected: Option<TrackId>,
-    zoom: f32,
+    zoom: &mut Zoom,
     follow_playhead: bool,
     loop_region: Option<(Tick, Tick)>,
     waveforms: &HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
 ) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
     let bar = song.time_signature.bar_ticks().max(1);
-    let bars = ((song.end_tick().max(bar * 8) + bar - 1) / bar).max(8);
-    let width =
-        (LABEL_WIDTH + bars as f32 * 100.0 * zoom.clamp(0.5, 3.0)).max(ui.available_width());
+    let viewport = ui.available_rect_before_wrap();
+    let view_id = ui.id().with("timeline-view");
+    let last = ui.data(|data| data.get_temp::<LastView>(view_id));
+
+    // Zoom: the gestures over the timeline, the track list's request, and
+    // any change made elsewhere (the header's - and + buttons).
+    let (time_factor, lane_factor) = zoom_gestures(ui, viewport);
+    let requested = ui
+        .ctx()
+        .data_mut(|data| data.remove_temp::<f32>(egui::Id::new(LANE_ZOOM_REQUEST)))
+        .unwrap_or(1.0);
+    let new = Zoom {
+        time: zoom.time * time_factor,
+        lane: zoom.lane * lane_factor * requested,
+    }
+    .clamped();
+    let mut horizontal = None;
+    let mut vertical = ui
+        .ctx()
+        .data_mut(|data| data.remove_temp::<f32>(egui::Id::new(SCROLL_REQUEST)));
+    if let Some(last) = last {
+        // Keep the tick and row under the pointer (or the middle) in place.
+        let anchor = ui
+            .input(|input| input.pointer.hover_pos())
+            .filter(|pointer| last.inner.contains(*pointer))
+            .unwrap_or(last.inner.center());
+        if new.time != last.zoom.time {
+            let x = anchor.x - last.inner.left();
+            let tick = (x + last.offset.x) / last.zoom.points_per_tick();
+            horizontal = Some((tick * new.points_per_tick() - x).max(0.0));
+        }
+        if new.lane != last.zoom.lane {
+            let y = (anchor.y - last.inner.top() - HEADER_HEIGHT).max(0.0);
+            let row = (y + last.offset.y) / last.zoom.lane.max(1.0);
+            vertical = Some((row * new.lane - y).max(0.0));
+        }
+    }
+    *zoom = new;
+
+    let points_per_tick = zoom.points_per_tick();
+    // Room for the song and four bars more, and never less than the view.
+    let song_end = song.end_tick().max(bar * 8) + bar * 4;
+    let width = (LABEL_WIDTH + song_end as f32 * points_per_tick).max(viewport.width());
     let mut result = (RollOutcome::default(), None, None);
     let drag_id = ui.id().with("timeline-clip-drag");
     let edit_id = ui.id().with("timeline-clip-edit");
-    let request = ui
-        .ctx()
-        .data_mut(|data| data.remove_temp::<f32>(egui::Id::new(SCROLL_REQUEST)));
     let mut area = egui::ScrollArea::both()
         .id_salt("timeline-scroll")
         .auto_shrink([false, false]);
-    if let Some(offset) = request {
+    if let Some(offset) = horizontal {
+        area = area.horizontal_scroll_offset(offset);
+    }
+    if let Some(offset) = vertical {
         area = area.vertical_scroll_offset(offset.max(0.0));
     }
     let output = area.show(ui, |ui| {
@@ -153,6 +344,7 @@ pub fn show_with_loop(
             position,
             selected,
             width,
+            *zoom,
             drag_id,
             edit_id,
             loop_region,
@@ -164,9 +356,7 @@ pub fn show_with_loop(
             edit
         });
         if follow_playhead {
-            let end = song.end_tick().max(bar * 8).max(1);
-            let fraction = position.min(end) as f32 / end as f32;
-            let x = ui.min_rect().left() + LABEL_WIDTH + fraction * (width - LABEL_WIDTH);
+            let x = ui.min_rect().left() + LABEL_WIDTH + position.max(0) as f32 * points_per_tick;
             let playhead = Rect::from_min_size(
                 pos2(x, ui.min_rect().top()),
                 vec2(2.0, ui.min_rect().height()),
@@ -176,10 +366,21 @@ pub fn show_with_loop(
             }
         }
     });
+    ui.data_mut(|data| {
+        data.insert_temp(
+            view_id,
+            LastView {
+                zoom: *zoom,
+                offset: output.state.offset,
+                inner: output.inner_rect,
+            },
+        );
+    });
     let geometry = Geometry {
         top: output.inner_rect.top(),
         bottom: output.inner_rect.bottom(),
         offset: output.state.offset.y,
+        lane: zoom.lane,
         pass: ui.ctx().cumulative_pass_nr(),
     };
     let moved = ui.ctx().data_mut(|data| {
@@ -189,6 +390,7 @@ pub fn show_with_loop(
             before.top != geometry.top
                 || before.bottom != geometry.bottom
                 || before.offset != geometry.offset
+                || before.lane != geometry.lane
         })
     });
     if moved {
@@ -240,16 +442,17 @@ pub fn take_context_hit(context: &egui::Context) -> Option<ContextHit> {
     })
 }
 
-/// What sits at `y` (from the timeline's top) and `tick`.
+/// What sits at `y` (from the timeline's top) and `tick`, with lanes
+/// `lane` points high.
 #[must_use]
-pub fn context_target(song: &Song, y: f32, tick: Tick) -> ContextTarget {
+pub fn context_target(song: &Song, y: f32, tick: Tick, lane: f32) -> ContextTarget {
     if y < RULER_HEIGHT {
         return ContextTarget::Ruler;
     }
     if y < HEADER_HEIGHT {
         return ContextTarget::Chords;
     }
-    let index = ((y - HEADER_HEIGHT) / LANE_HEIGHT).floor() as usize;
+    let index = ((y - HEADER_HEIGHT) / lane.max(1.0)).floor() as usize;
     let Some(track) = song.tracks.get(index) else {
         return ContextTarget::Empty;
     };
@@ -276,6 +479,8 @@ pub struct Geometry {
     pub bottom: f32,
     /// Vertical scroll offset.
     pub offset: f32,
+    /// Height of one track lane.
+    pub lane: f32,
     /// Pass it was measured in.
     pass: u64,
 }
@@ -308,22 +513,24 @@ fn draw(
     position: Tick,
     selected: Option<TrackId>,
     width: f32,
+    zoom: Zoom,
     drag_id: egui::Id,
     edit_id: egui::Id,
     loop_region: Option<(Tick, Tick)>,
     waveforms: &HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
 ) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
+    let lane_height = zoom.lane;
     let tracks = song.tracks.len().max(1);
-    let height = RULER_HEIGHT + CHORD_HEIGHT + tracks as f32 * LANE_HEIGHT;
+    let height = RULER_HEIGHT + CHORD_HEIGHT + tracks as f32 * lane_height;
     let (response, painter) = ui.allocate_painter(vec2(width, height), Sense::click_and_drag());
     let rect = response.rect;
     let content = Rect::from_min_max(pos2(rect.left() + LABEL_WIDTH, rect.top()), rect.max);
     let bar = song.time_signature.bar_ticks().max(1);
-    let end = song.end_tick().max(bar * 4).max(1);
-    let x_for = |tick: Tick| content.left() + tick as f32 / end as f32 * content.width();
-    let tick_for = |x: f32| {
-        (((x - content.left()) / content.width().max(1.0) * end as f32).round() as Tick).max(0)
-    };
+    let points_per_tick = zoom.points_per_tick();
+    let x_for = |tick: Tick| content.left() + tick as f32 * points_per_tick;
+    let tick_for = |x: f32| (((x - content.left()) / points_per_tick).round() as Tick).max(0);
+    // The last tick the timeline shows.
+    let end = tick_for(content.right()).max(bar);
 
     painter.rect_filled(rect, 0.0, theme::background());
     painter.rect_filled(
@@ -377,15 +584,26 @@ fn draw(
         }
     }
 
+    // Zoomed far out, number (and line) every 2nd, 4th... bar only.
+    let bar_width = bar as f32 * points_per_tick;
+    let mut every: Tick = 1;
+    while bar_width * (every as f32) < 28.0 && every < 1024 {
+        every *= 2;
+    }
+    let show_beats = beat as f32 * points_per_tick >= 6.0;
     let mut tick = 0;
     while tick <= end {
         let x = x_for(tick);
+        if (tick / bar) % every != 0 {
+            tick += bar;
+            continue;
+        }
         painter.line_segment(
             [pos2(x, rect.top() + RULER_HEIGHT), pos2(x, rect.bottom())],
             Stroke::new(1.0_f32, theme::grid_bar()),
         );
         let mut beat_tick = tick + beat;
-        while beat_tick < tick + bar && beat_tick <= end {
+        while show_beats && beat_tick < tick + bar && beat_tick <= end {
             let bx = x_for(beat_tick);
             painter.line_segment(
                 [
@@ -464,10 +682,10 @@ fn draw(
     let mut clicked_clip = None;
     let mut clip_rects = Vec::new();
     for (index, track) in song.tracks.iter().enumerate() {
-        let top = lane_top + index as f32 * LANE_HEIGHT;
+        let top = lane_top + index as f32 * lane_height;
         let lane = Rect::from_min_max(
             pos2(rect.left(), top),
-            pos2(rect.right(), top + LANE_HEIGHT),
+            pos2(rect.right(), top + lane_height),
         );
         let color = lane_color(index);
         let is_selected = selected == Some(track.id);
@@ -476,7 +694,7 @@ fn draw(
         painter.rect_filled(
             Rect::from_min_max(
                 pos2(content.left(), top),
-                pos2(content.right(), top + LANE_HEIGHT),
+                pos2(content.right(), top + lane_height),
             ),
             0.0,
             if is_selected {
@@ -504,10 +722,10 @@ fn draw(
                 pos2(x_for(clip.start), top + PART_INSET),
                 pos2(
                     x_for(clip.end()).max(x_for(clip.start) + 4.0),
-                    top + LANE_HEIGHT - PART_INSET,
+                    top + lane_height - PART_INSET,
                 ),
             );
-            clip_rects.push((track.id, clip.id, clip_rect, clip.start, clip.length));
+            clip_rects.push((track.id, Some(clip.id), clip_rect, clip.start, clip.length));
         }
         // Parts drawn like Arrangement::drawClip: solid track colour, a faint
         // outline, a thin left accent, the name and the notes in dark ink.
@@ -521,6 +739,17 @@ fn draw(
         if parts.is_empty() && !track.notes.is_empty() {
             let to = ((song.end_tick() + bar - 1).div_euclid(bar) * bar).max(bar);
             parts.push((0, to, track.name.as_str()));
+            // It can be moved and resized too; the edit makes it a clip.
+            clip_rects.push((
+                track.id,
+                None,
+                Rect::from_min_max(
+                    pos2(x_for(0), top + PART_INSET),
+                    pos2(x_for(to), top + lane_height - PART_INSET),
+                ),
+                0,
+                to,
+            ));
         }
         let ink = if theme::light() {
             theme::text()
@@ -533,7 +762,7 @@ fn draw(
                 pos2(x_for(*start), top + PART_INSET),
                 pos2(
                     x_for(*stop).max(x_for(*start) + 4.0),
-                    top + LANE_HEIGHT - PART_INSET,
+                    top + lane_height - PART_INSET,
                 ),
             );
             painter.rect_filled(part, theme::RADIUS, color);
@@ -594,7 +823,7 @@ fn draw(
                 pos2(x_for(audio_start), top + PART_INSET),
                 pos2(
                     x_for(audio_end).max(x_for(audio_start) + 4.0),
-                    top + LANE_HEIGHT - PART_INSET,
+                    top + lane_height - PART_INSET,
                 ),
             );
             painter.rect_filled(block, 3.0, color.gamma_multiply(0.58));
@@ -668,13 +897,35 @@ fn draw(
         }
     }
 
+    // Arrangement::snap: beats when a beat is wide enough, else bars;
+    // Alt drags freely. A resized part keeps at least a beat.
+    let unit = zoom.snap_unit(beat, bar, ui.input(|input| input.modifiers.alt));
+    // Arrangement::mouseMove: the resize cursor on a part's right edge.
+    let dragging = ui.data(|data| data.get_temp::<ClipDrag>(drag_id));
+    let on_edge = response.hover_pos().is_some_and(|hover| {
+        clip_rects
+            .iter()
+            .any(|(_, _, part, _, _)| part.contains(hover) && hover.x > part.right() - EDGE_GRAB)
+    });
+    if on_edge
+        || dragging
+            .as_ref()
+            .is_some_and(|drag| drag.kind == ClipEditKind::Resize)
+    {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+
+    // Where the button went down, not where the pointer is once the drag
+    // is seen: a quick drag would otherwise miss the edge it grabbed.
     if response.drag_started()
-        && let Some(pointer) = response.interact_pointer_pos()
+        && let Some(pointer) = ui
+            .input(|input| input.pointer.press_origin())
+            .or(response.interact_pointer_pos())
         && let Some((track, clip, clip_rect, start, length)) = clip_rects
             .iter()
             .find(|(_, _, rect, _, _)| rect.contains(pointer))
     {
-        let kind = if pointer.x >= clip_rect.right() - 10.0 {
+        let kind = if pointer.x > clip_rect.right() - EDGE_GRAB {
             ClipEditKind::Resize
         } else {
             ClipEditKind::Move
@@ -697,7 +948,7 @@ fn draw(
             drag
         })
     {
-        let edit = dragged_edit(&drag, tick_for(pointer.x));
+        let edit = dragged_edit(&drag, tick_for(pointer.x), unit, beat);
         ui.data_mut(|data| data.insert_temp(edit_id, edit));
     }
 
@@ -705,8 +956,8 @@ fn draw(
         && let Some(pointer) = ui.input(|input| input.pointer.latest_pos())
         && let Some(index) = song.tracks.iter().position(|track| track.id == drag.track)
     {
-        let edit = dragged_edit(&drag, tick_for(pointer.x));
-        let top = rect.top() + RULER_HEIGHT + CHORD_HEIGHT + index as f32 * LANE_HEIGHT;
+        let edit = dragged_edit(&drag, tick_for(pointer.x), unit, beat);
+        let top = rect.top() + RULER_HEIGHT + CHORD_HEIGHT + index as f32 * lane_height;
         let start = match edit.kind {
             ClipEditKind::Move => edit.start,
             ClipEditKind::Resize => drag.start,
@@ -717,7 +968,7 @@ fn draw(
         };
         let ghost = Rect::from_min_max(
             pos2(x_for(start), top + 4.0),
-            pos2(x_for(start + length), top + LANE_HEIGHT - 4.0),
+            pos2(x_for(start + length), top + lane_height - 4.0),
         );
         painter.rect_filled(ghost, 3.0, theme::accent().gamma_multiply(0.18));
         painter.rect_stroke(
@@ -751,7 +1002,7 @@ fn draw(
         && pointer.x >= content.left()
     {
         let tick = tick_for(pointer.x);
-        let target = context_target(song, pointer.y - rect.top(), tick);
+        let target = context_target(song, pointer.y - rect.top(), tick, lane_height);
         let hit = ContextHit {
             target,
             tick,
@@ -798,24 +1049,84 @@ mod tests {
     fn clip_drags_move_and_resize_on_a_grid() {
         let drag = ClipDrag {
             track: TrackId::new(1).expect("track"),
-            clip: ClipId::new(1).expect("clip"),
+            clip: Some(ClipId::new(1).expect("clip")),
             anchor_tick: 960,
             start: 960,
             length: 480,
             kind: ClipEditKind::Move,
         };
-        let moved = dragged_edit(&drag, 1440);
+        let moved = dragged_edit(&drag, 1440, 240, 960);
+        assert_eq!((moved.old_start, moved.old_length), (960, 480));
         assert_eq!(moved.start, 1440);
         assert_eq!(moved.kind, ClipEditKind::Move);
-        let resized = dragged_edit(
-            &ClipDrag {
-                kind: ClipEditKind::Resize,
-                ..drag
-            },
-            1680,
-        );
-        assert_eq!(resized.length, 720);
+        let resize = ClipDrag {
+            kind: ClipEditKind::Resize,
+            ..drag
+        };
+        // Snapped to beats, the end lands on 2880: two beats long.
+        let resized = dragged_edit(&resize, 2800, 960, 960);
+        assert_eq!(resized.length, 1920);
         assert_eq!(resized.kind, ClipEditKind::Resize);
+        // Never shorter than a beat.
+        assert_eq!(dragged_edit(&resize, 0, 960, 960).length, 960);
+        // Free (Alt): no snapping.
+        assert_eq!(dragged_edit(&resize, 2801, 1, 960).length, 1841);
+    }
+
+    #[test]
+    fn zoom_stays_in_its_limits_and_picks_the_snap() {
+        let zoom = Zoom {
+            time: 1000.0,
+            lane: 10.0,
+        }
+        .clamped();
+        assert_eq!(zoom.time, MAX_ZOOM);
+        assert_eq!(zoom.lane, MIN_LANE_HEIGHT);
+        // At zoom 1 a 4/4 bar is 96 pt.
+        let one = Zoom::default();
+        assert!((one.points_per_tick() * 3840.0 - 96.0).abs() < 0.01);
+        // A 24 pt beat snaps to bars; zoomed in it snaps to beats.
+        assert_eq!(one.snap_unit(960, 3840, false), 3840);
+        let near = Zoom { time: 2.0, ..one };
+        assert_eq!(near.snap_unit(960, 3840, false), 960);
+        assert_eq!(near.snap_unit(960, 3840, true), 1);
+    }
+
+    #[test]
+    fn ctrl_wheel_zooms_time_and_ctrl_shift_wheel_zooms_lanes() {
+        let context = egui::Context::default();
+        crate::theme::install(&context);
+        let song = arranging::demo::demo_song();
+        let mut zoom = Zoom::default();
+        let frame = |events: Vec<egui::Event>, modifiers: egui::Modifiers, zoom: &mut Zoom| {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1000.0, 700.0))),
+                modifiers,
+                events,
+                ..Default::default()
+            };
+            let _ = context.run(input, |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    let _ = show(ui, &song, 0, None, zoom, false, &HashMap::new());
+                });
+            });
+        };
+        let hover = egui::Event::PointerMoved(pos2(400.0, 300.0));
+        frame(vec![hover.clone()], egui::Modifiers::NONE, &mut zoom);
+        let wheel = |modifiers| egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, 80.0),
+            modifiers,
+        };
+        let ctrl = egui::Modifiers::COMMAND;
+        frame(vec![hover.clone(), wheel(ctrl)], ctrl, &mut zoom);
+        assert!(zoom.time > 1.0, "time zoom {}", zoom.time);
+        assert_eq!(zoom.lane, LANE_HEIGHT);
+        let ctrl_shift = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+        let time = zoom.time;
+        frame(vec![hover, wheel(ctrl_shift)], ctrl_shift, &mut zoom);
+        assert!(zoom.lane > LANE_HEIGHT, "lane {}", zoom.lane);
+        assert_eq!(zoom.time, time);
     }
 
     #[test]
@@ -831,9 +1142,12 @@ mod tests {
     #[test]
     fn a_right_click_finds_what_is_under_it() {
         let song = arranging::demo::demo_song();
-        assert_eq!(context_target(&song, 5.0, 0), ContextTarget::Ruler);
         assert_eq!(
-            context_target(&song, RULER_HEIGHT + 2.0, 0),
+            context_target(&song, 5.0, 0, LANE_HEIGHT),
+            ContextTarget::Ruler
+        );
+        assert_eq!(
+            context_target(&song, RULER_HEIGHT + 2.0, 0, LANE_HEIGHT),
             ContextTarget::Chords
         );
         let first = &song.tracks[0];
@@ -845,9 +1159,12 @@ mod tests {
             .map_or(ContextTarget::Lane(first.id), |clip| {
                 ContextTarget::Clip(first.id, clip.id)
             });
-        assert_eq!(context_target(&song, lane_y, 0), expected);
+        assert_eq!(context_target(&song, lane_y, 0, LANE_HEIGHT), expected);
         let below = HEADER_HEIGHT + LANE_HEIGHT * (song.tracks.len() as f32 + 1.0);
-        assert_eq!(context_target(&song, below, 0), ContextTarget::Empty);
+        assert_eq!(
+            context_target(&song, below, 0, LANE_HEIGHT),
+            ContextTarget::Empty
+        );
     }
 
     #[test]
@@ -858,13 +1175,14 @@ mod tests {
         let _ = context.run(egui::RawInput::default(), |context| {
             egui::CentralPanel::default().show(context, |ui| {
                 let song = arranging::demo::demo_song();
-                let _ = show(ui, &song, 0, None, 1.0, false, &HashMap::new());
+                let mut zoom = Zoom::default();
+                let _ = show(ui, &song, 0, None, &mut zoom, false, &HashMap::new());
                 let _ = show_with_loop(
                     ui,
                     &song,
                     960,
                     None,
-                    1.0,
+                    &mut zoom,
                     false,
                     Some((0, 3840)),
                     &HashMap::new(),

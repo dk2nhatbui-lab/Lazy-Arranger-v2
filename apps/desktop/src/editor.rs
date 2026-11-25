@@ -287,6 +287,79 @@ impl Editor {
         Ok(())
     }
 
+    /// Moves or resizes a timeline part, as v1's `Arrangement` does: a
+    /// moved part takes the notes that start inside it along. `clip` `None`
+    /// is the part a track without clips shows over the whole song; the
+    /// edit turns it into a real clip named after the track. One undo step.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track or clip is unknown, or the part
+    /// would overlap another.
+    pub fn edit_part(
+        &mut self,
+        track: TrackId,
+        clip: Option<project::ClipId>,
+        (old_start, old_length): (Tick, Tick),
+        (start, length): (Tick, Tick),
+    ) -> Result<project::ClipId, String> {
+        let entry = self
+            .song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .ok_or_else(|| String::from("unknown track"))?;
+        let mut clips = entry.clips.clone();
+        let id = match clip {
+            Some(id) => {
+                let found = clips
+                    .iter_mut()
+                    .find(|candidate| candidate.id == id)
+                    .ok_or_else(|| format!("unknown clip {id}"))?;
+                found.start = start;
+                found.length = length.max(1);
+                id
+            }
+            None => {
+                let next = clips
+                    .iter()
+                    .map(|clip| clip.id.get())
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_add(1);
+                let id = project::ClipId::new(next).map_err(|error| error.to_string())?;
+                clips.push(project::song::Clip {
+                    id,
+                    name: entry.name.clone(),
+                    start,
+                    length: length.max(1),
+                });
+                id
+            }
+        };
+        clips.sort_by_key(|clip| clip.start);
+        let delta = start - old_start;
+        let old_end = old_start.saturating_add(old_length);
+        let mut notes = entry.notes.clone();
+        if delta != 0 {
+            for note in &mut notes {
+                if note.start >= old_start && note.start < old_end {
+                    note.start = (note.start + delta).max(0);
+                }
+            }
+            notes.sort_by_key(|note| note.start);
+        }
+        self.session
+            .apply(app_commands::Command::ReplaceTrackNotesAndClips {
+                track,
+                notes,
+                clips,
+            })
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(id)
+    }
+
     /// Removes a clip region; its notes stay in the track.
     ///
     /// # Errors
@@ -2676,6 +2749,33 @@ mod tests {
         assert_eq!(snap(960, PPQ), 960);
         assert_eq!(snap(-5, PPQ), -960, "negative ticks floor like the oracle");
         assert_eq!(snap(1234, 0), 1234);
+    }
+
+    #[test]
+    fn a_moved_part_takes_its_notes_and_a_whole_song_part_becomes_a_clip() {
+        let mut editor = editor();
+        let track = TrackId::new(1).expect("valid");
+        // The track has notes but no clips: drag its whole-song part.
+        let clip = editor
+            .edit_part(track, None, (0, 3840), (1920, 3840))
+            .expect("move");
+        let song = editor.song();
+        assert_eq!(song.tracks[0].clips.len(), 1);
+        assert_eq!(song.tracks[0].clips[0].id, clip);
+        assert_eq!(song.tracks[0].clips[0].name, "Piano");
+        assert_eq!(song.tracks[0].clips[0].start, 1920);
+        assert_eq!(song.tracks[0].notes[0].start, 1920, "the note moved along");
+        // A resize keeps the notes where they are.
+        editor
+            .edit_part(track, Some(clip), (1920, 3840), (1920, 960))
+            .expect("resize");
+        assert_eq!(editor.song().tracks[0].clips[0].length, 960);
+        assert_eq!(editor.song().tracks[0].notes[0].start, 1920);
+        // Each edit is one undo step.
+        assert!(editor.undo());
+        assert!(editor.undo());
+        assert!(editor.song().tracks[0].clips.is_empty());
+        assert_eq!(editor.song().tracks[0].notes[0].start, 0);
     }
 
     #[test]
