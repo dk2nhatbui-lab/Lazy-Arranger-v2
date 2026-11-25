@@ -9,11 +9,13 @@
 pub mod beat;
 pub mod chords;
 pub mod demo;
+pub mod drums;
 pub mod forms;
 pub mod generate;
 pub mod grid;
 pub mod groove;
 pub mod groove_file;
+pub mod loops;
 
 use std::collections::BTreeMap;
 

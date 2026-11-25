@@ -114,6 +114,34 @@ impl ShellApp {
         }
     }
 
+    fn submit_assistant_input(&mut self, input: String) {
+        self.assistant.log.push(format!("> {input}"));
+        self.assistant.tool_rounds = 0;
+        self.assistant.input.clear();
+        let config = crate::ai::Config {
+            url: self.settings.ai_url.clone(),
+            model: self.settings.ai_model.clone(),
+            api_key: self.settings.ai_api_key.clone(),
+        };
+        if config.is_ready() || !self.settings.assistant_command.trim().is_empty() {
+            self.request_assistant(input);
+        } else {
+            if input == "undo" || input.starts_with("tool ") {
+                self.selected_note = None;
+                self.selected_clip = None;
+                self.selected_clips.clear();
+            }
+            let reply = self.editor.assistant(&input);
+            if self.settings.speech
+                && let Err(error) =
+                    crate::speech::speak_with(&reply.text, &self.settings.speak_command)
+            {
+                self.status = Some(error);
+            }
+            self.assistant.log.push(reply.text);
+        }
+    }
+
     /// The local assistant panel.
     pub(super) fn assistant_window(&mut self, context: &egui::Context) {
         if !self.assistant.open {
@@ -133,7 +161,7 @@ impl ShellApp {
                         if self.assistant.log.is_empty() {
                             ui.label(
                                 egui::RichText::new(
-                                    "Ask for help, a song summary, undo, or run any tool:\n                                     tool add_track {\"name\":\"Bass\"}",
+                                    "Ask for help, a song summary, undo, or run any tool:\ntool add_track {\"name\":\"Bass\"}",
                                 )
                                 .size(10.0)
                                 .color(theme::text_dim()),
@@ -173,32 +201,7 @@ impl ShellApp {
                     }
                     if (ui.button("Send").clicked() || enter) && !self.assistant.input.is_empty() {
                         let input = self.assistant.input.trim().to_string();
-                        self.assistant.log.push(format!("> {input}"));
-                        self.assistant.tool_rounds = 0;
-                        self.assistant.input.clear();
-                        let config = crate::ai::Config {
-                            url: self.settings.ai_url.clone(),
-                            model: self.settings.ai_model.clone(),
-                            api_key: self.settings.ai_api_key.clone(),
-                        };
-                        if config.is_ready()
-                            || !self.settings.assistant_command.trim().is_empty()
-                        {
-                            self.request_assistant(input);
-                        } else {
-                            if input == "undo" || input.starts_with("tool ") {
-                                self.selected_note = None;
-                                self.selected_clip = None;
-                                self.selected_clips.clear();
-                            }
-                            let reply = self.editor.assistant(&input);
-                            if self.settings.speech
-                                && let Err(error) = crate::speech::speak_with(&reply.text, &self.settings.speak_command)
-                            {
-                                self.status = Some(error);
-                            }
-                            self.assistant.log.push(reply.text);
-                        }
+                        self.submit_assistant_input(input);
                     }
                 });
                 if let Some(proposal) = self.assistant.proposal.clone() {
@@ -312,17 +315,27 @@ impl ShellApp {
                 response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
             if (ui.small_button("Send").clicked() || enter) && !self.assistant.input.is_empty() {
                 let input = self.assistant.input.trim().to_string();
-                if input == "undo" || input.starts_with("tool ") {
-                    self.selected_note = None;
-                    self.selected_clip = None;
-                    self.selected_clips.clear();
-                }
-                let reply = self.editor.assistant(&input);
-                self.assistant.log.push(format!("> {input}"));
-                self.assistant.log.push(reply.text);
-                self.assistant.input.clear();
+                self.submit_assistant_input(input);
             }
         });
+        if self.ai_pending.is_some() {
+            ui.label(
+                egui::RichText::new("Waiting for AI…")
+                    .size(9.0)
+                    .color(theme::accent()),
+            );
+        } else if self.assistant.proposal.is_some() {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Proposal ready")
+                        .size(9.0)
+                        .color(theme::accent()),
+                );
+                if ui.small_button("Review").clicked() {
+                    self.assistant.open = true;
+                }
+            });
+        }
     }
 
     /// The Arrangement Doctor's proposal cards.

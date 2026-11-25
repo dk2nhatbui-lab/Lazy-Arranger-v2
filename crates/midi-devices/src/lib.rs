@@ -22,6 +22,7 @@ pub mod map;
 pub mod profiles;
 pub mod programs;
 pub mod sysex;
+pub mod xiosynth;
 
 pub use capture::{CaptureStats, CapturedNote, NoteCapture};
 pub use devices::{

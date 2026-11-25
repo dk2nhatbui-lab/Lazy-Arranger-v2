@@ -16,11 +16,11 @@ pub(crate) use mixer::{
 };
 
 /// LCD panel size, from `HeaderBar::resized`: 350 x 52.
-pub const LCD_SIZE: Vec2 = Vec2::new(330.0, 48.0);
+pub const LCD_SIZE: Vec2 = Vec2::new(350.0, 52.0);
 /// Cell widths, from `LcdDisplay::cell`.
 const CELLS: [f32; 3] = [142.0, 116.0, 92.0];
-/// View tab strip size, from `HeaderBar::resized`.
-pub const TABS_SIZE: Vec2 = Vec2::new(280.0, 38.0);
+/// Width of the LCD meter cell, which opens the meter menu.
+pub const LCD_METER_WIDTH: f32 = CELLS[2];
 
 /// Bar, beat and sixteenth, one-based, as the LCD shows them.
 #[must_use]
@@ -132,12 +132,12 @@ pub fn lcd(ui: &mut Ui, position: Tick, bpm: f64, meter: TimeSignature) -> Respo
             &painter,
             label_rect.left_top(),
             labels[index],
-            FontId::proportional(9.5),
+            theme::semibold(9.5),
             theme::lcd_dim(),
             1.4,
         );
         let value_rect = Rect::from_min_max(Pos2::new(cell.left(), cell.top() + 11.0), cell.max);
-        let font = FontId::proportional(20.0);
+        let font = theme::semibold(20.0);
         let galley = painter.layout_no_wrap(values[index].clone(), font.clone(), theme::lcd_ink());
         let y = value_rect.center().y - galley.size().y * 0.5;
         painter.galley(Pos2::new(value_rect.left(), y), galley, theme::lcd_ink());
@@ -148,26 +148,27 @@ pub fn lcd(ui: &mut Ui, position: Tick, bpm: f64, meter: TimeSignature) -> Respo
 
 /// View tabs drawn like the v1 strip; returns the newly selected index.
 pub fn view_tabs(ui: &mut Ui, current: usize, names: &[&str]) -> Option<usize> {
-    let (response, painter) = ui.allocate_painter(TABS_SIZE, Sense::click());
+    let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click());
     let rect = response.rect;
-    painter.rect_filled(rect, 0.0, theme::panel());
+    let strip = if theme::light() {
+        theme::lcd().gamma_multiply(0.06)
+    } else {
+        theme::lcd()
+    };
+    painter.rect_filled(rect, theme::RADIUS, strip);
     painter.rect_stroke(
-        rect,
-        0.0,
+        rect.shrink(0.5),
+        theme::RADIUS,
         Stroke::new(1.0_f32, theme::line()),
         StrokeKind::Inside,
     );
 
-    let inner = rect.shrink2(Vec2::new(5.0, 5.0));
+    let inner = rect.shrink(5.0);
     let mut widths = Vec::with_capacity(names.len());
     let mut used = 0.0_f32;
     for name in names {
         let width = painter
-            .layout_no_wrap(
-                String::from(*name),
-                FontId::proportional(10.5),
-                theme::text(),
-            )
+            .layout_no_wrap(String::from(*name), theme::semibold(10.5), theme::text())
             .size()
             .x
             + 10.0;
@@ -175,10 +176,8 @@ pub fn view_tabs(ui: &mut Ui, current: usize, names: &[&str]) -> Option<usize> {
         used += width;
     }
     let extra = inner.width() - used;
-    if extra > 0.0 {
-        for width in &mut widths {
-            *width += extra / names.len() as f32;
-        }
+    for width in &mut widths {
+        *width = (*width + extra / names.len() as f32).max(20.0);
     }
 
     let mut clicked = None;
@@ -195,15 +194,18 @@ pub fn view_tabs(ui: &mut Ui, current: usize, names: &[&str]) -> Option<usize> {
         {
             clicked = Some(index);
         }
-        if index == current {
+        let selected = index == current;
+        if selected {
             painter.rect_filled(
                 tab,
                 theme::RADIUS_SMALL,
-                theme::accent().gamma_multiply(0.10),
+                theme::accent().gamma_multiply(0.14),
             );
-            painter.line_segment(
-                [tab.left_bottom(), tab.right_bottom()],
-                Stroke::new(2.0_f32, theme::accent()),
+            painter.rect_stroke(
+                tab.shrink(0.5),
+                theme::RADIUS_SMALL,
+                Stroke::new(1.0_f32, theme::accent().gamma_multiply(0.4)),
+                StrokeKind::Inside,
             );
             let width = 26.0_f32.min(tab.width() * 0.4);
             let underline = Rect::from_center_size(
@@ -212,21 +214,179 @@ pub fn view_tabs(ui: &mut Ui, current: usize, names: &[&str]) -> Option<usize> {
             );
             painter.rect_filled(underline, 0.0, theme::accent());
         }
-        let colour = if index == current {
-            theme::text()
+        let (font, colour) = if selected {
+            (theme::semibold(10.5), theme::text())
         } else {
-            theme::text_muted()
+            (FontId::proportional(10.5), theme::text_muted())
         };
-        painter.text(
-            tab.center(),
-            Align2::CENTER_CENTER,
-            *name,
-            FontId::proportional(10.5),
+        fitted_text(
+            &painter,
+            tab.shrink2(Vec2::new(2.0, 0.0)),
+            name,
+            font,
             colour,
         );
         left += width;
     }
     clicked
+}
+
+/// Draws `text` centred in `rect` like JUCE `drawFittedText` with a minimum
+/// scale of 0.7: shrinks it to fit, then cuts it with an ellipsis.
+pub fn fitted_text(painter: &egui::Painter, rect: Rect, text: &str, font: FontId, colour: Color32) {
+    let galley = painter.layout_no_wrap(text.to_owned(), font.clone(), colour);
+    let width = galley.size().x;
+    let galley = if width <= rect.width() {
+        galley
+    } else if width * 0.7 <= rect.width() {
+        let scaled = FontId::new(font.size * rect.width() / width, font.family.clone());
+        painter.layout_no_wrap(text.to_owned(), scaled, colour)
+    } else {
+        let small = FontId::new(font.size * 0.7, font.family.clone());
+        let mut cut: Vec<char> = text.chars().collect();
+        loop {
+            cut.pop();
+            let candidate: String = cut.iter().collect::<String>() + "\u{2026}";
+            let galley = painter.layout_no_wrap(candidate, small.clone(), colour);
+            if galley.size().x <= rect.width() || cut.is_empty() {
+                break galley;
+            }
+        }
+    };
+    let pos = rect.center() - galley.size() * 0.5;
+    painter.with_clip_rect(rect).galley(pos, galley, colour);
+}
+
+/// An inspector section heading (`sectionLabel` in Panels.cpp): 11 pt
+/// semibold capitals in `textDim`, slightly spaced, on the bottom of a row
+/// `height` points tall.
+pub fn section_label(ui: &mut Ui, text: &str, height: f32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::hover());
+    let galley_height = 14.0;
+    tracked_text(
+        ui.painter(),
+        Pos2::new(rect.left(), rect.bottom() - galley_height),
+        &text.to_uppercase(),
+        theme::semibold(11.0),
+        theme::text_dim(),
+        1.1,
+    );
+}
+
+/// A v1 toggle switch (`AppLookAndFeel::drawToggleButton`): the label on the
+/// left, a 34 x 20 switch on the right of `rect`. Returns true when clicked.
+pub fn toggle_switch(ui: &mut Ui, rect: Rect, id: &str, label: &str, on: bool) -> bool {
+    let response = ui.interact(rect, ui.id().with(id), Sense::click());
+    let switch = Rect::from_center_size(
+        Pos2::new(rect.right() - 17.0, rect.center().y),
+        Vec2::new(34.0, 20.0),
+    );
+    let track = if on {
+        theme::accent()
+    } else if response.hovered() {
+        theme::line_strong()
+    } else {
+        theme::line_strong().gamma_multiply(0.8)
+    };
+    ui.painter().rect_filled(switch, theme::RADIUS, track);
+    let knob_x = if on {
+        switch.right() - 10.0
+    } else {
+        switch.left() + 10.0
+    };
+    ui.painter().circle_filled(
+        Pos2::new(knob_x, switch.center().y),
+        7.0,
+        if on {
+            theme::accent_text()
+        } else {
+            theme::text()
+        },
+    );
+    if !label.is_empty() {
+        ui.painter().text(
+            Pos2::new(rect.left(), rect.center().y),
+            Align2::LEFT_CENTER,
+            label,
+            FontId::proportional(13.0),
+            theme::text(),
+        );
+    }
+    response.clicked()
+}
+
+/// A v1 horizontal slider without a text box (`drawLinearSlider`): a 4 pt
+/// `lineStrong` track, filled in accent up to the 14 pt round thumb.
+/// Returns true while the value changes.
+pub fn flat_slider(ui: &mut Ui, rect: Rect, id: &str, value: &mut f32) -> bool {
+    let response = ui.interact(rect, ui.id().with(id), Sense::click_and_drag());
+    let left = rect.left() + 7.0;
+    let right = rect.right() - 7.0;
+    let mut changed = false;
+    if (response.dragged() || response.clicked())
+        && let Some(pointer) = response.interact_pointer_pos()
+    {
+        let new = ((pointer.x - left) / (right - left).max(1.0)).clamp(0.0, 1.0);
+        if (new - *value).abs() > f32::EPSILON {
+            *value = new;
+            changed = true;
+        }
+    }
+    let track = Rect::from_min_max(
+        Pos2::new(left, rect.center().y - 2.0),
+        Pos2::new(right, rect.center().y + 2.0),
+    );
+    ui.painter()
+        .rect_filled(track, theme::RADIUS, theme::line_strong());
+    let x = left + (right - left) * value.clamp(0.0, 1.0);
+    ui.painter().rect_filled(
+        Rect::from_min_max(track.min, Pos2::new(x, track.bottom())),
+        theme::RADIUS,
+        theme::accent(),
+    );
+    ui.painter()
+        .circle_filled(Pos2::new(x, track.center().y), 7.0, theme::text());
+    changed
+}
+
+/// A v1 text button (`AppLookAndFeel::drawButtonBackground`): raised fill,
+/// `lineStrong` outline, 13 pt semibold label; toggled buttons take an accent
+/// tint.
+pub fn text_button(ui: &mut Ui, rect: Rect, id: &str, label: &str, toggled: bool) -> Response {
+    let response = ui.interact(rect, ui.id().with(id), Sense::click());
+    let mut fill = if toggled {
+        crate::transport::blend(theme::raised(), theme::accent(), 0.18)
+    } else {
+        theme::raised()
+    };
+    if response.is_pointer_button_down_on() {
+        fill = crate::transport::blend(fill, Color32::BLACK, 0.15);
+    } else if response.hovered() {
+        fill = crate::transport::blend(fill, Color32::WHITE, 0.06);
+    }
+    let r = rect.shrink(0.5);
+    ui.painter().rect_filled(r, theme::RADIUS_SMALL, fill);
+    ui.painter().rect_stroke(
+        r,
+        theme::RADIUS_SMALL,
+        Stroke::new(
+            1.0_f32,
+            if toggled {
+                theme::accent().gamma_multiply(0.6)
+            } else {
+                theme::line_strong()
+            },
+        ),
+        StrokeKind::Inside,
+    );
+    ui.painter().text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        label,
+        theme::semibold(13.0),
+        theme::text(),
+    );
+    response
 }
 
 /// Draws text with extra tracking between characters.

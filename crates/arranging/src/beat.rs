@@ -1,6 +1,7 @@
 //! Beat view: a drum pattern as a step grid.
 //!
-//! Four rows (kick, snare, closed hat, open hat) and sixteen steps per bar.
+//! Eight standard GM drum rows (matching the C++ v1 BeatView kit: kick, snare,
+//! closed hat, open hat, clap, tom, crash, ride) and sixteen steps per bar.
 //! A pattern reads from a drum track and writes back as notes through the usual
 //! commands, so one apply is one undo step.
 
@@ -11,8 +12,17 @@ use project::{NoteId, TrackId};
 
 use crate::ArrangingError;
 
-/// The four editable rows: pitch and label.
-pub const ROWS: [(u8, &str); 4] = [(36, "Kick"), (38, "Snare"), (42, "Hat"), (46, "Open")];
+/// The eight editable GM drum rows: pitch and label.
+pub const ROWS: [(u8, &str); 8] = [
+    (36, "Kick"),
+    (38, "Snare"),
+    (42, "Hat"),
+    (46, "Open"),
+    (39, "Clap"),
+    (45, "Tom"),
+    (49, "Crash"),
+    (51, "Ride"),
+];
 /// Steps in one bar at 1/16.
 pub const STEPS: usize = 16;
 /// Velocity levels the step button cycles through.
@@ -424,5 +434,22 @@ mod tests {
         session.undo().expect("undo");
         assert_eq!(session.song().tracks[0].notes.len(), 2);
         assert_eq!(session.song().tracks[0].notes[0].pitch.as_u8(), 36);
+    }
+
+    #[test]
+    fn all_eight_v1_drum_rows_round_trip() {
+        assert_eq!(ROWS.len(), 8);
+        let mut pattern = BeatPattern::default();
+        for (row, steps) in pattern.grid.iter_mut().enumerate().take(ROWS.len()) {
+            steps[row] = 100;
+        }
+        let notes = pattern.to_notes(0, 3840, Channel::new(9).expect("valid"));
+        assert_eq!(notes.len(), 8);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Drums");
+        track.notes = notes;
+        let reread = BeatPattern::from_track(&track, 0, 3840);
+        for (row, &(_, name)) in ROWS.iter().enumerate() {
+            assert_eq!(reread.grid[row][row], 100, "row {row} ({name})");
+        }
     }
 }

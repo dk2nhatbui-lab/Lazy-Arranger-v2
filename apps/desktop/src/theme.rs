@@ -112,6 +112,18 @@ palette!(
         Color32::from_rgb(0xbd, 0x55, 0x44)
     ),
     (
+        ok,
+        "Success, active solo, and healthy device status.",
+        Color32::from_rgb(0x91, 0xad, 0x7c),
+        Color32::from_rgb(0x51, 0x7d, 0x45)
+    ),
+    (
+        warning,
+        "Warning, active mute, and offline device status.",
+        Color32::from_rgb(0xdc, 0xa4, 0x5f),
+        Color32::from_rgb(0xb3, 0x76, 0x32)
+    ),
+    (
         timeline,
         "Timeline background.",
         Color32::from_rgb(0x0a, 0x0c, 0x0e),
@@ -220,6 +232,12 @@ pub fn track_colour(index: usize) -> Color32 {
 
 /// Base spacing unit.
 pub const GRID: f32 = 4.0;
+
+/// Inter SemiBold at `size` points, for titles and values (`Theme::font(size, true)`).
+#[must_use]
+pub fn semibold(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("inter-semibold".into()))
+}
 /// Panel corner radius. The owner asked for square corners, so this is 0
 /// (v1 used 9 and 7).
 pub const RADIUS: f32 = 0.0;
@@ -231,8 +249,17 @@ pub const HEADER_HEIGHT: f32 = 60.0;
 pub const STATUS_HEIGHT: f32 = 28.0;
 /// Browser width.
 pub const SIDEBAR_WIDTH: f32 = 248.0;
-/// Inspector width, reserved for later.
-pub const INSPECTOR_WIDTH: f32 = 296.0;
+/// `AppLookAndFeel` fields: combo boxes, text fields and buttons on the
+/// `raised` colour with a `lineStrong` outline.
+pub fn v1_fields(visuals: &mut egui::Visuals) {
+    visuals.extreme_bg_color = raised();
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, line_strong());
+    visuals.widgets.inactive.weak_bg_fill = raised();
+    visuals.widgets.inactive.bg_fill = raised();
+}
+
+/// Inspector width, as wide as the v1 inspector.
+pub const INSPECTOR_WIDTH: f32 = 320.0;
 /// One track lane height.
 pub const TRACK_HEIGHT: f32 = 64.0;
 /// Base font size.
@@ -311,6 +338,33 @@ pub fn visuals() -> egui::Visuals {
     visuals.widgets.active.weak_bg_fill = accent().gamma_multiply(0.25);
     visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, accent());
     visuals.window_stroke = egui::Stroke::new(1.0_f32, line_strong());
+    // AppLookAndFeel: controls outlined in lineStrong, and square corners
+    // everywhere (docs/design/v1-visual-language.md).
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, line_strong());
+    let square = egui::CornerRadius::same(0);
+    for widget in [
+        &mut visuals.widgets.noninteractive,
+        &mut visuals.widgets.inactive,
+        &mut visuals.widgets.hovered,
+        &mut visuals.widgets.active,
+        &mut visuals.widgets.open,
+    ] {
+        widget.corner_radius = square;
+    }
+    visuals.window_corner_radius = square;
+    visuals.menu_corner_radius = square;
+    visuals.window_shadow = egui::Shadow {
+        offset: [0, 6],
+        blur: 18,
+        spread: 0,
+        color: egui::Color32::from_black_alpha(if light() { 40 } else { 110 }),
+    };
+    visuals.popup_shadow = egui::Shadow {
+        offset: [0, 4],
+        blur: 10,
+        spread: 0,
+        color: egui::Color32::from_black_alpha(if light() { 30 } else { 90 }),
+    };
     visuals
 }
 
@@ -324,8 +378,12 @@ mod tests {
         assert_eq!(background().to_array(), [0x0b, 0x0d, 0x0f, 0xff]);
         assert_eq!(accent().to_array(), [0xfc, 0x72, 0x56, 0xff]);
         assert_eq!(playhead().to_array(), [0xe7, 0xbd, 0x86, 0xff]);
+        assert_eq!(ok().to_array(), [0x91, 0xad, 0x7c, 0xff]);
+        assert_eq!(warning().to_array(), [0xdc, 0xa4, 0x5f, 0xff]);
         set_light(true);
         assert_eq!(background().to_array(), [0xe7, 0xe1, 0xd7, 0xff]);
+        assert_eq!(ok().to_array(), [0x51, 0x7d, 0x45, 0xff]);
+        assert_eq!(warning().to_array(), [0xb3, 0x76, 0x32, 0xff]);
         assert!(light());
         set_light(false);
         assert!(!light());

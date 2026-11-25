@@ -19,8 +19,11 @@ use crate::widgets::{draw_track_icon, mixer_fader, mixer_knob, pan_label};
 
 mod assistant;
 mod devices;
+mod drums;
 mod files;
+mod jam;
 mod layout;
+mod map;
 mod menu;
 mod mixer;
 mod native_menu;
@@ -756,7 +759,8 @@ pub struct ShellApp {
     beat_bars: usize,
     waveform_zoom: f32,
     waveform_position: f32,
-    launcher: arranging::grid::Launcher,
+    launcher: arranging::loops::Launcher,
+    jam_next: Option<jam::JamNext>,
     recent: Vec<std::path::PathBuf>,
     recent_file: std::path::PathBuf,
     midi_input: Option<midi_devices::devices::LiveInputs>,
@@ -796,6 +800,8 @@ pub struct ShellApp {
     midi_ports: Option<(Vec<String>, Vec<String>)>,
     audio_inputs: Option<Vec<String>>,
     audio_outputs: Option<Vec<String>>,
+    /// Audio system name and whether it has an output, for the header pill.
+    audio_host: Option<(String, bool)>,
     settings: crate::settings::Settings,
     settings_open: bool,
     /// The menu bar: native on macOS, drawn in the window elsewhere.
@@ -894,7 +900,17 @@ pub struct ShellApp {
     record_seconds: f64,
     rename_scene: Option<usize>,
     rename_scene_input: String,
-    last_bar: i64,
+    slot_clipboard: Option<project::song::SlotClip>,
+    rename_slot: Option<(usize, TrackId)>,
+    loops_fill: Option<u32>,
+    chosen_slot: Option<(usize, TrackId)>,
+    slot_edit: Option<(usize, TrackId)>,
+    drums: drums::DrumsUi,
+    map_bank: usize,
+    slot_roll: piano_roll::RollState,
+    slot_note: Option<project::NoteId>,
+    loops_quantise_bars: u32,
+    jam_recording: bool,
     synth: arranging::SynthSpec,
     project_path: Option<PathBuf>,
     view: View,
@@ -1072,7 +1088,8 @@ impl ShellApp {
             beat_bars: 1,
             waveform_zoom: initial_waveform_zoom,
             waveform_position: 0.0,
-            launcher: arranging::grid::Launcher::default(),
+            launcher: arranging::loops::Launcher::default(),
+            jam_next: None,
             recent_file,
             recent,
             midi_input: None,
@@ -1114,6 +1131,7 @@ impl ShellApp {
             midi_ports: None,
             audio_inputs: None,
             audio_outputs: None,
+            audio_host: None,
             midi_map: std::fs::read_to_string("lazy-arranger-midi-map.txt")
                 .ok()
                 .and_then(|text| midi_devices::map::MidiMap::from_text(&text).ok())
@@ -1125,7 +1143,8 @@ impl ShellApp {
             about_open: initial_window == "about",
             mixer_visible: true,
             kids_last_activity: None,
-            timeline_mode: true,
+            // `ARRANGER_WINDOW=piano-roll` opens the docked editor, like v1 `--editor`.
+            timeline_mode: initial_window != "piano-roll",
             timeline_zoom: initial_timeline_zoom,
             pending_clip_edit: None,
             inspector_name_track: None,
@@ -1157,9 +1176,11 @@ impl ShellApp {
                 page: 0,
                 zoom: initial_score_zoom,
                 grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
+                one_staff: false,
                 preview: std::env::var("ARRANGER_SCORE_EDIT").is_err()
                     && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
-                all_tracks: std::env::var("ARRANGER_SCORE_ALL").is_ok(),
+                // v1 opens the score on all tracks.
+                all_tracks: std::env::var("ARRANGER_SCORE_ALL").map_or(true, |value| value != "0"),
                 follow: initial_score_follow,
                 full_frames: std::env::var("ARRANGER_FULL_FRAMES").is_ok() || initial_score_frames,
                 full_hidden: std::collections::HashSet::new(),
@@ -1333,7 +1354,17 @@ impl ShellApp {
             record_seconds: 4.0,
             rename_scene: None,
             rename_scene_input: String::new(),
-            last_bar: 0,
+            slot_clipboard: None,
+            rename_slot: None,
+            loops_fill: None,
+            chosen_slot: None,
+            slot_edit: None,
+            drums: drums::DrumsUi::default(),
+            map_bank: 0,
+            slot_roll: piano_roll::RollState::default(),
+            slot_note: None,
+            loops_quantise_bars: 1,
+            jam_recording: false,
             synth: arranging::SynthSpec::default(),
             project_path,
             view: initial_view,
@@ -2599,18 +2630,6 @@ impl ShellApp {
         self.chord_dialog = open && self.chord_dialog;
     }
 
-    /// Commits a queued scene when the playhead crosses a bar line.
-    fn advance_launcher(&mut self) {
-        let bar = self.song().time_signature.bar_ticks().max(1);
-        let bar_index = self.position.div_euclid(bar);
-        if self.launcher.playing && bar_index != self.last_bar {
-            self.last_bar = bar_index;
-            if let Some(scene) = self.launcher.advance(bar_index * bar) {
-                self.status = Some(format!("scene {}", scene + 1));
-            }
-        }
-    }
-
     /// Loads and caches audio waveform peaks for the meters and timeline.
     fn refresh_waveform(&mut self, context: &Context) {
         let audio_tracks: Vec<(TrackId, String)> = self
@@ -3186,12 +3205,13 @@ impl ShellApp {
             return;
         }
         let grand_staff = self.score.grand
-            || self
-                .song()
-                .tracks
-                .iter()
-                .find(|entry| entry.id == track)
-                .is_some_and(needs_grand_staff);
+            || !self.score.one_staff
+                && self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == track)
+                    .is_some_and(needs_grand_staff);
         let settings = score::Settings {
             grand_staff,
             ..score::Settings::default()
@@ -4623,7 +4643,22 @@ impl ShellApp {
         } else {
             self.position.max(0)
         };
-        let song = self.song().clone();
+        let song = if self.launcher.active() {
+            self.jam_song(&self.launcher.now_playing(), resume)
+        } else {
+            self.song().clone()
+        };
+        let receiver = self.spawn_render(song, self.view == View::Mix);
+        self.render_pending = Some((receiver, resume));
+        self.status = Some(String::from("rendering audio"));
+    }
+
+    /// Renders a song in the background with the metronome and master bus.
+    fn spawn_render(
+        &self,
+        song: project::song::Song,
+        stems_wanted: bool,
+    ) -> std::sync::mpsc::Receiver<Result<RenderedSong, String>> {
         let metronome = self.settings.metronome;
         let accent = self.settings.metronome_accent;
         let master = audio::master::Master {
@@ -4632,11 +4667,8 @@ impl ShellApp {
             reverb: self.settings.master_reverb,
             chorus: self.settings.master_chorus,
         };
-        let stems_wanted = self.view == View::Mix;
         let output_name = self.settings.audio_output.clone();
         let (sender, receiver) = std::sync::mpsc::channel();
-        self.render_pending = Some((receiver, resume));
-        self.status = Some(String::from("rendering audio"));
         std::thread::spawn(move || {
             let rate =
                 audio::player::preferred_sample_rate(output_name.as_deref(), audio::SAMPLE_RATE);
@@ -4660,6 +4692,17 @@ impl ShellApp {
                 problems,
             }));
         });
+        receiver
+    }
+
+    /// Turns looping on or off; with no loop region yet, loops the current bar.
+    fn toggle_loop(&mut self) {
+        self.loop_enabled = !self.loop_enabled;
+        if self.loop_enabled && self.loop_region.is_none() {
+            let bar = self.song().time_signature.bar_ticks().max(1);
+            self.loop_region = Some(crate::transport::bar_region(self.position, bar));
+        }
+        self.sync_player_loop();
     }
 
     fn sync_player_loop(&self) {
@@ -4735,7 +4778,9 @@ impl ShellApp {
     }
 
     fn stop_playback(&mut self) {
+        self.finish_jam();
         self.render_pending = None;
+        self.reset_loops();
         if let Some(player) = self.player.take() {
             player.stop();
             player.release();

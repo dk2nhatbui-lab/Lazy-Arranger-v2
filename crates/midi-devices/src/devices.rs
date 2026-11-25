@@ -112,6 +112,7 @@ pub struct LiveInput {
     /// Open connection; dropping it closes the port.
     pub connection: MidiInputConnection<()>,
     receiver: Receiver<MidiMessage>,
+    name: String,
 }
 
 impl std::fmt::Debug for LiveInput {
@@ -162,6 +163,7 @@ impl LiveInput {
         Ok(Self {
             connection,
             receiver,
+            name: name.to_owned(),
         })
     }
 
@@ -218,6 +220,15 @@ impl LiveInputs {
     #[must_use]
     pub fn count(&self) -> usize {
         self.inputs.len()
+    }
+
+    /// Port names of the open inputs.
+    #[must_use]
+    pub fn names(&self) -> Vec<&str> {
+        self.inputs
+            .iter()
+            .map(|input| input.name.as_str())
+            .collect()
     }
 
     /// The next pending message from any input.
