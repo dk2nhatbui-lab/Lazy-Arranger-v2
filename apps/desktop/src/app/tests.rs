@@ -100,6 +100,47 @@ fn psr_registrations_round_trip_as_lines() {
 }
 
 #[test]
+fn removing_an_instrument_hides_its_editor_and_profile() {
+    use crate::instruments::{Installed, Instrument};
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    app.apply_instruments(Installed::all());
+    assert!(
+        app.device_profiles
+            .iter()
+            .any(|profile| profile.id == "d05")
+    );
+    app.d05.open = true;
+    app.l6max.mixer_open = true;
+    let mut choice = Installed::all();
+    choice.set(Instrument::RolandD05, false);
+    choice.set(Instrument::ZoomL6max, false);
+    app.apply_instruments(choice);
+    assert!(!app.d05.open);
+    assert!(!app.l6max.mixer_open);
+    assert!(
+        !app.device_profiles
+            .iter()
+            .any(|profile| profile.id == "d05")
+    );
+    assert!(
+        app.device_profiles
+            .iter()
+            .any(|profile| profile.id == "psr-s970")
+    );
+    assert!(
+        app.device_profiles
+            .iter()
+            .any(|profile| profile.id == "generic-gs")
+    );
+    // A window flag set some other way still draws nothing.
+    app.d05.open = true;
+    let _ = context.run(egui::RawInput::default(), |context| {
+        app.d05_editor_window(context)
+    });
+}
+
+#[test]
 fn a_port_name_selects_a_profile() {
     let folder = std::env::temp_dir().join("lazy-arranger-port-profiles");
     let _ = std::fs::remove_dir_all(&folder);
@@ -929,6 +970,8 @@ fn the_tool_windows_draw_without_panicking() {
     app.marks_open = true;
     app.takes_open = true;
     app.xg.open = true;
+    app.instruments = crate::instruments::Installed::all();
+    app.instruments_open = true;
     let _ = context.run(egui::RawInput::default(), |context| {
         app.about_window(context);
         app.assistant_window(context);
@@ -965,6 +1008,7 @@ fn the_tool_windows_draw_without_panicking() {
         app.marks_window(context);
         app.takes_window(context);
         app.xg_window(context);
+        app.instruments_window(context);
     });
 }
 
@@ -1050,6 +1094,39 @@ fn every_window_in_the_window_menu_opens() {
     }
     assert!(app.inspector_open && app.library_open && app.theory_open && app.groove_open);
     assert!(app.l6max.mixer_open && app.d05.open && app.psr.open && app.style.file_open);
+}
+
+#[test]
+fn the_menus_hide_instruments_that_are_not_installed() {
+    use crate::instruments::{Installed, Instrument};
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let shows = |app: &ShellApp, command: menu::MenuCommand| {
+        menu_items(&app.menu_model(false))
+            .iter()
+            .any(|(other, _)| *other == command)
+    };
+    app.instruments = Installed::all();
+    assert!(shows(&app, menu::MenuCommand::Show(menu::Panel::RolandD05)));
+    assert!(shows(&app, menu::MenuCommand::ImportL6max));
+    let mut choice = Installed::all();
+    choice.set(Instrument::RolandD05, false);
+    choice.set(Instrument::ZoomL6max, false);
+    app.instruments = choice;
+    assert!(!shows(
+        &app,
+        menu::MenuCommand::Show(menu::Panel::RolandD05)
+    ));
+    assert!(!shows(
+        &app,
+        menu::MenuCommand::Show(menu::Panel::L6maxMixer)
+    ));
+    assert!(!shows(&app, menu::MenuCommand::ImportL6max));
+    assert!(shows(&app, menu::MenuCommand::Show(menu::Panel::PsrRemote)));
+    assert!(shows(
+        &app,
+        menu::MenuCommand::Show(menu::Panel::InstrumentEditors)
+    ));
 }
 
 #[test]

@@ -232,15 +232,30 @@ pub(super) fn seed_default_device_profiles(folder: &std::path::Path) {
     }
 }
 
-pub(super) fn load_device_profiles() -> Vec<midi_devices::profiles::LoadedProfile> {
-    let folder = crate::settings::Settings::path()
+/// The folder holding the user's device profiles.
+pub(super) fn profiles_folder() -> std::path::PathBuf {
+    crate::settings::Settings::path()
         .parent()
         .map(|path| path.join("profiles"))
-        .unwrap_or_else(|| std::path::PathBuf::from("profiles"));
+        .unwrap_or_else(|| std::path::PathBuf::from("profiles"))
+}
+
+pub(super) fn load_device_profiles() -> Vec<midi_devices::profiles::LoadedProfile> {
+    load_device_profiles_for(&crate::instruments::Installed::current())
+}
+
+/// The user's device profiles, without those of instruments not installed.
+pub(super) fn load_device_profiles_for(
+    installed: &crate::instruments::Installed,
+) -> Vec<midi_devices::profiles::LoadedProfile> {
+    let folder = profiles_folder();
     seed_default_device_profiles(&folder);
     midi_devices::profiles::load_directory(&folder)
         .map(|(profiles, _)| profiles)
         .unwrap_or_default()
+        .into_iter()
+        .filter(|profile| installed.allows_profile(&profile.id))
+        .collect()
 }
 
 /// The PSR window: the part being edited and the eight registrations.
@@ -729,7 +744,11 @@ impl ShellApp {
     }
 
     pub(super) fn xg_window(&mut self, context: &Context) {
-        if !self.xg.open {
+        if !self.xg.open
+            || !self
+                .instruments
+                .has(crate::instruments::Instrument::YamahaXg)
+        {
             return;
         }
         let mut open = self.xg.open;
@@ -818,7 +837,11 @@ impl ShellApp {
     }
 
     pub(super) fn psr_window(&mut self, context: &Context) {
-        if !self.psr.open {
+        if !self.psr.open
+            || !self
+                .instruments
+                .has(crate::instruments::Instrument::YamahaPsrS970)
+        {
             return;
         }
         let mut open = self.psr.open;
@@ -1314,7 +1337,11 @@ impl ShellApp {
     }
 
     pub(super) fn l6max_device_window(&mut self, context: &Context) {
-        if !self.l6max.device_open {
+        if !self.l6max.device_open
+            || !self
+                .instruments
+                .has(crate::instruments::Instrument::ZoomL6max)
+        {
             return;
         }
         let port = self.l6max_control_port();
@@ -1684,7 +1711,11 @@ impl ShellApp {
                 }
             }
         }
-        if !self.d05.open {
+        if !self.d05.open
+            || !self
+                .instruments
+                .has(crate::instruments::Instrument::RolandD05)
+        {
             return;
         }
         let mut open = self.d05.open;
@@ -2052,7 +2083,11 @@ impl ShellApp {
     }
 
     pub(super) fn l6max_mixer_window(&mut self, context: &Context) {
-        if !self.l6max.mixer_open {
+        if !self.l6max.mixer_open
+            || !self
+                .instruments
+                .has(crate::instruments::Instrument::ZoomL6max)
+        {
             return;
         }
         let mut open = self.l6max.mixer_open;
