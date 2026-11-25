@@ -1546,6 +1546,12 @@ impl Editor {
             app_commands::clipboard::Clipboard::from_notes(self.song(), track, &[note]);
     }
 
+    /// True when the clipboard holds notes to paste.
+    #[must_use]
+    pub fn has_note_clipboard(&self) -> bool {
+        !self.clipboard.notes.is_empty()
+    }
+
     /// Copies then deletes one note; true when it was copied.
     pub fn cut_note(&mut self, track: TrackId, note: NoteId) -> bool {
         self.copy_note(track, note);

@@ -13,6 +13,7 @@
 use crate::instruments::Instrument;
 use egui::{Context, Key, KeyboardShortcut, Modifiers};
 
+use super::timeline_menu::TimelineAction;
 use super::{FileMode, ShellApp, View};
 use crate::settings::{Binding, parse_shortcut};
 
@@ -138,7 +139,27 @@ pub(super) enum MenuCommand {
     Mixer,
     LightTheme,
     Show(Panel),
+    AddTrack,
+    /// A timeline action on the selected track or the song.
+    Timeline(TimelineAction),
+    StyleRules,
+    /// One of the Generate Part operations on the selected track.
+    Generate(&'static str),
+    ArrangementDoctor,
+    SongForm,
+    Reharmonize,
 }
+
+/// The Generate Part operations in the AI menu.
+pub(super) const GENERATE_OPS: [(&str, &str); 7] = [
+    ("Humanise", "humanize"),
+    ("Drumify", "drumify"),
+    ("Write a Bass Part", "bass"),
+    ("Write a Pad Part", "pad"),
+    ("Write an Arpeggio", "arp"),
+    ("Continue 4 Bars", "continue"),
+    ("Write a Melody", "melody"),
+];
 
 /// One row of a menu.
 #[derive(Clone, Debug, PartialEq)]
@@ -382,6 +403,31 @@ impl ShellApp {
             window.extend(shown);
         }
 
+        let track = self.track_menu();
+        let style = vec![
+            item(
+                MenuCommand::Show(Panel::StyleFilePlayer),
+                "Open Style File…",
+            ),
+            item(MenuCommand::StyleRules, "Style Rules…"),
+            MenuEntry::Separator,
+            item(
+                MenuCommand::Show(Panel::StyleFromClips),
+                "Make a Style from Clips…",
+            ),
+            item(
+                MenuCommand::Show(Panel::StyleFromAudio),
+                "Make a Style from Audio…",
+            ),
+            item(
+                MenuCommand::Show(Panel::StyleFromLink),
+                "Make a Style from a Link…",
+            ),
+            MenuEntry::Separator,
+            item(MenuCommand::Show(Panel::GrooveLibrary), "Groove Library…"),
+        ];
+        let ai = self.ai_menu();
+
         let mut help = vec![
             item(MenuCommand::Show(Panel::Help), "Lazy Arranger Help"),
             item(MenuCommand::Show(Panel::Shortcuts), "Keyboard Shortcuts")
@@ -408,12 +454,24 @@ impl ShellApp {
                 entries: edit,
             },
             Menu {
+                title: "Track",
+                entries: track,
+            },
+            Menu {
+                title: "Style",
+                entries: style,
+            },
+            Menu {
                 title: "Transport",
                 entries: transport,
             },
             Menu {
                 title: "View",
                 entries: view,
+            },
+            Menu {
+                title: "AI",
+                entries: ai,
             },
             Menu {
                 title: "Window",
@@ -560,8 +618,147 @@ impl ShellApp {
                 let _ = self.settings.save(&crate::settings::Settings::path());
             }
             MenuCommand::Show(panel) => self.open_panel(panel),
+            MenuCommand::AddTrack => match self.editor.add_empty_track() {
+                Ok(id) => {
+                    self.roll.selected = Some(id);
+                    self.status = Some(String::from("track added"));
+                }
+                Err(error) => self.status = Some(error),
+            },
+            MenuCommand::Timeline(action) => self.run_timeline_action(action),
+            MenuCommand::StyleRules => self.style.rules_open = true,
+            MenuCommand::Generate(op) => {
+                if let Some(track) = self.menu_track() {
+                    match self.editor.generate_part(track, op, self.generate_seed) {
+                        Ok(_) => self.status = Some(format!("generated {op}")),
+                        Err(error) => self.status = Some(error),
+                    }
+                }
+            }
+            MenuCommand::ArrangementDoctor => self.open_arrangement_doctor(),
+            MenuCommand::SongForm => self.form_dialog = true,
+            MenuCommand::Reharmonize => {
+                if let Some(found) = self
+                    .song()
+                    .chords
+                    .iter()
+                    .filter(|event| event.tick <= self.position)
+                    .max_by_key(|event| event.tick)
+                {
+                    self.run_timeline_action(TimelineAction::Reharmonize(found.tick));
+                } else {
+                    self.status = Some(String::from("no chord at the playhead to reharmonize"));
+                }
+            }
         }
         context.request_repaint();
+    }
+
+    /// The track the Track and AI menus work on: the selected one.
+    pub(super) fn menu_track(&self) -> Option<project::TrackId> {
+        self.roll
+            .selected
+            .filter(|id| self.song().tracks.iter().any(|track| track.id == *id))
+    }
+
+    /// The Track menu, as in the C++ app: add and arrange tracks, turn
+    /// audio into MIDI, and open the hardware editors.
+    fn track_menu(&self) -> Vec<MenuEntry> {
+        let selected = self.menu_track();
+        let index = selected.and_then(|id| self.song().tracks.iter().position(|t| t.id == id));
+        let count = self.song().tracks.len();
+        let audio = selected
+            .and_then(|id| self.song().tracks.iter().find(|t| t.id == id))
+            .is_some_and(|track| track.audio.is_some());
+        let on = |action: fn(project::TrackId) -> TimelineAction, label: &str, enabled: bool| {
+            match selected {
+                Some(id) => item(MenuCommand::Timeline(action(id)), label).enabled(enabled),
+                None => item(MenuCommand::AddTrack, label).enabled(false),
+            }
+        };
+        let mut entries = vec![
+            item(MenuCommand::AddTrack, "Add Track"),
+            on(TimelineAction::DuplicateTrack, "Duplicate Track", true),
+            on(
+                |id| TimelineAction::MoveTrack(id, true),
+                "Move Track Up",
+                index.is_some_and(|i| i > 0),
+            ),
+            on(
+                |id| TimelineAction::MoveTrack(id, false),
+                "Move Track Down",
+                index.is_some_and(|i| i + 1 < count),
+            ),
+            on(TimelineAction::DeleteTrack, "Delete Track", true),
+            MenuEntry::Separator,
+            on(
+                TimelineAction::AudioToMelody,
+                "Convert Audio to MIDI (Melody)",
+                audio,
+            ),
+            on(
+                TimelineAction::AudioToDrums,
+                "Convert Audio to MIDI (Drums)",
+                audio,
+            ),
+            on(
+                TimelineAction::AudioChords,
+                "Find Chords in the Audio",
+                audio,
+            ),
+            on(TimelineAction::AudioTakes, "Audio Takes…", audio),
+            MenuEntry::Separator,
+            item(MenuCommand::Show(Panel::SynthPatch), "Synth Patch…"),
+            item(MenuCommand::Show(Panel::DeviceEditor), "Device Editor…"),
+        ];
+        let hardware: Vec<MenuEntry> = [
+            (Panel::RolandD05, "Roland D-05 Sound Editor…"),
+            (Panel::L6maxMixer, "L6max Mixer…"),
+            (Panel::PsrRemote, "PSR-S970 Style Remote…"),
+            (Panel::XgPartMixer, "XG Part Mixer…"),
+        ]
+        .into_iter()
+        .filter(|(panel, _)| {
+            instrument_for(*panel).is_none_or(|instrument| self.instruments.has(instrument))
+        })
+        .map(|(panel, label)| item(MenuCommand::Show(panel), label))
+        .collect();
+        if !hardware.is_empty() {
+            entries.push(MenuEntry::Separator);
+            entries.extend(hardware);
+        }
+        entries
+    }
+
+    /// The AI menu: the assistant, the part writers and the song helpers.
+    fn ai_menu(&self) -> Vec<MenuEntry> {
+        let has_track = self.menu_track().is_some();
+        let has_chords = !self.song().chords.is_empty();
+        let mut entries = vec![
+            item(MenuCommand::Show(Panel::Assistant), "Assistant…"),
+            MenuEntry::Separator,
+        ];
+        entries.extend(
+            GENERATE_OPS
+                .iter()
+                .map(|(label, op)| item(MenuCommand::Generate(op), *label).enabled(has_track)),
+        );
+        entries.extend([
+            item(MenuCommand::Show(Panel::GeneratePart), "Generate Part…"),
+            MenuEntry::Separator,
+            item(MenuCommand::ArrangementDoctor, "Arrangement Doctor…"),
+            item(MenuCommand::SongForm, "Song Form…"),
+            item(
+                MenuCommand::Timeline(TimelineAction::FindChords),
+                "Find Chords from the Music",
+            ),
+            item(MenuCommand::Reharmonize, "Reharmonize at Playhead…").enabled(has_chords),
+            item(
+                MenuCommand::Show(Panel::ChordsFromAudio),
+                "Chords from Audio…",
+            ),
+        ]);
+        entries
     }
 
     /// Opens one of the app's windows.

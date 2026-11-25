@@ -1063,7 +1063,17 @@ fn the_menu_bar_has_the_usual_menus() {
         .collect();
     assert_eq!(
         titles,
-        ["File", "Edit", "Transport", "View", "Window", "Help"]
+        [
+            "File",
+            "Edit",
+            "Track",
+            "Style",
+            "Transport",
+            "View",
+            "AI",
+            "Window",
+            "Help"
+        ]
     );
     let drawn = menu_items(&app.menu_model(false));
     assert!(
@@ -1312,4 +1322,142 @@ fn track_menu_moves_and_deletes_tracks() {
     app.run_timeline_action(TimelineAction::DeleteTrack(first));
     assert_eq!(app.song().tracks.len(), tracks);
     assert!(app.song().tracks.iter().all(|track| track.id != first));
+}
+
+#[test]
+fn track_menu_works_on_the_selected_track() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let tracks = app.song().tracks.len();
+    app.roll.selected = None;
+    // With no track selected, only Add Track does anything.
+    let track_menu = |app: &ShellApp| {
+        app.menu_model(false)
+            .into_iter()
+            .find(|menu| menu.title == "Track")
+            .map(|menu| menu.entries)
+            .unwrap_or_default()
+    };
+    assert!(track_menu(&app).iter().any(|entry| matches!(
+        entry,
+        menu::MenuEntry::Item { label, enabled: false, .. } if label == "Delete Track"
+    )));
+    app.run_menu_command(&context, menu::MenuCommand::AddTrack);
+    assert_eq!(app.song().tracks.len(), tracks + 1);
+    let added = app.roll.selected.expect("the new track is selected");
+    let delete = menu_items(&app.menu_model(false))
+        .into_iter()
+        .find(|(_, label)| label == "Delete Track")
+        .map(|(command, _)| command)
+        .expect("a Delete Track item");
+    app.run_menu_command(&context, delete);
+    assert_eq!(app.song().tracks.len(), tracks);
+    assert!(app.song().tracks.iter().all(|track| track.id != added));
+}
+
+#[test]
+fn style_and_ai_menus_open_their_windows() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    app.run_menu_command(&context, menu::MenuCommand::StyleRules);
+    assert!(app.style.rules_open);
+    app.run_menu_command(&context, menu::MenuCommand::SongForm);
+    assert!(app.form_dialog);
+    app.run_menu_command(&context, menu::MenuCommand::ArrangementDoctor);
+    assert!(app.doctor_dialog);
+    let items = menu_items(&app.menu_model(false));
+    for (_, op) in menu::GENERATE_OPS {
+        assert!(
+            items
+                .iter()
+                .any(|(command, _)| *command == menu::MenuCommand::Generate(op))
+        );
+    }
+}
+
+#[test]
+fn ai_menu_writes_a_part_on_the_selected_track() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let track = app.song().tracks[0].id;
+    app.roll.selected = Some(track);
+    let depth = app.editor.undo_depth();
+    app.run_menu_command(&context, menu::MenuCommand::Generate("humanize"));
+    assert_eq!(app.editor.undo_depth(), depth + 1, "{:?}", app.status);
+}
+
+#[test]
+fn notes_menu_copies_pastes_and_deletes_notes() {
+    use super::notes_menu::NoteAction;
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let track = app
+        .song()
+        .tracks
+        .iter()
+        .find(|entry| !entry.notes.is_empty())
+        .map(|entry| entry.id)
+        .expect("a track with notes");
+    app.roll.selected = Some(track);
+    let count = |app: &ShellApp| {
+        app.song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map_or(0, |entry| entry.notes.len())
+    };
+    let before = count(&app);
+    let first = app
+        .song()
+        .tracks
+        .iter()
+        .find(|entry| entry.id == track)
+        .and_then(|entry| entry.notes.first())
+        .map(|note| note.id)
+        .expect("a note");
+    app.selected_note = Some((track, first));
+    app.run_note_action(NoteAction::Copy);
+    assert!(app.editor.has_note_clipboard());
+    let far = app.song().end_tick() + 4 * music_core::PPQ;
+    app.run_note_action(NoteAction::Paste(Some(far)));
+    assert_eq!(count(&app), before + 1, "{:?}", app.status);
+    app.run_note_action(NoteAction::Delete);
+    assert_eq!(count(&app), before);
+    app.run_note_action(NoteAction::SelectAll);
+    assert_eq!(app.selected_notes.len(), before);
+    app.run_note_action(NoteAction::Lyrics);
+    assert!(app.lyrics_open);
+}
+
+#[test]
+fn mixer_menu_routes_tracks_and_manages_buses() {
+    use super::mixer::MixerAction;
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let track = app.song().tracks[0].id;
+    let buses = app.song().buses.len();
+    app.run_mixer_action(MixerAction::AddBus);
+    assert_eq!(app.song().buses.len(), buses + 1);
+    let bus = app.song().buses.last().map(|bus| bus.id).expect("a bus");
+    app.run_mixer_action(MixerAction::Output(track, Some(bus)));
+    app.run_mixer_action(MixerAction::Send(track, Some(bus)));
+    let routed = |app: &ShellApp| {
+        app.song()
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .map(|entry| (entry.bus, entry.send))
+    };
+    assert_eq!(
+        routed(&app),
+        Some((Some(bus), Some(bus))),
+        "{:?}",
+        app.status
+    );
+    app.run_mixer_action(MixerAction::RemoveBus(bus));
+    assert_eq!(app.song().buses.len(), buses);
+    assert_eq!(routed(&app), Some((None, None)));
+    app.run_mixer_action(MixerAction::Effects(track));
+    assert!(app.plugins_open);
+    assert_eq!(app.roll.selected, Some(track));
 }
