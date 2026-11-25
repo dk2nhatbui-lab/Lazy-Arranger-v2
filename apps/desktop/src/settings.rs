@@ -166,6 +166,66 @@ pub const SHORTCUTS: &[Shortcut] = &[
         action: "shortcuts",
         context: "all views",
     },
+    Shortcut {
+        keys: "Ctrl/Cmd+N",
+        action: "new project",
+        context: "all views",
+    },
+    Shortcut {
+        keys: "Ctrl/Cmd+O",
+        action: "open project",
+        context: "all views",
+    },
+    Shortcut {
+        keys: "Ctrl/Cmd+Shift+S",
+        action: "save as",
+        context: "all views",
+    },
+    Shortcut {
+        keys: "Ctrl/Cmd+,",
+        action: "open settings",
+        context: "all views",
+    },
+    Shortcut {
+        keys: "Ctrl/Cmd+Q",
+        action: "quit",
+        context: "all views",
+    },
+    Shortcut {
+        keys: "Ctrl/Cmd+1",
+        action: "Timeline view",
+        context: "all views",
+    },
+    Shortcut {
+        keys: "Ctrl/Cmd+2",
+        action: "show or hide the mixer",
+        context: "all views",
+    },
+    Shortcut {
+        keys: "Ctrl/Cmd+3",
+        action: "Score view",
+        context: "all views",
+    },
+    Shortcut {
+        keys: "Ctrl/Cmd+4",
+        action: "Drums view",
+        context: "all views",
+    },
+    Shortcut {
+        keys: "Ctrl/Cmd+5",
+        action: "Loops view",
+        context: "all views",
+    },
+    Shortcut {
+        keys: "Ctrl/Cmd+6",
+        action: "MIDI Map view",
+        context: "all views",
+    },
+    Shortcut {
+        keys: "Ctrl/Cmd+Alt+K",
+        action: "Kids Mode",
+        context: "all views",
+    },
 ];
 
 /// User settings.
