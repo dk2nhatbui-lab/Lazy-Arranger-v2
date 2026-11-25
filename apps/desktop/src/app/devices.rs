@@ -536,7 +536,74 @@ impl ShellApp {
                     self.status = Some(error);
                 }
             }
+            Action::TrackPan(track) => {
+                let (Some(value), Some(entry)) = (value, self.track_entry(track)) else {
+                    return;
+                };
+                let volume = entry.volume;
+                if let Err(error) = self.editor.set_track_gain(track, volume, value.min(127)) {
+                    self.status = Some(error);
+                }
+            }
+            Action::TrackSend(track) => {
+                let (Some(value), Some(entry)) = (value, self.track_entry(track)) else {
+                    return;
+                };
+                let (bus, send) = (entry.bus, entry.send);
+                if let Err(error) = self
+                    .editor
+                    .set_track_routing(track, bus, send, value.min(127))
+                {
+                    self.status = Some(error);
+                }
+            }
+            Action::TrackMute(track) | Action::TrackSolo(track) | Action::TrackArm(track) => {
+                let Some(entry) = self.track_entry(track) else {
+                    return;
+                };
+                let (mut muted, mut soloed, mut armed) = (entry.muted, entry.soloed, entry.armed);
+                match action {
+                    Action::TrackMute(_) => muted = !muted,
+                    Action::TrackSolo(_) => soloed = !soloed,
+                    _ => armed = !armed,
+                }
+                if let Err(error) = self.editor.set_track_flags(track, muted, soloed, armed) {
+                    self.status = Some(error);
+                }
+            }
+            Action::Clip(track, scene) => {
+                if self
+                    .track_entry(track)
+                    .is_some_and(|entry| entry.slot(scene).is_some())
+                {
+                    self.launcher.toggle(track, scene);
+                } else {
+                    self.launcher.stop(track);
+                }
+                self.loops_changed();
+            }
+            Action::Master => {
+                if let Some(value) = value {
+                    // 0..127 maps to -60..+6 dB, with 100 at 0 dB like a fader.
+                    let db = if value == 0 {
+                        -60.0
+                    } else {
+                        40.0 * (f32::from(value) / 100.0).log10()
+                    };
+                    self.settings.master_gain_db = db.clamp(-60.0, 6.0);
+                }
+            }
+            Action::Record => self.start_midi_recording(),
+            Action::Loop => self.toggle_loop(),
+            Action::StopClips => {
+                self.launcher.stop_all();
+                self.loops_changed();
+            }
         }
+    }
+
+    fn track_entry(&self, track: TrackId) -> Option<&project::song::Track> {
+        self.song().tracks.iter().find(|entry| entry.id == track)
     }
 
     pub(super) fn send_chord_notes(

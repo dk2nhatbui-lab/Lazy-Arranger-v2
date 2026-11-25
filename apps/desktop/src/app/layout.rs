@@ -492,7 +492,10 @@ impl ShellApp {
         }
         // v1 shows the track list with the timeline only; the score and the
         // loops use the whole width.
-        if matches!(self.view, View::Score | View::Loops | View::Drums) {
+        if matches!(
+            self.view,
+            View::Score | View::Loops | View::Drums | View::Map
+        ) {
             return;
         }
         egui::SidePanel::left("tracks")
@@ -3942,13 +3945,19 @@ impl ShellApp {
                                         .find(|track| track.id == *track_id)
                                         .and_then(|track| track.audio.as_ref())
                                 {
-                                    audio_trim = Some((
-                                        *track_id,
-                                        (position - reference.start).max(1),
-                                    ));
+                                    audio_trim =
+                                        Some((*track_id, (position - reference.start).max(1)));
                                 }
                                 if ui
-                                    .button(format!("Takes ({})", project.song.tracks.iter().find(|track| track.id == *track_id).map_or(0, |track| track.takes.len())))
+                                    .button(format!(
+                                        "Takes ({})",
+                                        project
+                                            .song
+                                            .tracks
+                                            .iter()
+                                            .find(|track| track.id == *track_id)
+                                            .map_or(0, |track| track.takes.len())
+                                    ))
                                     .on_hover_text("Store, use or remove audio takes")
                                     .clicked()
                                 {
@@ -3993,7 +4002,9 @@ impl ShellApp {
                                     .iter()
                                     .find(|track| track.id == *track_id)
                                     .and_then(|track| track.audio.as_ref())
-                                    .map_or(0.0, |reference| f32::from(reference.gain_mb) / 1_000.0);
+                                    .map_or(0.0, |reference| {
+                                        f32::from(reference.gain_mb) / 1_000.0
+                                    });
                                 if ui
                                     .add(
                                         egui::Slider::new(&mut gain_db, -24.0..=12.0)
@@ -4053,23 +4064,20 @@ impl ShellApp {
                                         .fixed_decimals(2),
                                 );
                             });
-                            if let Some(fraction) =
-                                Self::draw_waveform(
-                                    ui,
-                                    peaks,
-                                    self.waveform_zoom,
-                                    self.waveform_position,
-                                )
-                                && let Some(reference) = project
-                                    .song
-                                    .tracks
-                                    .iter()
-                                    .find(|track| track.id == *track_id)
-                                    .and_then(|track| track.audio.as_ref())
+                            if let Some(fraction) = Self::draw_waveform(
+                                ui,
+                                peaks,
+                                self.waveform_zoom,
+                                self.waveform_position,
+                            ) && let Some(reference) = project
+                                .song
+                                .tracks
+                                .iter()
+                                .find(|track| track.id == *track_id)
+                                .and_then(|track| track.audio.as_ref())
                             {
                                 seek = Some(
-                                    reference.start
-                                        + (reference.length as f32 * fraction) as i64,
+                                    reference.start + (reference.length as f32 * fraction) as i64,
                                 );
                             }
                         }
@@ -4149,8 +4157,10 @@ impl ShellApp {
                             );
                             theme::v1_fields(bar_ui.visuals_mut());
                             if let Some((index, track)) = edited {
-                                let (dot, _) = bar_ui
-                                    .allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                                let (dot, _) = bar_ui.allocate_exact_size(
+                                    egui::vec2(12.0, 12.0),
+                                    egui::Sense::hover(),
+                                );
                                 bar_ui.painter().circle_filled(
                                     dot.center(),
                                     5.0,
@@ -4331,51 +4341,7 @@ impl ShellApp {
                         self.drums_panel(ui);
                     }
                     View::Map => {
-                        ui.heading("MIDI Map");
-                        ui.label(
-                            egui::RichText::new(
-                                "Controller bindings and track controls. Learn bindings in Windows > Controllers.",
-                            )
-                            .size(10.0)
-                            .color(theme::text_dim()),
-                        );
-                        if ui.button("Open Controllers").clicked() {
-                            self.controller_open = true;
-                        }
-                        ui.separator();
-                        egui::Grid::new("midi-map-grid")
-                            .striped(true)
-                            .num_columns(4)
-                            .show(ui, |ui| {
-                                ui.label(egui::RichText::new("Track").strong());
-                                ui.label(egui::RichText::new("Volume").strong());
-                                ui.label(egui::RichText::new("Pan").strong());
-                                ui.label(egui::RichText::new("Send").strong());
-                                ui.end_row();
-                                for track in &project.song.tracks {
-                                    ui.label(if track.name.is_empty() {
-                                        "untitled"
-                                    } else {
-                                        &track.name
-                                    });
-                                    ui.label(track.volume.to_string());
-                                    ui.label(track.pan.to_string());
-                                    ui.label(track.send_level.to_string());
-                                    ui.end_row();
-                                }
-                            });
-                        ui.separator();
-                        ui.label(egui::RichText::new("Controller bindings").strong());
-                        if self.midi_map.controller_bindings().is_empty() {
-                            ui.label(
-                                egui::RichText::new("no controller bindings yet")
-                                    .size(10.0)
-                                    .color(theme::text_dim()),
-                            );
-                        }
-                        for (number, action) in self.midi_map.controller_bindings() {
-                            ui.label(format!("CC {number}  →  {}", action.label()));
-                        }
+                        self.map_panel(ui);
                     }
                     View::Perform => {
                         if kids {
@@ -4393,7 +4359,11 @@ impl ShellApp {
                             ui.painter().circle_filled(
                                 center,
                                 72.0 + pulse,
-                                theme::accent().gamma_multiply(if self.playing { 0.30 } else { 0.14 }),
+                                theme::accent().gamma_multiply(if self.playing {
+                                    0.30
+                                } else {
+                                    0.14
+                                }),
                             );
                             ui.painter().circle_stroke(
                                 center,
@@ -4403,7 +4373,11 @@ impl ShellApp {
                             ui.painter().text(
                                 center,
                                 egui::Align2::CENTER_CENTER,
-                                if self.playing { "Playing" } else { "Press any key" },
+                                if self.playing {
+                                    "Playing"
+                                } else {
+                                    "Press any key"
+                                },
                                 egui::FontId::proportional(20.0),
                                 theme::text(),
                             );
@@ -4570,8 +4544,11 @@ impl ShellApp {
                             &mut save_pdf,
                         );
                         let track = self
-                            .score.track
-                            .filter(|track| project.song.tracks.iter().any(|entry| entry.id == *track))
+                            .score
+                            .track
+                            .filter(|track| {
+                                project.song.tracks.iter().any(|entry| entry.id == *track)
+                            })
                             .or_else(|| {
                                 roll.selected.filter(|track| {
                                     project.song.tracks.iter().any(|entry| entry.id == *track)
@@ -4658,57 +4635,61 @@ impl ShellApp {
                             }
                             let zoom = self.score.zoom;
                             let page = self.score.page;
-                            let full_tracks: Vec<(String, score::Engraved)> = if self.score.all_tracks {
-                                let selected: Vec<TrackId> = project
-                                    .song
-                                    .tracks
-                                    .iter()
-                                    .filter(|entry| !self.score.full_hidden.contains(&entry.id))
-                                    .map(|entry| entry.id)
-                                    .collect();
-                                let selected = if selected.is_empty() {
-                                    project.song.tracks.iter().map(|entry| entry.id).collect()
+                            let full_tracks: Vec<(String, score::Engraved)> =
+                                if self.score.all_tracks {
+                                    let selected: Vec<TrackId> = project
+                                        .song
+                                        .tracks
+                                        .iter()
+                                        .filter(|entry| !self.score.full_hidden.contains(&entry.id))
+                                        .map(|entry| entry.id)
+                                        .collect();
+                                    let selected = if selected.is_empty() {
+                                        project.song.tracks.iter().map(|entry| entry.id).collect()
+                                    } else {
+                                        selected
+                                    };
+                                    let mut key =
+                                        crate::score_view::full_score_hash(&project.song, title);
+                                    for id in &selected {
+                                        key = key
+                                            .wrapping_mul(1_099_511_628_211)
+                                            .wrapping_add(u64::from(id.get()));
+                                    }
+                                    if self
+                                        .score
+                                        .full_cache
+                                        .as_ref()
+                                        .is_none_or(|(cached, _)| *cached != key)
+                                    {
+                                        self.score.full_cache = Some((
+                                            key,
+                                            project
+                                                .song
+                                                .tracks
+                                                .iter()
+                                                .filter(|entry| selected.contains(&entry.id))
+                                                .map(|entry| {
+                                                    (
+                                                        entry.name.clone(),
+                                                        score::engrave(
+                                                            &project.song,
+                                                            entry.id,
+                                                            score_settings,
+                                                        ),
+                                                    )
+                                                })
+                                                .collect(),
+                                        ));
+                                    }
+                                    self.score
+                                        .full_cache
+                                        .as_ref()
+                                        .map(|(_, tracks)| tracks.clone())
+                                        .unwrap_or_default()
                                 } else {
-                                    selected
+                                    Vec::new()
                                 };
-                                let mut key = crate::score_view::full_score_hash(&project.song, title);
-                                for id in &selected {
-                                    key = key
-                                        .wrapping_mul(1_099_511_628_211)
-                                        .wrapping_add(u64::from(id.get()));
-                                }
-                                if self
-                                    .score.full_cache
-                                    .as_ref()
-                                    .is_none_or(|(cached, _)| *cached != key)
-                                {
-                                    self.score.full_cache = Some((
-                                        key,
-                                        project
-                                            .song
-                                            .tracks
-                                            .iter()
-                                            .filter(|entry| selected.contains(&entry.id))
-                                            .map(|entry| {
-                                                (
-                                                    entry.name.clone(),
-                                                    score::engrave(
-                                                        &project.song,
-                                                        entry.id,
-                                                        score_settings,
-                                                    ),
-                                                )
-                                            })
-                                            .collect(),
-                                    ));
-                                }
-                                self.score.full_cache
-                                    .as_ref()
-                                    .map(|(_, tracks)| tracks.clone())
-                                    .unwrap_or_default()
-                            } else {
-                                Vec::new()
-                            };
                             if self.score.all_tracks
                                 && self.score.follow
                                 && self

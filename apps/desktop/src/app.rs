@@ -23,6 +23,7 @@ mod drums;
 mod files;
 mod jam;
 mod layout;
+mod map;
 mod mixer;
 mod style;
 
@@ -901,6 +902,7 @@ pub struct ShellApp {
     chosen_slot: Option<(usize, TrackId)>,
     slot_edit: Option<(usize, TrackId)>,
     drums: drums::DrumsUi,
+    map_bank: usize,
     slot_roll: piano_roll::RollState,
     slot_note: Option<project::NoteId>,
     loops_quantise_bars: u32,
@@ -1353,6 +1355,7 @@ impl ShellApp {
             chosen_slot: None,
             slot_edit: None,
             drums: drums::DrumsUi::default(),
+            map_bank: 0,
             slot_roll: piano_roll::RollState::default(),
             slot_note: None,
             loops_quantise_bars: 1,

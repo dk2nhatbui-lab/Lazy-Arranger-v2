@@ -60,6 +60,26 @@ pub enum Action {
     TrackFader(TrackId),
     /// Audition a drum pad by MIDI note.
     Pad(u8),
+    /// Set a track's pan, using the incoming value.
+    TrackPan(TrackId),
+    /// Set a track's send level, using the incoming value.
+    TrackSend(TrackId),
+    /// Mute or unmute a track.
+    TrackMute(TrackId),
+    /// Solo or unsolo a track.
+    TrackSolo(TrackId),
+    /// Arm or disarm a track for recording.
+    TrackArm(TrackId),
+    /// Start or stop a track's Loops clip in a scene.
+    Clip(TrackId, usize),
+    /// Set the master level, using the incoming value.
+    Master,
+    /// Start or stop recording.
+    Record,
+    /// Turn looping on or off.
+    Loop,
+    /// Stop every Loops clip.
+    StopClips,
 }
 
 impl Action {
@@ -71,6 +91,16 @@ impl Action {
             Self::Scene(index) => format!("scene {index}"),
             Self::TrackFader(track) => format!("fader {track}"),
             Self::Pad(note) => format!("pad {note}"),
+            Self::TrackPan(track) => format!("pan {track}"),
+            Self::TrackSend(track) => format!("send {track}"),
+            Self::TrackMute(track) => format!("mute {track}"),
+            Self::TrackSolo(track) => format!("solo {track}"),
+            Self::TrackArm(track) => format!("arm {track}"),
+            Self::Clip(track, scene) => format!("clip {track} {scene}"),
+            Self::Master => String::from("master"),
+            Self::Record => String::from("record"),
+            Self::Loop => String::from("loop"),
+            Self::StopClips => String::from("stop-clips"),
         }
     }
 }
@@ -251,6 +281,15 @@ fn parse_control(text: &str) -> Result<Control, String> {
     }
 }
 
+fn parse_track(raw: Option<&str>, action: &str) -> Result<TrackId, String> {
+    let raw = raw.ok_or_else(|| format!("{action} needs a track id"))?;
+    let digits = raw.strip_prefix("track-").unwrap_or(raw);
+    let track: u32 = digits
+        .parse()
+        .map_err(|_| format!("{action} needs a track id"))?;
+    TrackId::new(track).map_err(|error| error.to_string())
+}
+
 fn parse_action(text: &str) -> Result<Action, String> {
     let mut parts = text.split_whitespace();
     let kind = parts.next().ok_or("missing action")?;
@@ -266,15 +305,25 @@ fn parse_action(text: &str) -> Result<Action, String> {
                 .map_err(|_| String::from("scene index must be a number"))?;
             Ok(Action::Scene(index))
         }
-        "fader" => {
-            let raw = parts.next().ok_or("fader needs a track id")?;
-            let digits = raw.strip_prefix("track-").unwrap_or(raw);
-            let track: u32 = digits
+        "fader" => Ok(Action::TrackFader(parse_track(parts.next(), "fader")?)),
+        "pan" => Ok(Action::TrackPan(parse_track(parts.next(), "pan")?)),
+        "send" => Ok(Action::TrackSend(parse_track(parts.next(), "send")?)),
+        "mute" => Ok(Action::TrackMute(parse_track(parts.next(), "mute")?)),
+        "solo" => Ok(Action::TrackSolo(parse_track(parts.next(), "solo")?)),
+        "arm" => Ok(Action::TrackArm(parse_track(parts.next(), "arm")?)),
+        "clip" => {
+            let track = parse_track(parts.next(), "clip")?;
+            let scene: usize = parts
+                .next()
+                .ok_or("clip needs a scene")?
                 .parse()
-                .map_err(|_| String::from("fader needs a track id"))?;
-            let track = TrackId::new(track).map_err(|error| error.to_string())?;
-            Ok(Action::TrackFader(track))
+                .map_err(|_| String::from("clip scene must be a number"))?;
+            Ok(Action::Clip(track, scene))
         }
+        "master" => Ok(Action::Master),
+        "record" => Ok(Action::Record),
+        "loop" => Ok(Action::Loop),
+        "stop-clips" => Ok(Action::StopClips),
         "pad" => {
             let note: u8 = parts
                 .next()
@@ -293,6 +342,34 @@ fn parse_action(text: &str) -> Result<Action, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_action_survives_the_text_form() {
+        let track = TrackId::new(3).expect("valid");
+        let actions = [
+            Action::TrackPan(track),
+            Action::TrackSend(track),
+            Action::TrackMute(track),
+            Action::TrackSolo(track),
+            Action::TrackArm(track),
+            Action::Clip(track, 2),
+            Action::Master,
+            Action::Record,
+            Action::Loop,
+            Action::StopClips,
+        ];
+        let mut map = MidiMap::default();
+        for (number, action) in actions.iter().enumerate() {
+            map.bind(Control::Controller(number as u8), *action);
+        }
+        let back = MidiMap::from_text(&map.to_text()).expect("parse");
+        for action in actions {
+            assert!(
+                back.bindings.iter().any(|binding| binding.action == action),
+                "{action:?}"
+            );
+        }
+    }
     use music_core::{Channel, Pitch, Velocity};
 
     fn note_on(key: u8) -> MidiMessage {
