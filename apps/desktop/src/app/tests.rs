@@ -1115,3 +1115,22 @@ fn undo_is_greyed_out_until_there_is_something_to_undo() {
     });
     assert_eq!(undo, Some(app.editor.undo_depth() > 0));
 }
+
+#[test]
+fn a_cpp_app_project_opens_as_an_import() {
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/legacy-cpp-v3.arranger");
+    assert_eq!(project_kind(&fixture), ProjectKind::Json);
+    assert_eq!(file_kind(&fixture), ProjectKind::CppProject);
+    let project = load_project(&fixture).expect("the C++ project imports");
+    assert!(!project.song.tracks.is_empty());
+    // Opening it must not let Save write over the C++ file.
+    let (_, path, error) = load_startup_project(Some(&fixture));
+    assert!(error.is_none());
+    assert!(path.is_none());
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    app.open(&fixture);
+    assert!(app.load_error.is_none());
+    assert!(app.project_path.is_none());
+}

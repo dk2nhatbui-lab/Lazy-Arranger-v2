@@ -35,8 +35,8 @@ use devices::{
 pub use devices::{parse_sysex, sysex_hex};
 pub use files::{
     ProjectKind, demo_project, export_midi_file, export_midi_file_with_profile,
-    export_musicxml_file, export_stems_folder, export_wav_file, import_l6max_folder, is_midi_path,
-    load_project, load_startup_project, project_kind,
+    export_musicxml_file, export_stems_folder, export_wav_file, file_kind, import_l6max_folder,
+    is_midi_path, load_project, load_startup_project, project_kind,
 };
 use layout::ScoreUi;
 use menu::MenuState;
@@ -4745,7 +4745,7 @@ impl ShellApp {
     }
 
     fn open(&mut self, path: &PathBuf) {
-        let kind = project_kind(path);
+        let kind = file_kind(path);
         let imported = kind != ProjectKind::Json;
         match load_project(path) {
             Ok(project) => {

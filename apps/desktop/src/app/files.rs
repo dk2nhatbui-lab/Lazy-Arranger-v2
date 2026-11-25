@@ -115,6 +115,8 @@ pub enum ProjectKind {
     Midi,
     /// A MusicXML score.
     MusicXml,
+    /// A project saved by the C++ app (also `.arranger`, older schema).
+    CppProject,
 }
 
 impl ProjectKind {
@@ -125,6 +127,7 @@ impl ProjectKind {
             Self::Json => "project",
             Self::Midi => "MIDI",
             Self::MusicXml => "MusicXML",
+            Self::CppProject => "C++ app project",
         }
     }
 }
@@ -142,6 +145,31 @@ pub fn project_kind(path: &std::path::Path) -> ProjectKind {
         Some("musicxml" | "xml") => ProjectKind::MusicXml,
         _ => ProjectKind::Json,
     }
+}
+
+/// Like [`project_kind`], but also reads a JSON file to tell a C++ app
+/// project from one of this app's projects. Both use `.arranger`.
+#[must_use]
+pub fn file_kind(path: &std::path::Path) -> ProjectKind {
+    match project_kind(path) {
+        ProjectKind::Json => std::fs::read_to_string(path)
+            .ok()
+            .filter(|text| is_cpp_project(text))
+            .map_or(ProjectKind::Json, |_| ProjectKind::CppProject),
+        other => other,
+    }
+}
+
+/// True when the JSON text is a project saved by the C++ app.
+fn is_cpp_project(text: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|root| {
+            root.get("format")
+                .and_then(serde_json::Value::as_str)
+                .map(|format| format == project::legacy::CPP_FORMAT)
+        })
+        .unwrap_or(false)
 }
 
 /// True for `.mid` or `.midi`, case-insensitive.
@@ -307,7 +335,12 @@ pub fn load_startup_project(
         return (demo_project(), None, None);
     };
     match load_project(&path.to_path_buf()) {
-        Ok(project) => (project, Some(path.to_path_buf()), None),
+        // Only this app's own projects keep their path, so Save never
+        // writes over a MIDI, MusicXML or C++ app file.
+        Ok(project) => {
+            let own = file_kind(path) == ProjectKind::Json;
+            (project, own.then(|| path.to_path_buf()), None)
+        }
         Err(error) => (
             demo_project(),
             None,
@@ -335,10 +368,13 @@ pub fn load_project(path: &PathBuf) -> Result<ProjectFile, ProjectError> {
                 .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
             return Ok(ProjectFile::new(song));
         }
-        ProjectKind::Json => {}
+        ProjectKind::Json | ProjectKind::CppProject => {}
     }
     let text = String::from_utf8(bytes)
         .map_err(|error| ProjectError::Legacy(format!("{}: {error}", path.display())))?;
+    if is_cpp_project(&text) {
+        return project::legacy::import_cpp_project(&text).map(|imported| imported.project);
+    }
     ProjectFile::from_json(&text)
 }
 
