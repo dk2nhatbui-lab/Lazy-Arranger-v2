@@ -964,7 +964,7 @@ fn draw_system<C: Canvas + ?Sized>(
             Clef::Treble | Clef::Bass => {
                 let treble = staff.clef == Clef::Treble;
                 let (image, height, offset) = if treble {
-                    (crate::clef::treble(), 7.2, -1.82)
+                    (crate::clef::treble(), 7.0, -1.5)
                 } else {
                     (crate::clef::bass(), 3.4, 0.0)
                 };
