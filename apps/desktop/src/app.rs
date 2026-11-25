@@ -15,7 +15,7 @@ use crate::piano_roll::{self, RollState};
 use crate::theme;
 use crate::transport::{metronome_button, transport_button};
 use crate::widgets;
-use crate::widgets::{draw_track_icon, mixer_fader, mixer_knob, painter_strip, pan_label};
+use crate::widgets::{draw_track_icon, mixer_fader, mixer_knob, pan_label};
 
 mod assistant;
 mod devices;
