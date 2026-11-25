@@ -1134,3 +1134,105 @@ fn a_cpp_app_project_opens_as_an_import() {
     assert!(app.load_error.is_none());
     assert!(app.project_path.is_none());
 }
+
+fn first_clip(app: &ShellApp) -> (TrackId, project::ClipId, project::song::Clip) {
+    app.song()
+        .tracks
+        .iter()
+        .find_map(|track| {
+            track
+                .clips
+                .first()
+                .map(|clip| (track.id, clip.id, clip.clone()))
+        })
+        .expect("the demo has a clip")
+}
+
+fn notes_between(app: &ShellApp, track: TrackId, from: Tick, to: Tick) -> usize {
+    app.song()
+        .tracks
+        .iter()
+        .find(|entry| entry.id == track)
+        .map_or(0, |entry| {
+            entry
+                .notes
+                .iter()
+                .filter(|note| note.start >= from && note.start < to)
+                .count()
+        })
+}
+
+#[test]
+fn timeline_menu_duplicates_a_clip_with_its_notes() {
+    use super::timeline_menu::TimelineAction;
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let (track, clip, entry) = first_clip(&app);
+    // Make room after the clip.
+    let later: Vec<project::ClipId> = app
+        .song()
+        .tracks
+        .iter()
+        .find(|other| other.id == track)
+        .map(|other| {
+            other
+                .clips
+                .iter()
+                .filter(|other| other.id != clip)
+                .map(|other| other.id)
+                .collect()
+        })
+        .unwrap_or_default();
+    for other in later {
+        app.run_timeline_action(TimelineAction::DeleteClip(track, other));
+    }
+    let inside = notes_between(&app, track, entry.start, entry.end());
+    app.run_timeline_action(TimelineAction::DuplicateClip(track, clip));
+    let copies = notes_between(&app, track, entry.end(), entry.end() + entry.length);
+    assert_eq!(copies, inside, "{:?}", app.status);
+    let clips = app
+        .song()
+        .tracks
+        .iter()
+        .find(|other| other.id == track)
+        .map_or(0, |other| other.clips.len());
+    assert_eq!(clips, 2);
+}
+
+#[test]
+fn timeline_menu_splits_and_deletes_clips() {
+    use super::timeline_menu::TimelineAction;
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let (track, clip, entry) = first_clip(&app);
+    let count = |app: &ShellApp| {
+        app.song()
+            .tracks
+            .iter()
+            .find(|other| other.id == track)
+            .map_or(0, |other| other.clips.len())
+    };
+    let before = count(&app);
+    let middle = entry.start + entry.length / 2;
+    app.run_timeline_action(TimelineAction::SplitClip(track, clip, middle));
+    assert_eq!(count(&app), before + 1, "{:?}", app.status);
+    app.run_timeline_action(TimelineAction::DeleteClip(track, clip));
+    assert_eq!(count(&app), before);
+    assert_eq!(notes_between(&app, track, entry.start, middle), 0);
+}
+
+#[test]
+fn track_menu_moves_and_deletes_tracks() {
+    use super::timeline_menu::TimelineAction;
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let first = app.song().tracks[0].id;
+    let tracks = app.song().tracks.len();
+    app.run_timeline_action(TimelineAction::MoveTrack(first, false));
+    assert_eq!(app.song().tracks[1].id, first);
+    app.run_timeline_action(TimelineAction::DuplicateTrack(first));
+    assert_eq!(app.song().tracks.len(), tracks + 1);
+    app.run_timeline_action(TimelineAction::DeleteTrack(first));
+    assert_eq!(app.song().tracks.len(), tracks);
+    assert!(app.song().tracks.iter().all(|track| track.id != first));
+}

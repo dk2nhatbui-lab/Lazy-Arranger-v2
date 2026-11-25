@@ -28,6 +28,7 @@ mod menu;
 mod mixer;
 mod native_menu;
 mod style;
+mod timeline_menu;
 
 use assistant::AssistantState;
 use devices::AudioChordsState;
@@ -702,6 +703,10 @@ pub struct ShellApp {
     selected_clip: Option<(TrackId, project::ClipId)>,
     selected_clips: Vec<(TrackId, project::ClipId)>,
     clip_clipboard: Vec<(TrackId, project::song::Clip)>,
+    /// How far the first copied note sits from the copied clip's start.
+    clip_note_offset: Tick,
+    /// The timeline right-click whose menu is open.
+    timeline_menu_hit: Option<crate::timeline::ContextHit>,
     chord_dialog: bool,
     chord_dialog_target: Tick,
     reharmonize_dialog: bool,
@@ -1029,6 +1034,8 @@ impl ShellApp {
             selected_clip: None,
             selected_clips: Vec::new(),
             clip_clipboard: Vec::new(),
+            clip_note_offset: 0,
+            timeline_menu_hit: None,
             chord_dialog: false,
             chord_dialog_target: 0,
             reharmonize_dialog: false,
@@ -4891,6 +4898,7 @@ impl eframe::App for ShellApp {
         self.poll_background(context);
         self.draw_windows(context);
         self.central_panel(context);
+        self.timeline_menu(context);
         if !self.shown {
             self.shown = true;
             context.send_viewport_cmd(ViewportCommand::Visible(true));
