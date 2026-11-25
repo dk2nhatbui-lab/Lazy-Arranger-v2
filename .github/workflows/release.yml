@@ -88,7 +88,7 @@ jobs:
       - name: Package
         run: ./scripts/package-release.sh "${{ matrix.platform }}" "$TAG"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.platform }}
           path: dist/release/*
@@ -106,7 +106,7 @@ jobs:
       - name: Normalise the tag
         run: echo "TAG=v${TAG#v}" >> "$GITHUB_ENV"
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: release-*
