@@ -2257,36 +2257,46 @@ impl ShellApp {
             .iter()
             .map(|track| (track.id, track.name.clone()))
             .collect();
-        let actions: Vec<midi_devices::map::Action> = vec![
-            midi_devices::map::Action::Play,
-            midi_devices::map::Action::Stop,
-            midi_devices::map::Action::Undo,
-            midi_devices::map::Action::Scene(0),
-            midi_devices::map::Action::TrackFader(
-                tracks
-                    .first()
-                    .map_or_else(|| TrackId::new(1).expect("valid"), |(id, _)| *id),
-            ),
-            midi_devices::map::Action::Pad(38),
+        let mut actions: Vec<(midi_devices::map::Action, String)> = vec![
+            (midi_devices::map::Action::Play, String::from("play")),
+            (midi_devices::map::Action::Stop, String::from("stop")),
+            (midi_devices::map::Action::Undo, String::from("undo")),
+            (midi_devices::map::Action::Scene(0), String::from("scene 0")),
+            (midi_devices::map::Action::Pad(38), String::from("pad 38")),
         ];
+        if tracks.is_empty() {
+            let fallback = TrackId::new(1).expect("valid");
+            actions.push((
+                midi_devices::map::Action::TrackFader(fallback),
+                format!("fader {fallback}"),
+            ));
+        } else {
+            for (id, name) in &tracks {
+                actions.push((
+                    midi_devices::map::Action::TrackFader(*id),
+                    format!("fader: {name}"),
+                ));
+            }
+        }
         let mut open = self.midi_map_open;
+        let mut remove_control: Option<midi_devices::map::Control> = None;
         egui::Window::new("MIDI map")
             .open(&mut open)
-            .default_width(340.0)
+            .default_width(360.0)
             .show(context, |ui| {
                 let choice = self.midi_learn_choice.min(actions.len() - 1);
                 let mut chosen = choice;
                 egui::ComboBox::from_id_salt("midi-map-action")
-                    .selected_text(actions[choice].label())
+                    .selected_text(&actions[choice].1)
                     .show_ui(ui, |ui| {
-                        for (index, action) in actions.iter().enumerate() {
-                            ui.selectable_value(&mut chosen, index, action.label());
+                        for (index, (_, label)) in actions.iter().enumerate() {
+                            ui.selectable_value(&mut chosen, index, label);
                         }
                     });
                 self.midi_learn_choice = chosen;
                 ui.horizontal(|ui| {
                     if ui.button("Learn").clicked() {
-                        self.midi_learn = Some(midi_devices::map::Learn::begin(actions[chosen]));
+                        self.midi_learn = Some(midi_devices::map::Learn::begin(actions[chosen].0));
                         self.status = Some(String::from("waiting for a note or CC"));
                     }
                     if self.midi_learn.is_some() && ui.button("Cancel").clicked() {
@@ -2326,11 +2336,20 @@ impl ShellApp {
                     );
                 }
                 for binding in &self.midi_map.bindings {
-                    ui.label(format!(
-                        "{} = {}",
-                        binding.control_label(),
-                        binding.action.label()
-                    ));
+                    ui.horizontal(|ui| {
+                        ui.label(format!(
+                            "{} = {}",
+                            binding.control_label(),
+                            binding.action.label()
+                        ));
+                        if ui
+                            .small_button("×")
+                            .on_hover_text("Remove this binding")
+                            .clicked()
+                        {
+                            remove_control = Some(binding.control);
+                        }
+                    });
                 }
                 ui.label(
                     egui::RichText::new("Learn saves the map automatically.")
@@ -2338,7 +2357,167 @@ impl ShellApp {
                         .color(theme::text_dim()),
                 );
             });
+        if let Some(control) = remove_control {
+            self.midi_map.unbind(control);
+            let _ = std::fs::write("lazy-arranger-midi-map.txt", self.midi_map.to_text());
+            self.status = Some(String::from("MIDI binding removed"));
+        }
         self.midi_map_open = open;
+    }
+
+    fn xiosynth_editor_section(&mut self, ui: &mut egui::Ui) {
+        use midi_devices::xiosynth::{self, PAGES, XioState};
+
+        let state_id = ui.id().with("xiosynth-editor-state");
+        let mut state = ui
+            .ctx()
+            .data(|data| data.get_temp::<XioState>(state_id))
+            .unwrap_or_default();
+        let mut pending: Vec<music_core::MidiMessage> = Vec::new();
+        let mut status_msg: Option<String> = None;
+
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Novation XioSynth Sound Editor").strong());
+            ui.label("Ch");
+            ui.add(egui::DragValue::new(&mut state.channel).range(1..=16));
+        });
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut state.bank, 0, "Bank A");
+            ui.selectable_value(&mut state.bank, 1, "Bank B");
+            let names = state.current_bank_names();
+            let current_patch = usize::from(state.patch.min(99));
+            egui::ComboBox::from_id_salt("xio-patch")
+                .selected_text(format!("{:02} {}", current_patch + 1, names[current_patch]))
+                .width(190.0)
+                .show_ui(ui, |ui| {
+                    for (index, name) in names.iter().enumerate() {
+                        let patch = u8::try_from(index).unwrap_or(0);
+                        if ui
+                            .selectable_value(
+                                &mut state.patch,
+                                patch,
+                                format!("{:02} {name}", index + 1),
+                            )
+                            .clicked()
+                        {
+                            pending.extend(xiosynth::encode_patch_select(
+                                state.midi_channel(),
+                                state.bank,
+                                patch,
+                            ));
+                            status_msg = Some(format!(
+                                "XioSynth Bank {} {:02} {name}",
+                                if state.bank == 0 { "A" } else { "B" },
+                                index + 1
+                            ));
+                        }
+                    }
+                });
+            if ui.button("Send patch").clicked() {
+                let idx = usize::from(state.patch.min(99));
+                pending.extend(xiosynth::encode_patch_select(
+                    state.midi_channel(),
+                    state.bank,
+                    state.patch,
+                ));
+                status_msg = Some(format!(
+                    "sent XioSynth Bank {} {:02} {}",
+                    if state.bank == 0 { "A" } else { "B" },
+                    idx + 1,
+                    names[idx]
+                ));
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            for (index, page) in PAGES.iter().enumerate() {
+                ui.selectable_value(&mut state.page, index, page.name);
+            }
+        });
+        ui.separator();
+
+        let page_index = state.page.min(PAGES.len().saturating_sub(1));
+        let page = &PAGES[page_index];
+        let channel = state.midi_channel();
+        egui::ScrollArea::vertical()
+            .id_salt("xio-params-scroll")
+            .max_height(300.0)
+            .show(ui, |ui| {
+                egui::Grid::new("xio-params-grid")
+                    .striped(true)
+                    .num_columns(3)
+                    .spacing([8.0, 4.0])
+                    .show(ui, |ui| {
+                        for (param_index, param) in page.params.iter().enumerate() {
+                            let value = &mut state.values[page_index][param_index];
+                            ui.label(param.name);
+                            if !param.choices.is_empty() {
+                                let current_label = param.format_value(*value);
+                                egui::ComboBox::from_id_salt((
+                                    "xio-choice",
+                                    page_index,
+                                    param_index,
+                                ))
+                                .selected_text(current_label)
+                                .show_ui(ui, |ui| {
+                                    for choice in param.choices {
+                                        if ui
+                                            .selectable_value(value, choice.value, choice.label)
+                                            .clicked()
+                                        {
+                                            pending.extend(xiosynth::encode_param(
+                                                channel,
+                                                param,
+                                                choice.value,
+                                            ));
+                                        }
+                                    }
+                                });
+                            } else {
+                                let mut v = *value;
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut v, param.min..=param.max)
+                                            .show_value(false),
+                                    )
+                                    .changed()
+                                {
+                                    *value = v;
+                                    pending.extend(xiosynth::encode_param(channel, param, v));
+                                }
+                            }
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{} · {}",
+                                    param.format_value(*value),
+                                    param.target.label()
+                                ))
+                                .size(9.5)
+                                .color(theme::text_dim()),
+                            );
+                            ui.end_row();
+                        }
+                    });
+            });
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("Send page").clicked() {
+                pending.extend(state.page_messages(page_index));
+                status_msg = Some(format!("sent XioSynth {} page", page.name));
+            }
+            if ui.button("Reset page").clicked() {
+                state.reset_page(page_index);
+                status_msg = Some(format!("reset XioSynth {} defaults", page.name));
+            }
+        });
+
+        ui.ctx().data_mut(|data| data.insert_temp(state_id, state));
+        for message in pending {
+            self.send_midi(message);
+        }
+        if let Some(msg) = status_msg {
+            self.status = Some(msg);
+        }
     }
 
     pub(super) fn device_editor_window(&mut self, context: &egui::Context) {
@@ -2384,6 +2563,16 @@ impl ShellApp {
                     && ui.button("Open Roland D-05 sound editor...").clicked()
                 {
                     self.d05.open = true;
+                }
+                if self
+                    .device_profiles
+                    .get(self.device_editor_profile)
+                    .is_some_and(|profile| {
+                        profile.id == "xiosynth" || profile.id == "novation-xiosynth"
+                    })
+                {
+                    self.xiosynth_editor_section(ui);
+                    return;
                 }
                 let controls = self
                     .device_profiles

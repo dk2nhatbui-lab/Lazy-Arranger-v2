@@ -30,7 +30,7 @@ pub use audio_style::{AudioStyleOptions, BuiltAudioStyle, style_from_audio};
 pub use casm::{CasmRules, CasmStats, SectionRules, SffVersion, read_rules};
 pub use import::{ImportStats, ImportedSection, ImportedStyle, import_style};
 pub use native::write_native_style;
-pub use write::write_style;
+pub use write::{SetupVoice, setup_voices_from_song, write_style, write_style_with_setup};
 
 /// Errors raised while reading a style container.
 #[derive(Debug, Error, PartialEq, Eq)]
