@@ -22,8 +22,8 @@ mod devices;
 mod files;
 mod layout;
 mod mixer;
-mod optional_editors;
 mod style;
+mod user_instruments;
 
 use assistant::AssistantState;
 use devices::AudioChordsState;
