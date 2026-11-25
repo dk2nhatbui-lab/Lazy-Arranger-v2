@@ -78,6 +78,8 @@ const CHORD_HEIGHT: f32 = 22.0;
 pub const HEADER_HEIGHT: f32 = RULER_HEIGHT + CHORD_HEIGHT;
 /// Height of one track lane in the timeline (matches the sidebar track rows).
 pub const LANE_HEIGHT: f32 = 64.0;
+/// Gap between a part and its lane edge, from v1 `Arrangement::clipBounds`.
+const PART_INSET: f32 = 0.25;
 
 /// Computes the vertical Y coordinate for a note preview bar inside a lane.
 ///
@@ -371,10 +373,10 @@ fn draw(
         );
         for clip in &track.clips {
             let clip_rect = Rect::from_min_max(
-                pos2(x_for(clip.start), top + 3.0),
+                pos2(x_for(clip.start), top + PART_INSET),
                 pos2(
-                    x_for(clip.end()).max(x_for(clip.start) + 2.0),
-                    top + LANE_HEIGHT - 3.0,
+                    x_for(clip.end()).max(x_for(clip.start) + 4.0),
+                    top + LANE_HEIGHT - PART_INSET,
                 ),
             );
             clip_rects.push((track.id, clip.id, clip_rect, clip.start, clip.length));
@@ -398,14 +400,14 @@ fn draw(
             Color32::from_rgb(0x11, 0x14, 0x17)
         };
         for (start, stop, name) in &parts {
+            // Arrangement::clipBounds: flush with the lane, 0.25 pt inset.
             let part = Rect::from_min_max(
-                pos2(x_for(*start), top + 3.0),
+                pos2(x_for(*start), top + PART_INSET),
                 pos2(
-                    x_for(*stop).max(x_for(*start) + 2.0),
-                    top + LANE_HEIGHT - 3.0,
+                    x_for(*stop).max(x_for(*start) + 4.0),
+                    top + LANE_HEIGHT - PART_INSET,
                 ),
-            )
-            .shrink(0.5);
+            );
             painter.rect_filled(part, theme::RADIUS, color);
             painter.rect_stroke(
                 part,
@@ -461,10 +463,10 @@ fn draw(
             let audio_start = audio.start.max(0);
             let audio_end = (audio_start + audio.length.max(1)).min(end.max(audio_start + 1));
             let block = Rect::from_min_max(
-                pos2(x_for(audio_start), top + 4.0),
+                pos2(x_for(audio_start), top + PART_INSET),
                 pos2(
-                    x_for(audio_end).max(x_for(audio_start) + 2.0),
-                    top + LANE_HEIGHT - 4.0,
+                    x_for(audio_end).max(x_for(audio_start) + 4.0),
+                    top + LANE_HEIGHT - PART_INSET,
                 ),
             );
             painter.rect_filled(block, 3.0, color.gamma_multiply(0.58));
