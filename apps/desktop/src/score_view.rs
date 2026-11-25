@@ -69,6 +69,8 @@ pub struct ScoreState {
     drag: Option<(Tick, u8, Tick, bool)>,
     clef_treble: Option<egui::TextureHandle>,
     clef_bass: Option<egui::TextureHandle>,
+    glyph_treble: Option<egui::TextureHandle>,
+    glyph_bass: Option<egui::TextureHandle>,
     cecilia_pages: Vec<egui::TextureHandle>,
     cecilia_key: Option<String>,
     cecilia_pending: Option<(String, CeciliaReceiver)>,
@@ -325,6 +327,16 @@ fn ensure_clefs(context: &egui::Context, state: &mut ScoreState) {
             score::clef::treble(),
         ),
         (&mut state.clef_bass, "score-bass-clef", score::clef::bass()),
+        (
+            &mut state.glyph_treble,
+            "score-treble-glyph",
+            &score::clef::treble_glyph().image,
+        ),
+        (
+            &mut state.glyph_bass,
+            "score-bass-glyph",
+            &score::clef::bass_glyph().image,
+        ),
     ] {
         if slot.is_none() {
             *slot = Some(context.load_texture(

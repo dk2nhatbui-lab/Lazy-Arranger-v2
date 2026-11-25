@@ -669,10 +669,10 @@ pub fn to_full_pdf_with_options(
         stream.extend_from_slice(b"endstream");
         objects.push(stream);
     }
-    let treble = clef::treble();
+    let treble = &clef::treble_glyph().image;
     objects.push(image_stream(treble, treble_mask));
     objects.push(alpha_stream(treble));
-    let bass = clef::bass();
+    let bass = &clef::bass_glyph().image;
     objects.push(image_stream(bass, bass_mask));
     objects.push(alpha_stream(bass));
     if let Some(font) = unicode_font.as_ref() {

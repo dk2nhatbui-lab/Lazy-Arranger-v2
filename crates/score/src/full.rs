@@ -963,17 +963,16 @@ fn draw_system<C: Canvas + ?Sized>(
         match staff.clef {
             Clef::Treble | Clef::Bass => {
                 let treble = staff.clef == Clef::Treble;
-                let (image, height, offset) = if treble {
-                    (crate::clef::treble(), 7.0, -1.5)
+                let (glyph, line) = if treble {
+                    (crate::clef::treble_glyph(), top + 3.0 * sp)
                 } else {
-                    (crate::clef::bass(), 3.4, 0.0)
+                    (crate::clef::bass_glyph(), top + sp)
                 };
-                let height = height * sp;
-                let width = height * image.width as f32 / image.height as f32;
+                let min = (x + glyph.left * sp, line + glyph.top * sp);
                 pen.canvas.clef(
                     treble,
-                    (x, top + offset * sp),
-                    (x + width, top + offset * sp + height),
+                    min,
+                    (min.0 + glyph.width * sp, min.1 + glyph.height * sp),
                 );
             }
             Clef::Percussion => {

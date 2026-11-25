@@ -8,3 +8,7 @@ files on Wikimedia Commons:
 
 Only the clef outlines were kept; staff lines were removed. The PNGs are
 600 px high with transparency.
+
+The all-tracks score (`full.rs`) draws its clefs from the Bravura music font
+instead. The font comes bundled with the `cecilia-engrave` crate and is licensed
+under the SIL Open Font License.

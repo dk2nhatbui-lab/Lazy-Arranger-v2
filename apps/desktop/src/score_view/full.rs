@@ -166,8 +166,8 @@ pub fn show_full(
         painter: &painter,
         origin: page_rect.min,
         scale,
-        treble: state.clef_treble.as_ref().map(egui::TextureHandle::id),
-        bass: state.clef_bass.as_ref().map(egui::TextureHandle::id),
+        treble: state.glyph_treble.as_ref().map(egui::TextureHandle::id),
+        bass: state.glyph_bass.as_ref().map(egui::TextureHandle::id),
     };
     full.draw_page(
         &canvas,
