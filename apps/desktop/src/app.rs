@@ -20,10 +20,10 @@ use crate::widgets::{draw_track_icon, mixer_fader, mixer_knob, painter_strip, pa
 mod assistant;
 mod devices;
 mod files;
-mod instruments;
 mod layout;
 mod mixer;
 mod style;
+mod instruments;
 
 use assistant::AssistantState;
 use devices::AudioChordsState;
@@ -797,10 +797,6 @@ pub struct ShellApp {
     audio_outputs: Option<Vec<String>>,
     settings: crate::settings::Settings,
     settings_open: bool,
-    /// Instrument editors this user installed.
-    instruments: crate::instruments::Installed,
-    /// The instrument chooser window.
-    instruments_open: bool,
     shortcuts_open: bool,
     about_open: bool,
     mixer_visible: bool,
@@ -810,6 +806,10 @@ pub struct ShellApp {
     pending_clip_edit: Option<crate::timeline::ClipEdit>,
     inspector_name_track: Option<TrackId>,
     inspector_name: String,
+    /// Instrument editors this user installed.
+    instruments: crate::instruments::Installed,
+    /// The instrument chooser window.
+    instruments_open: bool,
     device_profiles: Vec<midi_devices::profiles::LoadedProfile>,
     device_editor_open: bool,
     device_editor_profile: usize,
@@ -1123,8 +1123,6 @@ impl ShellApp {
                 .unwrap_or_default(),
             settings,
             settings_open: initial_window == "settings",
-            instruments,
-            instruments_open: ask_instruments || initial_window == "instruments",
             shortcuts_open: initial_window == "shortcuts",
             about_open: initial_window == "about",
             mixer_visible: true,
@@ -1134,6 +1132,8 @@ impl ShellApp {
             pending_clip_edit: None,
             inspector_name_track: None,
             inspector_name: String::new(),
+            instruments,
+            instruments_open: ask_instruments || initial_window == "instruments",
             device_profiles: load_device_profiles(),
             device_editor_open: initial_window == "device",
             device_editor_profile: 0,
