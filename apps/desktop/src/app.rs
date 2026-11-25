@@ -21,7 +21,9 @@ mod assistant;
 mod devices;
 mod files;
 mod layout;
+mod menu;
 mod mixer;
+mod native_menu;
 mod style;
 
 use assistant::AssistantState;
@@ -31,13 +33,13 @@ use devices::{
     D05State, L6MaxState, PsrState, XgState, load_device_profiles, load_l6_scenes, load_psr_regs,
 };
 pub use devices::{parse_sysex, sysex_hex};
-use files::rfd_pick;
 pub use files::{
     ProjectKind, demo_project, export_midi_file, export_midi_file_with_profile,
-    export_musicxml_file, export_stems_folder, export_wav_file, import_l6max_folder, is_midi_path,
-    load_project, load_startup_project, project_kind,
+    export_musicxml_file, export_stems_folder, export_wav_file, file_kind, import_l6max_folder,
+    is_midi_path, load_project, load_startup_project, project_kind,
 };
 use layout::ScoreUi;
+use menu::MenuState;
 use style::AudioStyleState;
 use style::StyleState;
 
@@ -796,6 +798,8 @@ pub struct ShellApp {
     audio_outputs: Option<Vec<String>>,
     settings: crate::settings::Settings,
     settings_open: bool,
+    /// The menu bar: native on macOS, drawn in the window elsewhere.
+    menu: MenuState,
     shortcuts_open: bool,
     about_open: bool,
     mixer_visible: bool,
@@ -1116,6 +1120,7 @@ impl ShellApp {
                 .unwrap_or_default(),
             settings,
             settings_open: initial_window == "settings",
+            menu: MenuState::default(),
             shortcuts_open: initial_window == "shortcuts",
             about_open: initial_window == "about",
             mixer_visible: true,
@@ -1391,12 +1396,7 @@ impl ShellApp {
                 egui::Key::K,
             )
         }) {
-            self.settings.kids_mode = !self.settings.kids_mode;
-            self.view = if self.settings.kids_mode {
-                View::Perform
-            } else {
-                View::Arrange
-            };
+            self.toggle_kids_mode();
         }
         let undo = consume_binding(context, &self.settings.undo_keys, "cmd+z");
         let redo = consume_binding(context, &self.settings.redo_keys, "cmd+shift+z");
@@ -1870,20 +1870,15 @@ impl ShellApp {
             ..
         } = keys;
         if open_keys {
-            self.file_path_input = self
-                .project_path
-                .as_ref()
-                .map(|path| path.display().to_string())
-                .unwrap_or_default();
-            self.file_mode = Some(FileMode::Open);
+            self.choose_file(FileMode::Open);
         }
         if save_as {
-            self.begin_save_as();
+            self.choose_file(FileMode::SaveAs);
         }
         if save {
             match self.project_path.clone() {
                 Some(path) => self.save_to(path),
-                None => self.begin_save_as(),
+                None => self.choose_file(FileMode::SaveAs),
             }
         }
     }
@@ -2107,6 +2102,7 @@ impl ShellApp {
         self.form_dialog(context);
         self.beat_dialog(context);
         self.advance(context);
+        self.menu_bar(context);
         self.top_bar(context);
         self.windows(context);
         self.inspector_window(context);
@@ -2189,15 +2185,6 @@ impl ShellApp {
         self.position = tick;
     }
 
-    fn begin_save_as(&mut self) {
-        self.file_path_input = self
-            .project_path
-            .as_ref()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| String::from("project.arranger"));
-        self.file_mode = Some(FileMode::SaveAs);
-    }
-
     fn save_to(&mut self, path: std::path::PathBuf) {
         if let Err(error) = self.editor.save(&path) {
             self.load_error = Some(error);
@@ -2220,6 +2207,7 @@ impl ShellApp {
         };
         let mut open = true;
         let mut action = false;
+        let mut browse = false;
         egui::Window::new(match mode {
             FileMode::Open => "Open project",
             FileMode::SaveAs => "Save as",
@@ -2257,111 +2245,123 @@ impl ShellApp {
                 if ui.button(label).clicked() {
                     action = true;
                 }
+                if ui.button("Browse…").clicked() {
+                    browse = true;
+                }
                 if ui.button("Cancel").clicked() {
                     self.file_mode = None;
                 }
             });
         });
+        if browse && let Some(path) = files::dialog(mode, &self.file_path_input) {
+            self.file_path_input = path.display().to_string();
+        }
         if action {
             let path = std::path::PathBuf::from(self.file_path_input.trim());
             if path.as_os_str().is_empty() {
                 self.load_error = Some(String::from("enter a file path"));
-            } else if mode == FileMode::Open {
-                self.open(&path);
-                if self.load_error.is_none() {
-                    self.file_mode = None;
-                }
-            } else if mode == FileMode::ImportAudio {
-                let audio_path = if crate::video::is_video(&path) {
-                    match crate::video::extract_audio(&path) {
-                        Ok(extracted) => extracted,
-                        Err(error) => {
-                            self.load_error = Some(error);
-                            return;
-                        }
-                    }
-                } else {
-                    path
-                };
-                match self.editor.import_audio(&audio_path, self.position.max(0)) {
-                    Ok(track) => {
-                        self.status = Some(format!("imported audio as track {}", track.get()));
-                        self.file_mode = None;
-                    }
-                    Err(error) => self.load_error = Some(error),
-                }
-            } else if mode == FileMode::ExportMidi {
-                let song = self.song().clone();
-                let profile = self.settings.device_profile.as_ref().and_then(|id| {
-                    self.device_profiles
-                        .iter()
-                        .find(|profile| &profile.id == id)
-                });
-                match export_midi_file_with_profile(&song, &path, profile) {
-                    Ok(tracks) => {
-                        self.status = Some(format!(
-                            "exported {tracks} MIDI track(s) to {}",
-                            path.display()
-                        ));
-                        self.file_mode = None;
-                    }
-                    Err(error) => self.load_error = Some(error),
-                }
-            } else if mode == FileMode::ImportL6max {
-                match import_l6max_folder(&mut self.editor, &path, self.position.max(0)) {
-                    Ok((imported, problems)) => {
-                        self.status = Some(format!(
-                            "imported {imported} L6max take(s), {problems} problem(s)"
-                        ));
-                        self.file_mode = None;
-                    }
-                    Err(error) => self.load_error = Some(error),
-                }
-            } else if mode == FileMode::ExportStems {
-                let song = self.song().clone();
-                match export_stems_folder(&song, &path) {
-                    Ok(stems) => {
-                        self.status =
-                            Some(format!("exported {stems} stem(s) to {}", path.display()));
-                        self.file_mode = None;
-                    }
-                    Err(error) => self.load_error = Some(error),
-                }
-            } else if mode == FileMode::ExportWav {
-                let song = self.song().clone();
-                match export_wav_file(&song, &path) {
-                    Ok((seconds, problems)) => {
-                        self.status = Some(format!(
-                            "exported {seconds:.2} s WAV to {} ({problems} audio problem(s))",
-                            path.display()
-                        ));
-                        self.file_mode = None;
-                    }
-                    Err(error) => self.load_error = Some(error),
-                }
-            } else if mode == FileMode::ExportMusicXml {
-                let song = self.song().clone();
-                let title = if song.name.is_empty() {
-                    "Lazy Arranger score"
-                } else {
-                    &song.name
-                };
-                match export_musicxml_file(&song, &path, title) {
-                    Ok(()) => {
-                        self.status = Some(format!("exported MusicXML to {}", path.display()));
-                        self.file_mode = None;
-                    }
-                    Err(error) => self.load_error = Some(error),
-                }
             } else {
-                self.save_to(normalize_save_path(path));
-                if self.load_error.is_none() {
-                    self.file_mode = None;
-                }
+                self.run_file_action(mode, path);
             }
         }
         if !open {
             self.file_mode = None;
+        }
+    }
+
+    /// Opens, saves, imports or exports `path`, as `mode` says.
+    pub(super) fn run_file_action(&mut self, mode: FileMode, path: std::path::PathBuf) {
+        if mode == FileMode::Open {
+            self.open(&path);
+            if self.load_error.is_none() {
+                self.file_mode = None;
+            }
+        } else if mode == FileMode::ImportAudio {
+            let audio_path = if crate::video::is_video(&path) {
+                match crate::video::extract_audio(&path) {
+                    Ok(extracted) => extracted,
+                    Err(error) => {
+                        self.load_error = Some(error);
+                        return;
+                    }
+                }
+            } else {
+                path
+            };
+            match self.editor.import_audio(&audio_path, self.position.max(0)) {
+                Ok(track) => {
+                    self.status = Some(format!("imported audio as track {}", track.get()));
+                    self.file_mode = None;
+                }
+                Err(error) => self.load_error = Some(error),
+            }
+        } else if mode == FileMode::ExportMidi {
+            let song = self.song().clone();
+            let profile = self.settings.device_profile.as_ref().and_then(|id| {
+                self.device_profiles
+                    .iter()
+                    .find(|profile| &profile.id == id)
+            });
+            match export_midi_file_with_profile(&song, &path, profile) {
+                Ok(tracks) => {
+                    self.status = Some(format!(
+                        "exported {tracks} MIDI track(s) to {}",
+                        path.display()
+                    ));
+                    self.file_mode = None;
+                }
+                Err(error) => self.load_error = Some(error),
+            }
+        } else if mode == FileMode::ImportL6max {
+            match import_l6max_folder(&mut self.editor, &path, self.position.max(0)) {
+                Ok((imported, problems)) => {
+                    self.status = Some(format!(
+                        "imported {imported} L6max take(s), {problems} problem(s)"
+                    ));
+                    self.file_mode = None;
+                }
+                Err(error) => self.load_error = Some(error),
+            }
+        } else if mode == FileMode::ExportStems {
+            let song = self.song().clone();
+            match export_stems_folder(&song, &path) {
+                Ok(stems) => {
+                    self.status = Some(format!("exported {stems} stem(s) to {}", path.display()));
+                    self.file_mode = None;
+                }
+                Err(error) => self.load_error = Some(error),
+            }
+        } else if mode == FileMode::ExportWav {
+            let song = self.song().clone();
+            match export_wav_file(&song, &path) {
+                Ok((seconds, problems)) => {
+                    self.status = Some(format!(
+                        "exported {seconds:.2} s WAV to {} ({problems} audio problem(s))",
+                        path.display()
+                    ));
+                    self.file_mode = None;
+                }
+                Err(error) => self.load_error = Some(error),
+            }
+        } else if mode == FileMode::ExportMusicXml {
+            let song = self.song().clone();
+            let title = if song.name.is_empty() {
+                "Lazy Arranger score"
+            } else {
+                &song.name
+            };
+            match export_musicxml_file(&song, &path, title) {
+                Ok(()) => {
+                    self.status = Some(format!("exported MusicXML to {}", path.display()));
+                    self.file_mode = None;
+                }
+                Err(error) => self.load_error = Some(error),
+            }
+        } else {
+            self.save_to(normalize_save_path(path));
+            if self.load_error.is_none() {
+                self.file_mode = None;
+            }
         }
     }
 
@@ -4745,7 +4745,7 @@ impl ShellApp {
     }
 
     fn open(&mut self, path: &PathBuf) {
-        let kind = project_kind(path);
+        let kind = file_kind(path);
         let imported = kind != ProjectKind::Json;
         match load_project(path) {
             Ok(project) => {
@@ -4840,6 +4840,8 @@ impl eframe::App for ShellApp {
             style.visuals = theme::visuals();
             context.set_style(style);
         }
+        self.sync_native_menu(context);
+        self.handle_menu_keys(context);
         self.handle_keys(context);
         self.poll_background(context);
         self.draw_windows(context);
@@ -4848,6 +4850,10 @@ impl eframe::App for ShellApp {
             self.shown = true;
             context.send_viewport_cmd(ViewportCommand::Visible(true));
         }
+    }
+
+    fn raw_input_hook(&mut self, _context: &Context, raw_input: &mut egui::RawInput) {
+        self.feed_menu_input(raw_input);
     }
 
     fn on_exit(&mut self) {
