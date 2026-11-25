@@ -232,6 +232,14 @@ pub(super) fn seed_default_device_profiles(folder: &std::path::Path) {
     }
 }
 
+/// The folder holding the user's device profiles.
+pub(super) fn profiles_folder() -> std::path::PathBuf {
+    crate::settings::Settings::path()
+        .parent()
+        .map(|path| path.join("profiles"))
+        .unwrap_or_else(|| std::path::PathBuf::from("profiles"))
+}
+
 pub(super) fn load_device_profiles() -> Vec<midi_devices::profiles::LoadedProfile> {
     load_device_profiles_for(&crate::instruments::Installed::current())
 }
@@ -240,10 +248,7 @@ pub(super) fn load_device_profiles() -> Vec<midi_devices::profiles::LoadedProfil
 pub(super) fn load_device_profiles_for(
     installed: &crate::instruments::Installed,
 ) -> Vec<midi_devices::profiles::LoadedProfile> {
-    let folder = crate::settings::Settings::path()
-        .parent()
-        .map(|path| path.join("profiles"))
-        .unwrap_or_else(|| std::path::PathBuf::from("profiles"));
+    let folder = profiles_folder();
     seed_default_device_profiles(&folder);
     midi_devices::profiles::load_directory(&folder)
         .map(|(profiles, _)| profiles)
