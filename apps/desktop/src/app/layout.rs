@@ -711,7 +711,11 @@ impl ShellApp {
                                 self.takes_open = true;
                                 ui.close_menu();
                             }
-                            if ui.button("XG part mixer").clicked() {
+                            if self
+                                .instruments
+                                .has(crate::instruments::Instrument::YamahaXg)
+                                && ui.button("XG part mixer").clicked()
+                            {
                                 self.xg.open = true;
                                 ui.close_menu();
                             }
@@ -719,15 +723,27 @@ impl ShellApp {
                                 self.marks_open = true;
                                 ui.close_menu();
                             }
-                            if ui.button("L6max device mixer").clicked() {
+                            if self
+                                .instruments
+                                .has(crate::instruments::Instrument::ZoomL6max)
+                                && ui.button("L6max device mixer").clicked()
+                            {
                                 self.l6max.device_open = true;
                                 ui.close_menu();
                             }
-                            if ui.button("Roland D-05 editor").clicked() {
+                            if self
+                                .instruments
+                                .has(crate::instruments::Instrument::RolandD05)
+                                && ui.button("Roland D-05 editor").clicked()
+                            {
                                 self.d05.open = true;
                                 ui.close_menu();
                             }
-                            if ui.button("L6max mixer").clicked() {
+                            if self
+                                .instruments
+                                .has(crate::instruments::Instrument::ZoomL6max)
+                                && ui.button("L6max mixer").clicked()
+                            {
                                 self.l6max.mixer_open = true;
                                 ui.close_menu();
                             }
@@ -759,7 +775,11 @@ impl ShellApp {
                                 self.midi_out.open = true;
                                 ui.close_menu();
                             }
-                            if ui.button("PSR-S970 remote").clicked() {
+                            if self
+                                .instruments
+                                .has(crate::instruments::Instrument::YamahaPsrS970)
+                                && ui.button("PSR-S970 remote").clicked()
+                            {
                                 self.psr.open = true;
                                 ui.close_menu();
                             }
@@ -771,6 +791,10 @@ impl ShellApp {
                                 self.device_editor_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Instrument editors…").clicked() {
+                                self.instruments_open = true;
+                                ui.close_menu();
+                            }
                             if ui.button("Groove library").clicked() {
                                 self.groove_open = true;
                                 ui.close_menu();
@@ -780,7 +804,11 @@ impl ShellApp {
                                 ui.close_menu();
                             }
                             ui.separator();
-                            if ui.button("Import L6max").clicked() {
+                            if self
+                                .instruments
+                                .has(crate::instruments::Instrument::ZoomL6max)
+                                && ui.button("Import L6max").clicked()
+                            {
                                 self.file_path_input.clear();
                                 self.file_mode = Some(FileMode::ImportL6max);
                                 ui.close_menu();
@@ -1696,6 +1724,12 @@ impl ShellApp {
                             });
                         if ui.button("Reload").clicked() {
                             self.device_profiles = load_device_profiles();
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Instrument editors");
+                        if ui.button("Choose instruments…").clicked() {
+                            self.instruments_open = true;
                         }
                     });
                     ui.add(egui::Slider::new(&mut self.settings.grade, 1..=9).text("chord grade"));

@@ -11,6 +11,7 @@ pub mod d05_editor;
 pub mod dictate;
 pub mod editor;
 pub mod help;
+pub mod instruments;
 pub mod kids;
 pub mod l6max_device;
 pub mod library_view;

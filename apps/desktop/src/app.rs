@@ -20,6 +20,7 @@ use crate::widgets::{draw_track_icon, mixer_fader, mixer_knob, painter_strip, pa
 mod assistant;
 mod devices;
 mod files;
+mod instruments;
 mod layout;
 mod mixer;
 mod style;
@@ -796,6 +797,10 @@ pub struct ShellApp {
     audio_outputs: Option<Vec<String>>,
     settings: crate::settings::Settings,
     settings_open: bool,
+    /// Instrument editors this user installed.
+    instruments: crate::instruments::Installed,
+    /// The instrument chooser window.
+    instruments_open: bool,
     shortcuts_open: bool,
     about_open: bool,
     mixer_visible: bool,
@@ -938,6 +943,8 @@ impl ShellApp {
 
     #[must_use]
     pub fn new(context: &Context, project: ProjectFile, project_path: Option<PathBuf>) -> Self {
+        let (instruments, ask_instruments) =
+            crate::instruments::startup(&crate::settings::Settings::data_dir());
         let settings = crate::settings::Settings::load(&crate::settings::Settings::path());
         let initial_lesson_kind = music_core::lesson::LessonKind::ALL
             .get(settings.lesson_kind)
@@ -1116,6 +1123,8 @@ impl ShellApp {
                 .unwrap_or_default(),
             settings,
             settings_open: initial_window == "settings",
+            instruments,
+            instruments_open: ask_instruments || initial_window == "instruments",
             shortcuts_open: initial_window == "shortcuts",
             about_open: initial_window == "about",
             mixer_visible: true,
@@ -2127,6 +2136,7 @@ impl ShellApp {
         self.l6max_mixer_window(context);
         self.l6max_device_window(context);
         self.d05_editor_window(context);
+        self.instruments_window(context);
         self.marks_window(context);
         self.audio_style_window(context);
         self.style_rules_window(context);
