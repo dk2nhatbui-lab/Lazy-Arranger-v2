@@ -1877,10 +1877,7 @@ impl ShellApp {
             self.form_dialog = true;
         }
         if !score_typing && context.input(|input| input.key_pressed(egui::Key::D)) {
-            self.doctor_proposals = self.editor.proposals();
-            self.doctor_proposals
-                .extend(self.editor.fit_proposals(self.synth));
-            self.doctor_dialog = true;
+            self.open_arrangement_doctor();
         }
         if !score_typing && context.input(|input| input.key_pressed(egui::Key::F)) {
             match self.editor.find_chords() {
@@ -1906,6 +1903,14 @@ impl ShellApp {
             self.chord_dialog_target = found.tick;
             self.reharmonize_dialog = true;
         }
+    }
+
+    /// Opens the arrangement doctor with fresh proposals.
+    fn open_arrangement_doctor(&mut self) {
+        self.doctor_proposals = self.editor.proposals();
+        self.doctor_proposals
+            .extend(self.editor.fit_proposals(self.synth));
+        self.doctor_dialog = true;
     }
 
     /// Open, save and save-as shortcuts.

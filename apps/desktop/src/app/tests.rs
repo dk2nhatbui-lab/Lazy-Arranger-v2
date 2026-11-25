@@ -1063,7 +1063,17 @@ fn the_menu_bar_has_the_usual_menus() {
         .collect();
     assert_eq!(
         titles,
-        ["File", "Edit", "Transport", "View", "Window", "Help"]
+        [
+            "File",
+            "Edit",
+            "Track",
+            "Style",
+            "Transport",
+            "View",
+            "AI",
+            "Window",
+            "Help"
+        ]
     );
     let drawn = menu_items(&app.menu_model(false));
     assert!(
@@ -1312,4 +1322,66 @@ fn track_menu_moves_and_deletes_tracks() {
     app.run_timeline_action(TimelineAction::DeleteTrack(first));
     assert_eq!(app.song().tracks.len(), tracks);
     assert!(app.song().tracks.iter().all(|track| track.id != first));
+}
+
+#[test]
+fn track_menu_works_on_the_selected_track() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let tracks = app.song().tracks.len();
+    app.roll.selected = None;
+    // With no track selected, only Add Track does anything.
+    let track_menu = |app: &ShellApp| {
+        app.menu_model(false)
+            .into_iter()
+            .find(|menu| menu.title == "Track")
+            .map(|menu| menu.entries)
+            .unwrap_or_default()
+    };
+    assert!(track_menu(&app).iter().any(|entry| matches!(
+        entry,
+        menu::MenuEntry::Item { label, enabled: false, .. } if label == "Delete Track"
+    )));
+    app.run_menu_command(&context, menu::MenuCommand::AddTrack);
+    assert_eq!(app.song().tracks.len(), tracks + 1);
+    let added = app.roll.selected.expect("the new track is selected");
+    let delete = menu_items(&app.menu_model(false))
+        .into_iter()
+        .find(|(_, label)| label == "Delete Track")
+        .map(|(command, _)| command)
+        .expect("a Delete Track item");
+    app.run_menu_command(&context, delete);
+    assert_eq!(app.song().tracks.len(), tracks);
+    assert!(app.song().tracks.iter().all(|track| track.id != added));
+}
+
+#[test]
+fn style_and_ai_menus_open_their_windows() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    app.run_menu_command(&context, menu::MenuCommand::StyleRules);
+    assert!(app.style.rules_open);
+    app.run_menu_command(&context, menu::MenuCommand::SongForm);
+    assert!(app.form_dialog);
+    app.run_menu_command(&context, menu::MenuCommand::ArrangementDoctor);
+    assert!(app.doctor_dialog);
+    let items = menu_items(&app.menu_model(false));
+    for (_, op) in menu::GENERATE_OPS {
+        assert!(
+            items
+                .iter()
+                .any(|(command, _)| *command == menu::MenuCommand::Generate(op))
+        );
+    }
+}
+
+#[test]
+fn ai_menu_writes_a_part_on_the_selected_track() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let track = app.song().tracks[0].id;
+    app.roll.selected = Some(track);
+    let depth = app.editor.undo_depth();
+    app.run_menu_command(&context, menu::MenuCommand::Generate("humanize"));
+    assert_eq!(app.editor.undo_depth(), depth + 1, "{:?}", app.status);
 }
