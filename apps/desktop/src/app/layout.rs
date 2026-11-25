@@ -13,6 +13,8 @@ pub(super) struct ScoreUi {
     pub(super) page: usize,
     pub(super) zoom: f32,
     pub(super) grand: bool,
+    /// "One staff" in the staves box: never split a track over two staves.
+    pub(super) one_staff: bool,
     pub(super) preview: bool,
     pub(super) all_tracks: bool,
     pub(super) follow: bool,
@@ -486,6 +488,11 @@ impl ShellApp {
 
     pub(super) fn sidebar(&mut self, context: &Context) {
         if self.settings.kids_mode && self.view == View::Perform {
+            return;
+        }
+        // v1 shows the track list with the timeline only; the score uses the
+        // whole width.
+        if self.view == View::Score {
             return;
         }
         egui::SidePanel::left("tracks")
@@ -1235,12 +1242,7 @@ impl ShellApp {
                     ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
                     ui.spacing_mut().interact_size.y = 30.0;
                     ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
-                    // AppLookAndFeel: raised fields with a lineStrong outline.
-                    let visuals = ui.visuals_mut();
-                    visuals.extreme_bg_color = theme::raised();
-                    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, theme::line_strong());
-                    visuals.widgets.inactive.weak_bg_fill = theme::raised();
-                    visuals.widgets.inactive.bg_fill = theme::raised();
+                    theme::v1_fields(ui.visuals_mut());
                     let width = ui.available_width();
                     widgets::section_label(ui, "Track", 26.0);
                     let Some(track) = &track else {
@@ -1623,6 +1625,294 @@ impl ShellApp {
                 );
                 self.assistant_inline(&mut chat_ui, chat_height);
             });
+    }
+
+    /// The score toolbar, laid out like `ScoreView::resized`: a 52 pt bar
+    /// with the title on the left and the controls from the right, 32 pt
+    /// high: Print, Export PDF, zoom, staves, tracks, dot, note value,
+    /// Write notes and Add. What v1 does not have sits in the space between.
+    #[allow(clippy::too_many_arguments)]
+    fn score_toolbar(
+        score: &mut ScoreUi,
+        settings: &mut crate::settings::Settings,
+        print_dialog: &mut bool,
+        lyrics_open: &mut bool,
+        ui: &mut egui::Ui,
+        song: &project::song::Song,
+        score_tracks: &[(TrackId, String)],
+        save_pdf: &mut bool,
+    ) {
+        let (bar, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 52.0), egui::Sense::hover());
+        let mut row =
+            egui::Rect::from_center_size(bar.center(), egui::vec2(bar.width() - 24.0, 32.0));
+        let mut from_right = |width: f32, gap: f32| {
+            let rect =
+                egui::Rect::from_min_max(egui::pos2(row.right() - width, row.top()), row.max);
+            row.max.x -= width + gap;
+            rect
+        };
+        let print = from_right(90.0, 8.0);
+        let pdf = from_right(120.0, 8.0);
+        let zoom_in = from_right(32.0, 4.0);
+        let zoom_out = from_right(32.0, 12.0);
+        let staves = from_right(150.0, 8.0);
+        let tracks = from_right(140.0, 12.0);
+        let dot = from_right(28.0, 4.0);
+        let value = from_right(130.0, 8.0);
+        let input = from_right(104.0, 8.0);
+        let mark = from_right(64.0, 8.0);
+        let title = egui::Rect::from_min_size(row.min, egui::vec2(70.0, row.height()));
+        let info = egui::Rect::from_min_max(egui::pos2(title.right(), row.top()), row.max);
+
+        ui.painter().text(
+            title.left_center(),
+            egui::Align2::LEFT_CENTER,
+            "Score",
+            theme::semibold(15.0),
+            theme::text(),
+        );
+
+        if widgets::text_button(ui, print, "score-print", "Print...", false)
+            .on_hover_text("Open the score as a PDF, ready to print")
+            .clicked()
+        {
+            *print_dialog = true;
+        }
+        if widgets::text_button(ui, pdf, "score-pdf", "Export PDF...", false)
+            .on_hover_text("Save the score of this track as a PDF file")
+            .clicked()
+        {
+            *save_pdf = true;
+        }
+        if widgets::text_button(ui, zoom_in, "score-zoom-in", "+", false)
+            .on_hover_text("Make the pages bigger")
+            .clicked()
+        {
+            score.zoom = (score.zoom * 1.2).min(2.5);
+        }
+        if widgets::text_button(ui, zoom_out, "score-zoom-out", "-", false)
+            .on_hover_text("Make the pages smaller")
+            .clicked()
+        {
+            score.zoom = (score.zoom / 1.2).max(0.5);
+        }
+
+        let staves_text = if score.grand {
+            "Grand staff"
+        } else if score.one_staff {
+            "One staff"
+        } else {
+            "Staves: automatic"
+        };
+        egui::ComboBox::from_id_salt("score-staves")
+            .selected_text(staves_text)
+            .width(staves.width())
+            .show_ui(&mut toolbar_child(ui, staves), |ui| {
+                for (grand, one, label) in [
+                    (false, false, "Staves: automatic"),
+                    (false, true, "One staff"),
+                    (true, false, "Grand staff"),
+                ] {
+                    if ui
+                        .selectable_label(score.grand == grand && score.one_staff == one, label)
+                        .clicked()
+                    {
+                        score.grand = grand;
+                        score.one_staff = one;
+                    }
+                }
+            })
+            .response
+            .on_hover_text(
+                "Show the track on one staff, or on two staves (treble and bass) like piano music",
+            );
+
+        let mut toggle = None;
+        let mut save_settings = false;
+        egui::ComboBox::from_id_salt("score-tracks")
+            .selected_text(if score.all_tracks {
+                "All tracks"
+            } else {
+                "Selected track"
+            })
+            .width(tracks.width())
+            .show_ui(&mut toolbar_child(ui, tracks), |ui| {
+                ui.selectable_value(&mut score.all_tracks, true, "All tracks");
+                ui.selectable_value(&mut score.all_tracks, false, "Selected track");
+                if score.all_tracks {
+                    ui.separator();
+                    for track in &song.tracks {
+                        let mut shown = !score.full_hidden.contains(&track.id);
+                        if ui.checkbox(&mut shown, &track.name).changed() {
+                            toggle = Some((track.id, shown));
+                        }
+                    }
+                    ui.separator();
+                    save_settings |= ui.checkbox(&mut score.follow, "Follow").changed();
+                    save_settings |=
+                        ui.checkbox(&mut score.full_frames, "Frames").changed();
+                }
+            })
+            .response
+            .on_hover_text(
+                "Show all tracks as a full score, only the selected track, or the tracks you choose",
+            );
+        if let Some((id, shown)) = toggle {
+            if shown {
+                score.full_hidden.remove(&id);
+            } else {
+                score.full_hidden.insert(id);
+            }
+        }
+        if save_settings {
+            settings.score_follow = score.follow;
+            settings.score_frames = score.full_frames;
+            let _ = settings.save(&crate::settings::Settings::path());
+        }
+
+        if widgets::text_button(ui, dot, "score-dot", ".", score.dotted)
+            .on_hover_text("Dotted note (.): one and a half times as long")
+            .clicked()
+        {
+            score.dotted = !score.dotted;
+        }
+        const VALUES: [(music_core::Tick, &str); 6] = [
+            (music_core::PPQ * 4, "Whole note"),
+            (music_core::PPQ * 2, "Half note"),
+            (music_core::PPQ, "Quarter note"),
+            (music_core::PPQ / 2, "Eighth note"),
+            (music_core::PPQ / 4, "16th note"),
+            (music_core::PPQ / 8, "32nd note"),
+        ];
+        let value_text = VALUES
+            .iter()
+            .find(|(length, _)| score.note_length >= *length)
+            .map_or("32nd note", |(_, label)| label);
+        egui::ComboBox::from_id_salt("score-length")
+            .selected_text(value_text)
+            .width(value.width())
+            .show_ui(&mut toolbar_child(ui, value), |ui| {
+                for (length, label) in VALUES {
+                    ui.selectable_value(&mut score.note_length, length, label);
+                }
+            })
+            .response
+            .on_hover_text("The length of new notes (keys 2 to 7)");
+
+        if widgets::text_button(ui, input, "score-input", "Write notes", score.entry)
+            .on_hover_text(
+                "Note input (N): click a staff, push A to G, or play your MIDI keyboard to write notes",
+            )
+            .clicked()
+        {
+            score.entry = !score.entry;
+            score.preview = !score.entry;
+        }
+        let mark_response = widgets::text_button(ui, mark, "score-mark", "Add...", false)
+            .on_hover_text("Add lyrics at the selected note");
+        let mark_popup = ui.make_persistent_id("score-mark-popup");
+        if mark_response.clicked() {
+            ui.memory_mut(|memory| memory.toggle_popup(mark_popup));
+        }
+        egui::popup_below_widget(
+            ui,
+            mark_popup,
+            &mark_response,
+            egui::PopupCloseBehavior::CloseOnClick,
+            |ui| {
+                ui.set_min_width(140.0);
+                if ui.button("Lyrics...  (L)").clicked() {
+                    *lyrics_open = true;
+                }
+            },
+        );
+
+        // The space between: the track to write on, the octave, rests and
+        // pages, which v1 does through the selection and scrolling.
+        let pages = score.state.cecilia_page_count.max(1);
+        let pdf_title = if song.name.is_empty() {
+            "Lazy Arranger score"
+        } else {
+            song.name.as_str()
+        };
+        let unencodable = score::pdf::unencodable_text(song, pdf_title);
+        let extras = !score.all_tracks || score.entry || pages > 1 || unencodable.is_some();
+        if !extras {
+            return;
+        }
+        // In a narrow window the extras get a row of their own under the bar.
+        let info = if info.width() >= 280.0 {
+            info
+        } else {
+            let (row, _) = ui
+                .allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::hover());
+            row.shrink2(egui::vec2(12.0, 2.0))
+        };
+        let mut info_ui = toolbar_child(ui, info);
+        info_ui.spacing_mut().item_spacing.x = 6.0;
+        if !score.all_tracks {
+            let selected = score
+                .track
+                .or_else(|| score_tracks.first().map(|(id, _)| *id));
+            egui::ComboBox::from_id_salt("score-track")
+                .selected_text(
+                    selected
+                        .and_then(|id| {
+                            score_tracks
+                                .iter()
+                                .find(|(track, _)| *track == id)
+                                .map(|(_, name)| name.as_str())
+                        })
+                        .unwrap_or("Selected track"),
+                )
+                .width(120.0)
+                .show_ui(&mut info_ui, |ui| {
+                    for (id, name) in score_tracks {
+                        ui.selectable_value(&mut score.track, Some(*id), name);
+                    }
+                });
+        }
+        if score.entry {
+            info_ui
+                .add(
+                    egui::DragValue::new(&mut score.octave)
+                        .range(0..=8)
+                        .prefix("Oct "),
+                )
+                .on_hover_text("The octave of notes typed with A to G");
+            if info_ui
+                .button("Rest")
+                .on_hover_text("Write a rest: move the cursor on (0)")
+                .clicked()
+            {
+                score.cursor += entry_length(score.note_length.max(1), score.dotted);
+            }
+        }
+        if pages > 1 {
+            if info_ui.small_button("\u{25c0}").clicked() {
+                score.page = score.page.saturating_sub(1);
+            }
+            info_ui.label(
+                egui::RichText::new(format!("{}/{pages}", score.page + 1))
+                    .size(13.0)
+                    .color(theme::text_muted()),
+            );
+            if info_ui.small_button("\u{25b6}").clicked() {
+                score.page += 1;
+            }
+        }
+        if let Some(text) = unencodable {
+            info_ui
+                .label(
+                    egui::RichText::new("PDF: ?")
+                        .size(12.0)
+                        .color(theme::recording()),
+                )
+                .on_hover_text(format!(
+                    "WinAnsi PDF cannot encode {text:?}; it will print as ?"
+                ));
+        }
     }
 
     /// The clip grid: scenes as rows, tracks as columns, launch and record.
@@ -3481,153 +3771,16 @@ impl ShellApp {
                             .iter()
                             .map(|track| (track.id, track.name.clone()))
                             .collect();
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(egui::RichText::new("Score").strong());
-                            let pdf_title = if project.song.name.is_empty() {
-                                "Lazy Arranger score"
-                            } else {
-                                project.song.name.as_str()
-                            };
-                            if let Some(text) = score::pdf::unencodable_text(&project.song, pdf_title) {
-                                ui.label(
-                                    egui::RichText::new("PDF: ?")
-                                        .size(9.0)
-                                        .color(theme::recording()),
-                                )
-                                .on_hover_text(format!(
-                                    "WinAnsi PDF cannot encode {text:?}; it will print as ?"
-                                ));
-                            }
-                            ui.checkbox(&mut self.score.all_tracks, "All tracks");
-                            if self.score.all_tracks {
-                                if ui.checkbox(&mut self.score.follow, "Follow").changed() {
-                                    self.settings.score_follow = self.score.follow;
-                                    let _ = self.settings.save(&crate::settings::Settings::path());
-                                }
-                                if ui
-                                    .checkbox(&mut self.score.full_frames, "Frames")
-                                    .changed()
-                                {
-                                    self.settings.score_frames = self.score.full_frames;
-                                    let _ = self.settings.save(&crate::settings::Settings::path());
-                                }
-                                let tracks: Vec<(TrackId, String)> = project
-                                    .song
-                                    .tracks
-                                    .iter()
-                                    .map(|entry| (entry.id, entry.name.clone()))
-                                    .collect();
-                                let mut toggle = None;
-                                ui.menu_button("Tracks", |ui| {
-                                    for (id, name) in &tracks {
-                                        let mut shown = !self.score.full_hidden.contains(id);
-                                        if ui.checkbox(&mut shown, name).changed() {
-                                            toggle = Some((*id, shown));
-                                        }
-                                    }
-                                });
-                                if let Some((id, shown)) = toggle {
-                                    if shown {
-                                        self.score.full_hidden.remove(&id);
-                                    } else {
-                                        self.score.full_hidden.insert(id);
-                                    }
-                                }
-                            }
-                            let mut write = self.score.entry;
-                            if ui.checkbox(&mut write, "Write notes").changed() {
-                                self.score.entry = write;
-                                self.score.preview = !write;
-                            }
-                            let selected = self
-                                .score.track
-                                .or_else(|| score_tracks.first().map(|(id, _)| *id));
-                            egui::ComboBox::from_id_salt("score-track")
-                                .selected_text(
-                                    selected
-                                        .and_then(|id| {
-                                            score_tracks
-                                                .iter()
-                                                .find(|(track, _)| *track == id)
-                                                .map(|(_, name)| name.as_str())
-                                        })
-                                        .unwrap_or("Selected track"),
-                                )
-                                .show_ui(ui, |ui| {
-                                    for (id, name) in &score_tracks {
-                                        ui.selectable_value(&mut self.score.track, Some(*id), name);
-                                    }
-                                });
-                            ui.label("Octave");
-                            ui.add(
-                                egui::DragValue::new(&mut self.score.octave).range(0..=8),
-                            );
-                            ui.label("Length");
-                            egui::ComboBox::from_id_salt("score-length")
-                                .selected_text(match self.score.note_length {
-                                    value if value >= music_core::PPQ * 4 => "Whole",
-                                    value if value >= music_core::PPQ * 2 => "Half",
-                                    value if value >= music_core::PPQ => "Quarter",
-                                    value if value >= music_core::PPQ / 2 => "Eighth",
-                                    _ => "16th",
-                                })
-                                .show_ui(ui, |ui| {
-                                    for (value, label) in [
-                                        (music_core::PPQ * 4, "Whole"),
-                                        (music_core::PPQ * 2, "Half"),
-                                        (music_core::PPQ, "Quarter"),
-                                        (music_core::PPQ / 2, "Eighth"),
-                                        (music_core::PPQ / 4, "16th"),
-                                    ] {
-                                        ui.selectable_value(
-                                            &mut self.score.note_length,
-                                            value,
-                                            label,
-                                        );
-                                    }
-                                });
-                            ui.checkbox(&mut self.score.dotted, "Dot");
-                            if ui.button("Rest").on_hover_text("Advance the entry cursor").clicked() {
-                                self.score.cursor += entry_length(
-                                    self.score.note_length.max(1),
-                                    self.score.dotted,
-                                );
-                            }
-                            ui.label(format!("cursor {}", self.score.cursor));
-                            if ui.small_button("Reset").clicked() {
-                                self.score.cursor = 0;
-                            }
-                            ui.label("Staves: automatic");
-                            ui.checkbox(&mut self.score.grand, "Grand staff");
-                            if ui.button("−").clicked() {
-                                self.score.zoom = (self.score.zoom - 0.1).max(0.5);
-                            }
-                            ui.label(format!("{:.1}", self.score.zoom));
-                            if ui.button("+").clicked() {
-                                self.score.zoom = (self.score.zoom + 0.1).min(2.5);
-                            }
-                            if ui.button("◀").clicked() {
-                                self.score.page = self.score.page.saturating_sub(1);
-                            }
-                            if ui.button("▶").clicked() {
-                                self.score.page += 1;
-                            }
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "{}/{}",
-                                    self.score.page + 1,
-                                    self.score.state.cecilia_page_count.max(1)
-                                ))
-                                .size(10.0)
-                                .color(theme::text_dim()),
-                            );
-                            if ui.button("Export PDF…").clicked() {
-                                save_pdf = true;
-                            }
-                            if ui.button("Print…").clicked() {
-                                self.print_dialog = true;
-                            }
-                        });
+                        Self::score_toolbar(
+                            &mut self.score,
+                            &mut self.settings,
+                            &mut self.print_dialog,
+                            &mut self.lyrics_open,
+                            ui,
+                            &project.song,
+                            &score_tracks,
+                            &mut save_pdf,
+                        );
                         let track = self
                             .score.track
                             .filter(|track| project.song.tracks.iter().any(|entry| entry.id == *track))
@@ -3641,7 +3794,8 @@ impl ShellApp {
                             project.song.tracks.iter().find(|entry| entry.id == track)
                         }) {
                             let track = track_song.id;
-                            let grand_staff = self.score.grand || needs_grand_staff(track_song);
+                            let grand_staff = self.score.grand
+                                || (!self.score.one_staff && needs_grand_staff(track_song));
                             let score_settings = score::Settings {
                                 grand_staff,
                                 ..score::Settings::default()
@@ -4215,4 +4369,17 @@ fn sound_name(program: Option<u8>, drums: bool) -> String {
         return format!("{kit} Kit");
     }
     String::from(midi_devices::programs::name(program))
+}
+
+/// A child of a toolbar for one control: v1 field colours, 30 pt tall.
+fn toolbar_child(ui: &mut egui::Ui, rect: egui::Rect) -> egui::Ui {
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    theme::v1_fields(child.visuals_mut());
+    child.spacing_mut().interact_size.y = 30.0;
+    child.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
+    child
 }

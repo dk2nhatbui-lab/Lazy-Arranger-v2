@@ -249,6 +249,15 @@ pub const HEADER_HEIGHT: f32 = 60.0;
 pub const STATUS_HEIGHT: f32 = 28.0;
 /// Browser width.
 pub const SIDEBAR_WIDTH: f32 = 248.0;
+/// `AppLookAndFeel` fields: combo boxes, text fields and buttons on the
+/// `raised` colour with a `lineStrong` outline.
+pub fn v1_fields(visuals: &mut egui::Visuals) {
+    visuals.extreme_bg_color = raised();
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0_f32, line_strong());
+    visuals.widgets.inactive.weak_bg_fill = raised();
+    visuals.widgets.inactive.bg_fill = raised();
+}
+
 /// Inspector width, as wide as the v1 inspector.
 pub const INSPECTOR_WIDTH: f32 = 320.0;
 /// One track lane height.

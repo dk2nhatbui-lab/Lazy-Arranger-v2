@@ -1155,9 +1155,11 @@ impl ShellApp {
                 page: 0,
                 zoom: initial_score_zoom,
                 grand: std::env::var("ARRANGER_GRAND").is_ok_and(|value| value == "1"),
+                one_staff: false,
                 preview: std::env::var("ARRANGER_SCORE_EDIT").is_err()
                     && std::env::var("ARRANGER_SCORE_ENTRY").is_err(),
-                all_tracks: std::env::var("ARRANGER_SCORE_ALL").is_ok(),
+                // v1 opens the score on all tracks.
+                all_tracks: std::env::var("ARRANGER_SCORE_ALL").map_or(true, |value| value != "0"),
                 follow: initial_score_follow,
                 full_frames: std::env::var("ARRANGER_FULL_FRAMES").is_ok() || initial_score_frames,
                 full_hidden: std::collections::HashSet::new(),
@@ -3189,12 +3191,13 @@ impl ShellApp {
             return;
         }
         let grand_staff = self.score.grand
-            || self
-                .song()
-                .tracks
-                .iter()
-                .find(|entry| entry.id == track)
-                .is_some_and(needs_grand_staff);
+            || !self.score.one_staff
+                && self
+                    .song()
+                    .tracks
+                    .iter()
+                    .find(|entry| entry.id == track)
+                    .is_some_and(needs_grand_staff);
         let settings = score::Settings {
             grand_staff,
             ..score::Settings::default()
