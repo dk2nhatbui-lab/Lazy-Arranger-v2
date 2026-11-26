@@ -515,7 +515,7 @@ impl ShellApp {
         let catalog = self
             .plugin_scan
             .clone()
-            .or_else(|| plugins::load_catalog(std::path::Path::new(plugins::CATALOG_FILE)))
+            .or_else(|| plugins::load_catalog(&crate::settings::data_file(plugins::CATALOG_FILE)))
             .unwrap_or_default();
         let mut changed = false;
         egui::Window::new("Bus effects")
@@ -646,7 +646,7 @@ impl ShellApp {
         let catalog = self
             .plugin_scan
             .clone()
-            .or_else(|| plugins::load_catalog(std::path::Path::new(plugins::CATALOG_FILE)))
+            .or_else(|| plugins::load_catalog(&crate::settings::data_file(plugins::CATALOG_FILE)))
             .unwrap_or_default();
         egui::Window::new("Master effects")
             .open(&mut open)
@@ -762,7 +762,7 @@ impl ShellApp {
         }
         let (sender, receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let blocklist_path = std::path::Path::new(plugins::BLOCKLIST_FILE);
+            let blocklist_path = &crate::settings::data_file(plugins::BLOCKLIST_FILE);
             let mut blocked = plugins::load_blocklist(blocklist_path);
             let before = blocked.len();
             let report = plugins::scan_installed_report(&blocked);
@@ -786,7 +786,8 @@ impl ShellApp {
             return;
         }
         if self.plugin_scan.is_none() {
-            self.plugin_scan = plugins::load_catalog(std::path::Path::new(plugins::CATALOG_FILE));
+            self.plugin_scan =
+                plugins::load_catalog(&crate::settings::data_file(plugins::CATALOG_FILE));
             if self.plugin_scan.is_none() {
                 self.start_plugin_scan();
             }
@@ -818,7 +819,7 @@ impl ShellApp {
                                 .color(theme::text_muted()),
                         );
                     }
-                    let blocked = plugins::load_blocklist(std::path::Path::new(
+                    let blocked = plugins::load_blocklist(&crate::settings::data_file(
                         plugins::BLOCKLIST_FILE,
                     ));
                     if !blocked.is_empty() {
@@ -828,7 +829,7 @@ impl ShellApp {
                                 .color(theme::text_dim()),
                         );
                         if ui.small_button("Clear blocklist").clicked() {
-                            let _ = std::fs::remove_file(plugins::BLOCKLIST_FILE);
+                            let _ = std::fs::remove_file(crate::settings::data_file(plugins::BLOCKLIST_FILE));
                             self.plugin_error = None;
                         }
                     }
@@ -1307,17 +1308,8 @@ impl ShellApp {
     /// Mixer strips: one per track with a fader, pan and mute/solo.
     pub(super) fn mixer_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Mixer");
-        if self.stem_levels.is_empty()
-            && self
-                .player
-                .as_ref()
-                .is_some_and(audio::player::Player::is_playing)
-        {
-            self.stem_levels = audio::render_stems(self.song(), audio::SAMPLE_RATE)
-                .into_iter()
-                .map(|stem| (stem.track, stem.audio.samples))
-                .collect();
-        }
+        // Meter levels come from the playback render (worker thread). A song
+        // with no audible stems has none, and is never re-rendered here.
         ui.horizontal(|ui| {
             ui.label("Master");
             ui.add(
@@ -2024,7 +2016,12 @@ impl ShellApp {
                 {
                     let folder = crate::settings::Settings::data_dir();
                     let _ = std::fs::create_dir_all(&folder);
-                    let path = folder.join(format!("freeze-{id}.wav"));
+                    // A unique name per freeze: another project's frozen
+                    // track must never be overwritten.
+                    let stamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |since| since.as_millis());
+                    let path = folder.join(format!("freeze-{id}-{stamp}.wav"));
                     match self.editor.freeze_track(id, &path) {
                         Ok(()) => {
                             self.status = Some(format!("froze {id} -> {}", path.display()));

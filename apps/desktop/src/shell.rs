@@ -17,9 +17,21 @@ pub fn render(template: &str, placeholder: &str, variable: &str) -> String {
     }
 }
 
+/// Quotes `text` as one single-quoted `sh` word.
+#[must_use]
+pub fn quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quote_keeps_spaces_and_quotes_in_one_word() {
+        assert_eq!(quote("/a b/c"), "'/a b/c'");
+        assert_eq!(quote("it's"), "'it'\\''s'");
+    }
 
     #[test]
     fn placeholders_become_quoted_variables() {

@@ -21,9 +21,17 @@ pub fn autosave_path(project: &Path) -> PathBuf {
 ///
 /// Returns a message when the write or rename fails.
 pub fn save_atomic(path: &Path, json: &str) -> Result<(), String> {
-    let temporary = path.with_extension("tmp");
+    // Append to the full name so `song.json` and `song.arranger` never share
+    // a temporary file. `fs::rename` replaces an existing file on every
+    // platform, Windows included.
+    let mut name = path.as_os_str().to_owned();
+    name.push(format!(".{}.tmp", std::process::id()));
+    let temporary = PathBuf::from(name);
     fs::write(&temporary, json).map_err(|error| format!("{}: {error}", temporary.display()))?;
-    fs::rename(&temporary, path).map_err(|error| format!("{}: {error}", path.display()))
+    fs::rename(&temporary, path).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        format!("{}: {error}", path.display())
+    })
 }
 
 /// True when an autosave exists and is newer than its project.
@@ -56,6 +64,12 @@ impl Autosave {
         }
     }
 
+    /// True when the interval since the last attempt has passed.
+    #[must_use]
+    pub fn due(&self) -> bool {
+        self.last.elapsed() >= self.interval
+    }
+
     /// Writes the autosave when enough time has passed and the project is dirty.
     ///
     /// # Errors
@@ -74,8 +88,10 @@ impl Autosave {
             return Ok(None);
         }
         let path = autosave_path(project);
-        save_atomic(&path, json)?;
+        // A failed write waits a full interval too, instead of retrying
+        // every frame.
         self.last = Instant::now();
+        save_atomic(&path, json)?;
         Ok(Some(path))
     }
 }

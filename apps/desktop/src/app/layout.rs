@@ -5093,13 +5093,13 @@ impl ShellApp {
             self.lesson.reset();
         }
         if kids_load {
-            match self.editor.load_kids_demo() {
-                Ok(()) => {
-                    self.status = Some(String::from("Kids demo loaded"));
-                    self.lesson.reset();
-                }
-                Err(error) => self.status = Some(error),
-            }
+            // Goes through replace_project so playback stops and the open
+            // file's path is dropped: saving never writes the demo over it.
+            self.replace_project(
+                project::song::ProjectFile::new(arranging::demo::kids_song()),
+                "the Kids demo",
+            );
+            self.lesson.reset();
         }
         if let Some(chord) = perform_chord {
             let mut song = Song::new("Pads", 120.0);

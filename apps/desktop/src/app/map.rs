@@ -72,7 +72,9 @@ fn control_label(control: Control) -> String {
 
 impl ShellApp {
     fn save_midi_map(&mut self) {
-        if let Err(error) = std::fs::write("lazy-arranger-midi-map.txt", self.midi_map.to_text()) {
+        if let Err(error) =
+            std::fs::write(crate::settings::midi_map_path(), self.midi_map.to_text())
+        {
             self.status = Some(format!("midi map: {error}"));
         }
     }

@@ -154,50 +154,46 @@ impl ScoreState {
         if self.cecilia_key.as_deref() == Some(key.as_str()) {
             return;
         }
-        if self
-            .cecilia_pending
-            .as_ref()
-            .is_some_and(|(pending, _)| pending == &key)
-        {
-            let result = self
-                .cecilia_pending
-                .as_ref()
-                .and_then(|(_, receiver)| receiver.try_recv().ok());
-            let Some(result) = result else {
-                context.request_repaint_after(std::time::Duration::from_millis(100));
-                return;
+        if let Some((pending_key, receiver)) = &self.cecilia_pending {
+            // Keep at most one engraver running. A worker for an older key is
+            // still drained, so the latest key starts as soon as it finishes.
+            let result = match receiver.try_recv() {
+                Ok(result) => result,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    context.request_repaint_after(std::time::Duration::from_millis(100));
+                    return;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    Err(String::from("the score engraver stopped unexpectedly"))
+                }
             };
+            let finished_current = pending_key == &key;
             self.cecilia_pending = None;
-            match result {
-                Ok(pages) => {
-                    self.cecilia_pages.clear();
-                    for (index, page) in pages.into_iter().enumerate() {
-                        self.cecilia_pages.push(context.load_texture(
-                            format!("cecilia-page-{index}"),
-                            egui::ColorImage::from_rgba_unmultiplied(
-                                [page.width as usize, page.height as usize],
-                                &page.rgba,
-                            ),
-                            egui::TextureOptions::LINEAR,
-                        ));
+            if finished_current {
+                match result {
+                    Ok(pages) => {
+                        self.cecilia_pages.clear();
+                        for (index, page) in pages.into_iter().enumerate() {
+                            self.cecilia_pages.push(context.load_texture(
+                                format!("cecilia-page-{index}"),
+                                egui::ColorImage::from_rgba_unmultiplied(
+                                    [page.width as usize, page.height as usize],
+                                    &page.rgba,
+                                ),
+                                egui::TextureOptions::LINEAR,
+                            ));
+                        }
+                        self.cecilia_page_count = self.cecilia_pages.len();
+                        self.cecilia_error = None;
                     }
-                    self.cecilia_page_count = self.cecilia_pages.len();
-                    self.cecilia_error = None;
-                    self.cecilia_key = Some(key);
+                    Err(error) => {
+                        self.cecilia_page_count = 0;
+                        self.cecilia_error = Some(error);
+                    }
                 }
-                Err(error) => {
-                    self.cecilia_page_count = 0;
-                    self.cecilia_error = Some(error);
-                    self.cecilia_key = Some(key);
-                }
+                self.cecilia_key = Some(key);
+                return;
             }
-            return;
-        }
-        if self.cecilia_pending.is_some() {
-            // Keep at most one engraver running; the latest key starts after it
-            // finishes instead of spawning a worker per edit.
-            context.request_repaint_after(std::time::Duration::from_millis(100));
-            return;
         }
         let song = song.clone();
         let title = title.to_string();

@@ -1022,9 +1022,15 @@ impl ShellApp {
             |key| key.tonic,
         );
         let initial_minor = project.song.key.is_some_and(|key| key.minor);
-        let editor = match Editor::new(project) {
-            Ok(editor) => editor,
-            Err(_) => Editor::new(demo_project()).expect("the demo project is valid"),
+        // A project that fails validation never keeps its path: saving the
+        // demo over the user's file would lose their work.
+        let (editor, project_path, startup_error) = match Editor::new(project) {
+            Ok(editor) => (editor, project_path, None),
+            Err(error) => (
+                Editor::new(demo_project()).expect("the demo project is valid"),
+                None,
+                Some(format!("could not open the project: {error}")),
+            ),
         };
         let song_name_input = editor.song().name.clone();
         let initial_track = std::env::var("ARRANGER_TRACK")
@@ -1160,7 +1166,7 @@ impl ShellApp {
             audio_inputs: None,
             audio_outputs: None,
             audio_host: None,
-            midi_map: std::fs::read_to_string("lazy-arranger-midi-map.txt")
+            midi_map: std::fs::read_to_string(crate::settings::midi_map_path())
                 .ok()
                 .and_then(|text| midi_devices::map::MidiMap::from_text(&text).ok())
                 .unwrap_or_default(),
@@ -1403,7 +1409,7 @@ impl ShellApp {
             playing: false,
             position: 0,
             shown: false,
-            load_error: None,
+            load_error: startup_error,
         }
     }
 
@@ -2445,8 +2451,10 @@ impl ShellApp {
         if let Some(receiver) = self.plugin_scan_rx.take() {
             match receiver.try_recv() {
                 Ok((found, failed)) => {
-                    let _ =
-                        plugins::save_catalog(std::path::Path::new(plugins::CATALOG_FILE), &found);
+                    let _ = plugins::save_catalog(
+                        &crate::settings::data_file(plugins::CATALOG_FILE),
+                        &found,
+                    );
                     self.plugin_error = if found.is_empty() {
                         Some(String::from("no bundles found"))
                     } else if failed > 0 {
@@ -3080,31 +3088,44 @@ impl ShellApp {
     fn replace_project(&mut self, project: ProjectFile, label: &str) {
         match Editor::new(project) {
             Ok(editor) => {
-                self.stop_playback();
-                self.player = None;
-                self.editor = editor;
+                self.install_editor(editor);
                 self.project_path = None;
-                self.selected_note = None;
-                self.selected_clip = None;
-                self.selected_clips.clear();
-                self.selected_chord = None;
-                self.stem_levels.clear();
-                self.position = 0;
-                self.key = self.song().key.map_or_else(
-                    || score::spelling::detect_key(self.song()).tonic,
-                    |key| key.tonic,
-                );
-                self.theory_minor = self.song().key.is_some_and(|key| key.minor);
-                self.score.full_hidden.clear();
-                self.score.full_cache = None;
-                self.score.track = None;
-                self.score.page = 0;
-                self.song_name_input = self.song().name.clone();
                 self.status = Some(format!("loaded {label}"));
-                self.load_error = None;
             }
             Err(error) => self.load_error = Some(error.to_string()),
         }
+    }
+
+    /// Swaps in a validated editor: stops playback and resets every
+    /// per-project cache and selection. The caller sets `project_path`.
+    fn install_editor(&mut self, editor: Editor) {
+        self.stop_playback();
+        self.editor = editor;
+        self.last_loop_wraps = 0;
+        self.selected_note = None;
+        self.selected_notes.clear();
+        self.selected_clip = None;
+        self.selected_clips.clear();
+        self.selected_chord = None;
+        self.stem_levels.clear();
+        self.key = self.song().key.map_or_else(
+            || score::spelling::detect_key(self.song()).tonic,
+            |key| key.tonic,
+        );
+        self.theory_minor = self.song().key.is_some_and(|key| key.minor);
+        self.score.full_hidden.clear();
+        self.score.full_cache = None;
+        self.score.track = None;
+        self.score.page = 0;
+        self.song_name_input = self.song().name.clone();
+        if self
+            .roll
+            .selected
+            .is_none_or(|id| !self.song().tracks.iter().any(|track| track.id == id))
+        {
+            self.roll.selected = self.song().tracks.first().map(|track| track.id);
+        }
+        self.load_error = None;
     }
 
     fn print_window(&mut self, context: &egui::Context) {
@@ -4620,6 +4641,10 @@ impl ShellApp {
         let Some(path) = self.project_path.clone() else {
             return;
         };
+        // Serializing a big song every frame is costly: wait for the interval.
+        if !self.autosave.due() {
+            return;
+        }
         let Ok(json) = self.editor.project().to_json_pretty() else {
             return;
         };
@@ -4642,7 +4667,7 @@ impl ShellApp {
                         match load_project(&autosave) {
                             Ok(project) => match Editor::new(project) {
                                 Ok(editor) => {
-                                    self.editor = editor;
+                                    self.install_editor(editor);
                                     let original = self
                                         .project_path
                                         .clone()
@@ -4840,59 +4865,37 @@ impl ShellApp {
     fn open(&mut self, path: &PathBuf) {
         let kind = file_kind(path);
         let imported = kind != ProjectKind::Json;
-        match load_project(path) {
-            Ok(project) => {
-                self.render_pending = None;
-                if let Some(player) = self.player.take() {
-                    player.pause();
-                    player.release();
-                }
-                self.playing = false;
-                self.last_loop_wraps = 0;
-                match Editor::new(project) {
-                    Ok(editor) => self.editor = editor,
-                    Err(error) => {
-                        self.load_error = Some(error.to_string());
-                        return;
-                    }
-                }
-                self.key = self.song().key.map_or_else(
-                    || score::spelling::detect_key(self.song()).tonic,
-                    |key| key.tonic,
-                );
-                self.theory_minor = self.song().key.is_some_and(|key| key.minor);
-                self.score.full_hidden.clear();
-                self.score.full_cache = None;
-                self.selected_note = None;
-                self.selected_clip = None;
-                self.selected_clips.clear();
-                self.project_path = if imported { None } else { Some(path.clone()) };
-                self.status = if imported {
-                    Some(format!(
-                        "imported {}; saving writes an untitled project",
-                        kind.label()
-                    ))
-                } else {
-                    None
-                };
-                self.recent = project::recent::record(&self.recent_file, path)
-                    .unwrap_or_else(|_| self.recent.clone());
-                self.settings.last_project = Some(path.display().to_string());
-                let _ = self.settings.save(&crate::settings::Settings::path());
-                self.song_name_input = self.song().name.clone();
-                self.position = 0;
-                self.playing = false;
-                if self
-                    .roll
-                    .selected
-                    .is_none_or(|id| !self.song().tracks.iter().any(|track| track.id == id))
-                {
-                    self.roll.selected = self.song().tracks.first().map(|track| track.id);
-                }
-                self.load_error = None;
+        // Validate first: a file that fails leaves the open project playing.
+        let editor = match load_project(path)
+            .map_err(|error| error.to_string())
+            .and_then(|project| Editor::new(project).map_err(|error| error.to_string()))
+        {
+            Ok(editor) => editor,
+            Err(error) => {
+                self.load_error = Some(error);
+                return;
             }
-            Err(error) => self.load_error = Some(error.to_string()),
-        }
+        };
+        self.install_editor(editor);
+        self.project_path = if imported { None } else { Some(path.clone()) };
+        // An autosave offer belongs to the project that was open before.
+        self.recovery = self
+            .project_path
+            .as_ref()
+            .filter(|path| persistence::recovery_available(path))
+            .map(|path| persistence::autosave_path(path));
+        self.status = if imported {
+            Some(format!(
+                "imported {}; saving writes an untitled project",
+                kind.label()
+            ))
+        } else {
+            None
+        };
+        self.recent = project::recent::record(&self.recent_file, path)
+            .unwrap_or_else(|_| self.recent.clone());
+        self.settings.last_project = Some(path.display().to_string());
+        let _ = self.settings.save(&crate::settings::Settings::path());
     }
 }
 
