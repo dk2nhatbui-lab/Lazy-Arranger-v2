@@ -5,8 +5,6 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
-## [0.1.0-beta.5] - 2026-11-26
-
 ### Fixed
 - A plug-in that can't keep up while the song plays is turned off for the
   session, and its track plays dry, instead of making the sound stutter.
@@ -17,6 +15,10 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
   move, trim or fade and a note edit on a plug-in instrument are heard at
   once, with nothing rendered first. Audio Unit instruments are still
   rendered before play.
+
+## [0.1.0-beta.5] - 2026-11-26
+
+### Fixed
 - Mixer faders, pans, mute, solo, bus faders and the master fader are heard
   right away while the song plays, for MIDI and audio tracks. Before, each
   move waited for the whole song to render again. This now holds for
