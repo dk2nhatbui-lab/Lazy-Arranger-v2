@@ -2022,12 +2022,34 @@ impl ShellApp {
                         .duration_since(std::time::UNIX_EPOCH)
                         .map_or(0, |since| since.as_millis());
                     let path = folder.join(format!("freeze-{id}-{stamp}.wav"));
-                    match self.editor.freeze_track(id, &path) {
-                        Ok(()) => {
-                            self.status = Some(format!("froze {id} -> {}", path.display()));
-                        }
-                        Err(error) => self.status = Some(error),
-                    }
+                    // Render in the background; apply only if the track was
+                    // not edited meanwhile, or its new notes would be lost.
+                    let song = self.song().clone();
+                    let before = song.tracks.iter().find(|entry| entry.id == id).cloned();
+                    self.start_job(
+                        "Freezing track",
+                        move || {
+                            crate::editor::render_frozen_track(&song, id, &path)
+                                .map(|length| (path, length))
+                        },
+                        move |app, result| {
+                            let changed = app.song().tracks.iter().find(|entry| entry.id == id)
+                                != before.as_ref();
+                            let outcome = result.and_then(|(path, length)| {
+                                if changed {
+                                    let _ = std::fs::remove_file(&path);
+                                    return Err(String::from(
+                                        "the track changed while it was freezing; freeze it again",
+                                    ));
+                                }
+                                app.editor.apply_freeze(id, &path, length).map(|()| path)
+                            });
+                            app.status = Some(match outcome {
+                                Ok(path) => format!("froze {id} -> {}", path.display()),
+                                Err(error) => error,
+                            });
+                        },
+                    );
                 }
                 if ui.selectable_label(muted, "M").clicked() {
                     let _ = self.editor.set_track_flags(id, !muted, soloed, false);

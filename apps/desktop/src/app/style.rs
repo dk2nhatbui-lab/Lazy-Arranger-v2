@@ -321,14 +321,12 @@ impl ShellApp {
                         match self
                             .build_audio_style()
                             .and_then(|built| style_preview_song(&built.style))
-                            .and_then(|song| {
-                                audio::player::Player::new(audio::render(&song, audio::SAMPLE_RATE))
-                            }) {
-                            Ok(player) => {
-                                player.play();
-                                self.style.preview = Some(player);
-                                self.status = Some(String::from("auditioning audio style"));
-                            }
+                        {
+                            Ok(song) => self.audition_in_background(
+                                song,
+                                super::jobs::AuditionSlot::Style,
+                                "auditioning audio style",
+                            ),
                             Err(error) => self.status = Some(error),
                         }
                     }
@@ -341,15 +339,12 @@ impl ShellApp {
     }
 
     pub(super) fn audition_style_section(&mut self) {
-        match self.style_file_preview_song().and_then(|song| {
-            audio::player::Player::new(audio::render(&song, audio::SAMPLE_RATE))
-                .map_err(|error| error.to_string())
-        }) {
-            Ok(player) => {
-                player.play();
-                self.style.preview = Some(player);
-                self.status = Some(String::from("auditioning style section"));
-            }
+        match self.style_file_preview_song() {
+            Ok(song) => self.audition_in_background(
+                song,
+                super::jobs::AuditionSlot::Style,
+                "auditioning style section",
+            ),
             Err(error) => self.status = Some(error),
         }
     }
@@ -637,17 +632,15 @@ impl ShellApp {
                         }
                     }
                     if ui.button("Audition").clicked() {
-                        match self.build_style_from_clips() {
-                            Ok(style) => match style_preview_song(&style).and_then(|song| {
-                                audio::player::Player::new(audio::render(&song, audio::SAMPLE_RATE))
-                            }) {
-                                Ok(player) => {
-                                    player.play();
-                                    self.style.preview = Some(player);
-                                    self.status = Some(String::from("auditioning style"));
-                                }
-                                Err(error) => self.status = Some(error),
-                            },
+                        match self
+                            .build_style_from_clips()
+                            .and_then(|style| style_preview_song(&style))
+                        {
+                            Ok(song) => self.audition_in_background(
+                                song,
+                                super::jobs::AuditionSlot::Style,
+                                "auditioning style",
+                            ),
                             Err(error) => self.status = Some(error),
                         }
                     }
@@ -727,16 +720,15 @@ impl ShellApp {
         if after && let Some(track) = song.tracks.iter_mut().find(|entry| entry.id == track_id) {
             track.notes = arranging::groove::apply(&track.notes, groove, amounts);
         }
-        let rendered = audio::render(&song, audio::SAMPLE_RATE);
-        self.audition_player = audio::player::Player::new(rendered).ok();
-        if let Some(player) = &self.audition_player {
-            player.play();
-        }
-        self.status = Some(String::from(if after {
-            "groove audition: after"
-        } else {
-            "groove audition: before"
-        }));
+        self.audition_in_background(
+            song,
+            super::jobs::AuditionSlot::Main,
+            if after {
+                "groove audition: after"
+            } else {
+                "groove audition: before"
+            },
+        );
     }
 
     pub(super) fn groove_window(&mut self, context: &egui::Context) {

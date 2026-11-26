@@ -1482,3 +1482,47 @@ fn mixer_menu_routes_tracks_and_manages_buses() {
     assert!(app.plugins_open);
     assert_eq!(app.roll.selected, Some(track));
 }
+
+#[test]
+fn slow_work_runs_off_the_ui_thread_and_applies_on_poll() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    assert!(app.start_job(
+        "Testing",
+        || 41 + 1,
+        |app, value| {
+            app.status = Some(format!("got {value}"));
+        }
+    ));
+    // A second job with the same label waits for the first.
+    assert!(!app.start_job("Testing", || 0, |_, _| {}));
+    assert!(
+        app.jobs
+            .progress_note()
+            .is_some_and(|note| note.starts_with("Testing"))
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while app.jobs.busy() && std::time::Instant::now() < deadline {
+        app.poll_jobs(&context);
+        std::thread::yield_now();
+    }
+    assert!(!app.jobs.busy());
+    assert_eq!(app.status.as_deref(), Some("got 42"));
+}
+
+#[test]
+fn a_job_that_panics_reports_an_error() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    app.start_job("Crashing", || -> u8 { panic!("boom") }, |_, _| {});
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while app.jobs.busy() && std::time::Instant::now() < deadline {
+        app.poll_jobs(&context);
+        std::thread::yield_now();
+    }
+    assert!(
+        app.load_error
+            .as_deref()
+            .is_some_and(|error| error.contains("Crashing"))
+    );
+}

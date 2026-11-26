@@ -1764,14 +1764,22 @@ impl Editor {
     /// Returns a message when the file is unreadable, not a WAV, or the track
     /// cannot be inserted.
     pub fn import_audio(&mut self, wav: &std::path::Path, start: Tick) -> Result<TrackId, String> {
-        let bytes = std::fs::read(wav)
-            .map_err(|error| format!("could not read {}: {error}", wav.display()))?;
-        let seconds = if bytes.starts_with(b"RIFF") {
-            audio::wav::info(&bytes)?.seconds
-        } else {
-            let decoded = audio::decode::decode_mono(wav)?;
-            decoded.samples.len() as f64 / f64::from(decoded.sample_rate)
-        };
+        let seconds = audio_file_seconds(wav)?;
+        self.import_audio_seconds(wav, start, seconds)
+    }
+
+    /// Adds an audio track for a file whose length was measured already
+    /// (see [`audio_file_seconds`]), so the slow decode can run elsewhere.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when no track id is free or the insert fails.
+    pub fn import_audio_seconds(
+        &mut self,
+        wav: &std::path::Path,
+        start: Tick,
+        seconds: f64,
+    ) -> Result<TrackId, String> {
         let bpm = self.song().tempo_map.bpm_at(start);
         let length = audio::chords::to_ticks(seconds, bpm).max(1);
         let track_id = self
@@ -2228,13 +2236,22 @@ impl Editor {
     /// Returns a message when the render cannot be written or the edit is
     /// rejected.
     pub fn freeze_track(&mut self, track: TrackId, path: &std::path::Path) -> Result<(), String> {
-        let mut song = self.song().clone();
-        song.tracks.retain(|entry| entry.id == track);
-        song.buses.clear();
-        let rendered = audio::render(&song, audio::SAMPLE_RATE);
-        std::fs::write(path, rendered.to_wav())
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        let length = self.song().end_tick().max(1);
+        let length = render_frozen_track(self.song(), track, path)?;
+        self.apply_freeze(track, path, length)
+    }
+
+    /// Points a track at audio already rendered by [`render_frozen_track`]
+    /// and clears its notes, as one undoable edit.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the edit is rejected.
+    pub fn apply_freeze(
+        &mut self,
+        track: TrackId,
+        path: &std::path::Path,
+        length: Tick,
+    ) -> Result<(), String> {
         self.session
             .apply(app_commands::Command::FreezeTrack {
                 track,
@@ -2646,6 +2663,44 @@ pub fn snap(tick: Tick, grid: Tick) -> Tick {
         return tick.max(0);
     }
     tick.div_euclid(grid) * grid
+}
+
+/// The length of an audio file in seconds: read from a WAV header, or by
+/// decoding other formats. Slow for long compressed files; safe to call off
+/// the UI thread.
+///
+/// # Errors
+///
+/// Returns a message when the file cannot be read or decoded.
+pub fn audio_file_seconds(path: &std::path::Path) -> Result<f64, String> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    if bytes.starts_with(b"RIFF") {
+        Ok(audio::wav::info(&bytes)?.seconds)
+    } else {
+        let decoded = audio::decode::decode_mono(path)?;
+        Ok(decoded.samples.len() as f64 / f64::from(decoded.sample_rate.max(1)))
+    }
+}
+
+/// Renders one track of `song` to a WAV at `path` and returns the length the
+/// frozen clip should have. Slow; safe to call off the UI thread.
+///
+/// # Errors
+///
+/// Returns a message when the file cannot be written.
+pub fn render_frozen_track(
+    song: &project::song::Song,
+    track: TrackId,
+    path: &std::path::Path,
+) -> Result<Tick, String> {
+    let mut solo = song.clone();
+    solo.tracks.retain(|entry| entry.id == track);
+    solo.buses.clear();
+    let rendered = audio::render(&solo, audio::SAMPLE_RATE);
+    std::fs::write(path, rendered.to_wav())
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(song.end_tick().max(1))
 }
 
 #[cfg(test)]
