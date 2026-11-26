@@ -4517,7 +4517,7 @@ impl ShellApp {
                                         grand_staff,
                                     )
                                 } else {
-                                    Ok(score::pdf::to_pdf(&engraved, score_settings, title))
+                                    Ok(score::cecilia::track_pdf(&project.song, track, title))
                                 };
                                 match pdf {
                                     Ok(pdf) => match std::fs::write(&self.score.pdf_path, pdf) {
