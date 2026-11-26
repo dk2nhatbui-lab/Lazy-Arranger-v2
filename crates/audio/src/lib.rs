@@ -11,6 +11,7 @@ pub mod drums;
 pub mod edit;
 pub mod l6max;
 pub mod link;
+pub mod live;
 pub mod master;
 pub mod metronome;
 pub mod mix;
@@ -277,7 +278,6 @@ fn stretch_interleaved(input: &[f32], target_frames: usize) -> Vec<f32> {
 
 fn mix_audio_reference(
     song: &Song,
-    track: &project::song::Track,
     track_buffer: &mut [f32],
     reference: &project::song::AudioRef,
     sample_rate: u32,
@@ -335,16 +335,10 @@ fn mix_audio_reference(
         0.0
     };
     let clip_gain = 10.0_f32.powf(f32::from(reference.gain_mb) / 20_000.0);
-    let mut left_gain = 1.0_f32;
-    let mut right_gain = 1.0_f32;
     for frame in 0..target_frames {
         let target = target_start + frame;
         if target >= track_buffer.len() / usize::from(CHANNELS) {
             break;
-        }
-        if frame.is_multiple_of(64) {
-            let tick = song.tempo_map.tick_at_samples(target as i64, sample_rate);
-            (left_gain, right_gain) = gains_at(track, tick);
         }
         let source_position = source_start + (frame as f64 * ratio).round() as usize;
         if stretched.is_none() && source_position >= source.frames() {
@@ -370,10 +364,8 @@ fn mix_audio_reference(
                 source.samples[source_position * 2 + 1],
             )
         };
-        let left = sample_left * left_gain * gain;
-        let right = sample_right * right_gain * gain;
-        track_buffer[target * 2] += left;
-        track_buffer[target * 2 + 1] += right;
+        track_buffer[target * 2] += sample_left * gain;
+        track_buffer[target * 2 + 1] += sample_right * gain;
     }
 }
 
@@ -384,6 +376,22 @@ pub fn render_with_soundfont(
     sample_rate: u32,
     load: &mut dyn FnMut(&str) -> Option<soundfont::SoundFont>,
 ) -> RenderedAudio {
+    render_parts(song, sample_rate, load, &[]).0
+}
+
+/// Renders the song, keeping the tracks marked in `live` out of the mix.
+///
+/// Each live track comes back as its own buffer before the fader, pan,
+/// bus and master stages, so playback can apply those gains while it plays.
+/// A live track is rendered even when it is muted, so unmuting it is
+/// instant. The other tracks are mixed as usual into the first buffer.
+pub(crate) fn render_parts(
+    song: &Song,
+    sample_rate: u32,
+    load: &mut dyn FnMut(&str) -> Option<soundfont::SoundFont>,
+    live: &[bool],
+) -> (RenderedAudio, Vec<Vec<f32>>) {
+    let is_live = |index: usize| live.get(index).copied().unwrap_or(false);
     let mut end_tick = song.end_tick();
     for track in &song.tracks {
         if let Some(reference) = &track.audio {
@@ -393,8 +401,9 @@ pub fn render_with_soundfont(
     let track_latencies: Vec<usize> = song
         .tracks
         .iter()
-        .map(|track| {
-            if song.is_audible(track) {
+        .enumerate()
+        .map(|(index, track)| {
+            if is_live(index) || song.is_audible(track) {
                 chain_latency(&track.plugins, sample_rate)
             } else {
                 0
@@ -418,11 +427,12 @@ pub fn render_with_soundfont(
         .iter()
         .map(|_| vec![0.0_f32; frames * usize::from(CHANNELS)])
         .collect();
+    let mut lanes = Vec::new();
     for (track_index, track) in song
         .tracks
         .iter()
         .enumerate()
-        .filter(|(_, track)| song.is_audible(track))
+        .filter(|(index, track)| is_live(*index) || song.is_audible(track))
     {
         let timbre = timbre_for(track);
         let sampled = track.soundfont.as_ref().and_then(|reference| {
@@ -431,7 +441,7 @@ pub fn render_with_soundfont(
         let mut track_buffer = vec![0.0_f32; frames * usize::from(CHANNELS)];
         if track.comps.is_empty() {
             if let Some(reference) = &track.audio {
-                mix_audio_reference(song, track, &mut track_buffer, reference, sample_rate);
+                mix_audio_reference(song, &mut track_buffer, reference, sample_rate);
             }
         } else {
             let mut comps: Vec<&project::song::AudioComp> = track.comps.iter().collect();
@@ -465,7 +475,7 @@ pub fn render_with_soundfont(
                     placed.length = end.saturating_sub(start).saturating_add(cross);
                     placed.fade_in = placed.fade_in.max(cross);
                     placed.fade_out = placed.fade_out.max(cross);
-                    mix_audio_reference(song, track, &mut track_buffer, &placed, sample_rate);
+                    mix_audio_reference(song, &mut track_buffer, &placed, sample_rate);
                 }
             }
             for comp in &comps {
@@ -484,7 +494,7 @@ pub fn render_with_soundfont(
                         .saturating_add(comp.start.saturating_sub(take.start).max(0));
                     placed.fade_in = placed.fade_in.max(cross);
                     placed.fade_out = placed.fade_out.max(cross);
-                    mix_audio_reference(song, track, &mut track_buffer, &placed, sample_rate);
+                    mix_audio_reference(song, &mut track_buffer, &placed, sample_rate);
                 }
             }
         }
@@ -499,7 +509,6 @@ pub fn render_with_soundfont(
             );
         } else {
             for note in &track.notes {
-                let (left_gain, right_gain) = gains_at(track, note.start);
                 let patch = track.patch.map(|mut patch| {
                     if let Some(brightness) = track.brightness_at(note.start) {
                         patch.brightness = brightness;
@@ -544,10 +553,8 @@ pub fn render_with_soundfont(
                             if frame >= frames {
                                 break;
                             }
-                            let left = left_audio[offset] * left_gain;
-                            let right = right_audio[offset] * right_gain;
-                            track_buffer[frame * 2] += left;
-                            track_buffer[frame * 2 + 1] += right;
+                            track_buffer[frame * 2] += left_audio[offset];
+                            track_buffer[frame * 2 + 1] += right_audio[offset];
                         }
                         continue;
                     }
@@ -565,10 +572,8 @@ pub fn render_with_soundfont(
                         None => sample(timbre, frequency, t, note_seconds, note.pitch.as_u8()),
                     };
                     let value = (voice * amplitude * envelope) as f32;
-                    let left = value * left_gain;
-                    let right = value * right_gain;
-                    track_buffer[frame * 2] += left;
-                    track_buffer[frame * 2 + 1] += right;
+                    track_buffer[frame * 2] += value;
+                    track_buffer[frame * 2 + 1] += value;
                 }
             }
         }
@@ -577,6 +582,15 @@ pub fn render_with_soundfont(
             &mut track_buffer,
             max_track_latency.saturating_sub(track_latencies[track_index]),
         );
+        if is_live(track_index) {
+            // Live tracks only reach buses without plug-ins, which add no
+            // latency, so every route gets the direct-track delay.
+            delay_buffer(&mut track_buffer, max_bus_latency);
+            lanes.push(track_buffer);
+            continue;
+        }
+        // The fader and pan come after the inserts, as on a console.
+        apply_fader(song, track, &mut track_buffer, sample_rate);
         if let Some(index) = track
             .send
             .and_then(|id| song.buses.iter().position(|bus| bus.id == id))
@@ -629,12 +643,38 @@ pub fn render_with_soundfont(
         }
     }
     apply_plugins(&song.master_plugins, &mut samples, sample_rate);
-    for sample in &mut samples {
-        *sample = crate::spsc::sanitize(*sample);
+    if live.contains(&true) {
+        // The fixed part is summed with the live tracks later, so only
+        // clean it here; clamping it alone would clip a different mix.
+        for sample in samples.iter_mut().chain(lanes.iter_mut().flatten()) {
+            if !sample.is_finite() {
+                *sample = 0.0;
+            }
+        }
+    } else {
+        for sample in &mut samples {
+            *sample = crate::spsc::sanitize(*sample);
+        }
     }
-    RenderedAudio {
-        samples,
-        sample_rate,
+    (
+        RenderedAudio {
+            samples,
+            sample_rate,
+        },
+        lanes,
+    )
+}
+
+/// Applies a track's fader and pan, following automation, to its buffer.
+fn apply_fader(song: &Song, track: &project::song::Track, buffer: &mut [f32], sample_rate: u32) {
+    let mut gains = track_gains(track);
+    for (frame, pair) in buffer.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+        if frame.is_multiple_of(64) {
+            let tick = song.tempo_map.tick_at_samples(frame as i64, sample_rate);
+            gains = gains_at(track, tick);
+        }
+        pair[0] *= gains.0;
+        pair[1] *= gains.1;
     }
 }
 
@@ -746,7 +786,6 @@ fn render_instrument(
         }
     }
     events.sort_by_key(|event| (event.frame, event.on));
-    let (left_gain, right_gain) = track_gains(track);
     let mut position = 0;
     let mut next = 0;
     while position < frames {
@@ -767,8 +806,8 @@ fn render_instrument(
             return;
         }
         for index in 0..block {
-            buffer[(position + index) * 2] += left[index] * left_gain;
-            buffer[(position + index) * 2 + 1] += right[index] * right_gain;
+            buffer[(position + index) * 2] += left[index];
+            buffer[(position + index) * 2 + 1] += right[index];
         }
         position += block;
     }

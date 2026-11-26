@@ -718,7 +718,8 @@ pub fn available_printers() -> Vec<String> {
 }
 
 struct RenderedSong {
-    audio: audio::RenderedAudio,
+    /// Mixed live, so faders are heard without a new render.
+    audio: audio::live::LiveRender,
     stems: Vec<(TrackId, Vec<f32>)>,
     problems: Vec<audio::mix::AudioProblem>,
 }
@@ -4846,12 +4847,12 @@ impl ShellApp {
         std::thread::spawn(move || {
             let rate =
                 audio::player::preferred_sample_rate(output_name.as_deref(), audio::SAMPLE_RATE);
-            let mut audio = audio::render(&song, rate);
+            let mut audio = audio::live::render(&song, rate);
             let problems = audio::mix::check_audio_references(&song);
             if metronome {
-                audio::metronome::mix_accent(&mut audio, &song, 1.0, accent);
+                audio::metronome::mix_accent(&mut audio.fixed, &song, 1.0, accent);
             }
-            audio::master::apply(&mut audio, master);
+            audio.apply_master(master);
             let stems = if stems_wanted {
                 audio::render_stems(&song, rate)
                     .into_iter()
@@ -4916,8 +4917,8 @@ impl ShellApp {
                 if let Some(problem) = rendered.problems.first() {
                     self.status = Some(format!("audio {}: {}", problem.path, problem.reason));
                 }
-                let stem_rate = rendered.audio.sample_rate;
-                match audio::player::Player::new_on(
+                let stem_rate = rendered.audio.sample_rate();
+                match audio::player::Player::new_live_on(
                     rendered.audio,
                     self.settings.audio_output.as_deref(),
                     (self.settings.audio_buffer_frames > 0)

@@ -175,7 +175,7 @@ impl ShellApp {
             match receiver.try_recv() {
                 Ok(Ok(rendered)) => {
                     next.receiver = None;
-                    match audio::player::Player::new_on(
+                    match audio::player::Player::new_live_on(
                         rendered.audio,
                         self.settings.audio_output.as_deref(),
                         (self.settings.audio_buffer_frames > 0)

@@ -4,11 +4,12 @@
 //! atomic transport fields, so it does no synthesis, locking, or allocation.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::RenderedAudio;
+use crate::live::LiveRender;
 use crate::master::{Meter, meter_at};
 
 /// A sample position and the play flag, packed with an edit counter in one
@@ -99,6 +100,74 @@ fn unpack_loop(raw: u64) -> (usize, usize) {
     )
 }
 
+/// A gain the control side sets and the callback ramps to, as `f32` bits.
+#[derive(Debug)]
+struct LiveGain {
+    target: AtomicU32,
+    current: AtomicU32,
+}
+
+impl LiveGain {
+    fn new(value: f32) -> Self {
+        Self {
+            target: AtomicU32::new(value.to_bits()),
+            current: AtomicU32::new(value.to_bits()),
+        }
+    }
+
+    fn set(&self, value: f32) {
+        let value = if value.is_finite() { value } else { 0.0 };
+        self.target.store(value.to_bits(), Ordering::Release);
+    }
+
+    fn target(&self) -> f32 {
+        f32::from_bits(self.target.load(Ordering::Acquire))
+    }
+
+    /// Start and end of this callback's ramp; the end becomes the next start.
+    fn ramp(&self) -> (f32, f32) {
+        let target = self.target();
+        let current = f32::from_bits(self.current.swap(target.to_bits(), Ordering::AcqRel));
+        (current, target)
+    }
+}
+
+/// A live track buffer with its left and right gains.
+#[derive(Debug)]
+struct Lane {
+    samples: Vec<f32>,
+    track: project::TrackId,
+    left: LiveGain,
+    right: LiveGain,
+}
+
+/// Gains that one callback ramps across its output.
+struct Ramp {
+    start: f32,
+    step: f32,
+}
+
+impl Ramp {
+    fn new((start, end): (f32, f32), frames: usize) -> Self {
+        Self {
+            start,
+            step: (end - start) / frames.max(1) as f32,
+        }
+    }
+
+    fn at(&self, frame: usize) -> f32 {
+        self.start + self.step * frame as f32
+    }
+}
+
+/// Live mixing stages: lanes summed with gains, then the master.
+#[derive(Debug)]
+struct Live {
+    lanes: Vec<Lane>,
+    master_gain: LiveGain,
+    limiter: bool,
+}
+
 /// Playback position and buffer, shared lock-free with the audio callback.
 #[derive(Debug)]
 pub struct Playback {
@@ -108,22 +177,27 @@ pub struct Playback {
     looping: AtomicBool,
     loop_bounds: AtomicU64,
     loop_wraps: AtomicU64,
+    live: Option<Live>,
+}
+
+/// Whole stereo frames only, so left and right never swap, and clean
+/// samples, so the callback can copy them straight to the device.
+fn clean(mut samples: Vec<f32>, len: usize) -> Vec<f32> {
+    samples.resize(len, 0.0);
+    for sample in &mut samples {
+        if !sample.is_finite() {
+            *sample = 0.0;
+        }
+    }
+    samples
 }
 
 impl Playback {
     /// Wraps rendered samples.
     #[must_use]
     pub fn new(audio: RenderedAudio) -> Self {
-        let mut samples = audio.samples;
-        // Whole stereo frames only, so left and right never swap, and clean
-        // samples, so the callback can copy them straight to the device.
-        samples.truncate(samples.len() & !1);
-        for sample in &mut samples {
-            if !sample.is_finite() {
-                *sample = 0.0;
-            }
-        }
-        let len = samples.len();
+        let len = audio.samples.len() & !1;
+        let samples = clean(audio.samples, len);
         Self {
             samples,
             sample_rate: audio.sample_rate,
@@ -131,6 +205,85 @@ impl Playback {
             looping: AtomicBool::new(false),
             loop_bounds: AtomicU64::new(pack_loop(0, len)),
             loop_wraps: AtomicU64::new(0),
+            live: None,
+        }
+    }
+
+    /// Wraps a live render; its lane gains and master gain can change while
+    /// it plays.
+    #[must_use]
+    pub fn new_live(render: LiveRender) -> Self {
+        let mut playback = Self::new(render.fixed);
+        let len = playback.samples.len();
+        let lanes = render
+            .lanes
+            .into_iter()
+            .zip(render.tracks)
+            .zip(render.gains)
+            .map(|((samples, track), (left, right))| Lane {
+                samples: clean(samples, len),
+                track,
+                left: LiveGain::new(left),
+                right: LiveGain::new(right),
+            })
+            .collect();
+        playback.live = Some(Live {
+            lanes,
+            master_gain: LiveGain::new(render.master_gain),
+            limiter: render.limiter,
+        });
+        playback
+    }
+
+    /// Sets the gains of live tracks from the song's mixer, and the master
+    /// gain. Heard from the next audio buffer, with a short ramp.
+    pub fn apply_mix(&self, song: &project::song::Song, master_gain_db: f32) {
+        let Some(live) = &self.live else {
+            return;
+        };
+        for lane in &live.lanes {
+            let (left, right) = song
+                .tracks
+                .iter()
+                .find(|track| track.id == lane.track)
+                .map_or((0.0, 0.0), |track| crate::live::lane_gains(song, track));
+            lane.left.set(left);
+            lane.right.set(right);
+        }
+        live.master_gain.set(crate::master::gain(master_gain_db));
+    }
+
+    /// Adds the live lanes and runs the master over `output`, which holds
+    /// fixed samples copied from `pos`. `offset` is the output's first frame
+    /// in this callback, for the gain ramps.
+    fn mix_live(
+        live: &Live,
+        ramps: &[(Ramp, Ramp)],
+        master: &Ramp,
+        output: &mut [f32],
+        pos: usize,
+        offset: usize,
+    ) {
+        for (lane, (left, right)) in live.lanes.iter().zip(ramps) {
+            let Some(source) = lane.samples.get(pos..pos + output.len()) else {
+                continue;
+            };
+            for (frame, (target, pair)) in output
+                .as_chunks_mut::<2>()
+                .0
+                .iter_mut()
+                .zip(source.as_chunks::<2>().0)
+                .enumerate()
+            {
+                let at = offset + frame;
+                target[0] += pair[0] * left.at(at);
+                target[1] += pair[1] * right.at(at);
+            }
+        }
+        for (frame, pair) in output.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+            let gain = master.at(offset + frame);
+            pair[0] = crate::master::finish(pair[0] * gain, live.limiter);
+            pair[1] = crate::master::finish(pair[1] * gain, live.limiter);
         }
     }
 
@@ -226,7 +379,36 @@ impl Playback {
     /// Peak/RMS over the next `frames` stereo frames, for a meter.
     #[must_use]
     pub fn meter(&self, frames: usize) -> Meter {
-        meter_at(&self.samples, self.position.load(), frames)
+        let pos = self.position.load();
+        let Some(live) = &self.live else {
+            return meter_at(&self.samples, pos, frames);
+        };
+        let end = pos
+            .saturating_add(frames.saturating_mul(2))
+            .min(self.samples.len());
+        let Some(window) = self.samples.get(pos..end) else {
+            return Meter::default();
+        };
+        let mut window = window.to_vec();
+        let ramps: Vec<(Ramp, Ramp)> = live
+            .lanes
+            .iter()
+            .map(|lane| {
+                let left = lane.left.target();
+                let right = lane.right.target();
+                (Ramp::new((left, left), 1), Ramp::new((right, right), 1))
+            })
+            .collect();
+        let gain = live.master_gain.target();
+        Self::mix_live(
+            live,
+            &ramps,
+            &Ramp::new((gain, gain), 1),
+            &mut window,
+            pos,
+            0,
+        );
+        meter_at(&window, 0, frames)
     }
 
     /// True while samples are being produced.
@@ -281,6 +463,27 @@ impl Playback {
             return;
         }
 
+        // Ramp the live gains once across the whole output. The ramps are
+        // built in a fixed-size array so the callback does not allocate.
+        let frames = output.len() / 2;
+        let live = self.live.as_ref();
+        let mut ramps: [(Ramp, Ramp); crate::live::MAX_LANES] =
+            std::array::from_fn(|_| (Ramp::new((0.0, 0.0), 1), Ramp::new((0.0, 0.0), 1)));
+        let mut lane_count = 0;
+        let master = live.map_or_else(
+            || Ramp::new((1.0, 1.0), 1),
+            |live| Ramp::new(live.master_gain.ramp(), frames),
+        );
+        if let Some(live) = live {
+            for (slot, lane) in ramps.iter_mut().zip(&live.lanes) {
+                *slot = (
+                    Ramp::new(lane.left.ramp(), frames),
+                    Ramp::new(lane.right.ramp(), frames),
+                );
+                lane_count += 1;
+            }
+        }
+
         while written < output.len() {
             if pos >= end {
                 if looping {
@@ -295,7 +498,18 @@ impl Playback {
             let available = end - pos;
             let needed = output.len() - written;
             let chunk = available.min(needed);
-            output[written..written + chunk].copy_from_slice(&self.samples[pos..pos + chunk]);
+            let target = &mut output[written..written + chunk];
+            target.copy_from_slice(&self.samples[pos..pos + chunk]);
+            if let Some(live) = live {
+                Self::mix_live(
+                    live,
+                    &ramps[..lane_count],
+                    &master,
+                    target,
+                    pos,
+                    written / 2,
+                );
+            }
             pos += chunk;
             written += chunk;
         }
@@ -350,6 +564,23 @@ fn stereo_config(
         }
     }
     best.ok_or_else(|| String::from("the output device has no stereo F32/I16 configuration"))
+}
+
+/// Resamples every part of a live render.
+fn resample_live(mut render: LiveRender, target_rate: u32) -> LiveRender {
+    let source_rate = render.fixed.sample_rate;
+    render.fixed = resample_stereo(std::mem::take(&mut render.fixed), target_rate);
+    for lane in &mut render.lanes {
+        *lane = resample_stereo(
+            RenderedAudio {
+                samples: std::mem::take(lane),
+                sample_rate: source_rate,
+            },
+            target_rate,
+        )
+        .samples;
+    }
+    render
 }
 
 /// Resamples interleaved stereo audio with linear interpolation.
@@ -477,16 +708,35 @@ impl Player {
         name: Option<&str>,
         buffer_frames: Option<u32>,
     ) -> Result<Self, String> {
+        Self::new_live_on(LiveRender::from_audio(audio), name, buffer_frames)
+    }
+
+    /// Opens a named output device for a live render, whose track gains and
+    /// master gain follow [`Player::apply_mix`] while it plays.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the device is missing or has no configuration.
+    pub fn new_live_on(
+        render: LiveRender,
+        name: Option<&str>,
+        buffer_frames: Option<u32>,
+    ) -> Result<Self, String> {
         let device = find_output_device(name)?;
-        let config = stereo_config(&device, audio.sample_rate)?;
+        let config = stereo_config(&device, render.sample_rate())?;
         let sample_format = config.sample_format();
         let mut stream_config: cpal::StreamConfig = config.into();
         if let Some(frames) = buffer_frames {
             stream_config.buffer_size = cpal::BufferSize::Fixed(frames.max(32));
         }
         let sample_rate = stream_config.sample_rate.0;
-        let audio = resample_stereo(audio, sample_rate);
-        let playback = Arc::new(Playback::new(audio));
+        let plain =
+            render.lanes.is_empty() && !render.limiter && (render.master_gain - 1.0).abs() < 1e-6;
+        let playback = Arc::new(if plain {
+            Playback::new(resample_stereo(render.fixed, sample_rate))
+        } else {
+            Playback::new_live(resample_live(render, sample_rate))
+        });
         let shared = Arc::clone(&playback);
         // Report the first stream error only, so a failing device cannot
         // flood stderr from the audio thread.
@@ -609,6 +859,11 @@ impl Player {
     #[must_use]
     pub fn is_playing(&self) -> bool {
         self.playback.is_playing()
+    }
+
+    /// Sets live track gains from the song's mixer and the master gain.
+    pub fn apply_mix(&self, song: &project::song::Song, master_gain_db: f32) {
+        self.playback.apply_mix(song, master_gain_db);
     }
 
     /// Master peak/RMS over a short window at the current position.
@@ -853,5 +1108,66 @@ mod tests {
         let mut output = [1.0_f32; 2];
         state.fill(&mut output);
         assert_eq!(output, [0.0, 0.0]);
+    }
+
+    fn live_song(volume: u8) -> project::song::Song {
+        let mut song = project::song::Song::default();
+        let mut track = project::song::Track::new(project::TrackId::new(1).expect("track"), "Keys");
+        track.volume = volume;
+        song.tracks.push(track);
+        song
+    }
+
+    fn live_playback() -> Playback {
+        let song = live_song(100);
+        Playback::new_live(LiveRender {
+            fixed: RenderedAudio {
+                samples: vec![0.0; 2048],
+                sample_rate: 48_000,
+            },
+            lanes: vec![vec![0.5; 2048]],
+            tracks: vec![song.tracks[0].id],
+            gains: vec![(1.0, 1.0)],
+            master_gain: 1.0,
+            limiter: false,
+        })
+    }
+
+    #[test]
+    fn a_fader_change_is_heard_in_the_next_buffer() {
+        let playback = live_playback();
+        playback.play();
+        let mut output = [0.0_f32; 64];
+        playback.fill(&mut output);
+        assert!(output.iter().all(|sample| (sample - 0.5).abs() < 1e-6));
+
+        playback.apply_mix(&live_song(50), 0.0);
+        playback.fill(&mut output);
+        // One buffer ramps from the old gain to the new one, without a click.
+        assert!((output[0] - 0.5).abs() < 1e-6);
+        assert!((output[62] - 0.25).abs() < 0.01);
+        assert!(output.windows(4).all(|pair| pair[2] <= pair[0] + 1e-6));
+        playback.fill(&mut output);
+        assert!(output.iter().all(|sample| (sample - 0.25).abs() < 1e-6));
+    }
+
+    #[test]
+    fn mute_and_master_gain_apply_live() {
+        let playback = live_playback();
+        playback.play();
+        let mut song = live_song(100);
+        song.tracks[0].muted = true;
+        playback.apply_mix(&song, 0.0);
+        let mut output = [0.0_f32; 64];
+        playback.fill(&mut output);
+        playback.fill(&mut output);
+        assert!(output.iter().all(|sample| sample.abs() < 1e-6));
+
+        playback.apply_mix(&live_song(100), -6.0);
+        playback.fill(&mut output);
+        playback.fill(&mut output);
+        let expected = 0.5 * crate::master::gain(-6.0);
+        assert!(output.iter().all(|sample| (sample - expected).abs() < 1e-5));
+        assert!((playback.meter(16).peak - expected).abs() < 1e-5);
     }
 }
