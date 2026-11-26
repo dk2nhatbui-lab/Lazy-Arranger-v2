@@ -5,6 +5,21 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
+## [0.1.0-beta.3] - 2026-11-26
+
+### Changed
+- Slow jobs no longer freeze the window: exporting WAV and stems, importing
+  audio, freezing a track, printing, exporting the score PDF, transcribing
+  audio and loading takes run in the background. The status bar shows what
+  is running and for how long. Auditions of takes and proposals now play.
+
+### Fixed
+- Fixes from a second source code audit: plug-ins unload safely, no stuck
+  notes after editing during playback, steadier audio and MIDI timing, the
+  full score no longer hangs and draws slurs and beams correctly, non-ASCII
+  score PDF titles, flat keys named with flats, and tighter checks on files
+  that the AI tools write.
+
 ## [0.1.0-beta.2] - 2026-11-26
 
 ### Changed
