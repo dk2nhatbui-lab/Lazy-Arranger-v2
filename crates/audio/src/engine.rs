@@ -23,7 +23,9 @@ use project::TrackId;
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::automation::Envelope;
+use crate::clips::ClipLane;
 use crate::inserts::{ChainId, Inserts};
+use crate::instruments::{InstrumentLane, InstrumentNotes};
 use crate::live::LiveRender;
 use crate::master::{self, Meter};
 use crate::synth::SynthLane;
@@ -447,6 +449,10 @@ enum Source {
     Buffer(Vec<f32>),
     /// Notes played in the callback.
     Synth(Box<SynthLane>),
+    /// Audio clips read from decoded files in the callback.
+    Clips(Box<ClipLane>),
+    /// A plug-in instrument played in the callback.
+    Instrument(Box<InstrumentLane>),
 }
 
 /// One live track and its gains.
@@ -581,6 +587,10 @@ impl Graph {
         let fixed = clean(render.fixed.samples, len);
         let mut synths = render.synths;
         synths.resize_with(render.lanes.len(), || None);
+        let mut clips = render.clips;
+        clips.resize_with(render.lanes.len(), || None);
+        let mut instruments = render.instruments;
+        instruments.resize_with(render.lanes.len(), || None);
         let mut inserts = render.inserts;
         inserts.resize_with(render.lanes.len(), || None);
         let mut feeds = render.feeds;
@@ -604,7 +614,7 @@ impl Graph {
         let lanes = render
             .lanes
             .into_iter()
-            .zip(synths)
+            .zip(synths.into_iter().zip(clips.into_iter().zip(instruments)))
             .zip(inserts)
             .zip(feeds)
             .zip(sends.into_iter().zip(envelopes))
@@ -617,8 +627,12 @@ impl Graph {
                 )| Lane {
                     track,
                     source: match synth {
-                        Some(synth) => Source::Synth(Box::new(synth)),
-                        None => Source::Buffer(clean(samples, len)),
+                        (Some(synth), _) => Source::Synth(Box::new(synth)),
+                        (None, (Some(clips), _)) => Source::Clips(Box::new(clips)),
+                        (None, (None, Some(instrument))) => {
+                            Source::Instrument(Box::new(instrument))
+                        }
+                        (None, (None, None)) => Source::Buffer(clean(samples, len)),
                     },
                     inserts: inserts.map(Box::new),
                     left: Gain::new(left),
@@ -792,7 +806,35 @@ impl Graph {
         match swap {
             Swap::Synth(synth) => Swap::Synth(self.swap_synth(track, synth)),
             Swap::Buffer(samples) => Swap::Buffer(self.swap_lane(track, samples)),
+            Swap::Clips(clips) => Swap::Clips(self.swap_clips(track, clips)),
+            Swap::Notes(notes) => Swap::Notes(self.swap_notes(track, notes)),
         }
+    }
+
+    /// Puts new notes in place of a live instrument's and returns the ones
+    /// it replaced, or the new ones when the track has no live instrument.
+    fn swap_notes(&mut self, track: TrackId, notes: Box<InstrumentNotes>) -> Box<InstrumentNotes> {
+        for lane in &mut self.lanes {
+            if lane.track == track
+                && let Source::Instrument(instrument) = &mut lane.source
+            {
+                return instrument.replace_notes(notes);
+            }
+        }
+        notes
+    }
+
+    /// Puts new clips in place of a track's clip lane and returns the ones
+    /// it replaced, or the new ones when the track does not stream clips.
+    fn swap_clips(&mut self, track: TrackId, clips: Box<ClipLane>) -> Box<ClipLane> {
+        for lane in &mut self.lanes {
+            if lane.track == track
+                && let Source::Clips(current) = &mut lane.source
+            {
+                return std::mem::replace(current, clips);
+            }
+        }
+        clips
     }
 
     /// Puts a new envelope in place of a track's current one and returns
@@ -812,6 +854,21 @@ impl Graph {
     /// Plays the whole graph from the start, as playback would, into a new
     /// buffer.
     pub(crate) fn render_all(mut self) -> Vec<f32> {
+        // Faster than real time: a slow plug-in only makes the export slower.
+        for lane in &mut self.lanes {
+            if let Source::Instrument(instrument) = &mut lane.source {
+                instrument.set_realtime(false);
+            }
+        }
+        for inserts in self
+            .lanes
+            .iter_mut()
+            .filter_map(|lane| lane.inserts.as_deref_mut())
+            .chain(self.buses.iter_mut().map(|bus| &mut *bus.inserts))
+            .chain(self.master_inserts.as_deref_mut())
+        {
+            inserts.set_realtime(false);
+        }
         let mut output = vec![0.0; self.len()];
         for (index, chunk) in output.chunks_mut(QUANTUM * 2).enumerate() {
             self.render(chunk, index * QUANTUM * 2);
@@ -913,6 +970,8 @@ impl Graph {
                             None => scratch.fill(0.0),
                         },
                         Source::Synth(synth) => synth.render(scratch, pos),
+                        Source::Clips(clips) => clips.render(scratch, pos),
+                        Source::Instrument(instrument) => instrument.render(scratch, pos),
                     }
                     if let Some(inserts) = inserts {
                         inserts.process(scratch);
@@ -1009,6 +1068,10 @@ pub enum Swap {
     Synth(Box<SynthLane>),
     /// A new lane buffer for a rendered track.
     Buffer(Vec<f32>),
+    /// New clips for a track that streams its audio.
+    Clips(Box<ClipLane>),
+    /// New notes for a track that plays a plug-in instrument live.
+    Notes(Box<InstrumentNotes>),
 }
 
 /// A swap waiting for its sample position.

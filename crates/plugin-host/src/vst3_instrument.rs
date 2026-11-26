@@ -36,6 +36,23 @@ struct EventList {
     events: Mutex<Vec<Event>>,
 }
 
+/// Events one real-time block can carry; later ones in the block are
+/// dropped rather than allocating.
+const MAX_EVENTS: usize = 1024;
+
+/// A note for the real-time path, at a frame offset inside the block.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NoteEvent {
+    /// Frames into the block.
+    pub offset: u32,
+    /// Note-on, or note-off.
+    pub on: bool,
+    /// MIDI key.
+    pub key: u8,
+    /// MIDI velocity, 1..=127 for a note-on.
+    pub velocity: u8,
+}
+
 impl Class for EventList {
     type Interfaces = (IEventList,);
 }
@@ -81,6 +98,9 @@ pub struct Vst3Instrument {
     sample_time: f64,
     sample_rate: f64,
     pending: Vec<PendingEvent>,
+    /// The event list the real-time path reuses, its capacity reserved.
+    rt_events: ComWrapper<EventList>,
+    rt_list: ComPtr<IEventList>,
     /// True once `setActive(1)` succeeded, so drop only undoes what was done.
     active: bool,
     /// True once `setProcessing(1)` succeeded.
@@ -152,6 +172,12 @@ impl Vst3Instrument {
         // or an early return would release it after the module unloads.
         drop(factory);
         let max_block = clamp_max_block(max_block);
+        let rt_events = ComWrapper::new(EventList {
+            events: Mutex::new(Vec::with_capacity(MAX_EVENTS)),
+        });
+        let rt_list = rt_events
+            .to_com_ptr::<IEventList>()
+            .ok_or_else(|| String::from("event list"))?;
         // From here on an early return drops `instrument`, whose Drop
         // deactivates and terminates the component.
         let mut instrument = Self {
@@ -161,6 +187,8 @@ impl Vst3Instrument {
             sample_time: 0.0,
             sample_rate,
             pending: Vec::new(),
+            rt_events,
+            rt_list,
             active: false,
             processing: false,
             _host: host,
@@ -328,6 +356,78 @@ impl Vst3Instrument {
         }
         self.sample_time += frames as f64;
         Ok(())
+    }
+
+    /// Renders one block for the audio callback without allocating:
+    /// `events` are the notes inside it, in time order, and the block is at
+    /// most [`Vst3Instrument::max_block`] frames. Returns false when the
+    /// plug-in rejects the block or it is too long.
+    pub(crate) fn process_planar(
+        &mut self,
+        left: &mut [f32],
+        right: &mut [f32],
+        events: &[NoteEvent],
+    ) -> bool {
+        let frames = left.len().min(right.len());
+        if frames == 0 || frames > self.max_block {
+            return false;
+        }
+        {
+            let Ok(mut list) = self.rt_events.events.lock() else {
+                return false;
+            };
+            list.clear();
+            let last = frames - 1;
+            for event in events.iter().take(MAX_EVENTS) {
+                let offset = usize::try_from(event.offset).unwrap_or(last).min(last);
+                list.push(vst3_event(
+                    &PendingEvent {
+                        offset: 0,
+                        on: event.on,
+                        key: event.key,
+                        velocity: event.velocity,
+                    },
+                    offset as i32,
+                ));
+            }
+        }
+        let mut output_channels = [left.as_mut_ptr(), right.as_mut_ptr()];
+        let mut outputs = [AudioBusBuffers {
+            numChannels: 2,
+            silenceFlags: 0,
+            __field0: AudioBusBuffers__type0 {
+                channelBuffers32: output_channels.as_mut_ptr(),
+            },
+        }];
+        let mut context: ProcessContext = unsafe { std::mem::zeroed() };
+        context.state = 2;
+        context.sampleRate = self.sample_rate;
+        context.projectTimeSamples = self.sample_time as i64;
+        context.tempo = 120.0;
+        context.timeSigNumerator = 4;
+        context.timeSigDenominator = 4;
+        let mut data = ProcessData {
+            processMode: 0,
+            symbolicSampleSize: SymbolicSampleSizes_::kSample32 as i32,
+            numSamples: frames as i32,
+            numInputs: 0,
+            numOutputs: 1,
+            inputs: std::ptr::null_mut(),
+            outputs: outputs.as_mut_ptr(),
+            inputParameterChanges: std::ptr::null_mut(),
+            outputParameterChanges: std::ptr::null_mut(),
+            inputEvents: self.rt_list.as_ptr(),
+            outputEvents: std::ptr::null_mut(),
+            processContext: &mut context,
+        };
+        let done = (unsafe { self.processor.process(&mut data) }) == kResultOk;
+        self.sample_time += frames as f64;
+        done
+    }
+
+    /// Largest block [`Vst3Instrument::process_planar`] takes, in frames.
+    pub(crate) fn max_block(&self) -> usize {
+        self.max_block
     }
 
     /// Restores component state from base64.

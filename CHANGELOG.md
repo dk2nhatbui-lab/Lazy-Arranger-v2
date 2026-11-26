@@ -5,6 +5,17 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+- A plug-in that can't keep up while the song plays is turned off for the
+  session, and its track plays dry, instead of making the sound stutter.
+  A plug-in that stops responding no longer freezes playback: after two
+  seconds the app restarts playback without it and says which plug-in it
+  was.
+- Audio clips and VST3 instruments play live while the song plays. A clip
+  move, trim or fade and a note edit on a plug-in instrument are heard at
+  once, with nothing rendered first. Audio Unit instruments are still
+  rendered before play.
+
 ## [0.1.0-beta.5] - 2026-11-26
 
 ### Fixed

@@ -23,6 +23,12 @@
 //! rendered at all: its lane carries a [`SynthLane`] that plays the notes in
 //! the audio callback, and a note edit swaps in a new lane.
 //!
+//! A live track with recorded audio only streams its clips in the callback
+//! from decoded files ([`ClipLane`]), and a track whose first plug-in is a
+//! VST3 instrument plays it in the callback ([`InstrumentLane`]). Neither
+//! is rendered: a clip move or a note edit swaps in a new lane or note
+//! list.
+//!
 //! A live track's insert plug-ins run in the callback as well, from an
 //! [`Inserts`] chain built with the render; its lane buffer is then the
 //! sound before the inserts. A plug-in edit swaps in a new chain.
@@ -35,7 +41,9 @@ use project::TrackId;
 use project::song::{Bus, PluginSlot, Song, Track};
 
 use crate::automation::Envelope;
+use crate::clips::ClipLane;
 use crate::inserts::Inserts;
+use crate::instruments::InstrumentLane;
 use crate::master::{self, Master};
 use crate::synth::SynthLane;
 use crate::{RenderedAudio, gains, soundfont};
@@ -50,6 +58,14 @@ pub struct LiveRender {
     pub lanes: Vec<Vec<f32>>,
     /// The synth lane of each live track that has one, in lane order.
     pub synths: Vec<Option<SynthLane>>,
+    /// The clip lane of each live track that streams its audio, in lane
+    /// order.
+    pub clips: Vec<Option<ClipLane>>,
+    /// Decoded audio files the clip lanes read, to build replacements.
+    pub sources: crate::clips::Sources,
+    /// The plug-in instrument of each live track that plays one in the
+    /// callback, in lane order.
+    pub instruments: Vec<Option<InstrumentLane>>,
     /// Frames a synth lane is delayed by; needed to build a replacement.
     pub synth_delay: usize,
     /// SoundFonts the synth lanes play, by path, to build replacements.
@@ -99,6 +115,9 @@ impl LiveRender {
             fixed: audio,
             lanes: Vec::new(),
             synths: Vec::new(),
+            clips: Vec::new(),
+            sources: crate::clips::Sources::new(),
+            instruments: Vec::new(),
             synth_delay: 0,
             fonts: Vec::new(),
             inserts: Vec::new(),
@@ -134,12 +153,22 @@ impl LiveRender {
         self.reverb = settings.reverb.clamp(0.0, 1.0);
     }
 
-    /// Renders every synth lane into its lane buffer.
+    /// Renders every synth and clip lane into its lane buffer.
     pub fn bake_synths(&mut self) {
         let len = self.fixed.samples.len();
         for (lane, synth) in self.lanes.iter_mut().zip(&mut self.synths) {
             if let Some(synth) = synth.take() {
                 *lane = synth.render_all(len);
+            }
+        }
+        for (lane, clips) in self.lanes.iter_mut().zip(&mut self.clips) {
+            if let Some(clips) = clips.take() {
+                *lane = clips.render_all(len);
+            }
+        }
+        for (lane, instrument) in self.lanes.iter_mut().zip(&mut self.instruments) {
+            if let Some(instrument) = instrument.take() {
+                *lane = instrument.render_all(len);
             }
         }
     }
@@ -379,6 +408,13 @@ pub fn hash_fixed(song: &Song, hasher: &mut impl Hasher) {
         track.send.hash(hasher);
         let live_inserts = *live && crate::inserts::can_run_live(track);
         live_inserts.hash(hasher);
+        // A lane that changes kind (notes, clips, rendered) needs a new
+        // graph.
+        if *live {
+            crate::synth::can_play(track).hash(hasher);
+            crate::clips::can_stream(track).hash(hasher);
+            crate::instruments::candidate(track).hash(hasher);
+        }
         // Automation edits swap in a new envelope on their own.
         crate::automation::automated(track).hash(hasher);
         // Live insert chains are swapped in on their own.
@@ -411,6 +447,13 @@ pub fn hash_fixed(song: &Song, hasher: &mut impl Hasher) {
     // The master plug-ins always run live.
 }
 
+/// True when a live track plays in the callback without a rendered lane:
+/// notes on a synth lane, or recorded audio on a clip lane.
+#[must_use]
+pub fn streams(track: &Track) -> bool {
+    crate::synth::can_play(track) || crate::clips::can_stream(track)
+}
+
 /// Renders a song for live mixing, before the master stage.
 #[must_use]
 pub fn render(song: &Song, sample_rate: u32) -> LiveRender {
@@ -429,7 +472,26 @@ pub fn render_with_soundfont(
     load: &mut dyn FnMut(&str) -> Option<soundfont::SoundFont>,
 ) -> LiveRender {
     let live = live_tracks(song);
-    let skip: Vec<bool> = song.tracks.iter().map(crate::synth::can_play).collect();
+    // Open live plug-in instruments first: a track whose instrument opens
+    // is not rendered.
+    let mut instruments: Vec<Option<(InstrumentLane, usize)>> = song
+        .tracks
+        .iter()
+        .zip(&live)
+        .map(|(track, live)| {
+            if *live {
+                InstrumentLane::build(song, track, sample_rate)
+            } else {
+                None
+            }
+        })
+        .collect();
+    let skip: Vec<bool> = song
+        .tracks
+        .iter()
+        .zip(&instruments)
+        .map(|(track, instrument)| streams(track) || instrument.is_some())
+        .collect();
     let dry: Vec<bool> = song
         .tracks
         .iter()
@@ -455,6 +517,12 @@ pub fn render_with_soundfont(
         .filter(|(_, live)| **live)
         .map(|(track, _)| track)
         .collect();
+    let mut lane_instruments: Vec<Option<(InstrumentLane, usize)>> = instruments
+        .iter_mut()
+        .zip(&live)
+        .filter(|(_, live)| **live)
+        .map(|(instrument, _)| instrument.take())
+        .collect();
     let frames = parts.fixed.samples.len() / 2;
     let routes: Vec<LaneGains> = live_tracks
         .iter()
@@ -475,20 +543,62 @@ pub fn render_with_soundfont(
             })
         })
         .collect();
+    // An instrument's insert effects are the slots after it.
+    let inserts: Vec<Option<Inserts>> = live_tracks
+        .iter()
+        .zip(&parts.dry)
+        .zip(&lane_instruments)
+        .map(|((track, dry), instrument)| match instrument {
+            Some((_, index)) => Some(Inserts::from_slots(
+                &track.plugins[index + 1..],
+                sample_rate,
+            )),
+            None => dry.then(|| Inserts::build(track, sample_rate)),
+        })
+        .collect();
+    let instruments: Vec<Option<InstrumentLane>> = lane_instruments
+        .iter_mut()
+        .zip(&inserts)
+        .map(|(instrument, chain)| {
+            let (mut lane, _) = instrument.take()?;
+            let latency = chain.as_ref().map_or(0, Inserts::latency);
+            lane.set_delay(parts.delay.saturating_sub(latency));
+            Some(lane)
+        })
+        .collect();
+    let mut sources = crate::clips::Sources::new();
+    let clips = live_tracks
+        .iter()
+        .zip(&inserts)
+        .map(|(track, chain)| {
+            if crate::synth::can_play(track) || !crate::clips::can_stream(track) {
+                return None;
+            }
+            // The live inserts add their own latency after the lane.
+            let latency = chain.as_ref().map_or(0, Inserts::latency);
+            ClipLane::build(
+                song,
+                track,
+                sample_rate,
+                parts.delay.saturating_sub(latency),
+                &mut sources,
+                true,
+            )
+        })
+        .collect();
     LiveRender {
         fixed: parts.fixed,
         lanes: parts.lanes,
         synths,
+        clips,
+        sources,
+        instruments,
         synth_delay: parts.delay,
         fonts: fonts
             .into_iter()
             .filter_map(|(path, font)| font.map(|font| (path, font)))
             .collect(),
-        inserts: live_tracks
-            .iter()
-            .zip(&parts.dry)
-            .map(|(track, dry)| dry.then(|| Inserts::build(track, sample_rate)))
-            .collect(),
+        inserts,
         tracks: live_tracks.iter().map(|track| track.id).collect(),
         gains: routes.iter().map(|routes| routes.direct).collect(),
         sends: routes.iter().map(|routes| routes.send).collect(),
@@ -581,7 +691,7 @@ pub struct LaneRender {
 pub fn render_lane(song: &Song, sample_rate: u32, track: TrackId) -> Option<LaneRender> {
     let live = live_tracks(song);
     let index = song.tracks.iter().position(|entry| entry.id == track)?;
-    if !live[index] || crate::synth::can_play(&song.tracks[index]) {
+    if !live[index] || streams(&song.tracks[index]) {
         return None;
     }
     // Every other track is skipped, as if a synth lane played it.

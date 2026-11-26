@@ -7,11 +7,13 @@
 pub mod analysis;
 pub mod automation;
 pub mod chords;
+pub mod clips;
 pub mod decode;
 pub mod drums;
 pub mod edit;
 pub mod engine;
 pub mod inserts;
+pub mod instruments;
 pub mod l6max;
 pub mod link;
 pub mod live;
@@ -24,6 +26,7 @@ pub mod record;
 pub mod soundfont;
 pub mod spsc;
 pub mod synth;
+pub mod watchdog;
 pub mod wav;
 pub mod waveform;
 
@@ -219,7 +222,7 @@ pub(crate) fn render_offline(song: &Song, sample_rate: u32) -> RenderedAudio {
 }
 
 /// Decodes one audio reference; WAV keeps stereo, other formats are mono.
-fn load_reference_audio(reference: &project::song::AudioRef) -> Option<RenderedAudio> {
+pub(crate) fn load_reference_audio(reference: &project::song::AudioRef) -> Option<RenderedAudio> {
     let path = std::path::Path::new(&reference.path);
     let bytes = std::fs::read(path).ok()?;
     if bytes.starts_with(b"RIFF") {
@@ -230,7 +233,7 @@ fn load_reference_audio(reference: &project::song::AudioRef) -> Option<RenderedA
 }
 
 /// Mixes one audio reference into a track buffer with offset, stretch and fades.
-fn stretch_interleaved(input: &[f32], target_frames: usize) -> Vec<f32> {
+pub(crate) fn stretch_interleaved(input: &[f32], target_frames: usize) -> Vec<f32> {
     const FRAME: usize = 1_024;
     const HOP: usize = 512;
     const SEARCH: usize = 128;
@@ -313,90 +316,10 @@ fn mix_audio_reference(
     reference: &project::song::AudioRef,
     sample_rate: u32,
 ) {
-    let Some(source) = load_reference_audio(reference) else {
-        return;
-    };
-    if source.samples.is_empty() || reference.length == 0 {
-        return;
-    }
-    let rate = f64::from(sample_rate.max(1));
-    let start_seconds = song.tempo_map.duration_seconds(0, reference.start);
-    let end_seconds = song
-        .tempo_map
-        .duration_seconds(0, reference.start.saturating_add(reference.length));
-    let offset_seconds = song.tempo_map.duration_seconds(0, reference.offset);
-    let target_start = (start_seconds * rate).round() as usize;
-    let target_frames = ((end_seconds - start_seconds).max(0.0) * rate).round() as usize;
-    if target_frames == 0 {
-        return;
-    }
-    let source_start = (offset_seconds * f64::from(source.sample_rate.max(1))).round() as usize;
-    let source_frames = source.frames().saturating_sub(source_start);
-    if source_frames == 0 {
-        return;
-    }
-    // Stretch at the output rate, or a different file rate would shift pitch.
-    let stretched = reference.stretch.then(|| {
-        let at_output_rate = player::resample_stereo(
-            RenderedAudio {
-                samples: source.samples[source_start * 2..].to_vec(),
-                sample_rate: source.sample_rate,
-            },
-            sample_rate,
-        );
-        stretch_interleaved(&at_output_rate.samples, target_frames)
-    });
-    let ratio = f64::from(source.sample_rate.max(1)) / rate;
-    let fade_in = if reference.fade_in > 0 {
-        song.tempo_map.duration_seconds(
-            reference.start,
-            reference.start.saturating_add(reference.fade_in),
-        ) * rate
-    } else {
-        0.0
-    };
-    let fade_out = if reference.fade_out > 0 {
-        let from = reference
-            .start
-            .saturating_add(reference.length.saturating_sub(reference.fade_out));
-        song.tempo_map
-            .duration_seconds(from, reference.start.saturating_add(reference.length))
-            * rate
-    } else {
-        0.0
-    };
-    let clip_gain = 10.0_f32.powf(f32::from(reference.gain_mb) / 20_000.0);
-    for frame in 0..target_frames {
-        let target = target_start + frame;
-        if target >= track_buffer.len() / usize::from(CHANNELS) {
-            break;
-        }
-        let source_position = source_start + (frame as f64 * ratio).round() as usize;
-        if stretched.is_none() && source_position >= source.frames() {
-            break;
-        }
-        let mut gain = 1.0_f64;
-        if fade_in > 0.0 {
-            gain = gain.min((frame as f64 / fade_in).min(1.0));
-        }
-        if fade_out > 0.0 {
-            gain = gain.min(((target_frames.saturating_sub(frame)) as f64 / fade_out).min(1.0));
-        }
-        let gain = gain as f32 * clip_gain;
-        let (sample_left, sample_right) = if let Some(stretched) = &stretched {
-            // An empty stretch (size overflow) just ends the clip.
-            match (stretched.get(frame * 2), stretched.get(frame * 2 + 1)) {
-                (Some(left), Some(right)) => (*left, *right),
-                _ => break,
-            }
-        } else {
-            (
-                source.samples[source_position * 2],
-                source.samples[source_position * 2 + 1],
-            )
-        };
-        track_buffer[target * 2] += sample_left * gain;
-        track_buffer[target * 2 + 1] += sample_right * gain;
+    if let Some(clip) = clips::Clip::prepare(song, reference, sample_rate, &mut |reference| {
+        load_reference_audio(reference).map(std::sync::Arc::new)
+    }) {
+        clip.mix(track_buffer, 0);
     }
 }
 
@@ -491,7 +414,8 @@ pub(crate) fn render_parts(
     {
         if is_skipped(track_index) {
             lanes.push(Vec::new());
-            dry_lanes.push(false);
+            // A streamed clip lane still runs its inserts live.
+            dry_lanes.push(wants_dry(track_index));
             continue;
         }
         let timbre = timbre_for(track);
@@ -499,64 +423,8 @@ pub(crate) fn render_parts(
             load(&reference.path).map(|font| (font, reference.bank, reference.program))
         });
         let mut track_buffer = vec![0.0_f32; frames * usize::from(CHANNELS)];
-        if track.comps.is_empty() {
-            if let Some(reference) = &track.audio {
-                mix_audio_reference(song, &mut track_buffer, reference, sample_rate);
-            }
-        } else {
-            let mut comps: Vec<&project::song::AudioComp> = track.comps.iter().collect();
-            comps.sort_by_key(|comp| comp.start);
-            if let Some(active) = &track.audio {
-                let active_end = active.start.saturating_add(active.length);
-                let mut cursor = active.start;
-                let mut gaps = Vec::new();
-                for comp in &comps {
-                    if comp.start > cursor {
-                        gaps.push((cursor, comp.start.min(active_end)));
-                    }
-                    cursor = cursor.max(comp.start.saturating_add(comp.length));
-                }
-                if cursor < active_end {
-                    gaps.push((cursor, active_end));
-                }
-                for (start, end) in gaps {
-                    if end <= start {
-                        continue;
-                    }
-                    let cross = chords::to_ticks(0.005, song.tempo_map.bpm_at(start))
-                        .max(active.fade_in.min(end.saturating_sub(start)))
-                        .max(active.fade_out.min(end.saturating_sub(start)))
-                        .max(1);
-                    let mut placed = active.clone();
-                    placed.offset = active
-                        .offset
-                        .saturating_add(start.saturating_sub(active.start));
-                    placed.start = start;
-                    placed.length = end.saturating_sub(start).saturating_add(cross);
-                    placed.fade_in = placed.fade_in.max(cross);
-                    placed.fade_out = placed.fade_out.max(cross);
-                    mix_audio_reference(song, &mut track_buffer, &placed, sample_rate);
-                }
-            }
-            for comp in &comps {
-                if let Some(take) = track.takes.get(comp.take) {
-                    let cross = chords::to_ticks(0.005, song.tempo_map.bpm_at(comp.start))
-                        .max(take.fade_in.min(comp.length))
-                        .max(take.fade_out.min(comp.length))
-                        .max(1);
-                    let mut placed = take.clone();
-                    placed.start = comp.start;
-                    // Overlap the next span by the crossfade length so the two
-                    // edges cross rather than both fading to silence.
-                    placed.length = comp.length.saturating_add(cross);
-                    placed.offset = placed
-                        .offset
-                        .saturating_add(comp.start.saturating_sub(take.start).max(0));
-                    placed.fade_in = placed.fade_in.max(cross);
-                    placed.fade_out = placed.fade_out.max(cross);
-                    mix_audio_reference(song, &mut track_buffer, &placed, sample_rate);
-                }
-            }
+        for reference in clips::placed(song, track) {
+            mix_audio_reference(song, &mut track_buffer, &reference, sample_rate);
         }
         let mut plugin_instrument = false;
         if let Some(mut instrument) = instrument_for(track, sample_rate) {
@@ -2908,6 +2776,196 @@ mod tests {
             bypassed: false,
             state: String::new(),
         }
+    }
+
+    fn clip_song(tag: &str) -> (Song, std::path::PathBuf) {
+        use project::song::{AudioComp, AudioRef};
+        let path = std::env::temp_dir().join(format!(
+            "lazy-arranger-clips-{tag}-{}.wav",
+            std::process::id()
+        ));
+        // A file at another rate, so clips read it with a rate ratio.
+        let source = RenderedAudio {
+            samples: (0..44_100 * 2)
+                .map(|index| ((index / 2) as f32 * 0.01).sin() * 0.4)
+                .collect(),
+            sample_rate: 44_100,
+        };
+        std::fs::write(&path, source.to_wav32f()).expect("wav");
+        let reference = |start, length, offset| AudioRef {
+            path: path.display().to_string(),
+            start,
+            length,
+            offset,
+            fade_in: music_core::PPQ / 8,
+            fade_out: music_core::PPQ / 4,
+            stretch: false,
+            gain_mb: -600,
+        };
+        let mut song = Song::new("Clips", 120.0);
+        let mut plain = Track::new(TrackId::new(1).expect("track"), "Plain");
+        plain.audio = Some(reference(music_core::PPQ / 3, music_core::PPQ, 40));
+        let mut comped = Track::new(TrackId::new(2).expect("track"), "Comped");
+        comped.audio = Some(reference(0, music_core::PPQ * 2, 0));
+        comped.takes.push(reference(0, music_core::PPQ * 2, 120));
+        comped.comps.push(AudioComp {
+            take: 0,
+            start: music_core::PPQ / 2,
+            length: music_core::PPQ / 2,
+        });
+        let mut stretched = Track::new(TrackId::new(3).expect("track"), "Stretched");
+        let mut long = reference(music_core::PPQ, music_core::PPQ * 3, 0);
+        long.stretch = true;
+        stretched.audio = Some(long);
+        song.tracks = vec![plain, comped, stretched];
+        (song, path)
+    }
+
+    #[test]
+    fn audio_clips_stream_live_and_match_the_offline_render() {
+        let (song, path) = clip_song("stream");
+        let live = crate::live::render(&song, SAMPLE_RATE);
+        assert!(
+            live.clips.iter().all(Option::is_some),
+            "every audio track streams its clips"
+        );
+        assert!(live.lanes.iter().all(Vec::is_empty), "and is not rendered");
+        let offline = render_offline(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        assert!(offline.samples.iter().any(|sample| sample.abs() > 0.05));
+        let worst = worst_difference(&play_live(live), &offline.samples);
+        assert!(worst < 1e-5, "live and offline differ by {worst}");
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn streamed_clips_run_their_inserts_live_in_time() {
+        let Some(bundle) = test_gain_bundle("clips") else {
+            return;
+        };
+        let (mut song, path) = clip_song("inserts");
+        song.tracks[0]
+            .plugins
+            .push(gain_slot(&bundle, "AAAAAAAA4D8="));
+        let live = crate::live::render(&song, SAMPLE_RATE);
+        assert!(live.clips[0].is_some() && live.inserts[0].is_some());
+        let offline = render_offline(&song, SAMPLE_RATE);
+        let _ = std::fs::remove_file(&path);
+        let worst = worst_difference(&play_live(live), &offline.samples);
+        assert!(worst < 1e-5, "live and offline differ by {worst}");
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn synth_slot(bundle: &std::path::Path) -> project::song::PluginSlot {
+        let classes = plugin_host::scan_vst3(bundle).expect("scan");
+        let class = classes
+            .iter()
+            .find(|class| class.name.contains("Synth"))
+            .expect("synth class");
+        project::song::PluginSlot {
+            id: 2,
+            name: String::from("Test Synth"),
+            format: project::song::PluginFormat::Vst3,
+            path: bundle.display().to_string(),
+            identifier: class.cid.clone(),
+            bypassed: false,
+            state: String::new(),
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn instrument_song(bundle: &std::path::Path) -> Song {
+        let mut song = song_with_note();
+        // A held note, overlapping notes and a repeated key.
+        for (index, (start, pitch)) in [(240, "C4"), (480, "E4"), (960, "A4")]
+            .into_iter()
+            .enumerate()
+        {
+            song.tracks[0].notes.push(Note {
+                id: NoteId::new(index as u32 + 2).expect("valid"),
+                start,
+                duration: music_core::PPQ,
+                pitch: Pitch::from_name(pitch).expect("valid"),
+                velocity: Velocity::new(90).expect("valid"),
+                channel: Channel::first(),
+            });
+        }
+        song.tracks[0].plugins.push(synth_slot(bundle));
+        song
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn plugin_instruments_play_live_and_match_the_offline_render() {
+        let Some(bundle) = test_gain_bundle("instrument") else {
+            return;
+        };
+        let mut song = instrument_song(&bundle);
+        let live = crate::live::render(&song, SAMPLE_RATE);
+        assert!(live.instruments[0].is_some(), "the instrument plays live");
+        assert!(live.lanes[0].is_empty(), "and is not rendered");
+        let offline = render_offline(&song, SAMPLE_RATE);
+        assert!(offline.samples.iter().any(|sample| sample.abs() > 0.01));
+        let worst = worst_difference(&play_live(live), &offline.samples);
+        assert!(worst < 1e-5, "live and offline differ by {worst}");
+
+        // With an insert effect after it, still in time.
+        song.tracks[0]
+            .plugins
+            .push(gain_slot(&bundle, "AAAAAAAA4D8="));
+        let live = crate::live::render(&song, SAMPLE_RATE);
+        assert_eq!(live.inserts[0].as_ref().map(|chain| chain.len()), Some(1));
+        let offline = render_offline(&song, SAMPLE_RATE);
+        let worst = worst_difference(&play_live(live), &offline.samples);
+        assert!(worst < 1e-5, "live and offline differ by {worst}");
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_note_edit_swaps_into_a_live_instrument() {
+        let Some(bundle) = test_gain_bundle("instrument-swap") else {
+            return;
+        };
+        let song = instrument_song(&bundle);
+        let mut moved = song.clone();
+        for note in &mut moved.tracks[0].notes {
+            note.pitch = Pitch::new(note.pitch.as_u8() + 5).expect("valid");
+        }
+        let expected = render_offline(&moved, SAMPLE_RATE);
+        let mut playback =
+            crate::player::Playback::new_live(crate::live::render(&song, SAMPLE_RATE));
+        playback.play();
+        let notes =
+            crate::instruments::InstrumentNotes::build(&moved, &moved.tracks[0], SAMPLE_RATE);
+        playback
+            .schedule_swap(
+                0,
+                moved.tracks[0].id,
+                crate::engine::Swap::Notes(Box::new(notes)),
+            )
+            .expect("swap");
+        let mut output = vec![0.0_f32; expected.samples.len()];
+        for chunk in output.chunks_mut(200) {
+            playback.fill(chunk);
+        }
+        let worst = worst_difference(&output, &expected.samples);
+        assert!(worst < 1e-5, "the swapped notes differ by {worst}");
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_blocked_plugin_is_left_out_of_live_chains() {
+        let Some(bundle) = test_gain_bundle("watchdog") else {
+            return;
+        };
+        let slot = gain_slot(&bundle, "");
+        let slots = [slot.clone()];
+        assert_eq!(
+            crate::inserts::Inserts::from_slots(&slots, SAMPLE_RATE).len(),
+            1
+        );
+        crate::watchdog::block(&crate::watchdog::key(&slot));
+        assert!(crate::inserts::Inserts::from_slots(&slots, SAMPLE_RATE).is_empty());
     }
 
     #[test]
