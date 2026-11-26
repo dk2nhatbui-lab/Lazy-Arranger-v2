@@ -7,13 +7,16 @@
 //!
 //! A track's insert plug-ins run live too: a preset, knob or bypass change
 //! builds a new chain for that track and swaps it in. Some changes still
-//! need a new render: a fader on a track with volume automation, a bus with
-//! plug-ins, master plug-ins, or a plug-in change that alters the latency.
+//! need a new render: a fader on a track with volume automation, a bus fed
+//! by such a track, or a plug-in change that alters a track's or bus's
+//! latency. Bus and master plug-ins run live and swap like track inserts.
 //! The app watches a fingerprint of those settings. When it changes, the
 //! song renders again in the background, and the engine swaps the new graph
 //! in at its next buffer, at the same position, on the same stream.
 
 use std::hash::Hasher;
+
+use audio::inserts::ChainId;
 
 use super::*;
 
@@ -26,14 +29,15 @@ pub(super) struct SynthState {
     rate: u32,
     /// Each synth track and the fingerprint its lane was built from.
     tracks: Vec<(TrackId, u64)>,
-    /// Each track whose inserts could run live.
+    /// Each plug-in chain that could run live: track inserts, live buses
+    /// and the master.
     inserts: Vec<InsertLane>,
 }
 
-/// A track whose insert plug-ins could run in the audio callback.
+/// A plug-in chain that could run in the audio callback.
 #[derive(Debug)]
 struct InsertLane {
-    track: TrackId,
+    chain: ChainId,
     /// Fingerprint of the slots the chain was built from.
     built: u64,
     /// Latency of the chain; a new chain must match it to swap in.
@@ -63,12 +67,24 @@ impl SynthState {
             .filter_map(|(id, chain)| {
                 let track = song.tracks.iter().find(|track| track.id == *id)?;
                 audio::inserts::can_run_live(track).then(|| InsertLane {
-                    track: *id,
+                    chain: ChainId::Track(*id),
                     built: audio::inserts::signature(track),
                     latency: chain.as_ref().map_or(0, audio::inserts::Inserts::latency),
                     live: chain.is_some(),
                 })
             })
+            .chain(render.buses.iter().map(|bus| InsertLane {
+                chain: ChainId::Bus(bus.id),
+                built: audio::inserts::slots_signature(&bus.slots),
+                latency: bus.inserts.latency(),
+                live: true,
+            }))
+            .chain(render.master_inserts.as_ref().map(|chain| InsertLane {
+                chain: ChainId::Master,
+                built: audio::inserts::slots_signature(&render.master_slots),
+                latency: chain.latency(),
+                live: true,
+            }))
             .collect();
         Self {
             fonts: render.fonts.iter().cloned().collect(),
@@ -99,15 +115,29 @@ impl SynthState {
 
     fn swap_inserts(&mut self, song: &Song, player: &audio::player::Player) -> bool {
         let mut rerender = false;
+        let live_buses = audio::live::live_buses(song);
         for lane in &mut self.inserts {
-            let Some(track) = song.tracks.iter().find(|track| track.id == lane.track) else {
+            // A chain that stopped running live changes the render
+            // signature instead.
+            let slots = match lane.chain {
+                ChainId::Track(id) => song
+                    .tracks
+                    .iter()
+                    .find(|track| track.id == id)
+                    .filter(|track| audio::inserts::can_run_live(track))
+                    .map(|track| track.plugins.as_slice()),
+                ChainId::Bus(id) => song
+                    .buses
+                    .iter()
+                    .zip(&live_buses)
+                    .find(|(bus, live)| bus.id == id && **live)
+                    .map(|(bus, _)| bus.plugins.as_slice()),
+                ChainId::Master => Some(song.master_plugins.as_slice()),
+            };
+            let Some(slots) = slots else {
                 continue;
             };
-            // A track that stopped qualifying changes the render signature.
-            if !audio::inserts::can_run_live(track) {
-                continue;
-            }
-            let signature = audio::inserts::signature(track);
+            let signature = audio::inserts::slots_signature(slots);
             if signature == lane.built {
                 continue;
             }
@@ -118,13 +148,14 @@ impl SynthState {
             }
             // Opening plug-ins can take a moment; it happens here, off the
             // audio thread.
-            let chain = audio::inserts::Inserts::build(track, self.rate);
-            if chain.latency() != lane.latency {
-                // Every other track's delay depends on it.
+            let chain = audio::inserts::Inserts::from_slots(slots, self.rate);
+            // Other tracks' and buses' delays depend on a track or bus
+            // chain's latency; the master's delays everything alike.
+            if chain.latency() != lane.latency && lane.chain != ChainId::Master {
                 rerender = true;
                 continue;
             }
-            if player.swap_inserts(lane.track, chain).is_err() {
+            if player.swap_inserts(lane.chain, chain).is_err() {
                 // Try again next frame.
                 lane.built = 0;
             }

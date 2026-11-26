@@ -379,7 +379,7 @@ pub fn render_with_soundfont(
     sample_rate: u32,
     load: &mut dyn FnMut(&str) -> Option<soundfont::SoundFont>,
 ) -> RenderedAudio {
-    render_parts(song, sample_rate, load, &[], &[], &[]).fixed
+    render_parts(song, sample_rate, load, &LivePlan::default()).fixed
 }
 
 /// Renders the song, keeping the tracks marked in `live` out of the mix.
@@ -395,10 +395,16 @@ pub(crate) fn render_parts(
     song: &Song,
     sample_rate: u32,
     load: &mut dyn FnMut(&str) -> Option<soundfont::SoundFont>,
-    live: &[bool],
-    skip: &[bool],
-    dry: &[bool],
+    plan: &LivePlan<'_>,
 ) -> Parts {
+    let LivePlan {
+        live,
+        skip,
+        dry,
+        buses: live_buses,
+        master: live_master,
+    } = *plan;
+    let bus_is_live = |index: usize| live_buses.get(index).copied().unwrap_or(false);
     let is_live = |index: usize| live.get(index).copied().unwrap_or(false);
     let wants_dry = |index: usize| is_live(index) && dry.get(index).copied().unwrap_or(false);
     let is_skipped = |index: usize| is_live(index) && skip.get(index).copied().unwrap_or(false);
@@ -606,9 +612,8 @@ pub(crate) fn render_parts(
             max_track_latency.saturating_sub(track_latencies[track_index]),
         );
         if is_live(track_index) {
-            // Live tracks only reach buses without plug-ins, which add no
-            // latency, so every route gets the direct-track delay.
-            delay_buffer(&mut track_buffer, max_bus_latency);
+            // The engine delays the direct route by the bus compensation,
+            // and live buses by their own share of it.
             lanes.push(track_buffer);
             dry_lanes.push(leave_dry);
             continue;
@@ -653,7 +658,7 @@ pub(crate) fn render_parts(
     }
     let any_bus_solo = song.buses.iter().any(|bus| bus.soloed);
     for (index, bus) in song.buses.iter().enumerate() {
-        if bus.muted || (any_bus_solo && !bus.soloed) {
+        if bus.muted || (any_bus_solo && !bus.soloed) || bus_is_live(index) {
             continue;
         }
         let (left_gain, right_gain) = gains(f32::from(bus.volume), bus.pan);
@@ -666,8 +671,10 @@ pub(crate) fn render_parts(
             }
         }
     }
-    apply_plugins(&song.master_plugins, &mut samples, sample_rate);
-    if live.contains(&true) {
+    if !live_master {
+        apply_plugins(&song.master_plugins, &mut samples, sample_rate);
+    }
+    if live_master {
         // The fixed part is summed with the live tracks later, so only
         // clean it here; clamping it alone would clip a different mix.
         for sample in samples.iter_mut().chain(lanes.iter_mut().flatten()) {
@@ -687,11 +694,29 @@ pub(crate) fn render_parts(
         },
         lanes,
         dry: dry_lanes,
-        delay: max_track_latency.saturating_add(max_bus_latency),
+        delay: max_track_latency,
+        bus_delay: max_bus_latency,
+        bus_latencies,
     }
 }
 
-/// The result of [`render_parts`].
+/// What `render_parts` leaves to the engine. Every slice is indexed like
+/// the song's tracks or buses; a missing entry means false.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct LivePlan<'a> {
+    /// Tracks mixed live, rendered into lanes of their own.
+    pub(crate) live: &'a [bool],
+    /// Live tracks played by a synth lane, not rendered.
+    pub(crate) skip: &'a [bool],
+    /// Live tracks whose insert plug-ins run in the engine.
+    pub(crate) dry: &'a [bool],
+    /// Buses whose plug-ins and gains run in the engine.
+    pub(crate) buses: &'a [bool],
+    /// Whether the master plug-ins run in the engine.
+    pub(crate) master: bool,
+}
+
+/// The result of `render_parts`.
 pub(crate) struct Parts {
     /// Every track that is not live, mixed.
     pub(crate) fixed: RenderedAudio,
@@ -699,9 +724,14 @@ pub(crate) struct Parts {
     pub(crate) lanes: Vec<Vec<f32>>,
     /// Per lane: true when its insert plug-ins were left out, to run live.
     pub(crate) dry: Vec<bool>,
-    /// Frames a track without plug-ins is delayed by, to line up with the
-    /// latency of plug-ins elsewhere.
+    /// Frames a live track without plug-ins is delayed by, to line up with
+    /// the latency of track plug-ins elsewhere.
     pub(crate) delay: usize,
+    /// Frames the engine delays the direct route to the master by, to line
+    /// up with the latency of bus plug-ins.
+    pub(crate) bus_delay: usize,
+    /// Latency of each bus's plug-ins, in frames.
+    pub(crate) bus_latencies: Vec<usize>,
 }
 
 /// Applies a track's fader and pan, following automation, to its buffer.
@@ -2696,7 +2726,7 @@ mod tests {
         song.tracks[0].plugins[0].state = String::from("AAAAAAAAAAA=");
         let chain = crate::inserts::Inserts::build(&song.tracks[0], SAMPLE_RATE);
         playback
-            .swap_inserts(song.tracks[0].id, chain)
+            .swap_inserts(crate::inserts::ChainId::Track(song.tracks[0].id), chain)
             .expect("swap");
         playback.fill(&mut output);
         assert!(
@@ -2798,5 +2828,146 @@ mod tests {
         });
         assert!(!crate::inserts::can_run_live(&song.tracks[0]));
         assert_ne!(before, fixed(&song));
+    }
+
+    fn worst_difference(left: &[f32], right: &[f32]) -> f32 {
+        assert_eq!(left.len(), right.len());
+        left.iter()
+            .zip(right)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max)
+    }
+
+    /// A song with a track on a bus and a dry track straight to the master.
+    fn bus_song(bus_slot: project::song::PluginSlot) -> Song {
+        let mut song = song_with_note();
+        let mut bus = project::song::Bus::new(1, "Bus");
+        bus.volume = 90;
+        bus.pan = 30;
+        bus.plugins.push(bus_slot);
+        song.buses.push(bus);
+        song.tracks[0].bus = Some(1);
+        let mut dry = song.tracks[0].clone();
+        dry.id = TrackId::new(2).expect("track");
+        dry.bus = None;
+        dry.send = Some(1);
+        dry.send_level = 60;
+        for note in &mut dry.notes {
+            note.id = project::NoteId::new(note.id.get() + 10).expect("note");
+        }
+        song.tracks.push(dry);
+        song
+    }
+
+    fn missing_slot() -> project::song::PluginSlot {
+        project::song::PluginSlot {
+            id: 1,
+            name: String::from("Gone"),
+            format: project::song::PluginFormat::Vst3,
+            path: String::from("/nonexistent/Gone.vst3"),
+            identifier: String::from("00000000000000000000000000000000"),
+            bypassed: false,
+            state: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_live_bus_follows_its_fader_and_sends() {
+        let mut song = bus_song(missing_slot());
+        assert_eq!(crate::live::live_buses(&song), vec![true]);
+        assert_eq!(crate::live::live_tracks(&song), vec![true, true]);
+        let live = crate::live::render(&song, SAMPLE_RATE);
+        assert_eq!(live.buses.len(), 1);
+        let offline = render(&song, SAMPLE_RATE);
+        let worst = worst_difference(&play_live(live), &offline.samples);
+        assert!(worst < 1e-5, "live and offline differ by {worst}");
+
+        // A bus fader, pan and send move need no new render.
+        let mut moved = song.clone();
+        moved.buses[0].volume = 40;
+        moved.buses[0].pan = 100;
+        moved.tracks[1].send_level = 120;
+        let fixed = |song: &Song| {
+            use std::hash::Hasher;
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            crate::live::hash_fixed(song, &mut hasher);
+            hasher.finish()
+        };
+        assert_eq!(fixed(&song), fixed(&moved));
+        let live = crate::live::render(&song, SAMPLE_RATE);
+        let len = live.fixed.samples.len();
+        let mut playback = crate::player::Playback::new_live(live);
+        playback.apply_mix(
+            &moved,
+            crate::master::Master {
+                gain_db: 0.0,
+                limiter: false,
+                reverb: 0.0,
+                chorus: 0.0,
+            },
+        );
+        playback.play();
+        let mut output = vec![0.0_f32; len];
+        // One quantum ramps from the old gains to the new ones.
+        playback.fill(&mut output[..64]);
+        playback.fill(&mut output[64..]);
+        song = moved;
+        let offline = render(&song, SAMPLE_RATE);
+        let worst = worst_difference(&output[64..], &offline.samples[64..]);
+        assert!(worst < 1e-5, "live and offline differ by {worst}");
+        song.buses[0].plugins.clear();
+        assert_ne!(fixed(&song), fixed(&bus_song(missing_slot())));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_live_bus_plugin_matches_the_offline_render() {
+        let Some(bundle) = test_gain_bundle("live-bus") else {
+            return;
+        };
+        // Half gain, with the plug-in's latency.
+        let song = bus_song(gain_slot(&bundle, "AAAAAAAA4D8="));
+        let offline = render(&song, SAMPLE_RATE);
+        let live = crate::live::render(&song, SAMPLE_RATE);
+        assert!(live.buses[0].inserts.len() == 1 && live.bus_delay > 0);
+        let output = play_live(live);
+        let worst = worst_difference(&output, &offline.samples);
+        assert!(worst < 1e-5, "live and offline differ by {worst}");
+        assert!(output.iter().any(|sample| sample.abs() > 0.01));
+        let _ = std::fs::remove_dir_all(bundle.parent().expect("root"));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn live_master_plugins_match_and_swap() {
+        use crate::inserts::{ChainId, Inserts};
+        let Some(bundle) = test_gain_bundle("live-master") else {
+            return;
+        };
+        let mut song = song_with_note();
+        song.master_plugins.push(gain_slot(&bundle, "AAAAAAAA4D8="));
+        assert_eq!(crate::live::live_tracks(&song), vec![true]);
+        let offline = render(&song, SAMPLE_RATE);
+        let live = crate::live::render(&song, SAMPLE_RATE);
+        let output = play_live(live);
+        let worst = worst_difference(&output, &offline.samples);
+        assert!(worst < 1e-5, "live and offline differ by {worst}");
+
+        let live = crate::live::render(&song, SAMPLE_RATE);
+        let mut playback = crate::player::Playback::new_live(live);
+        playback.play();
+        let mut output = vec![0.0_f32; 4096];
+        playback.fill(&mut output);
+        song.master_plugins[0].state = String::from("AAAAAAAAAAA=");
+        playback
+            .swap_inserts(
+                ChainId::Master,
+                Inserts::from_slots(&song.master_plugins, SAMPLE_RATE),
+            )
+            .expect("swap");
+        playback.fill(&mut output);
+        assert!(output.iter().all(|sample| sample.abs() < 1e-6));
+        assert_eq!(playback.collect_garbage(), 1);
+        let _ = std::fs::remove_dir_all(bundle.parent().expect("root"));
     }
 }

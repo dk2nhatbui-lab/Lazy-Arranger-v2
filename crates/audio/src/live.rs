@@ -6,10 +6,15 @@
 //! lane). The player sums the lanes with gains it reads while it plays, so a
 //! fader, pan, mute or solo change is heard at the next audio buffer.
 //!
-//! A track stays in the fixed part of the render when a gain stage after it
-//! is not linear or changes over time: volume, pan or send automation, a bus
-//! with plug-ins, or master plug-ins. Changes that touch the fixed part still
-//! need a new render.
+//! A track stays in the fixed part of the render when its gain changes over
+//! time: volume, pan or send automation. A bus such a track feeds stays
+//! fixed too, so its plug-ins run once over everything on it. Changes that
+//! touch the fixed part still need a new render.
+//!
+//! Every other bus with plug-ins is a [`LiveBus`]: the engine sums its feeds,
+//! runs its plug-ins and applies its fader live, and delays the direct
+//! route to the master to line up with bus plug-in latency. The master
+//! plug-ins always run live.
 //!
 //! A live track with notes only (no recorded audio, no plug-ins) is not
 //! rendered at all: its lane carries a [`SynthLane`] that plays the notes in
@@ -50,8 +55,20 @@ pub struct LiveRender {
     pub inserts: Vec<Option<Inserts>>,
     /// The track of each lane.
     pub tracks: Vec<TrackId>,
-    /// Left and right gain of each lane when it was rendered.
+    /// Left and right gain of each lane's direct route to the master (its
+    /// fader, pan, and plain buses) when it was rendered.
     pub gains: Vec<(f32, f32)>,
+    /// Each lane's routes into live buses: bus id, left and right gain.
+    pub feeds: Vec<Vec<(u8, f32, f32)>>,
+    /// Buses whose plug-ins run live.
+    pub buses: Vec<LiveBus>,
+    /// Frames the direct route is delayed by, to line up with bus plug-in
+    /// latency.
+    pub bus_delay: usize,
+    /// The master plug-ins, run live on the sum before the master effects.
+    pub master_inserts: Option<Inserts>,
+    /// The master slots the chain was built from, to build it again.
+    pub master_slots: Vec<PluginSlot>,
     /// Linear master gain applied after the sum.
     pub master_gain: f32,
     /// Whether the soft limiter runs after the master gain.
@@ -78,6 +95,11 @@ impl LiveRender {
             inserts: Vec::new(),
             tracks: Vec::new(),
             gains: Vec::new(),
+            feeds: Vec::new(),
+            buses: Vec::new(),
+            bus_delay: 0,
+            master_inserts: None,
+            master_slots: Vec::new(),
             master_gain: 1.0,
             limiter: false,
             chorus: 0.0,
@@ -122,45 +144,32 @@ impl LiveRender {
         }
     }
 
-    /// The finished mix with the gains it was rendered with. Bakes the
-    /// synth lanes and insert chains into their buffers first.
+    /// The finished mix with the gains it was rendered with, played
+    /// through the engine from start to end.
     #[must_use]
-    pub fn mixdown(&mut self) -> RenderedAudio {
-        self.bake_inserts();
-        let mut samples = self.fixed.samples.clone();
-        for (lane, (left, right)) in self.lanes.iter().zip(&self.gains) {
-            for (target, pair) in samples
-                .as_chunks_mut::<2>()
-                .0
-                .iter_mut()
-                .zip(lane.as_chunks::<2>().0)
-            {
-                target[0] += pair[0] * left;
-                target[1] += pair[1] * right;
-            }
-        }
-        let mut audio = RenderedAudio {
-            samples,
-            sample_rate: self.fixed.sample_rate,
-        };
-        master::apply_effects(
-            &mut audio,
-            Master {
-                gain_db: 0.0,
-                limiter: false,
-                reverb: self.reverb,
-                chorus: self.chorus,
-            },
-        );
-        let mut samples = audio.samples;
-        for sample in &mut samples {
-            *sample = master::finish(*sample * self.master_gain, self.limiter);
-        }
+    pub fn mixdown(self) -> RenderedAudio {
+        let sample_rate = self.fixed.sample_rate;
         RenderedAudio {
-            samples,
-            sample_rate: self.fixed.sample_rate,
+            samples: crate::engine::Graph::from_render(self).render_all(),
+            sample_rate,
         }
     }
+}
+
+/// A bus whose plug-ins and gains run in the engine.
+#[derive(Debug)]
+pub struct LiveBus {
+    /// The bus id tracks route to.
+    pub id: u8,
+    /// The slots the chain was built from, to build it again.
+    pub slots: Vec<PluginSlot>,
+    /// The bus's plug-ins.
+    pub inserts: Inserts,
+    /// Left and right gain of the bus fader, pan and mute.
+    pub gains: (f32, f32),
+    /// Frames the bus output is delayed by, so every bus lines up with the
+    /// slowest one.
+    pub delay: usize,
 }
 
 fn active(slots: &[PluginSlot]) -> bool {
@@ -184,38 +193,72 @@ pub fn bus_audible(song: &Song, bus: &Bus) -> bool {
 /// the stack. Tracks past this count stay in the fixed part.
 pub const MAX_LANES: usize = 256;
 
-/// Which tracks can be mixed live, in track order.
-#[must_use]
-pub fn live_tracks(song: &Song) -> Vec<bool> {
-    if active(&song.master_plugins) {
-        return vec![false; song.tracks.len()];
-    }
-    let plain_bus = |id: Option<u8>| {
-        bus_index(song, id).is_none_or(|index| !active(&song.buses[index].plugins))
-    };
+fn automated(track: &Track) -> bool {
+    track.automation.iter().any(|lane| {
+        matches!(
+            lane.target,
+            AutomationTarget::Volume | AutomationTarget::Pan | AutomationTarget::Send
+        )
+    })
+}
+
+/// Tracks that could be live before bus routing is considered: no gain
+/// automation, and within [`MAX_LANES`].
+fn candidates(song: &Song) -> Vec<bool> {
     let mut count = 0;
     song.tracks
         .iter()
         .map(|track| {
-            let live = count < MAX_LANES
-                && !track.automation.iter().any(|lane| {
-                    matches!(
-                        lane.target,
-                        AutomationTarget::Volume | AutomationTarget::Pan | AutomationTarget::Send
-                    )
-                })
-                && plain_bus(track.bus)
-                && plain_bus(track.send);
-            count += usize::from(live);
-            live
+            let candidate = count < MAX_LANES && !automated(track);
+            count += usize::from(candidate);
+            candidate
         })
         .collect()
 }
 
-/// Buses whose sound is in the fixed part: they have plug-ins, or a fixed
-/// track feeds them.
-fn fixed_buses(song: &Song, live: &[bool]) -> Vec<bool> {
-    let mut fixed: Vec<bool> = song.buses.iter().map(|bus| active(&bus.plugins)).collect();
+/// Buses whose plug-ins run in the engine: they have active plug-ins and
+/// every track feeding them is live. A bus fed by a rendered track keeps
+/// its plug-ins in the render, so both run through the same instance.
+#[must_use]
+pub fn live_buses(song: &Song) -> Vec<bool> {
+    let mut live: Vec<bool> = song.buses.iter().map(|bus| active(&bus.plugins)).collect();
+    for (track, candidate) in song.tracks.iter().zip(candidates(song)) {
+        if candidate {
+            continue;
+        }
+        for index in [bus_index(song, track.bus), bus_index(song, track.send)]
+            .into_iter()
+            .flatten()
+        {
+            live[index] = false;
+        }
+    }
+    live
+}
+
+/// Which tracks can be mixed live, in track order.
+#[must_use]
+pub fn live_tracks(song: &Song) -> Vec<bool> {
+    let buses = live_buses(song);
+    let route_ok = |id: Option<u8>| {
+        bus_index(song, id).is_none_or(|index| buses[index] || !active(&song.buses[index].plugins))
+    };
+    song.tracks
+        .iter()
+        .zip(candidates(song))
+        .map(|(track, candidate)| candidate && route_ok(track.bus) && route_ok(track.send))
+        .collect()
+}
+
+/// Buses whose sound is in the fixed part: they have plug-ins that do not
+/// run live, or a fixed track feeds them.
+fn fixed_buses(song: &Song, live: &[bool], buses: &[bool]) -> Vec<bool> {
+    let mut fixed: Vec<bool> = song
+        .buses
+        .iter()
+        .zip(buses)
+        .map(|(bus, live)| !live && active(&bus.plugins))
+        .collect();
     for (track, live) in song.tracks.iter().zip(live) {
         if *live {
             continue;
@@ -230,38 +273,92 @@ fn fixed_buses(song: &Song, live: &[bool]) -> Vec<bool> {
     fixed
 }
 
-/// Left and right gain of a live track's lane in the current song: its
-/// fader and pan, then its bus or the master, plus its send.
-#[must_use]
-pub fn lane_gains(song: &Song, track: &Track) -> (f32, f32) {
-    if !song.is_audible(track) {
-        return (0.0, 0.0);
+/// Left and right gain of a bus fader, pan and mute.
+fn bus_gain(song: &Song, bus: &Bus) -> (f32, f32) {
+    if bus_audible(song, bus) {
+        gains(f32::from(bus.volume), bus.pan)
+    } else {
+        (0.0, 0.0)
     }
-    let (track_left, track_right) = gains(f32::from(track.volume), track.pan);
-    let bus_gains = |index: usize| {
-        let bus = &song.buses[index];
-        if bus_audible(song, bus) {
-            gains(f32::from(bus.volume), bus.pan)
-        } else {
-            (0.0, 0.0)
-        }
+}
+
+/// The gains of one live track in the current song.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LaneGains {
+    /// Straight to the master: the fader and pan, then a plain bus or the
+    /// master, plus a send to a plain bus.
+    pub direct: (f32, f32),
+    /// Into live buses: bus id, left and right gain.
+    pub feeds: Vec<(u8, f32, f32)>,
+}
+
+/// The gains of a live track, given which buses run live.
+#[must_use]
+pub fn lane_routes(song: &Song, buses: &[bool], track: &Track) -> LaneGains {
+    let audible = song.is_audible(track);
+    let (track_left, track_right) = if audible {
+        gains(f32::from(track.volume), track.pan)
+    } else {
+        (0.0, 0.0)
     };
-    let (mut left, mut right) = bus_index(song, track.bus).map_or((1.0, 1.0), bus_gains);
+    let mut routes = LaneGains::default();
+    let (mut left, mut right) = (0.0, 0.0);
+    match bus_index(song, track.bus) {
+        Some(index) if buses[index] => {
+            routes
+                .feeds
+                .push((song.buses[index].id, track_left, track_right));
+        }
+        Some(index) => (left, right) = bus_gain(song, &song.buses[index]),
+        None => (left, right) = (1.0, 1.0),
+    }
     if let Some(index) = bus_index(song, track.send) {
         let level = f32::from(track.send_level.min(127)) / 100.0;
-        let (send_left, send_right) = bus_gains(index);
-        left += send_left * level;
-        right += send_right * level;
+        if buses[index] {
+            routes.feeds.push((
+                song.buses[index].id,
+                track_left * level,
+                track_right * level,
+            ));
+        } else {
+            let (send_left, send_right) = bus_gain(song, &song.buses[index]);
+            left += send_left * level;
+            right += send_right * level;
+        }
     }
-    (track_left * left, track_right * right)
+    routes.direct = (track_left * left, track_right * right);
+    routes
+}
+
+/// Left and right gain of a live track's direct route in the current song:
+/// its fader and pan, then a plain bus or the master, plus its send.
+#[must_use]
+pub fn lane_gains(song: &Song, track: &Track) -> (f32, f32) {
+    lane_routes(song, &live_buses(song), track).direct
+}
+
+/// Left and right gain of each live bus, in bus order: bus id and gains.
+#[must_use]
+pub fn bus_gains(song: &Song, buses: &[bool]) -> Vec<(u8, f32, f32)> {
+    song.buses
+        .iter()
+        .zip(buses)
+        .filter(|(_, live)| **live)
+        .map(|(bus, _)| {
+            let (left, right) = bus_gain(song, bus);
+            (bus.id, left, right)
+        })
+        .collect()
 }
 
 /// Hashes everything the fixed part of a live render depends on in the
 /// mixer. When it is unchanged, a mixer change only needs new lane gains.
 pub fn hash_fixed(song: &Song, hasher: &mut impl Hasher) {
     let live = live_tracks(song);
-    let fixed = fixed_buses(song, &live);
+    let buses = live_buses(song);
+    let fixed = fixed_buses(song, &live, &buses);
     live.hash(hasher);
+    buses.hash(hasher);
     for (track, live) in song.tracks.iter().zip(&live) {
         track.id.hash(hasher);
         track.bus.hash(hasher);
@@ -281,10 +378,13 @@ pub fn hash_fixed(song: &Song, hasher: &mut impl Hasher) {
             song.is_audible(track).hash(hasher);
         }
     }
-    for (bus, fixed) in song.buses.iter().zip(&fixed) {
+    for ((bus, fixed), live) in song.buses.iter().zip(&fixed).zip(&buses) {
         bus.id.hash(hasher);
-        for slot in &bus.plugins {
-            slot.bypassed.hash(hasher);
+        // Live bus chains are swapped in on their own.
+        if !live {
+            for slot in &bus.plugins {
+                slot.bypassed.hash(hasher);
+            }
         }
         if *fixed {
             bus.volume.hash(hasher);
@@ -292,9 +392,7 @@ pub fn hash_fixed(song: &Song, hasher: &mut impl Hasher) {
             bus_audible(song, bus).hash(hasher);
         }
     }
-    for slot in &song.master_plugins {
-        slot.bypassed.hash(hasher);
-    }
+    // The master plug-ins always run live.
 }
 
 /// Renders a song for live mixing, before the master stage.
@@ -321,13 +419,29 @@ pub fn render_with_soundfont(
         .iter()
         .map(crate::inserts::can_run_live)
         .collect();
-    let parts = crate::render_parts(song, sample_rate, load, &live, &skip, &dry);
+    let buses = live_buses(song);
+    let parts = crate::render_parts(
+        song,
+        sample_rate,
+        load,
+        &crate::LivePlan {
+            live: &live,
+            skip: &skip,
+            dry: &dry,
+            buses: &buses,
+            master: true,
+        },
+    );
     let live_tracks: Vec<&Track> = song
         .tracks
         .iter()
         .zip(&live)
         .filter(|(_, live)| **live)
         .map(|(track, _)| track)
+        .collect();
+    let routes: Vec<LaneGains> = live_tracks
+        .iter()
+        .map(|track| lane_routes(song, &buses, track))
         .collect();
     let mut fonts: HashMap<String, Option<Arc<soundfont::SoundFont>>> = HashMap::new();
     let synths = live_tracks
@@ -359,10 +473,25 @@ pub fn render_with_soundfont(
             .map(|(track, dry)| dry.then(|| Inserts::build(track, sample_rate)))
             .collect(),
         tracks: live_tracks.iter().map(|track| track.id).collect(),
-        gains: live_tracks
+        gains: routes.iter().map(|routes| routes.direct).collect(),
+        feeds: routes.into_iter().map(|routes| routes.feeds).collect(),
+        buses: song
+            .buses
             .iter()
-            .map(|track| lane_gains(song, track))
+            .zip(&buses)
+            .zip(&parts.bus_latencies)
+            .filter(|((_, live), _)| **live)
+            .map(|((bus, _), latency)| LiveBus {
+                id: bus.id,
+                slots: bus.plugins.clone(),
+                inserts: Inserts::from_slots(&bus.plugins, sample_rate),
+                gains: bus_gain(song, bus),
+                delay: parts.bus_delay.saturating_sub(*latency),
+            })
             .collect(),
+        bus_delay: parts.bus_delay,
+        master_inserts: Some(Inserts::from_slots(&song.master_plugins, sample_rate)),
+        master_slots: song.master_plugins.clone(),
         master_gain: 1.0,
         limiter: false,
         chorus: 0.0,
@@ -439,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    fn automation_and_bus_plugins_keep_a_track_fixed() {
+    fn automation_keeps_a_track_and_the_bus_it_feeds_fixed() {
         let mut song = song();
         song.tracks[0].automation.push(project::song::Automation {
             target: AutomationTarget::Volume,
@@ -454,6 +583,13 @@ mod tests {
             bypassed: false,
             state: String::new(),
         });
+        // The bus plug-ins run live, so the track on the bus stays live.
+        assert_eq!(live_tracks(&song), vec![false, true]);
+        assert_eq!(live_buses(&song), vec![true]);
+        // Once a fixed track feeds the bus too, the bus and both tracks
+        // are rendered.
+        song.tracks[0].send = Some(1);
+        assert_eq!(live_buses(&song), vec![false]);
         assert_eq!(live_tracks(&song), vec![false, false]);
         let mut before = std::collections::hash_map::DefaultHasher::new();
         hash_fixed(&song, &mut before);
