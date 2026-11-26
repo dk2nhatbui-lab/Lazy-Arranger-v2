@@ -145,7 +145,7 @@ dependencies = [
 
 [[package]]
 name = "app-commands"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "audio",
  "music-core",
@@ -176,7 +176,7 @@ dependencies = [
 
 [[package]]
 name = "arranger"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "music-core",
  "project",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "arranging"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "app-commands",
  "arranger",
@@ -230,7 +230,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "audio"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "arranger",
  "cpal",
@@ -1569,7 +1569,7 @@ dependencies = [
 
 [[package]]
 name = "lazy-arranger-cli"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "app-commands",
  "arranger",
@@ -1593,7 +1593,7 @@ dependencies = [
 
 [[package]]
 name = "lazy-arranger-desktop"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "app-commands",
  "arboard",
@@ -1622,7 +1622,7 @@ dependencies = [
 
 [[package]]
 name = "lazy-arranger-test-plugin"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "vst3",
 ]
@@ -1651,7 +1651,7 @@ dependencies = [
 
 [[package]]
 name = "library"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -1729,7 +1729,7 @@ dependencies = [
 
 [[package]]
 name = "mcp"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "app-commands",
  "arranger",
@@ -1788,7 +1788,7 @@ dependencies = [
 
 [[package]]
 name = "midi-devices"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "midir",
  "music-core",
@@ -1873,7 +1873,7 @@ dependencies = [
 
 [[package]]
 name = "music-core"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -1882,7 +1882,7 @@ dependencies = [
 
 [[package]]
 name = "musicxml"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "music-core",
  "project",
@@ -2431,7 +2431,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "performance"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "app-commands",
  "arranger",
@@ -2493,7 +2493,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-host"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "base64 0.22.1",
  "lazy-arranger-test-plugin",
@@ -2506,7 +2506,7 @@ dependencies = [
 
 [[package]]
 name = "plugins"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "plist",
  "plugin-host",
@@ -2610,7 +2610,7 @@ checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 
 [[package]]
 name = "project"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "music-core",
  "serde",
@@ -2866,7 +2866,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "score"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "cecilia-core",
  "cecilia-engrave",
@@ -2887,7 +2887,7 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "sequencer"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "music-core",
  "project",
@@ -2999,7 +2999,7 @@ checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 
 [[package]]
 name = "smf"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "midly",
  "music-core",
@@ -3143,7 +3143,7 @@ dependencies = [
 
 [[package]]
 name = "style-formats"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "arranger",
  "audio",

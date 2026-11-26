@@ -1,6 +1,6 @@
 # Lazy Arranger Midi DAW — User Manual
 
-Version 0.1.0-beta.1
+Version 0.1.0-beta.2
 
 This manual tells you how to use Lazy Arranger Midi DAW. It is for musicians,
 not programmers. Each picture has red numbers. The list under the picture
