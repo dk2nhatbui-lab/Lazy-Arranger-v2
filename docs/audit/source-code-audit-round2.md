@@ -4,6 +4,23 @@
 - **Delta audited:** `a3f786d..503d0aa` (77 files changed, +4,113 / −2,183 LOC — PR #24 all-tracks score layout & PR #26 Round 1 audit fixes)
 - **Baseline checks:** `./scripts/rust.sh fmt --all --check` passed locally; GitHub Actions CI passed on PR #26 (`aa255b9`).
 
+## Status (2026-11-26)
+
+| Finding | Status | Where |
+| --- | --- | --- |
+| R2-C1, R2-H1 to R2-H12, M1 to M15, M18 (groove), M19, M21 | Fixed | PR #28 |
+| R2-H13 (UI-thread blocking: export, ffmpeg, print, PDF, transcription, auditions) | Fixed | PR #29 |
+| M16 (`performance::regenerate` is one undo step, no channel 1 guess) | Fixed | Follow-up PR |
+| M17 (exact undo for `SetLoops`, `SetMarkers`, `ReplaceTrackNotesAndClips`; `validate.rs` dedup) | Fixed | Follow-up PR |
+| M18 (grid and forms edits are one undo step) | Fixed | Follow-up PR |
+| M20 (MIDI ports listed at most every 2 s, no catalog read during a scan, grooves listed once; disconnects reported) | Fixed | Follow-up PR |
+| M22 / M9 (linear-time SMF, style and MusicXML parsing) | Fixed | Follow-up PR |
+| `ModuleEntry`/`ModuleExit` (Linux), `InitDll`/`ExitDll` (Windows) | Fixed | Follow-up PR |
+| `// SAFETY:` comments | Fixed per module | Follow-up PR |
+| Low: test-plugin `iid` null check and `i32` sizes, AU `apply_state` non-finite, `wav::info` offsets, `to_wav32f` and `mix_accent` non-finite, D-05 patch index, `Book::from_mfd` zero tempo/meter, `draw_system` bar ends, PDF CJK width and control characters, dotted-eighth beamlet, `DrumFill` negative ticks | Fixed | Follow-up PR |
+| Low: `player.rs` `looping` vs `loop_bounds` order | No change needed: bounds are stored before the flag with Release/Acquire | — |
+| macOS VST3 `bundleEntry` | Left: needs a `CFBundleRef`; plug-ins load without it | — |
+
 ## Executive Summary
 
 PR #26 resolved the majority of Round 1 Critical and High issues (MCP `set_plugins`/`plugin_scan`/`reverse_audio`/`groove_from_audio`, MCP socket line caps & CLI resilience, desktop startup & Kids-demo data loss, Cecilia preview deadlock, `ParameterChanges` COM leak, `unit_parameters` overflow, `HostApplication::getName`, `MemoryStream`, `ProjectFile::from_json` header-first check, no-op undo guard, `RemoveNote` undo order, `Pitch::from_name`, `TempoMap`, `TransitionState::poll`, `unicode_font` caps, and C-minor spelling).
