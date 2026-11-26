@@ -78,6 +78,15 @@ pub fn parse(text: &str) -> Result<(String, Groove), String> {
     if name.is_empty() {
         return Err(String::from("groove needs a name"));
     }
+    // NaN or infinite levels would turn notes into velocity 0 (note-offs).
+    if levels
+        .iter()
+        .any(|level: &f32| !level.is_finite() || *level < 0.0)
+    {
+        return Err(String::from(
+            "groove levels must be finite and not negative",
+        ));
+    }
     if grid <= 0 {
         return Err(String::from("groove needs a positive grid"));
     }

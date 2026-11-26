@@ -797,12 +797,16 @@ fn beams_and_tuplets(notes: &[PlacedNote]) -> (Vec<Beam>, Vec<Tuplet>) {
     (beams, tuplets)
 }
 
+/// The most measures a score lays out (about 5 hours of 4/4 at 120 bpm).
+pub(crate) const MAX_MEASURES: i64 = 10_000;
+
 /// Lays out one track, placing one lyric syllable per note.
 #[must_use]
 pub fn engrave_with(song: &Song, track: TrackId, settings: Settings, lyrics: &[&str]) -> Engraved {
     let bar = song.time_signature.bar_ticks().max(1);
     let end = song.end_tick().max(bar);
-    let measure_count = usize::try_from((end + bar - 1) / bar).unwrap_or(1);
+    let measure_count =
+        usize::try_from((end.saturating_add(bar - 1) / bar).min(MAX_MEASURES)).unwrap_or(1);
     let content_width = (settings.page_width - 2.0 * settings.margin).max(1.0);
     let content_height = (settings.page_height - 2.0 * settings.margin).max(settings.system_gap);
     let has_frames = song

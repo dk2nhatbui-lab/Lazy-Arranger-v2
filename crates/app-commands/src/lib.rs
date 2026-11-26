@@ -538,6 +538,10 @@ impl EditSession {
             self.project = before;
             return Err(CommandError::Validation(err.to_string()));
         }
+        // A command that changed nothing adds no undo step and keeps redo.
+        if self.project == before {
+            return Ok(self.outcome(description));
+        }
         self.push_undo(UndoEntry {
             inverse,
             description: description.clone(),
@@ -613,8 +617,10 @@ impl EditSession {
             .map(|note| note.id.get())
             .max()
             .unwrap_or(0);
-        NoteId::new(highest.saturating_add(1))
-            .map_err(|err| CommandError::Validation(err.to_string()))
+        let next = highest
+            .checked_add(1)
+            .ok_or_else(|| CommandError::Validation(String::from("no note ids left")))?;
+        NoteId::new(next).map_err(|err| CommandError::Validation(err.to_string()))
     }
 
     /// Adds a clip region to a track.
@@ -777,8 +783,10 @@ impl EditSession {
             .map(|track| track.id.get())
             .max()
             .unwrap_or(0);
-        TrackId::new(highest.saturating_add(1))
-            .map_err(|err| CommandError::Validation(err.to_string()))
+        let next = highest
+            .checked_add(1)
+            .ok_or_else(|| CommandError::Validation(String::from("no track ids left")))?;
+        TrackId::new(next).map_err(|err| CommandError::Validation(err.to_string()))
     }
 
     /// Convenience: insert a note, allocating its identifier.
@@ -876,18 +884,16 @@ impl EditSession {
             },
             Command::RemoveNote { track, note } => {
                 let target = self.track(*track)?;
-                let found = target
-                    .notes
-                    .iter()
-                    .find(|existing| existing.id == *note)
-                    .cloned()
-                    .ok_or(CommandError::UnknownNote {
+                if !target.notes.iter().any(|existing| existing.id == *note) {
+                    return Err(CommandError::UnknownNote {
                         track: *track,
                         note: *note,
-                    })?;
-                Command::InsertNote {
-                    track: *track,
-                    note: found,
+                    });
+                }
+                // Restore the exact list: re-inserting by start would reorder
+                // notes that share a start tick.
+                Command::ReplaceTrackNotesMany {
+                    tracks: vec![(*track, target.notes.clone())],
                 }
             }
             Command::SetChord { tick, .. } => match self.chord_at(*tick) {

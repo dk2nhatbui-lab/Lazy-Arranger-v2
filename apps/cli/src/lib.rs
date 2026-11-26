@@ -51,10 +51,10 @@ enum Commands {
         #[arg(long, default_value = "four-bars.mid")]
         out: PathBuf,
         /// Audio sample rate used by the scheduler.
-        #[arg(long, default_value_t = DEFAULT_SAMPLE_RATE)]
+        #[arg(long, default_value_t = DEFAULT_SAMPLE_RATE, value_parser = parse_sample_rate)]
         sample_rate: u32,
         /// Audio block size used by the scheduler.
-        #[arg(long, default_value_t = DEFAULT_BLOCK)]
+        #[arg(long, default_value_t = DEFAULT_BLOCK, value_parser = parse_block)]
         block: usize,
         /// Print the first scheduled events with their sample positions.
         #[arg(long)]
@@ -68,10 +68,10 @@ enum Commands {
         #[arg(long)]
         out: PathBuf,
         /// Audio sample rate used by the scheduler.
-        #[arg(long, default_value_t = DEFAULT_SAMPLE_RATE)]
+        #[arg(long, default_value_t = DEFAULT_SAMPLE_RATE, value_parser = parse_sample_rate)]
         sample_rate: u32,
         /// Audio block size used by the scheduler.
-        #[arg(long, default_value_t = DEFAULT_BLOCK)]
+        #[arg(long, default_value_t = DEFAULT_BLOCK, value_parser = parse_block)]
         block: usize,
         /// Print the first scheduled events with their sample positions.
         #[arg(long)]
@@ -149,7 +149,7 @@ enum Commands {
         #[arg(long)]
         out: PathBuf,
         /// Gain in decibels.
-        #[arg(long, default_value_t = -3.0)]
+        #[arg(long, default_value_t = -3.0, allow_hyphen_values = true)]
         db: f32,
     },
     /// Normalize a WAV file to a peak level.
@@ -345,7 +345,7 @@ enum Commands {
         #[arg(long, default_value = "Bounce")]
         name: String,
         /// Sample rate.
-        #[arg(long, default_value_t = 48_000)]
+        #[arg(long, default_value_t = 48_000, value_parser = parse_sample_rate)]
         sample_rate: u32,
     },
     /// Write an XG System On SysEx dump.
@@ -574,7 +574,7 @@ enum Commands {
         #[arg(long)]
         out_dir: PathBuf,
         /// Sample rate.
-        #[arg(long, default_value_t = 48_000)]
+        #[arg(long, default_value_t = 48_000, value_parser = parse_sample_rate)]
         sample_rate: u32,
     },
     /// Add a tempo change and print the map.
@@ -965,7 +965,7 @@ enum Commands {
         #[arg(long)]
         out: PathBuf,
         /// Sample rate; defaults to 48000.
-        #[arg(long, default_value_t = audio::SAMPLE_RATE)]
+        #[arg(long, default_value_t = audio::SAMPLE_RATE, value_parser = parse_sample_rate)]
         sample_rate: u32,
         /// Bit depth: 16, 24 or 32 (float; default 16).
         #[arg(long, default_value_t = 16)]
@@ -1025,7 +1025,7 @@ enum Commands {
         #[arg(long = "out-port")]
         out_port: String,
         /// Audio sample rate used to convert sample positions to time.
-        #[arg(long, default_value_t = DEFAULT_SAMPLE_RATE)]
+        #[arg(long, default_value_t = DEFAULT_SAMPLE_RATE, value_parser = parse_sample_rate)]
         sample_rate: u32,
         /// Print the schedule without sending anything.
         #[arg(long)]
@@ -2362,7 +2362,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             control,
             action,
         } => {
-            let text = fs::read_to_string(&file).unwrap_or_default();
+            // Only a missing file starts an empty map; any other read error
+            // must not wipe the existing bindings.
+            let text = match fs::read_to_string(&file) {
+                Ok(text) => text,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+                Err(error) => {
+                    return Err(format!("could not read {}: {error}", file.display()).into());
+                }
+            };
             let mut map = midi_devices::map::MidiMap::from_text(&text)?;
             map.bind_text(&control, &action)?;
             fs::write(&file, map.to_text())
@@ -3097,6 +3105,30 @@ fn edit(
         session.undo_depth()
     );
     Ok(())
+}
+
+/// Parses `--sample-rate`: 8 kHz to 384 kHz.
+fn parse_sample_rate(text: &str) -> Result<u32, String> {
+    let rate: u32 = text
+        .parse()
+        .map_err(|_| format!("{text} is not a whole number"))?;
+    if (8_000..=384_000).contains(&rate) {
+        Ok(rate)
+    } else {
+        Err(String::from("sample rate must be 8000..=384000"))
+    }
+}
+
+/// Parses `--block`: 1 to 65536 frames.
+fn parse_block(text: &str) -> Result<usize, String> {
+    let block: usize = text
+        .parse()
+        .map_err(|_| format!("{text} is not a whole number"))?;
+    if (1..=65_536).contains(&block) {
+        Ok(block)
+    } else {
+        Err(String::from("block must be 1..=65536"))
+    }
 }
 
 fn mcp_serve(project_path: &PathBuf) -> Result<(), Box<dyn Error>> {

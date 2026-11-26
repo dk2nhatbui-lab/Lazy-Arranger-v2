@@ -36,7 +36,7 @@ pub fn fill_from_timeline(
     session: &mut EditSession,
     scene_length: Tick,
 ) -> Result<usize, ArrangingError> {
-    if scene_length == 0 {
+    if scene_length <= 0 {
         return Ok(0);
     }
     let song = session.song();

@@ -294,17 +294,17 @@ fn build_tounicode_cmap(gid_to_char: &BTreeMap<u16, char>) -> String {
 }
 
 fn be_u16(bytes: &[u8], off: usize) -> Option<u16> {
-    let slice = bytes.get(off..off + 2)?;
+    let slice = bytes.get(off..off.checked_add(2)?)?;
     Some(u16::from_be_bytes([slice[0], slice[1]]))
 }
 
 fn be_i16(bytes: &[u8], off: usize) -> Option<i16> {
-    let slice = bytes.get(off..off + 2)?;
+    let slice = bytes.get(off..off.checked_add(2)?)?;
     Some(i16::from_be_bytes([slice[0], slice[1]]))
 }
 
 fn be_u32(bytes: &[u8], off: usize) -> Option<u32> {
-    let slice = bytes.get(off..off + 4)?;
+    let slice = bytes.get(off..off.checked_add(4)?)?;
     Some(u32::from_be_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
@@ -367,6 +367,7 @@ fn extract_standalone_ttf(raw: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let mut tables = BTreeMap::new();
+    let mut copied = 0_usize;
     for i in 0..num_tables {
         let rec = face0_offset
             .checked_add(12)?
@@ -376,6 +377,11 @@ fn extract_standalone_ttf(raw: &[u8]) -> Option<Vec<u8>> {
         let offset = be_u32(raw, rec.checked_add(8)?)? as usize;
         let length = be_u32(raw, rec.checked_add(12)?)? as usize;
         let slice = raw.get(offset..offset.checked_add(length)?)?;
+        // Overlapping table records must not multiply the file in memory.
+        copied = copied.checked_add(length)?;
+        if copied > raw.len() {
+            return None;
+        }
         tables.insert(tag, slice.to_vec());
     }
     if tables.is_empty() {
@@ -442,10 +448,10 @@ fn subset_ttf_preserving_gids(ttf: &[u8], initial_gids: &BTreeSet<u16>) -> Optio
     let (maxp_off, maxp_len) = *tables.get(b"maxp")?;
     let (loca_off, loca_len) = *tables.get(b"loca")?;
     let (glyf_off, glyf_len) = *tables.get(b"glyf")?;
-    let head_orig = ttf.get(head_off..head_off + head_len)?;
-    let maxp_orig = ttf.get(maxp_off..maxp_off + maxp_len)?;
-    let loca_orig = ttf.get(loca_off..loca_off + loca_len)?;
-    let glyf_orig = ttf.get(glyf_off..glyf_off + glyf_len)?;
+    let head_orig = ttf.get(head_off..head_off.checked_add(head_len)?)?;
+    let maxp_orig = ttf.get(maxp_off..maxp_off.checked_add(maxp_len)?)?;
+    let loca_orig = ttf.get(loca_off..loca_off.checked_add(loca_len)?)?;
+    let glyf_orig = ttf.get(glyf_off..glyf_off.checked_add(glyf_len)?)?;
 
     let index_to_loc = be_i16(head_orig, 50)?;
     let num_glyphs = usize::from(be_u16(maxp_orig, 4)?);
@@ -510,6 +516,11 @@ fn subset_ttf_preserving_gids(ttf: &[u8], initial_gids: &BTreeSet<u16>) -> Optio
             && e > s
             && e <= glyf_orig.len()
         {
+            // Overlapping glyph ranges could repeat the table many times;
+            // a real subset is never bigger than the source.
+            if new_glyf.len() + (e - s) > glyf_orig.len() + 4 * num_glyphs {
+                return None;
+            }
             new_glyf.extend_from_slice(&glyf_orig[s..e]);
             while !new_glyf.len().is_multiple_of(4) {
                 new_glyf.push(0);
@@ -541,7 +552,7 @@ fn subset_ttf_preserving_gids(ttf: &[u8], initial_gids: &BTreeSet<u16>) -> Optio
         b"hhea", b"maxp", b"hmtx", b"OS/2", b"name", b"cvt ", b"fpgm", b"prep",
     ] {
         if let Some(&(off, len)) = tables.get(tag)
-            && let Some(slice) = ttf.get(off..off + len)
+            && let Some(slice) = off.checked_add(len).and_then(|end| ttf.get(off..end))
         {
             out_tables.insert(*tag, slice.to_vec());
         }

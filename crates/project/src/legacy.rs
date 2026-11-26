@@ -176,13 +176,9 @@ pub fn import_cpp_project(text: &str) -> Result<ImportedProject, ProjectError> {
         if consumed.contains(&key.as_str()) {
             continue;
         }
-        // `buses` is typed in the current schema; preserve the legacy value
-        // under a distinct key so serialization has no duplicate field.
-        let stored = if key == "buses" {
-            String::from("legacy_buses")
-        } else {
-            key.clone()
-        };
+        // A key that is a typed field in the current schema is kept under a
+        // distinct name, so serialization never writes a duplicate field.
+        let stored = extra_key(key, SONG_FIELDS);
         *report.deferred.entry(stored.clone()).or_insert(0) += 1;
         song.extra.insert(stored, value.clone());
     }
@@ -371,13 +367,69 @@ fn read_tracks(
             ) {
                 continue;
             }
-            *report.deferred.entry(key.clone()).or_insert(0) += 1;
-            track.extra.insert(key.clone(), extra.clone());
+            let stored = extra_key(key, TRACK_FIELDS);
+            *report.deferred.entry(stored.clone()).or_insert(0) += 1;
+            track.extra.insert(stored, extra.clone());
         }
         report.tracks += 1;
         tracks.push(track);
     }
     Ok(tracks)
+}
+
+/// Field names `Song` serializes itself; legacy keys must not reuse them.
+const SONG_FIELDS: &[&str] = &[
+    "name",
+    "tempo_map",
+    "time_signature",
+    "key",
+    "tracks",
+    "chords",
+    "arranger",
+    "buses",
+    "master_plugins",
+    "marks",
+    "lyrics",
+    "scene_names",
+    "markers",
+];
+
+/// Field names `Track` serializes itself.
+const TRACK_FIELDS: &[&str] = &[
+    "id",
+    "name",
+    "clips",
+    "notes",
+    "muted",
+    "soloed",
+    "armed",
+    "automation",
+    "volume",
+    "pan",
+    "bus",
+    "send",
+    "send_level",
+    "audio",
+    "takes",
+    "comps",
+    "soundfont",
+    "slurs",
+    "plugins",
+    "patch",
+    "program",
+    "bank",
+    "provenance",
+    "slots",
+];
+
+/// The key an unknown legacy value is kept under: `legacy_<key>` when the
+/// plain key is a typed field.
+fn extra_key(key: &str, typed: &[&str]) -> String {
+    if typed.contains(&key) {
+        format!("legacy_{key}")
+    } else {
+        key.to_string()
+    }
 }
 
 /// Copies the C++ mixer strip (volume, pan, mute, solo) onto the track.
@@ -911,10 +963,12 @@ mod tests {
         assert!(report.deferred.contains_key("scenes"));
         assert!(report.deferred.contains_key("sound"));
         assert!(imported.project.song.extra.contains_key("loop"));
+        // `key` is a typed field now, so the legacy text is kept beside it.
         assert_eq!(
-            imported.project.song.extra.get("key"),
+            imported.project.song.extra.get("legacy_key"),
             Some(&Value::String(String::from("C minor")))
         );
+        assert!(!imported.project.song.extra.contains_key("key"));
         let text = report.to_text();
         assert!(text.contains("deferred source features"), "{text}");
         assert!(text.contains("imported 6 track(s)"), "{text}");

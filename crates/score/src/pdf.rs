@@ -730,7 +730,7 @@ pub fn to_full_pdf_with_options(
         if let Some(staff) = staves.first() {
             let _ = writeln!(
                 content,
-                "BT /F1 8 Tf {x:.1} {y:.1} Td ({} {} / {}/{} · {:.0} BPM) Tj ET",
+                "BT /F1 8 Tf {x:.1} {y:.1} Td ({} {} / {}/{} \\267 {:.0} BPM) Tj ET",
                 staff.key.tonic.name_sharp(),
                 if staff.key.minor { "minor" } else { "major" },
                 staff.time_signature.numerator,
@@ -1521,8 +1521,11 @@ fn escape(text: &str) -> String {
             '\n' | '\r' | '\t' => out.push(' '),
             '\u{2013}' => out.push_str("\\226"),
             '\u{2014}' => out.push_str("\\227"),
-            '\u{2018}' | '\u{2019}' => out.push_str("\\221"),
-            '\u{201c}' | '\u{201d}' => out.push_str("\\222"),
+            // WinAnsi: 0x91 ‘, 0x92 ’, 0x93 “, 0x94 ”.
+            '\u{2018}' => out.push_str("\\221"),
+            '\u{2019}' => out.push_str("\\222"),
+            '\u{201c}' => out.push_str("\\223"),
+            '\u{201d}' => out.push_str("\\224"),
             '\u{2026}' => out.push_str("\\205"),
             character if character.is_ascii() => out.push(character),
             character if u32::from(character) <= 0xFF => {
