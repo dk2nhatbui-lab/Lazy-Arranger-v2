@@ -720,6 +720,8 @@ pub fn available_printers() -> Vec<String> {
 struct RenderedSong {
     /// Mixed live, so faders are heard without a new render.
     audio: audio::live::LiveRender,
+    /// What the synth lanes were built from, to swap them on a note edit.
+    synths: live_mix::SynthState,
     stems: Vec<(TrackId, Vec<f32>)>,
     problems: Vec<audio::mix::AudioProblem>,
 }
@@ -1017,6 +1019,8 @@ pub struct ShellApp {
     )>,
     /// A render that will replace the playing buffer after a mixer change.
     live_remix: Option<live_mix::LiveRemix>,
+    /// Synth lanes in the playing graph, for note edits while playing.
+    synth_state: Option<live_mix::SynthState>,
     /// Mix fingerprint of the buffer that is playing or rendering.
     mix_rendered: u64,
     autosave: Autosave,
@@ -1128,6 +1132,7 @@ impl ShellApp {
             player: None,
             render_pending: None,
             live_remix: None,
+            synth_state: None,
             mix_rendered: 0,
             autosave: Autosave::new(std::time::Duration::from_secs(10)),
             recovery: project_path
@@ -4861,8 +4866,10 @@ impl ShellApp {
             } else {
                 Vec::new()
             };
+            let synths = live_mix::SynthState::new(&song, &audio);
             let _ = sender.send(Ok(RenderedSong {
                 audio,
+                synths,
                 stems,
                 problems,
             }));
@@ -4941,6 +4948,7 @@ impl ShellApp {
                         self.last_loop_wraps = 0;
                         self.stem_sample_rate = stem_rate;
                         self.stem_levels = rendered.stems;
+                        self.synth_state = rendered.synths.fit(player.sample_rate());
                         self.player = Some(player);
                         self.playing = true;
                         self.status = Some(String::from("playing"));
@@ -4956,6 +4964,7 @@ impl ShellApp {
         self.finish_jam();
         self.render_pending = None;
         self.live_remix = None;
+        self.synth_state = None;
         self.reset_loops();
         if let Some(player) = self.player.take() {
             player.stop();
