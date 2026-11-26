@@ -14,6 +14,12 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 - The master reverb, chorus and limiter react right away while the song
   plays, with no new render. Note tracks also stay live when the master
   reverb or chorus is on, and a reverb tail rings on when the mix changes.
+- Insert plug-ins on a track (VST3 and Audio Unit effects) run live while
+  the song plays. A preset, knob or bypass change on a track is heard
+  within a moment, without rendering the song again. Tracks with plug-in
+  automation, a plug-in instrument, a bus with plug-ins, or master
+  plug-ins still render again; so does a change that alters a plug-in's
+  latency.
 
 ### Changed
 - Tracks that only play notes (built-in synth or SoundFont, no recorded

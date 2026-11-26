@@ -207,6 +207,21 @@ impl Playback {
             .map_err(|_| String::from("the audio engine is busy"))
     }
 
+    /// Replaces one track's insert chain, for a plug-in edit while playing.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when earlier chains are still waiting.
+    pub fn swap_inserts(
+        &mut self,
+        track: project::TrackId,
+        inserts: crate::inserts::Inserts,
+    ) -> Result<(), String> {
+        self.control
+            .send_inserts(track, inserts)
+            .map_err(|_| String::from("the audio engine is busy"))
+    }
+
     /// Frees graphs the engine has handed back.
     pub fn collect_garbage(&mut self) -> usize {
         self.control.collect_garbage()
@@ -255,8 +270,8 @@ fn resample_live(mut render: LiveRender, target_rate: u32) -> LiveRender {
     if source_rate == target_rate || source_rate == 0 || target_rate == 0 {
         return render;
     }
-    // Synth lanes play at the rate they were built for.
-    render.bake_synths();
+    // Synth lanes and insert chains run at the rate they were built for.
+    render.bake_inserts();
     render.fixed = resample_stereo(std::mem::take(&mut render.fixed), target_rate);
     for lane in &mut render.lanes {
         *lane = resample_stereo(
@@ -599,6 +614,29 @@ impl Player {
             .map_err(|_| String::from("the audio engine is busy"))
     }
 
+    /// Replaces one track's insert chain at the next buffer, for a plug-in
+    /// edit while playing. The chain must be built at
+    /// [`Player::sample_rate`]. The old chain is freed here, not on the
+    /// audio thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when earlier chains are still waiting.
+    pub fn swap_inserts(
+        &self,
+        track: project::TrackId,
+        inserts: crate::inserts::Inserts,
+    ) -> Result<(), String> {
+        let mut guard = self
+            .control
+            .lock()
+            .map_err(|_| String::from("the audio engine is unavailable"))?;
+        guard
+            .0
+            .send_inserts(track, inserts)
+            .map_err(|_| String::from("the audio engine is busy"))
+    }
+
     /// Level of what was played since the last read.
     #[must_use]
     pub fn meter(&self) -> Meter {
@@ -921,7 +959,7 @@ mod tests {
     #[test]
     fn the_engine_matches_the_rendered_mix_exactly() {
         let song = live_song(80);
-        let render = LiveRender {
+        let mut render = LiveRender {
             fixed: RenderedAudio {
                 samples: (0..512)
                     .map(|index| (index as f32 * 0.01).sin() * 0.3)
@@ -1048,7 +1086,7 @@ mod tests {
             "a notes-only track is a synth lane"
         );
         assert!(render.lanes[0].is_empty(), "and is not pre-rendered");
-        let expected = render.mixdown();
+        let expected = crate::live::render(&song, 8_000).mixdown();
         let mut playback = Playback::new_live(render);
         playback.play();
         let mut output = vec![0.0_f32; expected.samples.len()];
@@ -1124,7 +1162,7 @@ mod tests {
         let lane: Vec<f32> = (0..8192)
             .map(|index| (index as f32 * 0.02).sin() * 0.5)
             .collect();
-        let render = wet_render(&song, lane, 0.3, 0.4);
+        let mut render = wet_render(&song, lane, 0.3, 0.4);
         let expected = render.mixdown();
         let mut playback = Playback::new_live(render);
         playback.play();

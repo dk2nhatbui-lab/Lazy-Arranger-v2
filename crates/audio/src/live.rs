@@ -14,6 +14,10 @@
 //! A live track with notes only (no recorded audio, no plug-ins) is not
 //! rendered at all: its lane carries a [`SynthLane`] that plays the notes in
 //! the audio callback, and a note edit swaps in a new lane.
+//!
+//! A live track's insert plug-ins run in the callback as well, from an
+//! [`Inserts`] chain built with the render; its lane buffer is then the
+//! sound before the inserts. A plug-in edit swaps in a new chain.
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -22,12 +26,13 @@ use std::sync::Arc;
 use project::TrackId;
 use project::song::{AutomationTarget, Bus, PluginSlot, Song, Track};
 
+use crate::inserts::Inserts;
 use crate::master::{self, Master};
 use crate::synth::SynthLane;
 use crate::{RenderedAudio, gains, soundfont};
 
 /// A song rendered for live mixing.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct LiveRender {
     /// Everything that is not live, already through its own faders.
     pub fixed: RenderedAudio,
@@ -40,6 +45,9 @@ pub struct LiveRender {
     pub synth_delay: usize,
     /// SoundFonts the synth lanes play, by path, to build replacements.
     pub fonts: Vec<(String, Arc<soundfont::SoundFont>)>,
+    /// The insert chain of each lane whose plug-ins run live, in lane
+    /// order; its buffer is then before the inserts.
+    pub inserts: Vec<Option<Inserts>>,
     /// The track of each lane.
     pub tracks: Vec<TrackId>,
     /// Left and right gain of each lane when it was rendered.
@@ -67,6 +75,7 @@ impl LiveRender {
             synths: Vec::new(),
             synth_delay: 0,
             fonts: Vec::new(),
+            inserts: Vec::new(),
             tracks: Vec::new(),
             gains: Vec::new(),
             master_gain: 1.0,
@@ -102,13 +111,24 @@ impl LiveRender {
         }
     }
 
-    /// The finished mix with the gains it was rendered with.
+    /// Runs every live insert chain over its lane buffer, as playback
+    /// would, and drops the chains.
+    pub fn bake_inserts(&mut self) {
+        self.bake_synths();
+        for (lane, inserts) in self.lanes.iter_mut().zip(&mut self.inserts) {
+            if let Some(mut inserts) = inserts.take() {
+                inserts.run_all(lane);
+            }
+        }
+    }
+
+    /// The finished mix with the gains it was rendered with. Bakes the
+    /// synth lanes and insert chains into their buffers first.
     #[must_use]
-    pub fn mixdown(&self) -> RenderedAudio {
+    pub fn mixdown(&mut self) -> RenderedAudio {
+        self.bake_inserts();
         let mut samples = self.fixed.samples.clone();
-        let mut baked = self.clone();
-        baked.bake_synths();
-        for (lane, (left, right)) in baked.lanes.iter().zip(&self.gains) {
+        for (lane, (left, right)) in self.lanes.iter().zip(&self.gains) {
             for (target, pair) in samples
                 .as_chunks_mut::<2>()
                 .0
@@ -246,8 +266,13 @@ pub fn hash_fixed(song: &Song, hasher: &mut impl Hasher) {
         track.id.hash(hasher);
         track.bus.hash(hasher);
         track.send.hash(hasher);
-        for slot in &track.plugins {
-            slot.bypassed.hash(hasher);
+        let live_inserts = *live && crate::inserts::can_run_live(track);
+        live_inserts.hash(hasher);
+        // Live insert chains are swapped in on their own.
+        if !live_inserts {
+            for slot in &track.plugins {
+                slot.bypassed.hash(hasher);
+            }
         }
         if !live {
             track.volume.hash(hasher);
@@ -291,7 +316,12 @@ pub fn render_with_soundfont(
 ) -> LiveRender {
     let live = live_tracks(song);
     let skip: Vec<bool> = song.tracks.iter().map(crate::synth::can_play).collect();
-    let parts = crate::render_parts(song, sample_rate, load, &live, &skip);
+    let dry: Vec<bool> = song
+        .tracks
+        .iter()
+        .map(crate::inserts::can_run_live)
+        .collect();
+    let parts = crate::render_parts(song, sample_rate, load, &live, &skip, &dry);
     let live_tracks: Vec<&Track> = song
         .tracks
         .iter()
@@ -322,6 +352,11 @@ pub fn render_with_soundfont(
         fonts: fonts
             .into_iter()
             .filter_map(|(path, font)| font.map(|font| (path, font)))
+            .collect(),
+        inserts: live_tracks
+            .iter()
+            .zip(&parts.dry)
+            .map(|(track, dry)| dry.then(|| Inserts::build(track, sample_rate)))
             .collect(),
         tracks: live_tracks.iter().map(|track| track.id).collect(),
         gains: live_tracks

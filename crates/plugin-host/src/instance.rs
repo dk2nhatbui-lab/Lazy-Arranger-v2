@@ -359,6 +359,74 @@ impl Vst3Effect {
         Ok(())
     }
 
+    /// Processes one block of planar stereo audio without allocating, for
+    /// the audio callback. `frames` is at most the `max_block` given to
+    /// [`Vst3Effect::new`]. Parameter changes queued with
+    /// [`Vst3Effect::set_parameter`] are not sent; this path is for a
+    /// prepared chain only. Returns false when the plug-in rejects the
+    /// block, the buffers are too short or the effect is not stereo.
+    pub(crate) fn process_planar(
+        &mut self,
+        input: [&mut [f32]; 2],
+        output: [&mut [f32]; 2],
+        frames: usize,
+    ) -> bool {
+        if self.channels != 2
+            || frames == 0
+            || frames > self.max_block
+            || input
+                .iter()
+                .chain(&output)
+                .any(|buffer| buffer.len() < frames)
+        {
+            return false;
+        }
+        let [input_left, input_right] = input;
+        let [output_left, output_right] = output;
+        let mut input_channels = [input_left.as_mut_ptr(), input_right.as_mut_ptr()];
+        let mut output_channels = [output_left.as_mut_ptr(), output_right.as_mut_ptr()];
+        let mut inputs = [AudioBusBuffers {
+            numChannels: 2,
+            silenceFlags: 0,
+            __field0: AudioBusBuffers__type0 {
+                channelBuffers32: input_channels.as_mut_ptr(),
+            },
+        }];
+        let mut outputs = [AudioBusBuffers {
+            numChannels: 2,
+            silenceFlags: 0,
+            __field0: AudioBusBuffers__type0 {
+                channelBuffers32: output_channels.as_mut_ptr(),
+            },
+        }];
+        let mut context: ProcessContext = unsafe { std::mem::zeroed() };
+        context.state = 2;
+        context.sampleRate = self.sample_rate;
+        context.tempo = 120.0;
+        context.timeSigNumerator = 4;
+        context.timeSigDenominator = 4;
+        let mut data = ProcessData {
+            processMode: 0,
+            symbolicSampleSize: SymbolicSampleSizes_::kSample32 as i32,
+            numSamples: frames as i32,
+            numInputs: 1,
+            numOutputs: 1,
+            inputs: inputs.as_mut_ptr(),
+            outputs: outputs.as_mut_ptr(),
+            inputParameterChanges: std::ptr::null_mut(),
+            outputParameterChanges: std::ptr::null_mut(),
+            inputEvents: std::ptr::null_mut(),
+            outputEvents: std::ptr::null_mut(),
+            processContext: &mut context,
+        };
+        (unsafe { self.processor.process(&mut data) }) == kResultOk
+    }
+
+    /// Largest block [`Vst3Effect::process_planar`] takes, in frames.
+    pub(crate) fn max_block(&self) -> usize {
+        self.max_block
+    }
+
     /// Number of parameters exposed by the edit controller.
     #[must_use]
     pub fn parameter_count(&self) -> usize {

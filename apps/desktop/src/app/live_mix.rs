@@ -5,8 +5,10 @@
 //! audio callback, so a change is heard at the next audio buffer. Every frame
 //! the app hands the current mixer to the player.
 //!
-//! Some changes still need a new render: a fader on a track with volume
-//! automation, a bus with plug-ins, a plug-in bypass, or a master effect.
+//! A track's insert plug-ins run live too: a preset, knob or bypass change
+//! builds a new chain for that track and swaps it in. Some changes still
+//! need a new render: a fader on a track with volume automation, a bus with
+//! plug-ins, master plug-ins, or a plug-in change that alters the latency.
 //! The app watches a fingerprint of those settings. When it changes, the
 //! song renders again in the background, and the engine swaps the new graph
 //! in at its next buffer, at the same position, on the same stream.
@@ -15,8 +17,8 @@ use std::hash::Hasher;
 
 use super::*;
 
-/// The synth lanes of the playing graph: what each was built from, and what
-/// a replacement needs.
+/// The synth lanes and live insert chains of the playing graph: what each
+/// was built from, and what a replacement needs.
 #[derive(Debug, Default)]
 pub(super) struct SynthState {
     fonts: std::collections::HashMap<String, std::sync::Arc<audio::soundfont::SoundFont>>,
@@ -24,6 +26,21 @@ pub(super) struct SynthState {
     rate: u32,
     /// Each synth track and the fingerprint its lane was built from.
     tracks: Vec<(TrackId, u64)>,
+    /// Each track whose inserts could run live.
+    inserts: Vec<InsertLane>,
+}
+
+/// A track whose insert plug-ins could run in the audio callback.
+#[derive(Debug)]
+struct InsertLane {
+    track: TrackId,
+    /// Fingerprint of the slots the chain was built from.
+    built: u64,
+    /// Latency of the chain; a new chain must match it to swap in.
+    latency: usize,
+    /// False when the render kept the inserts (a plug-in instrument), so an
+    /// edit needs a new render.
+    live: bool,
 }
 
 impl SynthState {
@@ -39,11 +56,26 @@ impl SynthState {
                 Some((*id, audio::synth::signature(song, track)))
             })
             .collect();
+        let inserts = render
+            .tracks
+            .iter()
+            .zip(&render.inserts)
+            .filter_map(|(id, chain)| {
+                let track = song.tracks.iter().find(|track| track.id == *id)?;
+                audio::inserts::can_run_live(track).then(|| InsertLane {
+                    track: *id,
+                    built: audio::inserts::signature(track),
+                    latency: chain.as_ref().map_or(0, audio::inserts::Inserts::latency),
+                    live: chain.is_some(),
+                })
+            })
+            .collect();
         Self {
             fonts: render.fonts.iter().cloned().collect(),
             delay: render.synth_delay,
             rate: render.sample_rate(),
             tracks,
+            inserts,
         }
     }
 
@@ -51,12 +83,56 @@ impl SynthState {
     /// built for; otherwise the player baked them and they cannot be
     /// swapped.
     pub(super) fn fit(self, player_rate: u32) -> Option<Self> {
-        (self.rate == player_rate && !self.tracks.is_empty()).then_some(self)
+        (self.rate == player_rate && !(self.tracks.is_empty() && self.inserts.is_empty()))
+            .then_some(self)
     }
 
     /// Rebuilds the lane of every synth track whose notes or sound changed,
-    /// and swaps it into the player, so the edit is heard while playing.
-    pub(super) fn swap_edited(&mut self, song: &Song, player: &audio::player::Player) {
+    /// and the chain of every track whose plug-ins changed, and swaps them
+    /// into the player, so the edit is heard while playing. Returns true
+    /// when a change cannot be swapped in and needs a new render.
+    pub(super) fn swap_edited(&mut self, song: &Song, player: &audio::player::Player) -> bool {
+        let rerender = self.swap_inserts(song, player);
+        self.swap_synths(song, player);
+        rerender
+    }
+
+    fn swap_inserts(&mut self, song: &Song, player: &audio::player::Player) -> bool {
+        let mut rerender = false;
+        for lane in &mut self.inserts {
+            let Some(track) = song.tracks.iter().find(|track| track.id == lane.track) else {
+                continue;
+            };
+            // A track that stopped qualifying changes the render signature.
+            if !audio::inserts::can_run_live(track) {
+                continue;
+            }
+            let signature = audio::inserts::signature(track);
+            if signature == lane.built {
+                continue;
+            }
+            lane.built = signature;
+            if !lane.live {
+                rerender = true;
+                continue;
+            }
+            // Opening plug-ins can take a moment; it happens here, off the
+            // audio thread.
+            let chain = audio::inserts::Inserts::build(track, self.rate);
+            if chain.latency() != lane.latency {
+                // Every other track's delay depends on it.
+                rerender = true;
+                continue;
+            }
+            if player.swap_inserts(lane.track, chain).is_err() {
+                // Try again next frame.
+                lane.built = 0;
+            }
+        }
+        rerender
+    }
+
+    fn swap_synths(&mut self, song: &Song, player: &audio::player::Player) {
         for (id, built) in &mut self.tracks {
             let Some(track) = song.tracks.iter().find(|track| track.id == *id) else {
                 continue;
@@ -123,8 +199,11 @@ impl ShellApp {
         }
         if let Some(player) = &self.player {
             player.apply_mix(self.song(), self.settings.master());
-            if let Some(state) = &mut self.synth_state {
-                state.swap_edited(self.editor.song(), player);
+            if let Some(state) = &mut self.synth_state
+                && state.swap_edited(self.editor.song(), player)
+            {
+                // Render again; the new graph brings a fresh state.
+                self.mix_rendered = 0;
             }
         }
         if let Some(remix) = &self.live_remix {

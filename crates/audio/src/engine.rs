@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering}
 use project::TrackId;
 use rtrb::{Consumer, Producer, RingBuffer};
 
+use crate::inserts::Inserts;
 use crate::live::LiveRender;
 use crate::master::{self, Meter};
 use crate::synth::SynthLane;
@@ -379,6 +380,8 @@ enum Source {
 struct Lane {
     track: TrackId,
     source: Source,
+    /// Insert plug-ins run on the source before the gains.
+    inserts: Option<Box<Inserts>>,
     left: Gain,
     right: Gain,
 }
@@ -430,21 +433,27 @@ impl Graph {
         let fixed = clean(render.fixed.samples, len);
         let mut synths = render.synths;
         synths.resize_with(render.lanes.len(), || None);
+        let mut inserts = render.inserts;
+        inserts.resize_with(render.lanes.len(), || None);
         let lanes = render
             .lanes
             .into_iter()
             .zip(synths)
+            .zip(inserts)
             .zip(render.tracks)
             .zip(render.gains)
-            .map(|(((samples, synth), track), (left, right))| Lane {
-                track,
-                source: match synth {
-                    Some(synth) => Source::Synth(Box::new(synth)),
-                    None => Source::Buffer(clean(samples, len)),
+            .map(
+                |((((samples, synth), inserts), track), (left, right))| Lane {
+                    track,
+                    source: match synth {
+                        Some(synth) => Source::Synth(Box::new(synth)),
+                        None => Source::Buffer(clean(samples, len)),
+                    },
+                    inserts: inserts.map(Box::new),
+                    left: Gain::new(left),
+                    right: Gain::new(right),
                 },
-                left: Gain::new(left),
-                right: Gain::new(right),
-            })
+            )
             .collect();
         Self {
             fixed,
@@ -519,6 +528,20 @@ impl Graph {
         synth
     }
 
+    /// Puts a new insert chain in place of a track's current one and
+    /// returns the one it replaced, or the new one when the track's lane
+    /// has no live inserts.
+    fn swap_inserts(&mut self, track: TrackId, inserts: Box<Inserts>) -> Box<Inserts> {
+        for lane in &mut self.lanes {
+            if lane.track == track
+                && let Some(current) = &mut lane.inserts
+            {
+                return std::mem::replace(current, inserts);
+            }
+        }
+        inserts
+    }
+
     /// Takes over the gains of the graph it replaces, so a swap neither
     /// jumps nor loses a change sent while the new graph was being built.
     /// The reverb and chorus tails carry over too: the old graph leaves with
@@ -555,14 +578,26 @@ impl Graph {
         for lane in &mut self.lanes {
             let left = lane.left.ramp(frames);
             let right = lane.right.ramp(frames);
-            let source = match &mut lane.source {
-                Source::Buffer(samples) => samples.get(pos..pos + output.len()),
-                Source::Synth(synth) => {
+            let source = match (&mut lane.source, &mut lane.inserts) {
+                (Source::Buffer(samples), None) => samples.get(pos..pos + output.len()),
+                (source, inserts) => {
                     // A render call never exceeds one quantum.
                     let Some(scratch) = self.scratch.get_mut(..output.len()) else {
                         continue;
                     };
-                    synth.render(scratch, pos);
+                    match source {
+                        Source::Buffer(samples) => match samples.get(pos..pos + scratch.len()) {
+                            Some(samples) => scratch.copy_from_slice(samples),
+                            None => scratch.fill(0.0),
+                        },
+                        Source::Synth(synth) => synth.render(scratch, pos),
+                    }
+                    if let Some(inserts) = inserts {
+                        inserts.process(scratch);
+                        for sample in scratch.iter_mut() {
+                            *sample = finite(*sample);
+                        }
+                    }
                     Some(&*scratch)
                 }
             };
@@ -606,6 +641,8 @@ pub struct Engine {
     params: Consumer<Param>,
     synths: Consumer<(TrackId, Box<SynthLane>)>,
     synth_garbage: Producer<Box<SynthLane>>,
+    inserts: Consumer<(TrackId, Box<Inserts>)>,
+    insert_garbage: Producer<Box<Inserts>>,
     transport: Arc<Transport>,
 }
 
@@ -617,6 +654,8 @@ pub struct EngineControl {
     params: Producer<Param>,
     synths: Producer<(TrackId, Box<SynthLane>)>,
     synth_garbage: Consumer<Box<SynthLane>>,
+    inserts: Producer<(TrackId, Box<Inserts>)>,
+    insert_garbage: Consumer<Box<Inserts>>,
     transport: Arc<Transport>,
 }
 
@@ -632,6 +671,8 @@ pub fn engine(graph: Graph) -> (Engine, EngineControl, Arc<Transport>) {
     let (param_producer, param_consumer) = RingBuffer::new(PARAM_SLOTS);
     let (synth_producer, synth_consumer) = RingBuffer::new(SYNTH_SLOTS);
     let (synth_garbage_producer, synth_garbage_consumer) = RingBuffer::new(SYNTH_SLOTS + 1);
+    let (insert_producer, insert_consumer) = RingBuffer::new(SYNTH_SLOTS);
+    let (insert_garbage_producer, insert_garbage_consumer) = RingBuffer::new(SYNTH_SLOTS + 1);
     (
         Engine {
             graph: Some(Box::new(graph)),
@@ -640,6 +681,8 @@ pub fn engine(graph: Graph) -> (Engine, EngineControl, Arc<Transport>) {
             params: param_consumer,
             synths: synth_consumer,
             synth_garbage: synth_garbage_producer,
+            inserts: insert_consumer,
+            insert_garbage: insert_garbage_producer,
             transport: Arc::clone(&transport),
         },
         EngineControl {
@@ -648,6 +691,8 @@ pub fn engine(graph: Graph) -> (Engine, EngineControl, Arc<Transport>) {
             params: param_producer,
             synths: synth_producer,
             synth_garbage: synth_garbage_consumer,
+            inserts: insert_producer,
+            insert_garbage: insert_garbage_consumer,
             transport: Arc::clone(&transport),
         },
         transport,
@@ -687,7 +732,21 @@ impl EngineControl {
             .map_err(|rtrb::PushError::Full((_, synth))| synth)
     }
 
-    /// Frees graphs and synth lanes the audio thread has handed back.
+    /// Replaces one track's insert chain at the next buffer, for a plug-in
+    /// edit while playing.
+    ///
+    /// # Errors
+    ///
+    /// Returns the chain when too many are still waiting.
+    pub fn send_inserts(&mut self, track: TrackId, inserts: Inserts) -> Result<(), Box<Inserts>> {
+        self.collect_garbage();
+        self.inserts
+            .push((track, Box::new(inserts)))
+            .map_err(|rtrb::PushError::Full((_, inserts))| inserts)
+    }
+
+    /// Frees graphs, synth lanes and insert chains the audio thread has
+    /// handed back.
     pub fn collect_garbage(&mut self) -> usize {
         let mut freed = 0;
         while let Ok(graph) = self.garbage.pop() {
@@ -696,6 +755,10 @@ impl EngineControl {
         }
         while let Ok(synth) = self.synth_garbage.pop() {
             drop(synth);
+            freed += 1;
+        }
+        while let Ok(inserts) = self.insert_garbage.pop() {
+            drop(inserts);
             freed += 1;
         }
         freed
@@ -736,6 +799,17 @@ impl Engine {
             };
             // Cannot fail: a slot was checked above.
             let _ = self.synth_garbage.push(old);
+        }
+        while self.insert_garbage.slots() > 0 {
+            let Ok((track, inserts)) = self.inserts.pop() else {
+                break;
+            };
+            let old = match &mut self.graph {
+                Some(graph) => graph.swap_inserts(track, inserts),
+                None => inserts,
+            };
+            // Cannot fail: a slot was checked above.
+            let _ = self.insert_garbage.push(old);
         }
         while let Ok(param) = self.params.pop() {
             if let Some(graph) = &mut self.graph {
