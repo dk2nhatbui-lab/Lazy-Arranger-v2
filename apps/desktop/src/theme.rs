@@ -58,6 +58,18 @@ palette!(
         Color32::from_rgb(0xff, 0xfd, 0xf9)
     ),
     (
+        menu,
+        "Menus and popups: lifted well above the panels and the timeline.",
+        Color32::from_rgb(0x2b, 0x31, 0x38),
+        Color32::from_rgb(0xff, 0xff, 0xff)
+    ),
+    (
+        menu_outline,
+        "The outline around menus.",
+        Color32::from_rgb(0x5a, 0x64, 0x6f),
+        Color32::from_rgb(0xa8, 0x9c, 0x88)
+    ),
+    (
         line,
         "Separators and scrollbar thumbs.",
         Color32::from_rgb(0x23, 0x28, 0x2d),
@@ -311,6 +323,53 @@ pub fn install(context: &Context) {
     ]
     .into();
     context.set_style(style);
+}
+
+/// Menus: a raised surface well clear of the timeline and panels, a
+/// visible outline and a deep shadow, so a menu never melts into what is
+/// under it.
+pub fn menu_visuals(visuals: &mut egui::Visuals) {
+    visuals.window_fill = menu();
+    visuals.window_stroke = egui::Stroke::new(1.0_f32, menu_outline());
+    visuals.popup_shadow = egui::Shadow {
+        offset: [0, 6],
+        blur: 18,
+        spread: 1,
+        color: egui::Color32::from_black_alpha(if light() { 70 } else { 200 }),
+    };
+    visuals.widgets.hovered.weak_bg_fill = accent().gamma_multiply(0.30);
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
+    visuals.widgets.open.weak_bg_fill = accent().gamma_multiply(0.22);
+}
+
+/// Runs `show` with [`menu_visuals`] on `context`, for menus that egui
+/// draws from the context's style (popups take it when they open).
+pub fn with_menu_style<R>(context: &Context, show: impl FnOnce() -> R) -> R {
+    let before = context.style();
+    let mut style = (*before).clone();
+    menu_visuals(&mut style.visuals);
+    context.set_style(style);
+    let result = show();
+    context.set_style(before);
+    result
+}
+
+/// Right-click menus with [`menu_visuals`].
+pub trait ThemedMenu {
+    /// [`egui::Response::context_menu`], drawn with the menu look.
+    fn themed_context_menu(
+        &self,
+        add_contents: impl FnOnce(&mut egui::Ui),
+    ) -> Option<egui::InnerResponse<()>>;
+}
+
+impl ThemedMenu for egui::Response {
+    fn themed_context_menu(
+        &self,
+        add_contents: impl FnOnce(&mut egui::Ui),
+    ) -> Option<egui::InnerResponse<()>> {
+        with_menu_style(&self.ctx, || self.context_menu(add_contents))
+    }
 }
 
 /// The dark visuals derived from the palette.

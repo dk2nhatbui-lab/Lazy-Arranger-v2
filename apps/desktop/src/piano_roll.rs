@@ -175,6 +175,11 @@ pub struct RollClick {
     pub clip: Option<(TrackId, project::ClipId)>,
     /// True when Shift was held at the click.
     pub shift: bool,
+    /// Track whose audio part was hit, if any (timeline only).
+    pub audio: Option<TrackId>,
+    /// True when the click only selects: nothing is inserted on empty
+    /// space (the timeline).
+    pub select_only: bool,
 }
 
 /// What a drag on a note does.
@@ -627,6 +632,8 @@ pub fn show(
                 note,
                 clip: None,
                 shift: false,
+                audio: None,
+                select_only: false,
             }),
             ..RollOutcome::default()
         };
@@ -684,6 +691,8 @@ pub fn show(
         note: None,
         clip: None,
         shift: false,
+        audio: None,
+        select_only: false,
     };
     if let Some(track_id) = state.selected
         && let Some(track) = song.tracks.iter().find(|track| track.id == track_id)
@@ -697,6 +706,8 @@ pub fn show(
                         note: None,
                         clip: Some((track.id, clip.id)),
                         shift: ui.input(|input| input.modifiers.shift),
+                        audio: None,
+                        select_only: false,
                     }),
                     edit: None,
                     velocity: None,
@@ -730,6 +741,8 @@ pub fn show(
                         note: Some((track.id, note.id)),
                         clip: None,
                         shift: false,
+                        audio: None,
+                        select_only: false,
                     }),
                     edit: None,
                     velocity: None,

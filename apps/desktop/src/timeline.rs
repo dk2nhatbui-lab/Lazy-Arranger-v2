@@ -172,6 +172,17 @@ pub fn lane_color(index: usize) -> Color32 {
     theme::track_colour(index)
 }
 
+/// What is selected on the timeline.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Selection<'a> {
+    /// The selected track; its lane is lifted.
+    pub track: Option<TrackId>,
+    /// Selected MIDI parts.
+    pub clips: &'a [(TrackId, ClipId)],
+    /// The track whose audio part is selected.
+    pub audio: Option<TrackId>,
+}
+
 /// Draws the timeline and returns the same outcome shape as the piano roll.
 ///
 /// Cmd/Ctrl+wheel (or a pinch) zooms time around the pointer; with Shift
@@ -180,7 +191,7 @@ pub fn show(
     ui: &mut egui::Ui,
     song: &Song,
     position: Tick,
-    selected: Option<TrackId>,
+    selection: Selection<'_>,
     zoom: &mut Zoom,
     follow_playhead: bool,
     waveforms: &crate::app::WaveformCache,
@@ -189,7 +200,7 @@ pub fn show(
         ui,
         song,
         position,
-        selected,
+        selection,
         zoom,
         follow_playhead,
         None,
@@ -274,7 +285,7 @@ pub fn show_with_loop(
     ui: &mut egui::Ui,
     song: &Song,
     position: Tick,
-    selected: Option<TrackId>,
+    selection: Selection<'_>,
     zoom: &mut Zoom,
     follow_playhead: bool,
     loop_region: Option<(Tick, Tick)>,
@@ -341,7 +352,7 @@ pub fn show_with_loop(
             ui,
             song,
             position,
-            selected,
+            selection,
             width,
             *zoom,
             drag_id,
@@ -510,7 +521,7 @@ fn draw(
     ui: &mut egui::Ui,
     song: &Song,
     position: Tick,
-    selected: Option<TrackId>,
+    selection: Selection<'_>,
     width: f32,
     zoom: Zoom,
     drag_id: egui::Id,
@@ -518,6 +529,7 @@ fn draw(
     loop_region: Option<(Tick, Tick)>,
     waveforms: &crate::app::WaveformCache,
 ) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
+    let selected = selection.track;
     let lane_height = zoom.lane;
     let tracks = song.tracks.len().max(1);
     let height = RULER_HEIGHT + CHORD_HEIGHT + tracks as f32 * lane_height;
@@ -679,6 +691,7 @@ fn draw(
     let pointer = response.interact_pointer_pos();
     let mut clicked_track = None;
     let mut clicked_clip = None;
+    let mut clicked_audio = None;
     let mut clip_rects = Vec::new();
     for (index, track) in song.tracks.iter().enumerate() {
         let top = lane_top + index as f32 * lane_height;
@@ -704,14 +717,6 @@ fn draw(
                 theme::timeline()
             },
         );
-        if is_selected {
-            painter.rect_stroke(
-                lane,
-                0.0,
-                Stroke::new(2.0_f32, theme::accent()),
-                StrokeKind::Inside,
-            );
-        }
         painter.line_segment(
             [pos2(rect.left(), top), pos2(rect.right(), top)],
             Stroke::new(1.0_f32, theme::line()),
@@ -730,14 +735,17 @@ fn draw(
         // outline, a thin left accent, the name and the notes in dark ink.
         // A track with notes but no clips shows one part over the whole
         // song, as v1 does after a MIDI import.
-        let mut parts: Vec<(Tick, Tick, &str)> = track
+        let mut parts: Vec<(Tick, Tick, &str, bool)> = track
             .clips
             .iter()
-            .map(|clip| (clip.start, clip.end(), clip.name.as_str()))
+            .map(|clip| {
+                let chosen = selection.clips.contains(&(track.id, clip.id));
+                (clip.start, clip.end(), clip.name.as_str(), chosen)
+            })
             .collect();
         if parts.is_empty() && !track.notes.is_empty() {
             let to = ((song.end_tick() + bar - 1).div_euclid(bar) * bar).max(bar);
-            parts.push((0, to, track.name.as_str()));
+            parts.push((0, to, track.name.as_str(), false));
             // It can be moved and resized too; the edit makes it a clip.
             clip_rects.push((
                 track.id,
@@ -755,7 +763,7 @@ fn draw(
         } else {
             Color32::from_rgb(0x11, 0x14, 0x17)
         };
-        for (start, stop, name) in &parts {
+        for (start, stop, name, chosen) in &parts {
             // Arrangement::clipBounds: flush with the lane, 0.25 pt inset.
             let part = Rect::from_min_max(
                 pos2(x_for(*start), top + PART_INSET),
@@ -764,7 +772,13 @@ fn draw(
                     top + lane_height - PART_INSET,
                 ),
             );
-            painter.rect_filled(part, theme::RADIUS, color);
+            // A selected part is darker and outlined on its own edge.
+            let fill = if *chosen {
+                darken(color, SELECTED_DARKEN)
+            } else {
+                color
+            };
+            painter.rect_filled(part, theme::RADIUS, fill);
             painter.rect_stroke(
                 part,
                 theme::RADIUS,
@@ -815,6 +829,20 @@ fn draw(
                 }
             }
         }
+        for (start, stop, _, chosen) in &parts {
+            if *chosen {
+                outline_selected(
+                    &painter,
+                    Rect::from_min_max(
+                        pos2(x_for(*start), top + PART_INSET),
+                        pos2(
+                            x_for(*stop).max(x_for(*start) + 4.0),
+                            top + lane_height - PART_INSET,
+                        ),
+                    ),
+                );
+            }
+        }
         if let Some(audio) = &track.audio {
             let audio_start = audio.start.max(0);
             let audio_end = (audio_start + audio.length.max(1)).min(end.max(audio_start + 1));
@@ -832,12 +860,14 @@ fn draw(
             let overview = waveforms
                 .get(&track.id)
                 .map(|(_, overview)| overview.as_ref());
+            let audio_selected = selection.audio == Some(track.id);
             draw_audio_clip(
                 &painter,
                 block,
                 color,
                 name,
                 overview,
+                audio_selected,
                 &AudioGrid {
                     first_beat: (audio_start + beat - 1).div_euclid(beat) * beat,
                     end: audio_end,
@@ -871,6 +901,9 @@ fn draw(
                     Stroke::new(1.5_f32, theme::accent()),
                 );
             }
+            if audio_selected {
+                outline_selected(&painter, block);
+            }
         }
         if let Some(pointer) = pointer
             && lane.contains(pointer)
@@ -879,6 +912,12 @@ fn draw(
             let hit_tick = tick_for(pointer.x);
             if let Some(clip) = track.clips.iter().find(|clip| clip.contains(hit_tick)) {
                 clicked_clip = Some((track.id, clip.id));
+            }
+            if let Some(audio) = &track.audio
+                && hit_tick >= audio.start
+                && hit_tick < audio.start + audio.length.max(1)
+            {
+                clicked_audio = Some(track.id);
             }
         }
     }
@@ -1011,6 +1050,8 @@ fn draw(
             note: None,
             clip: clicked_clip,
             shift: ui.input(|input| input.modifiers.shift),
+            audio: clicked_clip.is_none().then_some(clicked_audio).flatten(),
+            select_only: true,
         });
         selected_track = clicked_track.or(selected);
     }
@@ -1054,10 +1095,16 @@ fn draw_audio_clip(
     colour: Color32,
     name: &str,
     overview: Option<&audio::waveform::Overview>,
+    selected: bool,
     grid: &AudioGrid,
 ) {
-    let body = tint(colour, 0.42);
-    let header_fill = tint(colour, 0.22);
+    // Selected: the full track colour instead of the pastel, so it reads
+    // clearly darker; the waveform ink stays the same.
+    let (body, header_fill) = if selected {
+        (darken(colour, SELECTED_DARKEN), darken(colour, 0.32))
+    } else {
+        (tint(colour, 0.42), tint(colour, 0.22))
+    };
     let edge = darken(colour, 0.9);
     painter.rect_filled(block, theme::RADIUS, body);
     let clipped = painter.with_clip_rect(block.intersect(painter.clip_rect()));
@@ -1146,6 +1193,20 @@ fn draw_audio_clip(
     );
 }
 
+/// How much a selected part's fill is darkened (see [`darken`]).
+const SELECTED_DARKEN: f32 = 0.18;
+
+/// Outlines a selected part along its own edge, inside it, so the box is
+/// never bigger than the part.
+fn outline_selected(painter: &egui::Painter, part: Rect) {
+    painter.rect_stroke(
+        part,
+        theme::RADIUS,
+        Stroke::new(2.0_f32, theme::text()),
+        StrokeKind::Inside,
+    );
+}
+
 fn darken(colour: Color32, amount: f32) -> Color32 {
     let keep = 1.0 / (1.0 + amount);
     Color32::from_rgb(
@@ -1225,7 +1286,7 @@ mod tests {
                         ui,
                         &song,
                         0,
-                        None,
+                        Selection::default(),
                         zoom,
                         false,
                         &crate::app::WaveformCache::new(),
@@ -1302,7 +1363,7 @@ mod tests {
                     ui,
                     &song,
                     0,
-                    None,
+                    Selection::default(),
                     &mut zoom,
                     false,
                     &crate::app::WaveformCache::new(),
@@ -1311,7 +1372,7 @@ mod tests {
                     ui,
                     &song,
                     960,
-                    None,
+                    Selection::default(),
                     &mut zoom,
                     false,
                     Some((0, 3840)),

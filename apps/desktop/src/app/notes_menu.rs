@@ -63,25 +63,16 @@ impl ShellApp {
         let Some(menu) = self.notes_menu else {
             return;
         };
-        let mut chosen = None;
-        let area = egui::Area::new(egui::Id::new("notes-context-menu"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(menu.pos)
-            .constrain(true)
-            .show(context, |ui| {
-                egui::Frame::menu(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(200.0);
-                    ui.style_mut().visuals.button_frame = false;
-                    ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                        chosen = self.notes_menu_items(ui, menu);
-                    });
-                });
-            });
-        let escape = context.input(|input| input.key_pressed(egui::Key::Escape));
-        if let Some(action) = chosen {
+        let (chosen, open) = super::popup_menu::show(
+            context,
+            egui::Id::new("notes-context-menu"),
+            menu.pos,
+            |ui| self.notes_menu_items(ui, menu),
+        );
+        if let Some(action) = chosen.flatten() {
             self.notes_menu = None;
             self.run_note_action(action);
-        } else if escape || area.response.clicked_elsewhere() {
+        } else if !open {
             self.notes_menu = None;
         }
     }
