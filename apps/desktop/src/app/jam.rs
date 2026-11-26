@@ -1,9 +1,17 @@
-//! Loops playback: launched slots play by rendering the jam ahead of time.
+//! Loops playback: launched slots swap in at the bar line.
 //!
-//! Audio here is rendered offline and then played. While a launch or stop
-//! waits for its bar line, the jam as it will sound after that bar is
-//! rendered in the background and loaded into a paused player. At the bar
-//! line the new player starts and the old one stops.
+//! When a launch or stop is queued, the jam as it will sound after the bar
+//! line is worked out at once. Each track whose sound changes gets a new
+//! lane, scheduled in the engine for the bar's exact sample: a synth lane is
+//! built straight away, a rendered lane renders in the background. So a
+//! scene change needs no render wait. A full render of the new jam runs in
+//! the background too and is swapped in after the bar, to make the song
+//! longer and to refresh what the app knows about the playing lanes.
+//!
+//! When a change cannot be made lane by lane (a track past the live lane
+//! limit, a SoundFont not loaded yet, a player at another rate), the jam
+//! falls back to rendering in full and switching to a new player at the
+//! bar.
 
 use super::*;
 use arranging::loops::{Change, Launcher};
@@ -18,10 +26,32 @@ pub(super) struct JamNext {
     tick: Tick,
     /// The waiting changes it was rendered for.
     pending: std::collections::BTreeMap<TrackId, Option<usize>>,
-    /// The render, while it runs.
+    /// The render, while it runs: the new player's song, or the refresh
+    /// after scheduled swaps.
     receiver: Option<std::sync::mpsc::Receiver<Result<RenderedSong, String>>>,
     /// The loaded, paused player.
     player: Option<audio::player::Player>,
+    /// The new player's lane state, to swap edits into it.
+    synths: Option<live_mix::SynthState>,
+    /// Lanes scheduled in the playing engine instead of a new player, and
+    /// the rendered ones still on their way.
+    swapped: Option<live_mix::JamLanes>,
+    /// A finished refresh render, held until the bar line passes.
+    refresh: Option<RenderedSong>,
+}
+
+impl JamNext {
+    fn new(tick: Tick, pending: std::collections::BTreeMap<TrackId, Option<usize>>) -> Self {
+        Self {
+            tick,
+            pending,
+            receiver: None,
+            player: None,
+            synths: None,
+            swapped: None,
+            refresh: None,
+        }
+    }
 }
 
 impl ShellApp {
@@ -115,15 +145,30 @@ impl ShellApp {
         self.prepare_jam();
     }
 
-    /// Starts rendering the jam for the next bar line, unless one for the
-    /// same waiting changes already runs.
+    /// Schedules the jam for the next bar line, unless it is already
+    /// scheduled for the same waiting changes.
     fn prepare_jam(&mut self) {
-        if self.launcher.pending.is_empty() {
-            self.jam_next = None;
-            return;
-        }
         let bar = self.bar();
         let tick = (self.position.max(0).div_euclid(bar) + 1) * bar;
+        if self.launcher.pending.is_empty() {
+            // Undo lanes already scheduled for a launch that was taken back.
+            let scheduled = self
+                .jam_next
+                .take()
+                .filter(|next| next.swapped.is_some() && self.position < next.tick);
+            if let Some(mut next) = scheduled {
+                if let (Some(lanes), Some(state)) = (next.swapped.take(), &mut self.synth_state) {
+                    state.forget(lanes);
+                }
+                let song = self.jam_song(&self.launcher.now_playing(), next.tick);
+                if let Some(lanes) = self.schedule_jam(&song, next.tick) {
+                    let mut revert = JamNext::new(next.tick, self.launcher.pending.clone());
+                    revert.swapped = Some(lanes);
+                    self.jam_next = Some(revert);
+                }
+            }
+            return;
+        }
         if self
             .jam_next
             .as_ref()
@@ -135,26 +180,85 @@ impl ShellApp {
         after.commit(tick);
         if !after.active() {
             // Everything stops at the bar line; nothing to render.
-            self.jam_next = Some(JamNext {
-                tick,
-                pending: self.launcher.pending.clone(),
-                receiver: None,
-                player: None,
-            });
+            self.jam_next = Some(JamNext::new(tick, self.launcher.pending.clone()));
             return;
         }
         let song = self.jam_song(&after.now_playing(), tick);
-        let receiver = self.spawn_render(song, false);
-        self.jam_next = Some(JamNext {
-            tick,
-            pending: self.launcher.pending.clone(),
-            receiver: Some(receiver),
-            player: None,
-        });
+        let mut next = JamNext::new(tick, self.launcher.pending.clone());
+        next.swapped = self.schedule_jam(&song, tick);
+        // With swaps scheduled this is the refresh; otherwise the new player.
+        next.receiver = Some(self.spawn_render(song, false));
+        self.jam_next = Some(next);
     }
 
-    /// Each frame while playing: load a finished jam render, and switch to
-    /// it at its bar line.
+    /// Schedules the lanes that change in `song` for the bar at `tick` in
+    /// the playing engine, or returns `None` when that cannot be done.
+    fn schedule_jam(&mut self, song: &Song, tick: Tick) -> Option<live_mix::JamLanes> {
+        self.forget_scheduled();
+        let player = self.player.as_ref().filter(|player| player.is_playing())?;
+        let seconds = self.editor.song().tempo_map.seconds_at(tick);
+        self.synth_state
+            .as_mut()?
+            .schedule_jam(song, player, seconds)
+    }
+
+    /// Drops the waiting launch, so lanes it still rendered are rendered
+    /// again by the next one.
+    fn forget_scheduled(&mut self) {
+        if let Some(lanes) = self.jam_next.as_mut().and_then(|next| next.swapped.take())
+            && let Some(state) = &mut self.synth_state
+        {
+            state.forget(lanes);
+        }
+    }
+
+    /// Each frame with scheduled swaps: send rendered lanes as they finish,
+    /// and after the bar line swap in the refresh render.
+    fn advance_swapped(&mut self) {
+        let Some(next) = &mut self.jam_next else {
+            return;
+        };
+        if let (Some(lanes), Some(player), Some(state)) =
+            (&mut next.swapped, &self.player, &self.synth_state)
+        {
+            state.schedule_lanes(lanes, player);
+        }
+        if let Some(receiver) = &next.receiver {
+            match receiver.try_recv() {
+                Ok(Ok(rendered)) => {
+                    next.receiver = None;
+                    next.refresh = Some(rendered);
+                }
+                Ok(Err(_)) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    // The scheduled lanes still play; the song just stays as
+                    // long as it was.
+                    next.receiver = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        if self.position < next.tick {
+            return;
+        }
+        if !next.pending.is_empty() && next.pending == self.launcher.pending {
+            self.launcher.commit(next.tick);
+        }
+        if next.receiver.is_some() {
+            return;
+        }
+        let Some(next) = self.jam_next.take() else {
+            return;
+        };
+        if let (Some(rendered), Some(player)) = (next.refresh, &self.player) {
+            match player.load(rendered.audio) {
+                Ok(()) => self.synth_state = rendered.synths.fit(player.sample_rate()),
+                Err(error) => self.status = Some(format!("audio: {error}")),
+            }
+        }
+    }
+
+    /// Each frame while playing: send scheduled lanes, or load a finished
+    /// jam render and switch to it at its bar line.
     pub(super) fn advance_launcher(&mut self) {
         if !self.launcher.active() {
             self.jam_next = None;
@@ -167,6 +271,14 @@ impl ShellApp {
             if stale {
                 self.prepare_jam();
             }
+        }
+        if self
+            .jam_next
+            .as_ref()
+            .is_some_and(|next| next.swapped.is_some())
+        {
+            self.advance_swapped();
+            return;
         }
         // Load a finished render into a paused player.
         if let Some(next) = &mut self.jam_next
@@ -184,6 +296,7 @@ impl ShellApp {
                         Ok(player) => {
                             let _ = player
                                 .seek_seconds(self.editor.song().tempo_map.seconds_at(next.tick));
+                            next.synths = rendered.synths.fit(player.sample_rate());
                             next.player = Some(player);
                         }
                         Err(error) => self.status = Some(format!("audio: {error}")),
@@ -225,6 +338,7 @@ impl ShellApp {
             Some(player) => {
                 player.play();
                 self.player = Some(player);
+                self.synth_state = next.synths;
                 self.playing = true;
             }
             None => {

@@ -312,6 +312,22 @@ impl Playback {
             .map_err(|_| String::from("the audio engine is busy"))
     }
 
+    /// Replaces one track's lane when playback reaches `frame`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when too many swaps are still waiting.
+    pub fn schedule_swap(
+        &mut self,
+        frame: usize,
+        track: project::TrackId,
+        swap: crate::engine::Swap,
+    ) -> Result<(), String> {
+        self.control
+            .schedule(frame, track, swap)
+            .map_err(|_| String::from("the audio engine is busy"))
+    }
+
     /// Frees graphs the engine has handed back.
     pub fn collect_garbage(&mut self) -> usize {
         self.control.collect_garbage()
@@ -510,6 +526,16 @@ impl Player {
     /// Returns a message when no device or supported configuration exists.
     pub fn new(audio: RenderedAudio) -> Result<Self, String> {
         Self::new_on(audio, None, None)
+    }
+
+    /// Opens the default output device for a live render: synth tracks
+    /// play in the callback, so a preview starts without a render wait.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when no device or supported configuration exists.
+    pub fn new_live(render: LiveRender) -> Result<Self, String> {
+        Self::new_live_on(render, None, None)
     }
 
     /// Opens a named output device with an optional fixed buffer size.
@@ -782,6 +808,29 @@ impl Player {
         guard
             .0
             .send_lane(track, samples)
+            .map_err(|_| String::from("the audio engine is busy"))
+    }
+
+    /// Replaces one track's lane when playback reaches `frame`, to the
+    /// sample: a loop launch on the bar line. The lane must be built at
+    /// [`Player::sample_rate`] with the playing graph's delays.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when too many swaps are still waiting.
+    pub fn schedule_swap(
+        &self,
+        frame: usize,
+        track: project::TrackId,
+        swap: crate::engine::Swap,
+    ) -> Result<(), String> {
+        let mut guard = self
+            .control
+            .lock()
+            .map_err(|_| String::from("the audio engine is unavailable"))?;
+        guard
+            .0
+            .schedule(frame, track, swap)
             .map_err(|_| String::from("the audio engine is busy"))
     }
 
@@ -1244,6 +1293,80 @@ mod tests {
         playback.load(lane(1.0)).expect("load");
         playback.fill(&mut output);
         assert!(output.iter().all(|sample| (sample - 0.25).abs() < 1e-6));
+    }
+
+    #[test]
+    fn a_scheduled_swap_lands_on_its_frame() {
+        let song = live_song(100);
+        let render = LiveRender {
+            fixed: RenderedAudio {
+                samples: vec![0.0; 512],
+                sample_rate: 48_000,
+            },
+            lanes: vec![vec![0.5; 512]],
+            tracks: vec![song.tracks[0].id],
+            gains: vec![(1.0, 1.0)],
+            master_gain: 1.0,
+            limiter: false,
+            ..LiveRender::default()
+        };
+        let mut playback = Playback::new_live(render);
+        playback.play();
+        // Frame 37 sits inside a quantum and inside the second callback.
+        playback
+            .schedule_swap(
+                37,
+                song.tracks[0].id,
+                crate::engine::Swap::Buffer(vec![1.0; 512]),
+            )
+            .expect("schedule");
+        let mut output = vec![0.0_f32; 256];
+        for chunk in output.chunks_mut(50) {
+            playback.fill(chunk);
+        }
+        for (index, sample) in output.iter().enumerate() {
+            let expected = if index < 74 { 0.5 } else { 1.0 };
+            assert!(
+                (sample - expected).abs() < 1e-6,
+                "sample {index} is {sample}, expected {expected}"
+            );
+        }
+        assert_eq!(playback.collect_garbage(), 1, "the old buffer comes back");
+    }
+
+    #[test]
+    fn a_scheduled_synth_lane_takes_over_mid_note() {
+        let low = crate::live::render(&note_song(60), 8_000).mixdown();
+        let high = crate::live::render(&note_song(72), 8_000).mixdown();
+        let render = crate::live::render(&note_song(60), 8_000);
+        let delay = render.synth_delay;
+        let mut playback = Playback::new_live(render);
+        playback.play();
+        let song = note_song(72);
+        let lane = crate::synth::SynthLane::build(&song, &song.tracks[0], None, 8_000, delay);
+        let frame = 1_001;
+        playback
+            .schedule_swap(
+                frame,
+                song.tracks[0].id,
+                crate::engine::Swap::Synth(Box::new(lane)),
+            )
+            .expect("schedule");
+        let mut output = vec![0.0_f32; low.samples.len()];
+        for chunk in output.chunks_mut(256) {
+            playback.fill(chunk);
+        }
+        let expected: Vec<f32> = low.samples[..frame * 2]
+            .iter()
+            .chain(&high.samples[frame * 2..])
+            .copied()
+            .collect();
+        let worst = output
+            .iter()
+            .zip(&expected)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(worst < 1e-5, "the swap is off by {worst}");
     }
 
     fn note_song(pitch: u8) -> project::song::Song {

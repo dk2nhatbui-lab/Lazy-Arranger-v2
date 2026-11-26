@@ -54,7 +54,8 @@ fn stem_export_writes_files_and_a_manifest() {
 fn wav_export_writes_a_24_bit_file() {
     let song = arranging::demo::demo_song();
     let path = std::env::temp_dir().join("lazy-arranger-export-shell.wav");
-    let (seconds, problems) = export_wav_file(&song, &path).expect("wav");
+    let (seconds, problems) =
+        export_wav_file(&song, &path, audio::master::Master::default()).expect("wav");
     assert!(seconds > 0.0);
     assert_eq!(problems, 0);
     let bytes = std::fs::read(&path).expect("read");

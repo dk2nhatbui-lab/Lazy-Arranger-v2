@@ -219,8 +219,8 @@ impl ShellApp {
         }
         let mut song = Song::new("Preview", 120.0);
         song.tracks.push(track);
-        let rendered = audio::render(&song, audio::SAMPLE_RATE);
-        self.preview_player = audio::player::Player::new(rendered).ok();
+        let rendered = audio::live::render(&song, audio::SAMPLE_RATE);
+        self.preview_player = audio::player::Player::new_live(rendered).ok();
     }
 
     /// The Drums view.

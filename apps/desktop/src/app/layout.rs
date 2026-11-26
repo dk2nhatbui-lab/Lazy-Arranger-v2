@@ -5145,8 +5145,8 @@ impl ShellApp {
                 }
             }
             song.tracks.push(track);
-            let rendered = audio::render(&song, audio::SAMPLE_RATE);
-            match audio::player::Player::new(rendered) {
+            let rendered = audio::live::render(&song, audio::SAMPLE_RATE);
+            match audio::player::Player::new_live(rendered) {
                 Ok(player) => {
                     self.perform_player = Some(player);
                     self.status = Some(chord.format(music_core::Spelling::Sharp));

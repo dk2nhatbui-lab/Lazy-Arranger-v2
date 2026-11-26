@@ -208,6 +208,112 @@ impl SynthState {
         false
     }
 
+    /// Schedules every lane that sounds different in `song` (the jam after
+    /// a launch) to take over when playback reaches `seconds`, the launch's
+    /// bar line. Synth lanes are built here; rendered lanes render in the
+    /// background and come back as receivers for [`Self::schedule_lane`].
+    ///
+    /// Returns `None`, having sent nothing, when the change cannot be made
+    /// lane by lane: a track that is not live, or a new SoundFont.
+    pub(super) fn schedule_jam(
+        &mut self,
+        song: &Song,
+        player: &audio::player::Player,
+        seconds: f64,
+    ) -> Option<JamLanes> {
+        let mut synths = Vec::new();
+        let mut renders = Vec::new();
+        for track in &song.tracks {
+            if let Some((_, built)) = self.tracks.iter().find(|entry| entry.0 == track.id) {
+                if !audio::synth::can_play(track) {
+                    return None;
+                }
+                let signature = audio::synth::signature(song, track);
+                if signature == *built {
+                    continue;
+                }
+                let font = match &track.soundfont {
+                    Some(reference) => {
+                        Some(std::sync::Arc::clone(self.fonts.get(&reference.path)?))
+                    }
+                    None => None,
+                };
+                synths.push((track.id, signature, font));
+            } else if let Some((_, built)) = self.lanes.iter().find(|entry| entry.0 == track.id) {
+                let signature = audio::live::lane_signature(song, track);
+                if signature != *built {
+                    renders.push((track.id, signature));
+                }
+            } else {
+                // Baked into the fixed part of the render.
+                return None;
+            }
+        }
+        // The lane's notes start `delay` frames late; so does the launch.
+        let frame = (seconds.max(0.0) * f64::from(self.rate)).round() as usize + self.delay;
+        for (id, signature, font) in synths {
+            let Some(track) = song.tracks.iter().find(|track| track.id == id) else {
+                continue;
+            };
+            let lane = audio::synth::SynthLane::build(song, track, font, self.rate, self.delay);
+            if player
+                .schedule_swap(frame, id, audio::engine::Swap::Synth(Box::new(lane)))
+                .is_ok()
+                && let Some(entry) = self.tracks.iter_mut().find(|entry| entry.0 == id)
+            {
+                entry.1 = signature;
+            }
+        }
+        let pending = renders
+            .into_iter()
+            .map(|(id, signature)| {
+                if let Some(entry) = self.lanes.iter_mut().find(|entry| entry.0 == id) {
+                    entry.1 = signature;
+                }
+                let (sender, receiver) = std::sync::mpsc::channel();
+                let (song, rate) = (song.clone(), self.rate);
+                std::thread::spawn(move || {
+                    let _ = sender.send(audio::live::render_lane(&song, rate, id));
+                });
+                (id, receiver)
+            })
+            .collect();
+        Some(JamLanes { frame, pending })
+    }
+
+    /// Forgets the lanes of a launch that were still rendering, so the
+    /// next launch renders them again.
+    pub(super) fn forget(&mut self, lanes: JamLanes) {
+        for (id, _) in lanes.pending {
+            if let Some(entry) = self.lanes.iter_mut().find(|entry| entry.0 == id) {
+                entry.1 = 0;
+            }
+        }
+    }
+
+    /// Schedules the rendered lanes of a launch that have finished.
+    pub(super) fn schedule_lanes(&self, lanes: &mut JamLanes, player: &audio::player::Player) {
+        let frame = lanes.frame;
+        lanes
+            .pending
+            .retain(|(id, receiver)| match receiver.try_recv() {
+                Err(std::sync::mpsc::TryRecvError::Empty) => true,
+                Ok(Some(lane)) => {
+                    // A latency change needs a full render, which the jam
+                    // starts anyway after the launch.
+                    if lane.delay == self.delay && lane.bus_delay == self.bus_delay {
+                        let _ = player.schedule_swap(
+                            frame,
+                            *id,
+                            audio::engine::Swap::Buffer(lane.samples),
+                        );
+                    }
+                    false
+                }
+                Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => false,
+            });
+    }
+
     fn swap_envelopes(&mut self, song: &Song, player: &audio::player::Player) {
         for (id, built) in &mut self.envelopes {
             let Some(track) = song.tracks.iter().find(|track| track.id == *id) else {
@@ -304,6 +410,17 @@ impl SynthState {
             }
         }
     }
+}
+
+/// The lanes of a launch that are still rendering, and the frame they take
+/// over at.
+#[derive(Debug)]
+pub(super) struct JamLanes {
+    frame: usize,
+    pending: Vec<(
+        TrackId,
+        std::sync::mpsc::Receiver<Option<audio::live::LaneRender>>,
+    )>,
 }
 
 /// A background render that will replace the playing buffer.

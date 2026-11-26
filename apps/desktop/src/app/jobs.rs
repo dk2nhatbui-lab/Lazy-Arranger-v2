@@ -152,8 +152,8 @@ impl ShellApp {
         let message = message.into();
         self.start_job(
             audition_label(slot),
-            move || audio::render(&song, audio::SAMPLE_RATE),
-            move |app, rendered| match audio::player::Player::new(rendered) {
+            move || audio::live::render(&song, audio::SAMPLE_RATE),
+            move |app, rendered| match audio::player::Player::new_live(rendered) {
                 Ok(player) => {
                     player.play();
                     match slot {

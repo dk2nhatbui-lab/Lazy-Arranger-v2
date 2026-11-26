@@ -36,8 +36,11 @@ pub struct Meter {
 }
 
 /// Applies gain and, when enabled, a soft limiter that keeps samples within
-/// -1..=1.
-pub fn apply(rendered: &mut RenderedAudio, master: Master) {
+/// -1..=1, over a whole mix: the offline reference the engine's master
+/// stage is tested against. Playback and export run [`Effects`] and
+/// [`finish`] in the engine.
+#[cfg(test)]
+pub(crate) fn apply(rendered: &mut RenderedAudio, master: Master) {
     let gain = gain(master.gain_db);
     for sample in &mut rendered.samples {
         *sample *= gain;
@@ -54,11 +57,13 @@ pub fn gain(gain_db: f32) -> f32 {
     10.0_f32.powf(gain_db / 20.0)
 }
 
-/// Applies the chorus and reverb only.
+/// Applies the chorus and reverb only, over a whole mix (the offline
+/// reference).
 ///
 /// Both are linear, so running them on parts of a mix and summing the parts
 /// gives the same result as running them on the whole mix.
-pub fn apply_effects(rendered: &mut RenderedAudio, master: Master) {
+#[cfg(test)]
+pub(crate) fn apply_effects(rendered: &mut RenderedAudio, master: Master) {
     let chorus = master.chorus.clamp(0.0, 1.0);
     let reverb = master.reverb.clamp(0.0, 1.0);
     if chorus <= 0.0 && reverb <= 0.0 {
