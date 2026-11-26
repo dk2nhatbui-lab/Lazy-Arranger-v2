@@ -6,6 +6,11 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 ## [Unreleased]
 
 ### Fixed
+- A plug-in that can't keep up while the song plays is turned off for the
+  session, and its track plays dry, instead of making the sound stutter.
+  A plug-in that stops responding no longer freezes playback: after two
+  seconds the app restarts playback without it and says which plug-in it
+  was.
 - Mixer faders, pans, mute, solo, bus faders and the master fader are heard
   right away while the song plays, for MIDI and audio tracks. Before, each
   move waited for the whole song to render again. This now holds for

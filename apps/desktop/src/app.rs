@@ -5036,6 +5036,7 @@ impl eframe::App for ShellApp {
         self.sync_monitor();
         self.poll_render(context);
         self.poll_live_remix(context);
+        self.poll_watchdog();
         let _ = frame;
         // ADR-011: paint the first themed frame before the window becomes visible.
         let mut style = (*context.style()).clone();

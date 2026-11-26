@@ -812,6 +812,16 @@ impl Graph {
     /// Plays the whole graph from the start, as playback would, into a new
     /// buffer.
     pub(crate) fn render_all(mut self) -> Vec<f32> {
+        // Faster than real time: a slow plug-in only makes the export slower.
+        for inserts in self
+            .lanes
+            .iter_mut()
+            .filter_map(|lane| lane.inserts.as_deref_mut())
+            .chain(self.buses.iter_mut().map(|bus| &mut *bus.inserts))
+            .chain(self.master_inserts.as_deref_mut())
+        {
+            inserts.set_realtime(false);
+        }
         let mut output = vec![0.0; self.len()];
         for (index, chunk) in output.chunks_mut(QUANTUM * 2).enumerate() {
             self.render(chunk, index * QUANTUM * 2);

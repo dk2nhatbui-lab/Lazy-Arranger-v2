@@ -502,6 +502,39 @@ impl ShellApp {
         }
     }
 
+    /// Handles a live plug-in the watchdog gave up on: a slow one already
+    /// plays dry, so the mix renders again without it; a hung one has
+    /// stalled the audio thread, so that player is abandoned and playback
+    /// starts again without the plug-in.
+    pub(super) fn poll_watchdog(&mut self) {
+        let Some(stall) = audio::watchdog::stalled() else {
+            return;
+        };
+        let name = audio::watchdog::name(&stall.key);
+        if !stall.hung {
+            self.mix_rendered = 0;
+            self.status = Some(format!(
+                "{name} could not keep up and was turned off for this session"
+            ));
+            return;
+        }
+        self.status = Some(format!(
+            "{name} stopped responding; playback restarted without it"
+        ));
+        let Some(player) = self.player.take() else {
+            return;
+        };
+        let was_playing = player.is_playing();
+        player.abandon();
+        self.live_remix = None;
+        self.synth_state = None;
+        self.jam_next = None;
+        self.playing = false;
+        if was_playing {
+            self.toggle_playback();
+        }
+    }
+
     /// Replaces the playing buffer with a new render, keeping the position.
     fn swap_in_render(&mut self, rendered: RenderedSong, signature: u64) {
         let Some(player) = &self.player else {

@@ -24,6 +24,7 @@ pub mod record;
 pub mod soundfont;
 pub mod spsc;
 pub mod synth;
+pub mod watchdog;
 pub mod wav;
 pub mod waveform;
 
@@ -2908,6 +2909,21 @@ mod tests {
             bypassed: false,
             state: String::new(),
         }
+    }
+
+    #[test]
+    fn a_blocked_plugin_is_left_out_of_live_chains() {
+        let Some(bundle) = test_gain_bundle("watchdog") else {
+            return;
+        };
+        let slot = gain_slot(&bundle, "");
+        let slots = [slot.clone()];
+        assert_eq!(
+            crate::inserts::Inserts::from_slots(&slots, SAMPLE_RATE).len(),
+            1
+        );
+        crate::watchdog::block(&crate::watchdog::key(&slot));
+        assert!(crate::inserts::Inserts::from_slots(&slots, SAMPLE_RATE).is_empty());
     }
 
     #[test]

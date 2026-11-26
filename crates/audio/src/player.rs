@@ -844,6 +844,15 @@ impl Player {
     pub fn release(self) {
         drop(self.stream);
     }
+
+    /// Lets go of a player whose audio thread is stuck in a plug-in (see
+    /// [`crate::watchdog`]). Dropping its stream would wait for that thread
+    /// forever, so the stream and its engine are leaked instead; a new
+    /// player can open the device again.
+    pub fn abandon(self) {
+        self.transport.pause();
+        std::mem::forget(self);
+    }
 }
 
 #[cfg(test)]

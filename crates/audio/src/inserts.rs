@@ -6,11 +6,15 @@
 //! swapping in a new chain instead of rendering the song again.
 //!
 //! A slot that does not open as a stereo effect (an instrument, a missing
-//! plug-in) is skipped, as the offline render skips it.
+//! plug-in) is skipped, as the offline render skips it. So is a plug-in the
+//! [`crate::watchdog`] blocked, and one it drops while playing passes its
+//! audio through dry.
 
 use std::hash::{Hash, Hasher};
 
 use plugin_host::RealtimeEffect;
+
+use crate::watchdog::{self, Watch};
 use project::song::{AutomationTarget, PluginFormat, PluginSlot, Track};
 
 /// Frames per block when a chain runs over a whole buffer.
@@ -19,7 +23,7 @@ const BLOCK: usize = 512;
 /// The opened effects of one track, in slot order.
 #[derive(Debug, Default)]
 pub struct Inserts {
-    effects: Vec<RealtimeEffect>,
+    effects: Vec<(RealtimeEffect, Watch)>,
     latency: usize,
 }
 
@@ -82,26 +86,29 @@ impl Inserts {
     #[must_use]
     pub fn from_slots(slots: &[PluginSlot], sample_rate: u32) -> Self {
         let rate = f64::from(sample_rate);
-        let effects: Vec<RealtimeEffect> = slots
+        let effects: Vec<(RealtimeEffect, Watch)> = slots
             .iter()
-            .filter(|slot| active(slot))
-            .filter_map(|slot| match slot.format {
-                PluginFormat::Vst3 => RealtimeEffect::vst3(
-                    std::path::Path::new(&slot.path),
-                    &slot.identifier,
-                    &slot.state,
-                    rate,
-                    BLOCK,
-                )
-                .ok(),
-                PluginFormat::AudioUnit => {
-                    RealtimeEffect::audio_unit(&slot.identifier, &slot.state, rate).ok()
-                }
+            .filter(|slot| active(slot) && !watchdog::is_blocked(slot))
+            .filter_map(|slot| {
+                let effect = match slot.format {
+                    PluginFormat::Vst3 => RealtimeEffect::vst3(
+                        std::path::Path::new(&slot.path),
+                        &slot.identifier,
+                        &slot.state,
+                        rate,
+                        BLOCK,
+                    )
+                    .ok(),
+                    PluginFormat::AudioUnit => {
+                        RealtimeEffect::audio_unit(&slot.identifier, &slot.state, rate).ok()
+                    }
+                }?;
+                Some((effect, Watch::new(slot, sample_rate)))
             })
             .collect();
         let latency = effects
             .iter()
-            .map(RealtimeEffect::latency_samples)
+            .map(|(effect, _)| effect.latency_samples())
             .fold(0_usize, usize::saturating_add);
         Self { effects, latency }
     }
@@ -126,12 +133,28 @@ impl Inserts {
 
     /// Runs interleaved stereo audio through the chain in place. Never
     /// allocates. An effect that rejects a block leaves it dry.
+    ///
+    /// Each effect is timed; one the watchdog dropped for being too slow is
+    /// skipped, so its audio passes through dry. Its latency stays in the
+    /// chain's delay, so the dry signal keeps its place in time only when the
+    /// effect reported none.
     pub fn process(&mut self, samples: &mut [f32]) {
-        for effect in &mut self.effects {
+        for (effect, watch) in &mut self.effects {
+            if watch.dropped() {
+                continue;
+            }
             let block = effect.max_block().max(1) * 2;
             for chunk in samples.chunks_mut(block) {
-                let _ = effect.process(chunk);
+                let _ = watch.run(chunk.len() / 2, || effect.process(chunk));
             }
+        }
+    }
+
+    /// Turns the slow-plug-in rule on (playback) or off (an export, which
+    /// runs faster than real time and may take as long as it needs).
+    pub(crate) fn set_realtime(&mut self, realtime: bool) {
+        for (_, watch) in &mut self.effects {
+            watch.realtime = realtime;
         }
     }
 
