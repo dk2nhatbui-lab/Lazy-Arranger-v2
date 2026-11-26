@@ -11,6 +11,10 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
   A plug-in that stops responding no longer freezes playback: after two
   seconds the app restarts playback without it and says which plug-in it
   was.
+- Audio clips and VST3 instruments play live while the song plays. A clip
+  move, trim or fade and a note edit on a plug-in instrument are heard at
+  once, with nothing rendered first. Audio Unit instruments are still
+  rendered before play.
 - Mixer faders, pans, mute, solo, bus faders and the master fader are heard
   right away while the song plays, for MIDI and audio tracks. Before, each
   move waited for the whole song to render again. This now holds for

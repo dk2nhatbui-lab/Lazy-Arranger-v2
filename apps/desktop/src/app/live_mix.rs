@@ -40,6 +40,12 @@ pub(super) struct SynthState {
     frames: usize,
     /// Each rendered lane and the fingerprint it was rendered from.
     lanes: Vec<(TrackId, u64)>,
+    /// Each clip lane, the fingerprint it was built from and its delay.
+    clips: Vec<(TrackId, u64, usize)>,
+    /// Decoded audio the clip lanes read, to build replacements.
+    sources: audio::clips::Sources,
+    /// Each live plug-in instrument and the fingerprint of its notes.
+    instruments: Vec<(TrackId, u64)>,
     /// The direct route's bus delay in the playing graph.
     bus_delay: usize,
     /// A lane being rendered again in the background.
@@ -78,14 +84,16 @@ impl SynthState {
         let inserts = render
             .tracks
             .iter()
-            .zip(&render.inserts)
-            .filter_map(|(id, chain)| {
+            .zip(render.inserts.iter().zip(&render.instruments))
+            .filter_map(|(id, (chain, instrument))| {
                 let track = song.tracks.iter().find(|track| track.id == *id)?;
                 audio::inserts::can_run_live(track).then(|| InsertLane {
                     chain: ChainId::Track(*id),
                     built: audio::inserts::signature(track),
                     latency: chain.as_ref().map_or(0, audio::inserts::Inserts::latency),
-                    live: chain.is_some(),
+                    // A live instrument's chain is only the slots after it;
+                    // any slot edit opens the instrument again.
+                    live: chain.is_some() && instrument.is_none(),
                 })
             })
             .chain(render.buses.iter().map(|bus| InsertLane {
@@ -114,14 +122,49 @@ impl SynthState {
         let lanes = render
             .tracks
             .iter()
-            .zip(&render.synths)
-            .filter(|(_, synth)| synth.is_none())
+            .zip(
+                render
+                    .synths
+                    .iter()
+                    .zip(render.clips.iter().zip(&render.instruments)),
+            )
+            .filter(|(_, (synth, (clips, instrument)))| {
+                synth.is_none() && clips.is_none() && instrument.is_none()
+            })
             .filter_map(|(id, _)| {
                 let track = song.tracks.iter().find(|track| track.id == *id)?;
                 Some((*id, audio::live::lane_signature(song, track)))
             })
             .collect();
+        let clips = render
+            .tracks
+            .iter()
+            .zip(render.clips.iter().zip(&render.inserts))
+            .filter(|(_, (clips, _))| clips.is_some())
+            .filter_map(|(id, (_, chain))| {
+                let track = song.tracks.iter().find(|track| track.id == *id)?;
+                let latency = chain.as_ref().map_or(0, audio::inserts::Inserts::latency);
+                Some((
+                    *id,
+                    audio::clips::signature(song, track),
+                    render.synth_delay.saturating_sub(latency),
+                ))
+            })
+            .collect();
+        let instruments = render
+            .tracks
+            .iter()
+            .zip(&render.instruments)
+            .filter(|(_, instrument)| instrument.is_some())
+            .filter_map(|(id, _)| {
+                let track = song.tracks.iter().find(|track| track.id == *id)?;
+                Some((*id, audio::instruments::signature(song, track)))
+            })
+            .collect();
         Self {
+            clips,
+            instruments,
+            sources: render.sources.clone(),
             fonts: render.fonts.iter().cloned().collect(),
             delay: render.synth_delay,
             rate: render.sample_rate(),
@@ -143,7 +186,9 @@ impl SynthState {
             && !(self.tracks.is_empty()
                 && self.inserts.is_empty()
                 && self.envelopes.is_empty()
-                && self.lanes.is_empty()))
+                && self.lanes.is_empty()
+                && self.clips.is_empty()
+                && self.instruments.is_empty()))
         .then_some(self)
     }
 
@@ -154,6 +199,8 @@ impl SynthState {
     pub(super) fn swap_edited(&mut self, song: &Song, player: &audio::player::Player) -> bool {
         let mut rerender = self.swap_inserts(song, player);
         self.swap_synths(song, player);
+        rerender |= self.swap_clips(song, player, 0);
+        self.swap_instruments(song, player, 0);
         self.swap_envelopes(song, player);
         rerender |= self.swap_lanes(song, player);
         rerender
@@ -239,6 +286,22 @@ impl SynthState {
                     None => None,
                 };
                 synths.push((track.id, signature, font));
+            } else if self.instruments.iter().any(|entry| entry.0 == track.id) {
+                if !audio::instruments::candidate(track) {
+                    return None;
+                }
+            } else if let Some((_, built, _)) = self.clips.iter().find(|entry| entry.0 == track.id)
+            {
+                if !audio::clips::can_stream(track) {
+                    return None;
+                }
+                if audio::clips::signature(song, track) != *built
+                    && audio::clips::placed(song, track)
+                        .iter()
+                        .any(|clip| !self.sources.contains_key(&clip.path))
+                {
+                    return None;
+                }
             } else if let Some((_, built)) = self.lanes.iter().find(|entry| entry.0 == track.id) {
                 let signature = audio::live::lane_signature(song, track);
                 if signature != *built {
@@ -264,6 +327,9 @@ impl SynthState {
                 entry.1 = signature;
             }
         }
+        // Clips build from decoded audio already in hand (checked above).
+        let _ = self.swap_clips(song, player, frame);
+        self.swap_instruments(song, player, frame);
         let pending = renders
             .into_iter()
             .map(|(id, signature)| {
@@ -312,6 +378,71 @@ impl SynthState {
                 }
                 Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => false,
             });
+    }
+
+    /// Builds the clip lane of every audio track whose clips changed from
+    /// the decoded audio in hand, and swaps it in when playback reaches
+    /// `frame` (0 for at once). Returns true when a clip reads a file not
+    /// decoded yet, which needs a new render.
+    fn swap_clips(&mut self, song: &Song, player: &audio::player::Player, frame: usize) -> bool {
+        let mut rerender = false;
+        for (id, built, delay) in &mut self.clips {
+            let Some(track) = song.tracks.iter().find(|track| track.id == *id) else {
+                continue;
+            };
+            // A track that stops streaming changes the render signature.
+            if !audio::clips::can_stream(track) {
+                continue;
+            }
+            let signature = audio::clips::signature(song, track);
+            if signature == *built {
+                continue;
+            }
+            *built = signature;
+            let Some(lane) = audio::clips::ClipLane::build(
+                song,
+                track,
+                self.rate,
+                *delay,
+                &mut self.sources,
+                false,
+            ) else {
+                rerender = true;
+                continue;
+            };
+            if player
+                .schedule_swap(frame, *id, audio::engine::Swap::Clips(Box::new(lane)))
+                .is_err()
+            {
+                // Try again next frame.
+                *built = 0;
+            }
+        }
+        rerender
+    }
+
+    /// Sends new notes to every live plug-in instrument whose notes changed,
+    /// taking over when playback reaches `frame` (0 for at once).
+    fn swap_instruments(&mut self, song: &Song, player: &audio::player::Player, frame: usize) {
+        for (id, built) in &mut self.instruments {
+            let Some(track) = song.tracks.iter().find(|track| track.id == *id) else {
+                continue;
+            };
+            if !audio::instruments::candidate(track) {
+                continue;
+            }
+            let signature = audio::instruments::signature(song, track);
+            if signature == *built {
+                continue;
+            }
+            let notes = audio::instruments::InstrumentNotes::build(song, track, self.rate);
+            if player
+                .schedule_swap(frame, *id, audio::engine::Swap::Notes(Box::new(notes)))
+                .is_ok()
+            {
+                *built = signature;
+            }
+        }
     }
 
     fn swap_envelopes(&mut self, song: &Song, player: &audio::player::Player) {

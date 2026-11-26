@@ -16,7 +16,8 @@
 
 use std::path::Path;
 
-use crate::{AuEffect, Vst3Effect};
+use crate::vst3_instrument::NoteEvent;
+use crate::{AuEffect, Vst3Effect, Vst3Instrument};
 
 /// The plug-in behind a [`RealtimeEffect`].
 #[derive(Debug)]
@@ -141,6 +142,78 @@ impl RealtimeEffect {
             pair[1] = self.out_right[frame];
         }
         true
+    }
+}
+
+/// A VST3 instrument prepared for the audio callback, under the same
+/// threading rules as [`RealtimeEffect`].
+#[derive(Debug)]
+pub struct RealtimeInstrument {
+    instrument: Vst3Instrument,
+    left: Vec<f32>,
+    right: Vec<f32>,
+}
+
+// SAFETY: see the module notes; one owner at a time, never shared.
+unsafe impl Send for RealtimeInstrument {}
+
+impl RealtimeInstrument {
+    /// Opens a VST3 instrument, loads its saved state and prepares it for
+    /// blocks of up to `max_block` frames.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the plug-in cannot be opened as an
+    /// instrument or rejects its state.
+    pub fn vst3(
+        bundle: &Path,
+        class_id: &str,
+        state: &str,
+        sample_rate: f64,
+        max_block: usize,
+    ) -> Result<Self, String> {
+        let mut instrument = Vst3Instrument::new(bundle, class_id, sample_rate, max_block)?;
+        if !state.is_empty() {
+            instrument.load_state_base64(state)?;
+        }
+        let block = instrument.max_block();
+        Ok(Self {
+            instrument,
+            left: vec![0.0; block],
+            right: vec![0.0; block],
+        })
+    }
+
+    /// Largest block [`RealtimeInstrument::process`] takes, in frames.
+    #[must_use]
+    pub fn max_block(&self) -> usize {
+        self.left.len()
+    }
+
+    /// Renders one block into interleaved stereo `output`, with `events`
+    /// (offsets inside the block, in time order). Never allocates. Returns
+    /// false, leaving `output` silent, when the block is too long or the
+    /// plug-in rejects it.
+    pub fn process(&mut self, output: &mut [f32], events: &[NoteEvent]) -> bool {
+        let frames = output.len() / 2;
+        if frames > self.left.len() {
+            output.fill(0.0);
+            return false;
+        }
+        let left = &mut self.left[..frames];
+        let right = &mut self.right[..frames];
+        left.fill(0.0);
+        right.fill(0.0);
+        let done = self.instrument.process_planar(left, right, events);
+        for (frame, pair) in output.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+            if done {
+                pair[0] = left[frame];
+                pair[1] = right[frame];
+            } else {
+                *pair = [0.0; 2];
+            }
+        }
+        done
     }
 }
 

@@ -853,43 +853,69 @@ impl IAudioProcessorTrait for SynthProcessor {
             return kInvalidArgument;
         }
         let process_data = &*data;
+        // Notes take effect at their sample offset, so the output does not
+        // depend on the block size.
+        let mut changes = [(0_i32, false, 0.0_f64); 64];
+        let mut count = 0;
         if let Some(events) = ComRef::from_raw(process_data.inputEvents) {
             for index in 0..events.getEventCount() {
                 let mut event: Event = std::mem::zeroed();
-                if events.getEvent(index, &mut event) != kResultOk {
+                if events.getEvent(index, &mut event) != kResultOk || count == changes.len() {
                     continue;
                 }
                 if event.r#type == Event_::EventTypes_::kNoteOnEvent as u16 {
                     let note = event.__field0.noteOn;
                     let frequency = 440.0 * 2.0_f64.powf((f64::from(note.pitch) - 69.0) / 12.0);
-                    self.frequency.store(frequency.to_bits(), Ordering::Relaxed);
-                    self.active.store(note.velocity > 0.0, Ordering::Relaxed);
+                    changes[count] = (event.sampleOffset, note.velocity > 0.0, frequency);
+                    count += 1;
                 } else if event.r#type == Event_::EventTypes_::kNoteOffEvent as u16 {
-                    self.active.store(false, Ordering::Relaxed);
+                    changes[count] = (event.sampleOffset, false, 0.0);
+                    count += 1;
                 }
             }
         }
+        let changes = &mut changes[..count];
+        changes.sort_by_key(|change| change.0);
+        let mut frequency = f64::from_bits(self.frequency.load(Ordering::Relaxed));
+        let mut active = self.active.load(Ordering::Relaxed);
+        let mut apply = |index: i32, frequency: &mut f64, active: &mut bool, next: &mut usize| {
+            while *next < changes.len() && changes[*next].0 <= index {
+                let (_, on, value) = changes[*next];
+                if on {
+                    *frequency = value;
+                }
+                *active = on;
+                *next += 1;
+            }
+        };
+        let mut next = 0;
         if process_data.numOutputs != 1
             || process_data.numSamples < 0
             || process_data.outputs.is_null()
         {
+            apply(i32::MAX, &mut frequency, &mut active, &mut next);
+            self.frequency.store(frequency.to_bits(), Ordering::Relaxed);
+            self.active.store(active, Ordering::Relaxed);
             return kResultOk;
         }
         let outputs = &*process_data.outputs;
-        if outputs.numChannels != 2 || outputs.__field0.channelBuffers32.is_null() {
-            return kResultOk;
-        }
         let channels = outputs.__field0.channelBuffers32;
         let num_samples = process_data.numSamples as usize;
-        if channels.is_null() || (*channels.add(0)).is_null() || (*channels.add(1)).is_null() {
+        if outputs.numChannels != 2
+            || channels.is_null()
+            || (*channels.add(0)).is_null()
+            || (*channels.add(1)).is_null()
+        {
+            apply(i32::MAX, &mut frequency, &mut active, &mut next);
+            self.frequency.store(frequency.to_bits(), Ordering::Relaxed);
+            self.active.store(active, Ordering::Relaxed);
             return kResultOk;
         }
         let left = *channels.add(0);
         let right = *channels.add(1);
-        let frequency = f64::from_bits(self.frequency.load(Ordering::Relaxed));
         let mut phase = f64::from_bits(self.phase.load(Ordering::Relaxed));
-        let active = self.active.load(Ordering::Relaxed);
         for index in 0..num_samples {
+            apply(index as i32, &mut frequency, &mut active, &mut next);
             let value = if active {
                 let sample = (std::f64::consts::TAU * phase).sin() * 0.25;
                 phase = (phase + frequency / 48_000.0).fract();
@@ -900,7 +926,10 @@ impl IAudioProcessorTrait for SynthProcessor {
             *left.add(index) = value;
             *right.add(index) = value;
         }
+        apply(i32::MAX, &mut frequency, &mut active, &mut next);
         self.phase.store(phase.to_bits(), Ordering::Relaxed);
+        self.frequency.store(frequency.to_bits(), Ordering::Relaxed);
+        self.active.store(active, Ordering::Relaxed);
         kResultOk
     }
 

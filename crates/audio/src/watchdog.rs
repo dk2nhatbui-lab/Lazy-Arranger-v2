@@ -100,9 +100,7 @@ pub fn block(key: &str) {
 #[must_use]
 pub fn is_blocked(slot: &PluginSlot) -> bool {
     let key = key(slot);
-    blocked_list()
-        .lock()
-        .is_ok_and(|list| list.contains(&key))
+    blocked_list().lock().is_ok_and(|list| list.contains(&key))
 }
 
 /// Every blocked plug-in key.

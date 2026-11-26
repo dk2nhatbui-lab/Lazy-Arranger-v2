@@ -10,12 +10,12 @@
 mod instance;
 mod module;
 mod realtime;
-pub use realtime::RealtimeEffect;
+pub use realtime::{RealtimeEffect, RealtimeInstrument};
 mod trust;
 pub use trust::{approve_vst3_bundle, default_vst3_roots, is_vst3_bundle_trusted};
 mod vst3_instrument;
 pub use instance::{Vst3Effect, Vst3ViewInfo};
-pub use vst3_instrument::Vst3Instrument;
+pub use vst3_instrument::{NoteEvent, Vst3Instrument};
 
 #[cfg(target_os = "macos")]
 mod au;
