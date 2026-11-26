@@ -124,6 +124,10 @@ pub fn save(directory: &Path, name: &str, groove: &Groove) -> Result<PathBuf, St
         })
         .collect();
     let path = directory.join(format!("{slug}.{EXTENSION}"));
+    // Never follow a link planted where the groove goes.
+    if std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Err(format!("{} is a symbolic link", path.display()));
+    }
     std::fs::write(&path, to_text(name, groove))
         .map_err(|error| format!("{}: {error}", path.display()))?;
     Ok(path)

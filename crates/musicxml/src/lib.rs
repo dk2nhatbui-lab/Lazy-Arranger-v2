@@ -40,7 +40,11 @@ pub fn note_type(duration: Tick) -> Option<&'static str> {
 }
 
 fn escape(text: &str) -> String {
-    text.replace('&', "&amp;")
+    // XML 1.0 forbids most control characters even when escaped.
+    text.chars()
+        .filter(|c| !c.is_control() || matches!(c, '\t' | '\n' | '\r'))
+        .collect::<String>()
+        .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
@@ -112,6 +116,9 @@ pub fn export(song: &Song, title: &str) -> String {
             .iter()
             .any(|note| note.channel.zero_based() == 9);
         let mut lyric_written: std::collections::HashSet<Tick> = std::collections::HashSet::new();
+        // Once per track, not once per bar.
+        let ties = tie_flags(track);
+        let slurs = slur_flags(track);
         for bar_index in 0..bars {
             let start = bar_index * bar;
             let stop = start + bar;
@@ -186,8 +193,6 @@ pub fn export(song: &Song, title: &str) -> String {
                     write_harmony(&mut out, chord.chord, chord.tick - start);
                 }
             }
-            let ties = tie_flags(track);
-            let slurs = slur_flags(track);
             let mut notes: Vec<&Note> = track
                 .notes
                 .iter()
@@ -260,7 +265,13 @@ fn tie_flags(track: &project::song::Track) -> std::collections::BTreeMap<u32, (b
             flags.entry(previous_id).or_default().0 = true;
             flags.entry(note.id.get()).or_default().1 = true;
         }
-        open.insert(pitch, (note.id.get(), note.start + note.duration.max(1)));
+        open.insert(
+            pitch,
+            (
+                note.id.get(),
+                note.start.saturating_add(note.duration.max(1)),
+            ),
+        );
     }
     flags
 }

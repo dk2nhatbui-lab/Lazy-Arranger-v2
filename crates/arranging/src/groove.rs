@@ -110,11 +110,11 @@ pub fn apply(notes: &[Note], groove: &Groove, amounts: Amounts) -> Vec<Note> {
             let slot = usize::try_from(note.start.rem_euclid(bar) / groove.grid)
                 .unwrap_or(0)
                 .min(groove.offsets.len() - 1);
-            let offset = groove.offsets.get(slot).copied().unwrap_or(0) as f32
-                * amounts.timing.clamp(0.0, 1.0);
-            let level = 1.0
-                + (groove.levels.get(slot).copied().unwrap_or(1.0) - 1.0)
-                    * amounts.accents.clamp(0.0, 1.0);
+            let offset =
+                groove.offsets.get(slot).copied().unwrap_or(0) as f32 * unit(amounts.timing);
+            let stored = groove.levels.get(slot).copied().unwrap_or(1.0);
+            let stored = if stored.is_finite() { stored } else { 1.0 };
+            let level = 1.0 + (stored - 1.0) * unit(amounts.accents);
             let velocity = (f32::from(note.velocity.as_u8()) * level)
                 .round()
                 .clamp(1.0, 127.0) as u8;
@@ -127,6 +127,15 @@ pub fn apply(notes: &[Note], groove: &Groove, amounts: Amounts) -> Vec<Note> {
             }
         })
         .collect()
+}
+
+/// `value` in `0.0..=1.0`; NaN or infinity count as no effect.
+fn unit(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
 }
 
 /// How closely two grooves match, 1.0 meaning identical.
@@ -147,10 +156,19 @@ pub fn feel_match(a: &Groove, b: &Groove) -> f64 {
         .levels
         .iter()
         .zip(&b.levels)
-        .map(|(left, right)| f64::from((left - right).abs()))
+        .map(|(left, right)| {
+            let gap = f64::from((left - right).abs());
+            // A broken level counts as the largest difference.
+            if gap.is_finite() { gap.min(1.0) } else { 1.0 }
+        })
         .sum::<f64>()
         / a.levels.len().max(1) as f64;
-    (1.0 - (timing + accent) / 2.0).clamp(0.0, 1.0)
+    let score = 1.0 - (timing + accent) / 2.0;
+    if score.is_finite() {
+        score.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
 }
 
 #[cfg(test)]

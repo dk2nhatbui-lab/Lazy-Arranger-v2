@@ -113,18 +113,24 @@ impl TimeSignature {
     #[must_use]
     pub const fn beat_boundary_at_or_after(self, tick: Tick) -> Tick {
         let beat = self.beat_ticks();
-        tick.saturating_add(beat - 1)
-            .div_euclid(beat)
-            .saturating_mul(beat)
+        // Near the end of the range there is no later boundary; never
+        // round down below `tick`.
+        match tick.checked_add(beat - 1) {
+            Some(end) => end.div_euclid(beat) * beat,
+            None => Tick::MAX,
+        }
     }
 
     /// First bar boundary at or after `tick`.
     #[must_use]
     pub const fn bar_boundary_at_or_after(self, tick: Tick) -> Tick {
         let bar = self.bar_ticks();
-        tick.saturating_add(bar - 1)
-            .div_euclid(bar)
-            .saturating_mul(bar)
+        // Near the end of the range there is no later boundary; never
+        // round down below `tick`.
+        match tick.checked_add(bar - 1) {
+            Some(end) => end.div_euclid(bar) * bar,
+            None => Tick::MAX,
+        }
     }
 
     /// First beat boundary strictly after `tick`.

@@ -1269,10 +1269,7 @@ pub fn set_output_root(root: &std::path::Path) -> Result<(), String> {
         .map_err(|_| String::from("MCP output root is already set"))
 }
 
-fn checked_output(path: &std::path::Path) -> Result<std::path::PathBuf, ToolError> {
-    let Some(Some(root)) = OUTPUT_ROOT.get() else {
-        return Ok(path.to_path_buf());
-    };
+fn reject_parent_dirs(path: &std::path::Path) -> Result<(), ToolError> {
     if path
         .components()
         .any(|component| matches!(component, std::path::Component::ParentDir))
@@ -1281,6 +1278,43 @@ fn checked_output(path: &std::path::Path) -> Result<std::path::PathBuf, ToolErro
             "output path must not contain ..",
         )));
     }
+    Ok(())
+}
+
+/// `resolved` must sit under `root` and must not pass through a hidden
+/// folder or file there (such as `.ssh` or `.bashrc` in a home folder).
+fn inside_root(resolved: &std::path::Path, root: &std::path::Path) -> Result<(), ToolError> {
+    let outside = || {
+        ToolError::Arguments(format!(
+            "output path must be under {} and not in a hidden folder",
+            root.display()
+        ))
+    };
+    let rest = resolved.strip_prefix(root).map_err(|_| outside())?;
+    if rest
+        .components()
+        .any(|component| component.as_os_str().to_string_lossy().starts_with('.'))
+    {
+        return Err(outside());
+    }
+    Ok(())
+}
+
+fn reject_symlink(path: &std::path::Path) -> Result<(), ToolError> {
+    if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Err(ToolError::Arguments(format!(
+            "output path {} is a symbolic link",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn checked_output(path: &std::path::Path) -> Result<std::path::PathBuf, ToolError> {
+    let Some(Some(root)) = OUTPUT_ROOT.get() else {
+        return Ok(path.to_path_buf());
+    };
+    reject_parent_dirs(path)?;
     let name = path
         .file_name()
         .ok_or_else(|| ToolError::Arguments(String::from("output path needs a file name")))?;
@@ -1291,20 +1325,55 @@ fn checked_output(path: &std::path::Path) -> Result<std::path::PathBuf, ToolErro
     let parent = std::fs::canonicalize(parent).map_err(|error| {
         ToolError::Arguments(format!("output directory {}: {error}", parent.display()))
     })?;
-    if !parent.starts_with(root) {
-        return Err(ToolError::Arguments(format!(
-            "output path must be under {}",
-            root.display()
-        )));
-    }
     let out = parent.join(name);
-    if std::fs::symlink_metadata(&out).is_ok_and(|meta| meta.file_type().is_symlink()) {
-        return Err(ToolError::Arguments(format!(
-            "output path {} is a symbolic link",
-            out.display()
-        )));
-    }
+    inside_root(&out, root)?;
+    reject_symlink(&out)?;
     Ok(out)
+}
+
+/// An output folder: it may be the output root itself or a folder below it,
+/// existing or not. Missing folders are resolved from their nearest existing
+/// parent, so a link cannot redirect them.
+fn checked_output_dir(path: &std::path::Path) -> Result<std::path::PathBuf, ToolError> {
+    let Some(Some(root)) = OUTPUT_ROOT.get() else {
+        return Ok(path.to_path_buf());
+    };
+    reject_parent_dirs(path)?;
+    let mut existing = if path.as_os_str().is_empty() {
+        std::path::Path::new(".")
+    } else {
+        path
+    };
+    let mut missing = Vec::new();
+    let base = loop {
+        match std::fs::canonicalize(existing) {
+            Ok(base) => break base,
+            Err(error) => {
+                let (Some(name), Some(parent)) = (existing.file_name(), existing.parent()) else {
+                    return Err(ToolError::Arguments(format!(
+                        "output directory {}: {error}",
+                        path.display()
+                    )));
+                };
+                missing.push(name.to_os_string());
+                existing = if parent.as_os_str().is_empty() {
+                    std::path::Path::new(".")
+                } else {
+                    parent
+                };
+            }
+        }
+    };
+    let resolved = missing.iter().rev().fold(base, |dir, name| dir.join(name));
+    inside_root(&resolved, root)?;
+    Ok(resolved)
+}
+
+/// A file inside a checked output folder; it must not be a planted link.
+fn checked_child(directory: &std::path::Path, name: &str) -> Result<std::path::PathBuf, ToolError> {
+    let path = directory.join(name);
+    reject_symlink(&path)?;
+    Ok(path)
 }
 
 /// Whether `directory` sits inside one of the standard plug-in folders.
@@ -2545,7 +2614,7 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .get("directory")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ToolError::Arguments(String::from("directory is required")))?;
-            let directory = checked_output(std::path::Path::new(raw))?;
+            let directory = checked_output_dir(std::path::Path::new(raw))?;
             let sample_rate = arguments
                 .get("sample_rate")
                 .and_then(Value::as_u64)
@@ -2569,16 +2638,16 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                     })
                     .collect();
                 let file = format!("{}-{slug}.wav", stem.track.get());
-                std::fs::write(directory.join(&file), stem.audio.to_wav()).map_err(|error| {
-                    ToolError::Arguments(format!("{}: {error}", directory.display()))
-                })?;
+                std::fs::write(checked_child(&directory, &file)?, stem.audio.to_wav()).map_err(
+                    |error| ToolError::Arguments(format!("{}: {error}", directory.display())),
+                )?;
                 manifest.push_str(&format!(
                     "{}\t{file}\t{:.2}s\n",
                     stem.name,
                     stem.audio.duration_seconds()
                 ));
             }
-            std::fs::write(directory.join("stems.txt"), manifest).map_err(|error| {
+            std::fs::write(checked_child(&directory, "stems.txt")?, manifest).map_err(|error| {
                 ToolError::Arguments(format!("{}: {error}", directory.display()))
             })?;
             Ok(json!({"directory": directory.display().to_string(), "stems": stems.len()}))
@@ -3570,7 +3639,7 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             let grid = (4 * music_core::PPQ / grid.max(1) as i64).max(1);
             let groove = arranging::groove::extract(&notes, bar, grid)
                 .ok_or_else(|| ToolError::Arguments(String::from("no groove")))?;
-            let dir = checked_output(std::path::Path::new(dir))?;
+            let dir = checked_output_dir(std::path::Path::new(dir))?;
             let path = arranging::groove_file::save(&dir, name, &groove)
                 .map_err(|error| ToolError::Arguments(error.to_string()))?;
             Ok(json!({
@@ -3995,7 +4064,7 @@ fn list_grooves(arguments: &Value) -> Result<Value, ToolError> {
         .get("directory")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::Arguments(String::from("directory is required")))?;
-    let directory = checked_output(std::path::Path::new(&directory))?;
+    let directory = checked_output_dir(std::path::Path::new(&directory))?;
     let entries = arranging::groove_file::list(std::path::Path::new(&directory))
         .map_err(ToolError::Arguments)?;
     Ok(json!({
@@ -4016,7 +4085,7 @@ fn save_groove(session: &mut EditSession, arguments: &Value) -> Result<Value, To
         .get("directory")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::Arguments(String::from("directory is required")))?;
-    let directory = checked_output(std::path::Path::new(&directory))?;
+    let directory = checked_output_dir(std::path::Path::new(&directory))?;
     let entry = session
         .song()
         .tracks
@@ -4041,7 +4110,7 @@ fn apply_groove_file(session: &mut EditSession, arguments: &Value) -> Result<Val
         .get("directory")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::Arguments(String::from("directory is required")))?;
-    let directory = checked_output(std::path::Path::new(&directory))?;
+    let directory = checked_output_dir(std::path::Path::new(&directory))?;
     let timing = arguments
         .get("timing")
         .and_then(Value::as_f64)

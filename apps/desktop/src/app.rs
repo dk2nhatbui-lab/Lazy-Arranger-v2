@@ -1017,11 +1017,6 @@ impl ShellApp {
             ),
             egui::TextureOptions::LINEAR,
         );
-        let initial_key = project.song.key.map_or_else(
-            || score::spelling::detect_key(&project.song).tonic,
-            |key| key.tonic,
-        );
-        let initial_minor = project.song.key.is_some_and(|key| key.minor);
         // A project that fails validation never keeps its path: saving the
         // demo over the user's file would lose their work.
         let (editor, project_path, startup_error) = match Editor::new(project) {
@@ -1032,6 +1027,12 @@ impl ShellApp {
                 Some(format!("could not open the project: {error}")),
             ),
         };
+        // The key comes from the song actually loaded, demo or not.
+        let initial_key = editor.song().key.map_or_else(
+            || score::spelling::detect_key(editor.song()).tonic,
+            |key| key.tonic,
+        );
+        let initial_minor = editor.song().key.is_some_and(|key| key.minor);
         let song_name_input = editor.song().name.clone();
         let initial_track = std::env::var("ARRANGER_TRACK")
             .ok()
@@ -3090,6 +3091,8 @@ impl ShellApp {
             Ok(editor) => {
                 self.install_editor(editor);
                 self.project_path = None;
+                // An unsaved project has no autosave to offer back.
+                self.recovery = None;
                 self.status = Some(format!("loaded {label}"));
             }
             Err(error) => self.load_error = Some(error.to_string()),

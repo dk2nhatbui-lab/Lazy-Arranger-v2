@@ -164,6 +164,41 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
                 previous = Some(point.tick);
             }
         }
+        for (slot_index, clip) in track.slots.iter().enumerate() {
+            let Some(clip) = clip else { continue };
+            let path = format!("{track_path}.slots[{slot_index}]");
+            if clip.length <= 0 {
+                issues.push(issue(
+                    Severity::Error,
+                    path.clone(),
+                    String::from("a loop clip needs a positive length"),
+                ));
+            }
+            let mut ids = std::collections::BTreeSet::new();
+            for note in &clip.notes {
+                if note.start < 0
+                    || note.duration <= 0
+                    || note.start.checked_add(note.duration).is_none()
+                {
+                    issues.push(issue(
+                        Severity::Error,
+                        path.clone(),
+                        String::from(
+                            "loop clip notes need a start of zero or more and a positive length",
+                        ),
+                    ));
+                    break;
+                }
+                if !ids.insert(note.id) {
+                    issues.push(issue(
+                        Severity::Error,
+                        path.clone(),
+                        format!("loop clip note id {} is used twice", note.id.get()),
+                    ));
+                    break;
+                }
+            }
+        }
         for (slur_index, slur) in track.slurs.iter().enumerate() {
             if slur.start >= slur.end {
                 issues.push(issue(
@@ -746,6 +781,33 @@ mod tests {
             .collect();
         assert!(errors.contains(&String::from("song.tracks[0].notes[0].duration")));
         assert!(errors.contains(&String::from("song.tracks[0].notes[1].start")));
+    }
+
+    #[test]
+    fn rejects_bad_loop_clips() {
+        use crate::song::SlotClip;
+        let mut song = Song::new("x", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "t");
+        track.slots.push(Some(SlotClip {
+            name: String::from("empty"),
+            length: 0,
+            notes: Vec::new(),
+        }));
+        track.slots.push(None);
+        track.slots.push(Some(SlotClip {
+            name: String::from("bad note"),
+            length: 960,
+            notes: vec![note(1, i64::MIN, 10, "C4")],
+        }));
+        song.tracks.push(track);
+        let errors: Vec<String> = validate(&ProjectFile::new(song))
+            .into_iter()
+            .filter(|issue| issue.severity == Severity::Error)
+            .map(|issue| issue.path)
+            .collect();
+        assert!(errors.contains(&String::from("song.tracks[0].slots[0]")));
+        assert!(errors.contains(&String::from("song.tracks[0].slots[2]")));
+        assert!(!errors.contains(&String::from("song.tracks[0].slots[1]")));
     }
 
     #[test]
