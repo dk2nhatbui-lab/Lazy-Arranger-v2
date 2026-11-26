@@ -465,7 +465,7 @@ mod tests {
 
     /// The offline render of the song's only track at unity gain.
     fn offline(song: &Song, font: Option<&SoundFont>) -> Vec<f32> {
-        crate::render_with_soundfont(song, RATE, &mut |_| font.cloned()).samples
+        crate::render_offline_with_soundfont(song, RATE, &mut |_| font.cloned()).samples
     }
 
     fn assert_close(live: &[f32], offline: &[f32]) {

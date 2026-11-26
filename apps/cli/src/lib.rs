@@ -3625,17 +3625,14 @@ fn export_audio(
         );
     }
     let project = read_project(project)?;
-    let mut rendered = audio::render(&project.song, sample_rate);
+    let rendered =
+        audio::render_mastered(&project.song, sample_rate, master, metronome.then_some(1.0));
     for problem in audio::mix::check_audio_references(&project.song) {
         eprintln!(
             "audio {} on track {}: {}",
             problem.path, problem.track, problem.reason
         );
     }
-    if metronome {
-        audio::metronome::mix(&mut rendered, &project.song, 1.0);
-    }
-    audio::master::apply(&mut rendered, master);
     let levels = audio::master::meter(&rendered);
     let wav = match bits {
         24 => rendered.to_wav24(),

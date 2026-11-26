@@ -182,9 +182,36 @@ pub fn render_stems(song: &Song, sample_rate: u32) -> Vec<Stem> {
 }
 
 /// Renders every track, using SoundFont presets where a track names one.
+///
+/// The song plays through the same engine as live playback, faster than
+/// real time, so an export sounds exactly like what the user heard.
 #[must_use]
 pub fn render(song: &Song, sample_rate: u32) -> RenderedAudio {
-    render_with_soundfont(song, sample_rate, &mut |path| {
+    live::render(song, sample_rate).mixdown()
+}
+
+/// Renders a song through the engine with the metronome and master stage,
+/// as playback hears it.
+#[must_use]
+pub fn render_mastered(
+    song: &Song,
+    sample_rate: u32,
+    settings: master::Master,
+    metronome: Option<f32>,
+) -> RenderedAudio {
+    let mut live = live::render(song, sample_rate);
+    if let Some(accent) = metronome {
+        metronome::mix_accent(&mut live.fixed, song, 1.0, accent);
+    }
+    live.apply_master(settings);
+    live.mixdown()
+}
+
+/// The reference render the engine is tested against: every stage run
+/// over the whole song, one after the other.
+#[cfg(test)]
+pub(crate) fn render_offline(song: &Song, sample_rate: u32) -> RenderedAudio {
+    render_offline_with_soundfont(song, sample_rate, &mut |path| {
         std::fs::read(path)
             .ok()
             .and_then(|bytes| soundfont::parse(&bytes).ok())
@@ -373,9 +400,19 @@ fn mix_audio_reference(
     }
 }
 
-/// Renders every track, loading SoundFonts through `load`.
+/// Renders every track through the engine, loading SoundFonts through `load`.
 #[must_use]
 pub fn render_with_soundfont(
+    song: &Song,
+    sample_rate: u32,
+    load: &mut dyn FnMut(&str) -> Option<soundfont::SoundFont>,
+) -> RenderedAudio {
+    live::render_with_soundfont(song, sample_rate, load).mixdown()
+}
+
+/// The offline reference render, loading SoundFonts through `load`.
+#[cfg(test)]
+pub(crate) fn render_offline_with_soundfont(
     song: &Song,
     sample_rate: u32,
     load: &mut dyn FnMut(&str) -> Option<soundfont::SoundFont>,
@@ -1779,7 +1816,8 @@ mod tests {
             }],
             pcm: (0..64).map(|index| index * 400).collect(),
         };
-        let sampled = render_with_soundfont(&song, SAMPLE_RATE, &mut |_| Some(font.clone()));
+        let sampled =
+            render_offline_with_soundfont(&song, SAMPLE_RATE, &mut |_| Some(font.clone()));
         let builtin = render(&song, SAMPLE_RATE);
         assert_ne!(sampled.samples, builtin.samples);
         assert!(sampled.samples.iter().any(|value| value.abs() > 0.01));
@@ -2690,7 +2728,7 @@ mod tests {
         song.tracks[0]
             .plugins
             .push(gain_slot(&bundle, "AAAAAAAA4D8="));
-        let offline = render(&song, SAMPLE_RATE);
+        let offline = render_offline(&song, SAMPLE_RATE);
         let live = crate::live::render(&song, SAMPLE_RATE);
         assert!(
             live.inserts[0]
@@ -2753,7 +2791,7 @@ mod tests {
             note.id = project::NoteId::new(note.id.get() + 10).expect("note");
         }
         song.tracks.push(dry);
-        let offline = render(&song, SAMPLE_RATE);
+        let offline = render_offline(&song, SAMPLE_RATE);
         let live = crate::live::render(&song, SAMPLE_RATE);
         assert!(
             live.inserts[0]
@@ -2783,7 +2821,7 @@ mod tests {
             state: String::new(),
         });
         assert!(crate::inserts::can_run_live(&song.tracks[0]));
-        let offline = render(&song, SAMPLE_RATE);
+        let offline = render_offline(&song, SAMPLE_RATE);
         let live = crate::live::render(&song, SAMPLE_RATE);
         assert!(
             live.inserts[0]
@@ -2873,13 +2911,37 @@ mod tests {
     }
 
     #[test]
+    fn export_plays_through_the_engine_and_matches_the_offline_render() {
+        for song in [bus_song(missing_slot()), automated_song(true)] {
+            let offline = render_offline(&song, SAMPLE_RATE);
+            let exported = render(&song, SAMPLE_RATE);
+            assert_eq!(exported.samples.len(), offline.samples.len());
+            let worst = worst_difference(&exported.samples, &offline.samples);
+            assert!(worst < 1e-5, "export and offline differ by {worst}");
+
+            let settings = master::Master {
+                gain_db: -3.0,
+                limiter: true,
+                reverb: 0.3,
+                chorus: 0.2,
+            };
+            let mut expected = offline.clone();
+            metronome::mix(&mut expected, &song, 1.0);
+            master::apply(&mut expected, settings);
+            let mastered = render_mastered(&song, SAMPLE_RATE, settings, Some(1.0));
+            let worst = worst_difference(&mastered.samples, &expected.samples);
+            assert!(worst < 1e-4, "mastered export differs by {worst}");
+        }
+    }
+
+    #[test]
     fn a_live_bus_follows_its_fader_and_sends() {
         let mut song = bus_song(missing_slot());
         assert_eq!(crate::live::live_buses(&song), vec![true]);
         assert_eq!(crate::live::live_tracks(&song), vec![true, true]);
         let live = crate::live::render(&song, SAMPLE_RATE);
         assert_eq!(live.buses.len(), 1);
-        let offline = render(&song, SAMPLE_RATE);
+        let offline = render_offline(&song, SAMPLE_RATE);
         let worst = worst_difference(&play_live(live), &offline.samples);
         assert!(worst < 1e-5, "live and offline differ by {worst}");
 
@@ -2913,7 +2975,7 @@ mod tests {
         playback.fill(&mut output[..64]);
         playback.fill(&mut output[64..]);
         song = moved;
-        let offline = render(&song, SAMPLE_RATE);
+        let offline = render_offline(&song, SAMPLE_RATE);
         let worst = worst_difference(&output[64..], &offline.samples[64..]);
         assert!(worst < 1e-5, "live and offline differ by {worst}");
         song.buses[0].plugins.clear();
@@ -2928,7 +2990,7 @@ mod tests {
         };
         // Half gain, with the plug-in's latency.
         let song = bus_song(gain_slot(&bundle, "AAAAAAAA4D8="));
-        let offline = render(&song, SAMPLE_RATE);
+        let offline = render_offline(&song, SAMPLE_RATE);
         let live = crate::live::render(&song, SAMPLE_RATE);
         assert!(live.buses[0].inserts.len() == 1 && live.bus_delay > 0);
         let output = play_live(live);
@@ -2948,7 +3010,7 @@ mod tests {
         let mut song = song_with_note();
         song.master_plugins.push(gain_slot(&bundle, "AAAAAAAA4D8="));
         assert_eq!(crate::live::live_tracks(&song), vec![true]);
-        let offline = render(&song, SAMPLE_RATE);
+        let offline = render_offline(&song, SAMPLE_RATE);
         let live = crate::live::render(&song, SAMPLE_RATE);
         let output = play_live(live);
         let worst = worst_difference(&output, &offline.samples);
@@ -3009,7 +3071,7 @@ mod tests {
             let live = crate::live::render(&song, SAMPLE_RATE);
             assert!(live.envelopes[1].is_some(), "the automation runs live");
             assert_eq!(live.buses.len(), usize::from(bus_plugins));
-            let offline = render(&song, SAMPLE_RATE);
+            let offline = render_offline(&song, SAMPLE_RATE);
             let worst = worst_difference(&play_live(live), &offline.samples);
             assert!(
                 worst < 1e-5,
@@ -3052,7 +3114,7 @@ mod tests {
                 .all(|sample| sample.abs() < 1e-6)
         );
         song.tracks[0].muted = false;
-        let offline = render(&song, SAMPLE_RATE);
+        let offline = render_offline(&song, SAMPLE_RATE);
         let worst = worst_difference(&output, &offline.samples);
         assert!(worst < 1e-5, "live and offline differ by {worst}");
     }
@@ -3087,7 +3149,7 @@ mod tests {
         let mut output = vec![0.0_f32; len];
         playback.fill(&mut output);
         assert_eq!(playback.collect_garbage(), 1, "the old buffer comes back");
-        let offline = render(&moved_slot, SAMPLE_RATE);
+        let offline = render_offline(&moved_slot, SAMPLE_RATE);
         let worst = worst_difference(&output, &offline.samples[..len]);
         assert!(worst < 1e-5, "live and offline differ by {worst}");
         // A synth lane is not rendered.

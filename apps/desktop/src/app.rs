@@ -2536,10 +2536,11 @@ impl ShellApp {
             );
         } else if mode == FileMode::ExportWav {
             let song = self.song().clone();
+            let master = self.settings.master();
             self.file_mode = None;
             self.start_job(
                 "Exporting WAV",
-                move || export_wav_file(&song, &path).map(|done| (done, path)),
+                move || export_wav_file(&song, &path, master).map(|done| (done, path)),
                 |app, result| match result {
                     Ok(((seconds, problems), path)) => {
                         app.status = Some(format!(
@@ -3218,8 +3219,8 @@ impl ShellApp {
             });
         }
         song.tracks.push(track);
-        let rendered = audio::render(&song, audio::SAMPLE_RATE);
-        self.preview_player = audio::player::Player::new(rendered).ok();
+        let rendered = audio::live::render(&song, audio::SAMPLE_RATE);
+        self.preview_player = audio::player::Player::new_live(rendered).ok();
     }
 
     /// Settings and shortcut windows.

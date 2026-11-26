@@ -293,7 +293,8 @@ pub fn export_stems_folder(
     Ok(stems.len())
 }
 
-/// Renders and writes a 24-bit WAV, returning duration and audio-reference problems.
+/// Plays the song through the engine with the master stage and writes a
+/// 24-bit WAV, returning duration and audio-reference problems.
 ///
 /// # Errors
 ///
@@ -301,8 +302,9 @@ pub fn export_stems_folder(
 pub fn export_wav_file(
     song: &project::song::Song,
     path: &std::path::Path,
+    master: audio::master::Master,
 ) -> Result<(f64, usize), String> {
-    let rendered = audio::render(song, audio::SAMPLE_RATE);
+    let rendered = audio::render_mastered(song, audio::SAMPLE_RATE, master, None);
     let problems = audio::mix::check_audio_references(song).len();
     std::fs::write(path, rendered.to_wav24())
         .map_err(|error| format!("{}: {error}", path.display()))?;

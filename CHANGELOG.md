@@ -22,8 +22,19 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
   within a moment, without rendering the song again, and bus plug-ins no
   longer force the tracks on that bus to render. A change that alters a
   track or bus plug-in's latency still renders the song again.
+- Loops: a launched or stopped slot changes on the bar line, to the
+  sample, with no render wait. Note tracks swap at once; a track with
+  recorded audio or a plug-in instrument renders only its own lane in the
+  background.
+- Export Audio now uses the master gain, limiter, reverb and chorus from
+  the mixer, as playback does.
 
 ### Changed
+- Export Audio (app, CLI and MCP), stems and bounce play the song through
+  the same engine as playback, faster than real time, so an export sounds
+  exactly like what you heard. The separate offline mix is gone.
+- Chord, drum, pad and style previews play live and start without a
+  render wait.
 - Tracks that only play notes (built-in synth or SoundFont, no recorded
   audio and no plug-ins) are played live by the audio engine instead of
   being rendered before play. Play starts sooner, and note edits are heard

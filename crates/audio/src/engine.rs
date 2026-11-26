@@ -36,6 +36,9 @@ const GRAPH_SLOTS: usize = 4;
 const PARAM_SLOTS: usize = 4096;
 /// Synth lanes that can wait for the audio thread at once.
 const SYNTH_SLOTS: usize = 64;
+/// Scheduled lane swaps that can wait at once: one per lane for a few
+/// launches.
+const SCHEDULED_SLOTS: usize = 1024;
 
 /// A sample position and the play flag, packed with an edit counter in one
 /// atomic.
@@ -784,6 +787,14 @@ impl Graph {
         }
     }
 
+    /// Puts a scheduled lane content in place and returns what it replaced.
+    fn apply_swap(&mut self, track: TrackId, swap: Swap) -> Swap {
+        match swap {
+            Swap::Synth(synth) => Swap::Synth(self.swap_synth(track, synth)),
+            Swap::Buffer(samples) => Swap::Buffer(self.swap_lane(track, samples)),
+        }
+    }
+
     /// Puts a new envelope in place of a track's current one and returns
     /// the one it replaced, or the new one when the lane has none.
     fn swap_envelope(&mut self, track: TrackId, envelope: Box<Envelope>) -> Box<Envelope> {
@@ -991,6 +1002,50 @@ impl Graph {
     }
 }
 
+/// A lane's new content, swapped in at a given sample position.
+#[derive(Debug)]
+pub enum Swap {
+    /// A new synth lane for a track played by one.
+    Synth(Box<SynthLane>),
+    /// A new lane buffer for a rendered track.
+    Buffer(Vec<f32>),
+}
+
+/// A swap waiting for its sample position.
+#[derive(Debug)]
+struct Scheduled {
+    /// Interleaved sample position (an even number) where it takes over.
+    at: usize,
+    track: TrackId,
+    swap: Swap,
+}
+
+/// Applies every scheduled swap due at `pos` and returns the position of
+/// the next one, so the caller stops its block there.
+fn apply_due(
+    graph: &mut Graph,
+    scheduled: &mut Consumer<Scheduled>,
+    garbage: &mut Producer<Swap>,
+    pos: usize,
+) -> Option<usize> {
+    loop {
+        let at = scheduled.peek().ok()?.at;
+        if at > pos {
+            return Some(at);
+        }
+        if garbage.slots() == 0 {
+            // No room to hand back the old content: try at the next block.
+            return None;
+        }
+        let Ok(item) = scheduled.pop() else {
+            return None;
+        };
+        let old = graph.apply_swap(item.track, item.swap);
+        // Cannot fail: a slot was checked above.
+        let _ = garbage.push(old);
+    }
+}
+
 /// The audio-thread side of the engine. Owned by the device callback.
 #[derive(Debug)]
 pub struct Engine {
@@ -1006,6 +1061,8 @@ pub struct Engine {
     envelope_garbage: Producer<Box<Envelope>>,
     buffers: Consumer<(TrackId, Vec<f32>)>,
     buffer_garbage: Producer<Vec<f32>>,
+    scheduled: Consumer<Scheduled>,
+    swap_garbage: Producer<Swap>,
     transport: Arc<Transport>,
 }
 
@@ -1023,6 +1080,8 @@ pub struct EngineControl {
     envelope_garbage: Consumer<Box<Envelope>>,
     buffers: Producer<(TrackId, Vec<f32>)>,
     buffer_garbage: Consumer<Vec<f32>>,
+    scheduled: Producer<Scheduled>,
+    swap_garbage: Consumer<Swap>,
     transport: Arc<Transport>,
 }
 
@@ -1044,6 +1103,8 @@ pub fn engine(graph: Graph) -> (Engine, EngineControl, Arc<Transport>) {
     let (envelope_garbage_producer, envelope_garbage_consumer) = RingBuffer::new(SYNTH_SLOTS + 1);
     let (buffer_producer, buffer_consumer) = RingBuffer::new(SYNTH_SLOTS);
     let (buffer_garbage_producer, buffer_garbage_consumer) = RingBuffer::new(SYNTH_SLOTS + 1);
+    let (scheduled_producer, scheduled_consumer) = RingBuffer::new(SCHEDULED_SLOTS);
+    let (swap_garbage_producer, swap_garbage_consumer) = RingBuffer::new(SCHEDULED_SLOTS + 1);
     (
         Engine {
             graph: Some(Box::new(graph)),
@@ -1058,6 +1119,8 @@ pub fn engine(graph: Graph) -> (Engine, EngineControl, Arc<Transport>) {
             envelope_garbage: envelope_garbage_producer,
             buffers: buffer_consumer,
             buffer_garbage: buffer_garbage_producer,
+            scheduled: scheduled_consumer,
+            swap_garbage: swap_garbage_producer,
             transport: Arc::clone(&transport),
         },
         EngineControl {
@@ -1072,6 +1135,8 @@ pub fn engine(graph: Graph) -> (Engine, EngineControl, Arc<Transport>) {
             envelope_garbage: envelope_garbage_consumer,
             buffers: buffer_producer,
             buffer_garbage: buffer_garbage_consumer,
+            scheduled: scheduled_producer,
+            swap_garbage: swap_garbage_consumer,
             transport: Arc::clone(&transport),
         },
         transport,
@@ -1156,6 +1221,26 @@ impl EngineControl {
             .map_err(|rtrb::PushError::Full((_, samples))| samples)
     }
 
+    /// Replaces one track's lane (a synth lane or a buffer) when playback
+    /// reaches frame `frame`, to the sample: a launch on the bar line.
+    /// Swaps take effect in the order they were sent, so a later swap for
+    /// the same frame and track wins. A swap sent for a frame already
+    /// played takes effect at once.
+    ///
+    /// # Errors
+    ///
+    /// Returns the swap when too many are still waiting.
+    pub fn schedule(&mut self, frame: usize, track: TrackId, swap: Swap) -> Result<(), Swap> {
+        self.collect_garbage();
+        self.scheduled
+            .push(Scheduled {
+                at: frame.saturating_mul(2),
+                track,
+                swap,
+            })
+            .map_err(|rtrb::PushError::Full(item)| item.swap)
+    }
+
     /// Frees graphs, synth lanes, insert chains, envelopes and lane buffers
     /// the audio thread has handed back.
     pub fn collect_garbage(&mut self) -> usize {
@@ -1178,6 +1263,10 @@ impl EngineControl {
         }
         while let Ok(samples) = self.buffer_garbage.pop() {
             drop(samples);
+            freed += 1;
+        }
+        while let Ok(swap) = self.swap_garbage.pop() {
+            drop(swap);
             freed += 1;
         }
         freed
@@ -1271,7 +1360,13 @@ impl Engine {
 
     fn fill_with(&mut self, transport: &Transport, output: &mut [f32]) {
         let start_raw = transport.position.load_raw();
-        let Some(graph) = self.graph.as_deref_mut() else {
+        let Self {
+            graph,
+            scheduled,
+            swap_garbage,
+            ..
+        } = self;
+        let Some(graph) = graph.as_deref_mut() else {
             output.fill(0.0);
             return;
         };
@@ -1312,8 +1407,12 @@ impl Engine {
                     break;
                 }
             }
-            // Stop at loop ends and at quantum edges.
-            let chunk = (end - pos).min(output.len() - written).min(QUANTUM * 2);
+            // Stop at loop ends, at quantum edges and at the next
+            // scheduled swap.
+            let mut chunk = (end - pos).min(output.len() - written).min(QUANTUM * 2);
+            if let Some(at) = apply_due(graph, scheduled, swap_garbage, pos) {
+                chunk = chunk.min(at - pos);
+            }
             graph.render(&mut output[written..written + chunk], pos);
             pos += chunk;
             written += chunk;
