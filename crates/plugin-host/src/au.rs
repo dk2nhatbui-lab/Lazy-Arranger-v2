@@ -162,7 +162,7 @@ unsafe extern "C" {
         buffer: *mut std::ffi::c_char,
         size: isize,
         encoding: u32,
-    ) -> bool;
+    ) -> u8; // Boolean
     fn CFRelease(value: *const c_void);
 }
 
@@ -174,6 +174,8 @@ const LATENCY: u32 = 12;
 const PARAMETER_INFO: u32 = 4;
 const SCOPE_GLOBAL: u32 = 0;
 const MAX_FRAMES: u32 = 14;
+/// kAudioUnitProperty_MaximumFramesPerSlice for instruments.
+const INSTRUMENT_MAX_FRAMES: usize = 4096;
 const SCOPE_INPUT: u32 = 1;
 const SCOPE_OUTPUT: u32 = 2;
 const LINEAR_PCM: u32 = 0x6c70_636d; // 'lpcm'
@@ -197,6 +199,14 @@ fn unit_parameters(unit: AudioUnit) -> Vec<(u32, String, f32, f32, f32, f32)> {
         return Vec::new();
     }
     let count = size as usize / std::mem::size_of::<u32>();
+    // Tell the unit exactly how many bytes the buffer holds (a whole number
+    // of ids), so it can never write past it.
+    let Ok(mut byte_size) = u32::try_from(count * std::mem::size_of::<u32>()) else {
+        return Vec::new();
+    };
+    if byte_size == 0 {
+        return Vec::new();
+    }
     let mut ids = vec![0_u32; count];
     let result = unsafe {
         AudioUnitGetProperty(
@@ -205,12 +215,13 @@ fn unit_parameters(unit: AudioUnit) -> Vec<(u32, String, f32, f32, f32, f32)> {
             SCOPE_GLOBAL,
             0,
             ids.as_mut_ptr().cast(),
-            &mut size,
+            &mut byte_size,
         )
     };
     if result != 0 {
         return Vec::new();
     }
+    ids.truncate((byte_size as usize / std::mem::size_of::<u32>()).min(count));
     let mut out = Vec::new();
     for id in ids {
         let mut info: AudioUnitParameterInfo = unsafe { std::mem::zeroed() };
@@ -251,7 +262,8 @@ fn unit_parameters(unit: AudioUnit) -> Vec<(u32, String, f32, f32, f32, f32)> {
                     buffer.len() as isize,
                     0x0800_0100,
                 )
-            } {
+            } != 0
+            {
                 name = buffer
                     .iter()
                     .take_while(|value| **value != 0)
@@ -259,13 +271,14 @@ fn unit_parameters(unit: AudioUnit) -> Vec<(u32, String, f32, f32, f32, f32)> {
                     .collect();
             }
         }
-        if info.flags & (1 << 4) != 0 {
-            if !info.cf_name.is_null() {
-                unsafe { CFRelease(info.cf_name) };
-            }
-            if !info.unit_name.is_null() {
-                unsafe { CFRelease(info.unit_name) };
-            }
+        // kAudioUnitParameterFlag_HasCFNameString (1 << 27) with
+        // kAudioUnitParameterFlag_CFNameRelease (1 << 4): we own cf_name.
+        if info.flags & (1 << 27) != 0 && info.flags & (1 << 4) != 0 && !info.cf_name.is_null() {
+            unsafe { CFRelease(info.cf_name) };
+        }
+        // unit_name is only set, and ours to release, for a custom unit (26).
+        if info.unit == 26 && info.flags & (1 << 4) != 0 && !info.unit_name.is_null() {
+            unsafe { CFRelease(info.unit_name) };
         }
         out.push((
             id,
@@ -593,7 +606,7 @@ impl AuInstrument {
         if result != 0 {
             return Err(format!("set output format returned {result}"));
         }
-        let frames = 4096_u32;
+        let frames = INSTRUMENT_MAX_FRAMES as u32;
         let result = unsafe {
             AudioUnitSetProperty(
                 self.unit,
@@ -675,6 +688,18 @@ impl AuInstrument {
     ///
     /// Returns a message when the unit rejects the block.
     pub fn process_block(&mut self, left: &mut [f32], right: &mut [f32]) -> Result<(), String> {
+        let frames = left.len().min(right.len());
+        // Never render more than the MaximumFramesPerSlice set in configure().
+        let mut start = 0;
+        while start < frames {
+            let end = (start + INSTRUMENT_MAX_FRAMES).min(frames);
+            self.render_slice(&mut left[start..end], &mut right[start..end])?;
+            start = end;
+        }
+        Ok(())
+    }
+
+    fn render_slice(&mut self, left: &mut [f32], right: &mut [f32]) -> Result<(), String> {
         let frames = left.len().min(right.len());
         if frames == 0 {
             return Ok(());

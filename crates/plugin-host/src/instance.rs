@@ -3,7 +3,7 @@
 //! block-processing loop. No editor or parameter automation yet.
 
 use std::ffi::c_void;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use vst3::Steinberg::Vst::{
     AudioBusBuffers, AudioBusBuffers__type0, BusDirections_, IAudioProcessor, IAudioProcessorTrait,
@@ -17,7 +17,6 @@ use vst3::Steinberg::{
     IBStream, IBStreamTrait, IPluginBaseTrait, IPluginFactory, IPluginFactoryTrait, TUID,
     kNoInterface, kResultOk,
 };
-use vst3::com_scrape_types::Unknown;
 use vst3::{Class, ComPtr, ComWrapper, Interface};
 
 /// Metadata reported by a VST3 plug-in's `IPlugView` before attaching to a window.
@@ -35,17 +34,28 @@ pub struct Vst3ViewInfo {
 
 /// One active VST3 effect.
 pub struct Vst3Effect {
-    component: ComPtr<IComponent>,
-    processor: ComPtr<IAudioProcessor>,
+    // Fields drop in order: the controller goes before the component it talks
+    // to, and the plug-in library outlives every COM pointer.
     controller: Option<ComPtr<IEditController>>,
+    /// Both ends of the component/controller link, disconnected on drop.
+    connection: Option<(ComPtr<IConnectionPoint>, ComPtr<IConnectionPoint>)>,
+    /// True when the controller is its own object that needs `terminate()`.
+    separate_controller: bool,
+    processor: ComPtr<IAudioProcessor>,
+    component: ComPtr<IComponent>,
     _handler: Option<ComPtr<IComponentHandler>>,
     _host: ComPtr<IHostApplication>,
     channels: usize,
     max_block: usize,
     sample_rate: f64,
     pending_parameters: Vec<(u32, f64)>,
-    // Fields drop in order, so the plug-in library outlives every COM pointer.
     _library: libloading::Library,
+}
+
+/// The largest block a VST3 host may promise: positive, fits `i32`, and
+/// doubles (two channels) without overflow.
+pub(crate) fn clamp_max_block(max_block: usize) -> usize {
+    max_block.clamp(1, (i32::MAX as usize).min(usize::MAX / 2))
 }
 
 impl std::fmt::Debug for Vst3Effect {
@@ -103,18 +113,36 @@ impl Vst3Effect {
         if init != kResultOk {
             return Err(format!("component initialize returned {init}"));
         }
-        let processor = component
-            .cast::<IAudioProcessor>()
-            .ok_or_else(|| String::from("component has no IAudioProcessor"))?;
+        let Some(processor) = component.cast::<IAudioProcessor>() else {
+            let _ = unsafe { component.terminate() };
+            return Err(String::from("component has no IAudioProcessor"));
+        };
+        let max_block = clamp_max_block(max_block);
+        // From here on every early return drops `effect`, whose Drop
+        // deactivates, disconnects and terminates what was set up.
+        let mut effect = Self {
+            controller: None,
+            connection: None,
+            separate_controller: false,
+            processor,
+            component,
+            _handler: ComWrapper::new(HostComponentHandler).to_com_ptr::<IComponentHandler>(),
+            _host: host,
+            channels: 2,
+            max_block,
+            sample_rate,
+            pending_parameters: Vec::new(),
+            _library: library,
+        };
+        let component = effect.component.clone();
         let mut controller_id: TUID = [0; 16];
-        let mut separate_controller = false;
-        let controller =
+        effect.controller =
             if unsafe { component.getControllerClassId(&mut controller_id) } == kResultOk {
                 match create::<IEditController>(&factory, &controller_id) {
                     Ok(controller) => {
-                        let result = unsafe { controller.initialize(host.as_ptr().cast()) };
+                        let result = unsafe { controller.initialize(effect._host.as_ptr().cast()) };
                         if result == kResultOk {
-                            separate_controller = true;
+                            effect.separate_controller = true;
                             Some(controller)
                         } else {
                             None
@@ -125,12 +153,11 @@ impl Vst3Effect {
             } else {
                 component.cast::<IEditController>()
             };
-        let handler = ComWrapper::new(HostComponentHandler).to_com_ptr::<IComponentHandler>();
-        if let Some(controller) = &controller {
-            if let Some(handler) = &handler {
+        if let Some(controller) = &effect.controller {
+            if let Some(handler) = &effect._handler {
                 let _ = unsafe { controller.setComponentHandler(handler.as_ptr()) };
             }
-            if separate_controller
+            if effect.separate_controller
                 && let (Some(comp_cp), Some(ctrl_cp)) = (
                     component.cast::<IConnectionPoint>(),
                     controller.cast::<IConnectionPoint>(),
@@ -138,6 +165,7 @@ impl Vst3Effect {
             {
                 let _ = unsafe { comp_cp.connect(ctrl_cp.as_ptr()) };
                 let _ = unsafe { ctrl_cp.connect(comp_cp.as_ptr()) };
+                effect.connection = Some((comp_cp, ctrl_cp));
             }
         }
         let inputs = unsafe {
@@ -154,6 +182,7 @@ impl Vst3Effect {
         if outputs == 0 {
             return Err(String::from("plug-in has no audio output bus"));
         }
+        negotiate_stereo(&component, &effect.processor, true)?;
         unsafe {
             let _ = component.activateBus(
                 MediaTypes_::kAudio as i32,
@@ -171,10 +200,10 @@ impl Vst3Effect {
         let mut setup = ProcessSetup {
             processMode: 0,
             symbolicSampleSize: SymbolicSampleSizes_::kSample32 as i32,
-            maxSamplesPerBlock: max_block.min(i32::MAX as usize) as i32,
+            maxSamplesPerBlock: max_block as i32,
             sampleRate: sample_rate,
         };
-        let result = unsafe { processor.setupProcessing(&mut setup) };
+        let result = unsafe { effect.processor.setupProcessing(&mut setup) };
         if result != kResultOk {
             return Err(format!("setupProcessing returned {result}"));
         }
@@ -182,22 +211,11 @@ impl Vst3Effect {
         if active != kResultOk {
             return Err(format!("setActive returned {active}"));
         }
-        let processing = unsafe { processor.setProcessing(1) };
+        let processing = unsafe { effect.processor.setProcessing(1) };
         if processing != kResultOk {
             return Err(format!("setProcessing returned {processing}"));
         }
-        Ok(Self {
-            component,
-            processor,
-            controller,
-            _handler: handler,
-            _host: host,
-            channels: 2,
-            max_block: max_block.max(1),
-            sample_rate,
-            pending_parameters: Vec::new(),
-            _library: library,
-        })
+        Ok(effect)
     }
 
     /// Number of channels the processor handles.
@@ -227,7 +245,10 @@ impl Vst3Effect {
         if !samples.len().is_multiple_of(2) {
             return Err(String::from("stereo buffer has an odd length"));
         }
-        let changes = if self.pending_parameters.is_empty() {
+        if samples.is_empty() {
+            return Ok(());
+        }
+        let mut changes = if self.pending_parameters.is_empty() {
             None
         } else {
             let queues = self
@@ -303,6 +324,8 @@ impl Vst3Effect {
                 sample[0] = output_left[frame];
                 sample[1] = output_right[frame];
             }
+            // Changes land at offset 0 of the first block only.
+            changes = None;
         }
         Ok(())
     }
@@ -465,12 +488,13 @@ impl Vst3Effect {
             if result != kResultOk {
                 continue;
             }
-            let title: String = info
+            let units: Vec<u16> = info
                 .title
                 .iter()
                 .take_while(|value| **value != 0)
-                .map(|value| *value as u8 as char)
+                .map(|value| *value as u16)
                 .collect();
+            let title = String::from_utf16_lossy(&units);
             parameters.push((info.id, title, info.defaultNormalizedValue));
         }
         parameters
@@ -482,12 +506,69 @@ impl Drop for Vst3Effect {
         unsafe {
             let _ = self.processor.setProcessing(0);
             let _ = self.component.setActive(0);
+            if let Some((component, controller)) = self.connection.take() {
+                let _ = component.disconnect(controller.as_ptr());
+                let _ = controller.disconnect(component.as_ptr());
+            }
             if let Some(controller) = &self.controller {
-                let _ = controller.terminate();
+                let _ = controller.setComponentHandler(std::ptr::null_mut());
+                // A single-component plug-in is its own controller: it is
+                // terminated once, below, as the component.
+                if self.separate_controller {
+                    let _ = controller.terminate();
+                }
             }
             let _ = self.component.terminate();
         }
     }
+}
+
+/// Asks the plug-in for one stereo input (effects only) and one stereo
+/// output bus, the layout the process code assumes.
+///
+/// # Errors
+///
+/// Returns a message when a main bus keeps more than two channels, which the
+/// two-pointer buffers cannot serve.
+pub(crate) fn negotiate_stereo(
+    component: &ComPtr<IComponent>,
+    processor: &ComPtr<IAudioProcessor>,
+    with_input: bool,
+) -> Result<(), String> {
+    use vst3::Steinberg::Vst::{BusInfo, SpeakerArrangement};
+    const STEREO: SpeakerArrangement = 0b11; // kSpeakerL | kSpeakerR
+    let count = |direction: i32| {
+        unsafe { component.getBusCount(MediaTypes_::kAudio as i32, direction) }.max(0) as usize
+    };
+    let mut inputs: Vec<SpeakerArrangement> = vec![0; count(BusDirections_::kInput as i32)];
+    let mut outputs: Vec<SpeakerArrangement> = vec![0; count(BusDirections_::kOutput as i32)];
+    if with_input && let Some(first) = inputs.first_mut() {
+        *first = STEREO;
+    }
+    if let Some(first) = outputs.first_mut() {
+        *first = STEREO;
+    }
+    let _ = unsafe {
+        processor.setBusArrangements(
+            inputs.as_mut_ptr(),
+            inputs.len() as i32,
+            outputs.as_mut_ptr(),
+            outputs.len() as i32,
+        )
+    };
+    let main_channels = |direction: i32| {
+        let mut info: BusInfo = unsafe { std::mem::zeroed() };
+        let result =
+            unsafe { component.getBusInfo(MediaTypes_::kAudio as i32, direction, 0, &mut info) };
+        (result == kResultOk).then_some(info.channelCount)
+    };
+    if with_input && main_channels(BusDirections_::kInput as i32).is_some_and(|c| c > 2) {
+        return Err(String::from("plug-in input has more than two channels"));
+    }
+    if main_channels(BusDirections_::kOutput as i32).is_some_and(|c| c > 2) {
+        return Err(String::from("plug-in output has more than two channels"));
+    }
+    Ok(())
 }
 
 pub(crate) struct StreamState {
@@ -549,13 +630,11 @@ impl IBStreamTrait for MemoryStream {
         let Ok(mut state) = self.state.lock() else {
             return vst3::Steinberg::kResultFalse;
         };
-        if bytes_read.is_null() || (buffer.is_null() && num_bytes > 0) {
+        if num_bytes < 0 || (buffer.is_null() && num_bytes > 0) {
             return vst3::Steinberg::kInvalidArgument;
         }
         let available = state.bytes.len().saturating_sub(state.position);
-        let count = usize::try_from(num_bytes.max(0))
-            .unwrap_or(0)
-            .min(available);
+        let count = usize::try_from(num_bytes).unwrap_or(0).min(available);
         if count > 0 {
             unsafe {
                 std::ptr::copy_nonoverlapping(
@@ -581,16 +660,22 @@ impl IBStreamTrait for MemoryStream {
         let Ok(mut state) = self.state.lock() else {
             return vst3::Steinberg::kResultFalse;
         };
-        if bytes_written.is_null() || (buffer.is_null() && num_bytes > 0) {
+        if num_bytes < 0 || (buffer.is_null() && num_bytes > 0) {
             return vst3::Steinberg::kInvalidArgument;
         }
-        let count = usize::try_from(num_bytes.max(0)).unwrap_or(0);
+        let count = usize::try_from(num_bytes).unwrap_or(0);
+        let Some(end) = state
+            .position
+            .checked_add(count)
+            .filter(|end| *end <= MAX_STREAM_BYTES)
+        else {
+            return vst3::Steinberg::kResultFalse;
+        };
         let bytes = if count == 0 {
             &[]
         } else {
             unsafe { std::slice::from_raw_parts(buffer.cast::<u8>(), count) }
         };
-        let end = state.position.saturating_add(count);
         if end > state.bytes.len() {
             state.bytes.resize(end, 0);
         }
@@ -634,6 +719,9 @@ impl IBStreamTrait for MemoryStream {
         kResultOk
     }
 }
+
+/// The largest plug-in state a memory stream holds (64 MiB).
+const MAX_STREAM_BYTES: usize = 64 * 1024 * 1024;
 
 pub(crate) fn memory_stream_from_bytes(
     bytes: &[u8],
@@ -742,9 +830,9 @@ impl IParameterChangesTrait for ParameterChanges {
         else {
             return std::ptr::null_mut();
         };
-        let pointer = queue.as_ptr();
-        unsafe { IParamValueQueue::add_ref(pointer) };
-        pointer
+        // The VST3 ABI lends this queue to the plug-in: it must not release
+        // it, so no reference is added here.
+        queue.as_ptr()
     }
 
     unsafe fn addParameterData(&self, _id: *const u32, _index: *mut i32) -> *mut IParamValueQueue {
@@ -784,14 +872,19 @@ impl Class for HostApplication {
 
 impl IHostApplicationTrait for HostApplication {
     unsafe fn getName(&self, name: *mut String128) -> vst3::Steinberg::tresult {
-        let text: Vec<u16> = "Lazy Arranger".encode_utf16().collect();
-        let target = unsafe { &mut *name };
-        for (slot, value) in target.iter_mut().zip(text.iter().copied()) {
-            *slot = value;
+        if name.is_null() {
+            return vst3::Steinberg::kInvalidArgument;
         }
-        if let Some(last) = target.get_mut(text.len()) {
-            *last = 0;
+        // Write through a raw pointer: the buffer may be uninitialised, so no
+        // `&mut` reference to it is made.
+        let target = name.cast::<u16>();
+        let capacity = std::mem::size_of::<String128>() / std::mem::size_of::<u16>();
+        let mut written = 0;
+        for value in "Lazy Arranger".encode_utf16().take(capacity - 1) {
+            unsafe { target.add(written).write(value) };
+            written += 1;
         }
+        unsafe { target.add(written).write(0) };
         kResultOk
     }
 
@@ -819,7 +912,7 @@ pub(crate) fn create<T: Interface>(
 }
 
 pub(crate) fn parse_cid(text: &str) -> Option<TUID> {
-    if text.len() != 32 {
+    if text.len() != 32 || !text.is_ascii() {
         return None;
     }
     let mut cid: TUID = [0; 16];
@@ -829,21 +922,7 @@ pub(crate) fn parse_cid(text: &str) -> Option<TUID> {
     Some(cid)
 }
 
-pub(crate) fn vst3_binary(path: &Path) -> Option<PathBuf> {
-    let macos = path.join("Contents").join("MacOS");
-    let stem = path
-        .file_stem()
-        .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned());
-    let direct = macos.join(&stem);
-    if direct.is_file() {
-        return Some(direct);
-    }
-    std::fs::read_dir(&macos)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|entry| entry.is_file())
-}
+pub(crate) use crate::vst3_binary;
 
 #[cfg(test)]
 mod tests {
@@ -868,7 +947,7 @@ mod tests {
         assert_eq!(unsafe { changes.getParameterCount() }, 1);
         let raw = unsafe { changes.getParameterData(0) };
         assert!(!raw.is_null());
-        let queue = unsafe { ComPtr::from_raw(raw) }.expect("queue pointer");
+        let queue = unsafe { vst3::ComRef::from_raw(raw) }.expect("queue pointer");
         assert_eq!(unsafe { queue.getParameterId() }, 7);
         assert_eq!(unsafe { queue.getPointCount() }, 1);
     }

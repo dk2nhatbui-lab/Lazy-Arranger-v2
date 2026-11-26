@@ -6,7 +6,7 @@
 use std::path::Path;
 
 fn main() {
-    let Some(path) = std::env::args().nth(1) else {
+    let Some(path) = std::env::args_os().nth(1) else {
         eprintln!("usage: lazy-arranger-plugin-scan <bundle.vst3>");
         std::process::exit(2);
     };

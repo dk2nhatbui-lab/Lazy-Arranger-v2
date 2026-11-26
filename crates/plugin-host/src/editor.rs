@@ -5,6 +5,7 @@
 
 use std::ffi::{CString, c_void};
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, Ordering};
 
 use objc2::runtime::{AnyClass, AnyObject, Bool};
@@ -149,7 +150,13 @@ impl NativeWindow {
                 return Err(String::from("NSWindow init failed"));
             }
             let _: () = msg_send![window, setReleasedWhenClosed: Bool::NO];
-            let title_ns = nsstring(title)?;
+            let title_ns = match nsstring(title) {
+                Ok(title) => title,
+                Err(error) => {
+                    let _: () = msg_send![window, release];
+                    return Err(error);
+                }
+            };
             let _: () = msg_send![window, setTitle: title_ns];
             let content_view: *mut AnyObject = msg_send![window, contentView];
             if content_view.is_null() {
@@ -204,7 +211,9 @@ impl Drop for NativeWindow {
 }
 
 struct HostPlugFrame {
-    window: AtomicPtr<AnyObject>,
+    /// Shared with the editor, which clears it before the window is freed, so
+    /// a plug-in that keeps the frame never resizes a released window.
+    window: Arc<AtomicPtr<AnyObject>>,
 }
 
 impl Class for HostPlugFrame {
@@ -216,14 +225,18 @@ impl IPlugFrameTrait for HostPlugFrame {
         if new_size.is_null() {
             return vst3::Steinberg::kInvalidArgument;
         }
-        let window = self.window.load(Ordering::Relaxed);
+        // AppKit may only be touched on the main thread.
+        if ensure_main_thread().is_err() {
+            return vst3::Steinberg::kResultFalse;
+        }
+        let window = self.window.load(Ordering::Acquire);
         if window.is_null() {
             return kResultOk;
         }
         let rect = unsafe { &*new_size };
         let size = NSSize {
-            width: f64::from((rect.right - rect.left).max(160)),
-            height: f64::from((rect.bottom - rect.top).max(120)),
+            width: f64::from(rect.right.saturating_sub(rect.left).max(160)),
+            height: f64::from(rect.bottom.saturating_sub(rect.top).max(120)),
         };
         unsafe {
             let _: () = msg_send![window, setContentSize: size];
@@ -237,6 +250,7 @@ pub struct Vst3Editor {
     // Drop order matters: detach view and close window BEFORE dropping controller/effect/library.
     view: Option<ComPtr<IPlugView>>,
     frame: Option<ComPtr<IPlugFrame>>,
+    frame_window: Arc<AtomicPtr<AnyObject>>,
     window: NativeWindow,
     effect: Vst3Effect,
     size: (i32, i32),
@@ -289,12 +303,13 @@ impl Vst3Editor {
             bottom: 420,
         };
         let _ = unsafe { view.getSize(&mut rect) };
-        let width = (rect.right - rect.left).clamp(240, 2400);
-        let height = (rect.bottom - rect.top).clamp(160, 1600);
+        let width = rect.right.saturating_sub(rect.left).clamp(240, 2400);
+        let height = rect.bottom.saturating_sub(rect.top).clamp(160, 1600);
         let resizable = unsafe { view.canResize() } == vst3::Steinberg::kResultTrue;
         let window = NativeWindow::open(title, f64::from(width), f64::from(height), resizable)?;
+        let frame_window = Arc::new(AtomicPtr::new(window.window));
         let frame = ComWrapper::new(HostPlugFrame {
-            window: AtomicPtr::new(window.window),
+            window: Arc::clone(&frame_window),
         })
         .to_com_ptr::<IPlugFrame>()
         .ok_or_else(|| String::from("failed to create IPlugFrame"))?;
@@ -303,6 +318,7 @@ impl Vst3Editor {
         }
         let attached = unsafe { view.attached(window.content_view.cast(), kPlatformTypeNSView) };
         if attached != kResultOk {
+            frame_window.store(std::ptr::null_mut(), Ordering::Release);
             unsafe {
                 let _ = view.setFrame(std::ptr::null_mut());
             }
@@ -311,6 +327,7 @@ impl Vst3Editor {
         Ok(Self {
             view: Some(view),
             frame: Some(frame),
+            frame_window,
             window,
             effect,
             size: (width, height),
@@ -346,6 +363,8 @@ impl Vst3Editor {
                 let _ = view.setFrame(std::ptr::null_mut());
             }
         }
+        self.frame_window
+            .store(std::ptr::null_mut(), Ordering::Release);
         self.frame = None;
         self.window.close_and_release();
     }
@@ -431,13 +450,26 @@ unsafe fn try_custom_cocoa_au_view(unit: *mut c_void) -> Option<*mut AnyObject> 
             &mut size,
         )
     };
-    if status != 0 {
+    // Only words the unit actually wrote are CF objects to release.
+    let written = (size as usize / std::mem::size_of::<*const c_void>()).min(words);
+    let release_all = |buffer: &[*const c_void]| {
+        for &ptr in &buffer[..written] {
+            if !ptr.is_null() {
+                unsafe { CFRelease(ptr) };
+            }
+        }
+    };
+    if status != 0 || (size as usize) < min_size {
+        release_all(&buffer);
         return None;
     }
     let bundle_url = buffer[0].cast::<AnyObject>();
     let class_name = buffer[1].cast::<AnyObject>();
-    let result = if !bundle_url.is_null() && !class_name.is_null() {
-        let ns_bundle_cls = AnyClass::get(c"NSBundle")?;
+    let ns_bundle_cls = AnyClass::get(c"NSBundle");
+    let result = if let Some(ns_bundle_cls) = ns_bundle_cls
+        && !bundle_url.is_null()
+        && !class_name.is_null()
+    {
         let bundle: *mut AnyObject = msg_send![ns_bundle_cls, bundleWithURL: bundle_url];
         if bundle.is_null() {
             None
@@ -448,7 +480,17 @@ unsafe fn try_custom_cocoa_au_view(unit: *mut c_void) -> Option<*mut AnyObject> 
             } else {
                 let factory_alloc: *mut AnyObject = msg_send![view_cls, alloc];
                 let factory: *mut AnyObject = msg_send![factory_alloc, init];
-                if factory.is_null() {
+                // An unknown selector would raise an Objective-C exception
+                // across the Rust boundary, so ask first.
+                let responds: Bool = if factory.is_null() {
+                    Bool::NO
+                } else {
+                    msg_send![factory, respondsToSelector: objc2::sel!(uiViewForAudioUnit:withSize:)]
+                };
+                if !responds.as_bool() {
+                    if !factory.is_null() {
+                        let _: () = msg_send![factory, release];
+                    }
                     None
                 } else {
                     let preferred = NSSize {
@@ -472,13 +514,7 @@ unsafe fn try_custom_cocoa_au_view(unit: *mut c_void) -> Option<*mut AnyObject> 
     } else {
         None
     };
-    for &ptr in &buffer {
-        if !ptr.is_null() {
-            unsafe {
-                CFRelease(ptr);
-            }
-        }
-    }
+    release_all(&buffer);
     result
 }
 
@@ -533,7 +569,16 @@ impl AuEditor {
         let frame: NSRect = unsafe { msg_send![au_view, frame] };
         let width = frame.size.width.max(420.0);
         let height = frame.size.height.max(260.0);
-        let window = NativeWindow::open(title, width, height, true)?;
+        let window = match NativeWindow::open(title, width, height, true) {
+            Ok(window) => window,
+            Err(error) => {
+                // The view is +1 retained; release it before the unit goes.
+                unsafe {
+                    let _: () = msg_send![au_view, release];
+                }
+                return Err(error);
+            }
+        };
         unsafe {
             let _: () = msg_send![window.window, setContentView: au_view];
         }
@@ -566,7 +611,22 @@ impl AuEditor {
 
     /// Closes the native window and releases the Cocoa view.
     pub fn close(&mut self) {
-        self.window.close_and_release();
+        // Detach the view first, so an autoreleased window cannot keep it
+        // alive past the Audio Unit it draws.
+        objc2::rc::autoreleasepool(|_| {
+            if !self.au_view.is_null() {
+                unsafe {
+                    let _: () = msg_send![self.au_view, removeFromSuperview];
+                    if !self.window.window.is_null() {
+                        let _: () = msg_send![
+                            self.window.window,
+                            setContentView: std::ptr::null::<AnyObject>()
+                        ];
+                    }
+                }
+            }
+            self.window.close_and_release();
+        });
         if !self.au_view.is_null() {
             unsafe {
                 let _: () = msg_send![self.au_view, release];
