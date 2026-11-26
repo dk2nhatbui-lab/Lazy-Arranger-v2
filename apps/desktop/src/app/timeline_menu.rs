@@ -31,6 +31,8 @@ pub(super) enum TimelineAction {
     AudioGain(TrackId, i16),
     AudioFades(TrackId, Option<Tick>, Option<Tick>),
     AudioFollowTempo(TrackId, bool),
+    /// Magnify every audio waveform in the timeline (display only).
+    WaveZoom(u8),
     NormalizeAudio(TrackId),
     AudioToMelody(TrackId),
     AudioToDrums(TrackId),
@@ -188,6 +190,19 @@ impl ShellApp {
                     chosen = Some(TimelineAction::AudioFollowTempo(track, !stretch));
                 }
                 item!(true, "Normalize", TimelineAction::NormalizeAudio(track));
+                let wave = self.timeline_zoom.wave;
+                ui.menu_button("Waveform Zoom", |ui| {
+                    for times in [1_u8, 2, 4, 8, 16, 32] {
+                        let label = format!("{times}×");
+                        if ui
+                            .radio((wave - f32::from(times)).abs() < 0.01, label)
+                            .on_hover_text("Alt/Option+wheel over the timeline zooms freely")
+                            .clicked()
+                        {
+                            chosen = Some(TimelineAction::WaveZoom(times));
+                        }
+                    }
+                });
                 ui.separator();
                 ui.menu_button("Convert to MIDI", |ui| {
                     if ui.button("Melody (one note at a time)").clicked() {
@@ -270,6 +285,14 @@ impl ShellApp {
     pub(super) fn run_timeline_action(&mut self, action: TimelineAction) {
         let bar = self.song().time_signature.bar_ticks().max(1);
         let result: Result<Option<String>, String> = match action {
+            TimelineAction::WaveZoom(times) => {
+                self.timeline_zoom = crate::timeline::Zoom {
+                    wave: f32::from(times),
+                    ..self.timeline_zoom
+                }
+                .clamped();
+                Ok(None)
+            }
             TimelineAction::EditNotes(track) => {
                 self.roll.selected = Some(track);
                 self.timeline_mode = false;

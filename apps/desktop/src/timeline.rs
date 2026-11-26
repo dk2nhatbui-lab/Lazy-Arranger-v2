@@ -20,7 +20,12 @@ pub const MAX_ZOOM: f32 = 2000.0 / 96.0;
 /// Track lane height limits (`TimelineGeometry::minTrackHeight`).
 pub const MIN_LANE_HEIGHT: f32 = 40.0;
 /// See [`MIN_LANE_HEIGHT`].
-pub const MAX_LANE_HEIGHT: f32 = 160.0;
+pub const MAX_LANE_HEIGHT: f32 = 400.0;
+/// Waveform zoom limits: how much audio waveforms are magnified in the
+/// lanes, for seeing quiet audio. Display only; the gain is unchanged.
+pub const MIN_WAVE_ZOOM: f32 = 1.0;
+/// See [`MIN_WAVE_ZOOM`].
+pub const MAX_WAVE_ZOOM: f32 = 32.0;
 /// Width of the grab zone at a part's right edge.
 const EDGE_GRAB: f32 = 8.0;
 
@@ -31,6 +36,8 @@ pub struct Zoom {
     pub time: f32,
     /// Height of one track lane, in points.
     pub lane: f32,
+    /// Waveform magnification for audio parts (display only).
+    pub wave: f32,
 }
 
 impl Default for Zoom {
@@ -38,6 +45,7 @@ impl Default for Zoom {
         Self {
             time: 1.0,
             lane: LANE_HEIGHT,
+            wave: 1.0,
         }
     }
 }
@@ -49,12 +57,13 @@ impl Zoom {
         POINTS_PER_QUARTER * self.time.clamp(MIN_ZOOM, MAX_ZOOM) / music_core::PPQ as f32
     }
 
-    /// The zoom with both values inside their limits.
+    /// The zoom with every value inside its limits.
     #[must_use]
     pub fn clamped(self) -> Self {
         Self {
             time: self.time.clamp(MIN_ZOOM, MAX_ZOOM),
             lane: self.lane.round().clamp(MIN_LANE_HEIGHT, MAX_LANE_HEIGHT),
+            wave: self.wave.clamp(MIN_WAVE_ZOOM, MAX_WAVE_ZOOM),
         }
     }
 
@@ -218,29 +227,46 @@ struct LastView {
 }
 
 /// Reads this pass's zoom gestures over `viewport` and returns the factors
-/// for time and lane height.
-fn zoom_gestures(ui: &egui::Ui, viewport: Rect) -> (f32, f32) {
+/// for time, lane height and waveform size.
+///
+/// Alt/Option+wheel magnifies the audio waveforms, as in Luna and Pro
+/// Tools; the wheel then does not scroll.
+fn zoom_gestures(ui: &egui::Ui, viewport: Rect) -> (f32, f32, f32) {
     if !ui.rect_contains_pointer(viewport) {
-        return (1.0, 1.0);
+        return (1.0, 1.0, 1.0);
     }
-    let (pinch, raw, command, shift) = ui.input(|input| {
+    let (pinch, raw, command, shift, alt) = ui.input(|input| {
         (
             input.zoom_delta(),
             input.raw_scroll_delta,
             input.modifiers.command || input.modifiers.ctrl,
             input.modifiers.shift,
+            input.modifiers.alt,
         )
     });
+    let delta = if raw.y.abs() >= raw.x.abs() {
+        raw.y
+    } else {
+        raw.x
+    };
+    if alt && !command && !shift {
+        if delta != 0.0 {
+            ui.ctx().input_mut(|input| {
+                input.smooth_scroll_delta = egui::Vec2::ZERO;
+                input.raw_scroll_delta = egui::Vec2::ZERO;
+            });
+        }
+        return (1.0, 1.0, wheel_factor(delta));
+    }
     if command && shift {
         // egui turns Shift+wheel sideways and leaves no zoom for it.
-        let delta = if raw.y.abs() >= raw.x.abs() {
-            raw.y
-        } else {
-            raw.x
-        };
-        return (1.0, wheel_factor(delta) * pinch);
+        return (1.0, wheel_factor(delta) * pinch, 1.0);
     }
-    if shift { (1.0, pinch) } else { (pinch, 1.0) }
+    if shift {
+        (1.0, pinch, 1.0)
+    } else {
+        (pinch, 1.0, 1.0)
+    }
 }
 
 /// `pow (1.15, delta * 8)` in v1, for a wheel delta in points.
@@ -298,7 +324,7 @@ pub fn show_with_loop(
 
     // Zoom: the gestures over the timeline, the track list's request, and
     // any change made elsewhere (the header's - and + buttons).
-    let (time_factor, lane_factor) = zoom_gestures(ui, viewport);
+    let (time_factor, lane_factor, wave_factor) = zoom_gestures(ui, viewport);
     let requested = ui
         .ctx()
         .data_mut(|data| data.remove_temp::<f32>(egui::Id::new(LANE_ZOOM_REQUEST)))
@@ -306,6 +332,7 @@ pub fn show_with_loop(
     let new = Zoom {
         time: zoom.time * time_factor,
         lane: zoom.lane * lane_factor * requested,
+        wave: zoom.wave * wave_factor,
     }
     .clamped();
     let mut horizontal = None;
@@ -367,12 +394,11 @@ pub fn show_with_loop(
         });
         if follow_playhead {
             let x = ui.min_rect().left() + LABEL_WIDTH + position.max(0) as f32 * points_per_tick;
-            let playhead = Rect::from_min_size(
-                pos2(x, ui.min_rect().top()),
-                vec2(2.0, ui.min_rect().height()),
-            );
-            if !ui.clip_rect().contains_rect(playhead) {
-                ui.scroll_to_rect(playhead, Some(egui::Align::Center));
+            // Scroll sideways only: following the playhead never moves
+            // the lanes up or down.
+            let visible = ui.clip_rect();
+            if x < visible.left() || x + 2.0 > visible.right() {
+                ui.scroll_with_delta(vec2(visible.center().x - x, 0.0));
             }
         }
     });
@@ -876,6 +902,7 @@ fn draw(
                     beat_width: beat as f32 * points_per_tick,
                     origin: content.left(),
                     points_per_tick,
+                    wave: zoom.wave,
                 },
             );
             for comp in &track.comps {
@@ -1069,6 +1096,8 @@ struct AudioGrid {
     beat_width: f32,
     origin: f32,
     points_per_tick: f32,
+    /// Waveform magnification ([`Zoom::wave`]).
+    wave: f32,
 }
 
 /// Height of the name strip along an audio clip's top.
@@ -1168,8 +1197,9 @@ fn draw_audio_clip(
         while x < visible.right().min(block.right()) {
             let from = (x - block.left()) * per_point;
             if let Some(peak) = audio::waveform::span(peaks, from, from + per_point) {
-                let top = centre - peak.max.clamp(-1.0, 1.0) * half;
-                let bottom = centre - peak.min.clamp(-1.0, 1.0) * half;
+                // Magnified peaks stop at the channel's lane edge.
+                let top = centre - (peak.max * grid.wave).clamp(-1.0, 1.0) * half;
+                let bottom = centre - (peak.min * grid.wave).clamp(-1.0, 1.0) * half;
                 // Never thinner than the centre line, so quiet parts stay visible.
                 let (top, bottom) = if bottom - top < 1.0 {
                     (centre - 0.5, centre + 0.5)
@@ -1253,10 +1283,12 @@ mod tests {
         let zoom = Zoom {
             time: 1000.0,
             lane: 10.0,
+            wave: 100.0,
         }
         .clamped();
         assert_eq!(zoom.time, MAX_ZOOM);
         assert_eq!(zoom.lane, MIN_LANE_HEIGHT);
+        assert_eq!(zoom.wave, MAX_WAVE_ZOOM);
         // At zoom 1 a 4/4 bar is 96 pt.
         let one = Zoom::default();
         assert!((one.points_per_tick() * 3840.0 - 96.0).abs() < 0.01);
@@ -1310,6 +1342,64 @@ mod tests {
         frame(vec![hover, wheel(ctrl_shift)], ctrl_shift, &mut zoom);
         assert!(zoom.lane > LANE_HEIGHT, "lane {}", zoom.lane);
         assert_eq!(zoom.time, time);
+        // Alt/Option+wheel magnifies the waveforms only.
+        let (lane, alt) = (zoom.lane, egui::Modifiers::ALT);
+        frame(
+            vec![egui::Event::PointerMoved(pos2(400.0, 300.0)), wheel(alt)],
+            alt,
+            &mut zoom,
+        );
+        assert!(zoom.wave > 1.0, "wave {}", zoom.wave);
+        assert_eq!((zoom.time, zoom.lane), (time, lane));
+    }
+
+    #[test]
+    fn following_the_playhead_keeps_the_vertical_scroll() {
+        let context = egui::Context::default();
+        crate::theme::install(&context);
+        let mut song = arranging::demo::demo_song();
+        // Enough lanes to scroll.
+        let first = song.tracks[0].clone();
+        for id in 100..120 {
+            let mut track = first.clone();
+            track.id = TrackId::new(id).expect("valid");
+            song.tracks.push(track);
+        }
+        let mut zoom = Zoom {
+            time: 4.0,
+            ..Zoom::default()
+        };
+        let mut frame = |position: Tick| {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 500.0))),
+                ..Default::default()
+            };
+            let _ = context.run(input, |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    let _ = show(
+                        ui,
+                        &song,
+                        position,
+                        Selection::default(),
+                        &mut zoom,
+                        true,
+                        &crate::app::WaveformCache::new(),
+                    );
+                });
+            });
+            geometry(&context).expect("geometry").offset
+        };
+        frame(0);
+        scroll_lanes_to(&context, 300.0);
+        frame(0);
+        assert!((frame(0) - 300.0).abs() < 1.0);
+        // The playhead leaves the view to the right: only x scrolls.
+        for position in [3840 * 6, 3840 * 12, 3840 * 18] {
+            for _ in 0..3 {
+                let offset = frame(position);
+                assert!((offset - 300.0).abs() < 1.0, "vertical offset {offset}");
+            }
+        }
     }
 
     #[test]

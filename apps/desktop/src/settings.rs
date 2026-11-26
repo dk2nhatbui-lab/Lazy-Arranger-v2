@@ -255,6 +255,8 @@ pub struct Settings {
     pub timeline_zoom: f32,
     /// Height of one timeline track lane, in points.
     pub timeline_lane_height: f32,
+    /// Magnification of audio waveforms in the timeline (display only).
+    pub timeline_wave_zoom: f32,
     /// Width of the track list beside the timeline.
     pub track_list_width: f32,
     /// Width of the inspector on the right.
@@ -368,6 +370,7 @@ impl Default for Settings {
             window_height: 900.0,
             timeline_zoom: 1.0,
             timeline_lane_height: 64.0,
+            timeline_wave_zoom: 1.0,
             track_list_width: 248.0,
             inspector_width: 320.0,
             ai_panel_height: 190.0,
@@ -592,6 +595,12 @@ impl Settings {
                         crate::timeline::MAX_LANE_HEIGHT,
                     );
                 }
+                "timeline_wave_zoom" => {
+                    settings.timeline_wave_zoom = value.parse::<f32>().unwrap_or(1.0).clamp(
+                        crate::timeline::MIN_WAVE_ZOOM,
+                        crate::timeline::MAX_WAVE_ZOOM,
+                    );
+                }
                 "track_list_width" => {
                     settings.track_list_width =
                         value.parse::<f32>().unwrap_or(248.0).clamp(140.0, 520.0);
@@ -747,6 +756,10 @@ impl Settings {
         text.push_str(&format!(
             "timeline_lane_height = {:.1}\n",
             self.timeline_lane_height
+        ));
+        text.push_str(&format!(
+            "timeline_wave_zoom = {:.3}\n",
+            self.timeline_wave_zoom
         ));
         text.push_str(&format!(
             "track_list_width = {:.1}\n",
