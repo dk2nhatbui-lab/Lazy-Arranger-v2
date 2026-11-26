@@ -3,6 +3,16 @@
 All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 [semver](https://semver.org/); a `-beta.N` suffix marks a beta build.
 
+## [Unreleased]
+
+### Fixed
+- The mixer now changes the song while it plays. Moving a fader or pan knob,
+  or pressing mute or solo, used to do nothing until playback was restarted.
+- Projects saved by the C++ app with audio tracks now open with their audio:
+  each stem plays and shows on the timeline. Paths like `Stems/01 Drums.ogg`
+  are found next to the project file. Track volume, pan, mute and solo, and
+  the MIDI program and bank, now carry over too.
+
 ## [0.1.0-beta.1] - 2026-11-25
 
 The first public build of the Rust rewrite of Lazy Arranger Midi DAW. It is a

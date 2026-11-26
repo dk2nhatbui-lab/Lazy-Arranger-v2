@@ -3040,7 +3040,15 @@ fn inspect(path: &PathBuf) -> Result<(), Box<dyn Error>> {
 fn import(input: &PathBuf, out: &PathBuf, print_report: bool) -> Result<(), Box<dyn Error>> {
     let text = fs::read_to_string(input)
         .map_err(|error| format!("could not read {}: {error}", input.display()))?;
-    let imported = project::legacy::import_cpp_project(&text)?;
+    let mut imported = project::legacy::import_cpp_project(&text)?;
+    if let Some(dir) = input.parent() {
+        let dir = if dir.as_os_str().is_empty() {
+            std::env::current_dir()?
+        } else {
+            dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf())
+        };
+        project::legacy::resolve_audio_paths(&mut imported.project.song, &dir);
+    }
     let json = imported.project.to_json_pretty()?;
     fs::write(out, json).map_err(|error| format!("could not write {}: {error}", out.display()))?;
     println!("wrote {}", out.display());

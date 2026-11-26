@@ -251,8 +251,16 @@ pub struct Settings {
     pub window_width: f32,
     /// Last window height in points.
     pub window_height: f32,
-    /// Timeline zoom factor.
+    /// Timeline zoom factor: 1.0 draws a 4/4 bar 96 pt wide, as v1 does.
     pub timeline_zoom: f32,
+    /// Height of one timeline track lane, in points.
+    pub timeline_lane_height: f32,
+    /// Width of the track list beside the timeline.
+    pub track_list_width: f32,
+    /// Width of the inspector on the right.
+    pub inspector_width: f32,
+    /// Height of the AI chat under the inspector.
+    pub ai_panel_height: f32,
     /// Waveform zoom factor.
     pub waveform_zoom: f32,
     /// Score zoom factor.
@@ -359,6 +367,10 @@ impl Default for Settings {
             window_width: 1500.0,
             window_height: 900.0,
             timeline_zoom: 1.0,
+            timeline_lane_height: 64.0,
+            track_list_width: 248.0,
+            inspector_width: 320.0,
+            ai_panel_height: 190.0,
             waveform_zoom: 1.0,
             score_zoom: 1.0,
             window_x: None,
@@ -544,7 +556,28 @@ impl Settings {
                         value.parse::<f32>().unwrap_or(1500.0).clamp(960.0, 8000.0);
                 }
                 "timeline_zoom" => {
-                    settings.timeline_zoom = value.parse::<f32>().unwrap_or(1.0).clamp(0.25, 8.0);
+                    settings.timeline_zoom = value
+                        .parse::<f32>()
+                        .unwrap_or(1.0)
+                        .clamp(crate::timeline::MIN_ZOOM, crate::timeline::MAX_ZOOM);
+                }
+                "timeline_lane_height" => {
+                    settings.timeline_lane_height = value.parse::<f32>().unwrap_or(64.0).clamp(
+                        crate::timeline::MIN_LANE_HEIGHT,
+                        crate::timeline::MAX_LANE_HEIGHT,
+                    );
+                }
+                "track_list_width" => {
+                    settings.track_list_width =
+                        value.parse::<f32>().unwrap_or(248.0).clamp(140.0, 520.0);
+                }
+                "inspector_width" => {
+                    settings.inspector_width =
+                        value.parse::<f32>().unwrap_or(320.0).clamp(280.0, 560.0);
+                }
+                "ai_panel_height" => {
+                    settings.ai_panel_height =
+                        value.parse::<f32>().unwrap_or(190.0).clamp(110.0, 600.0);
                 }
                 "waveform_zoom" => {
                     settings.waveform_zoom = value.parse::<f32>().unwrap_or(1.0).clamp(1.0, 8.0);
@@ -686,6 +719,16 @@ impl Settings {
         text.push_str(&format!("window_width = {:.1}\n", self.window_width));
         text.push_str(&format!("window_height = {:.1}\n", self.window_height));
         text.push_str(&format!("timeline_zoom = {:.3}\n", self.timeline_zoom));
+        text.push_str(&format!(
+            "timeline_lane_height = {:.1}\n",
+            self.timeline_lane_height
+        ));
+        text.push_str(&format!(
+            "track_list_width = {:.1}\n",
+            self.track_list_width
+        ));
+        text.push_str(&format!("inspector_width = {:.1}\n", self.inspector_width));
+        text.push_str(&format!("ai_panel_height = {:.1}\n", self.ai_panel_height));
         text.push_str(&format!("waveform_zoom = {:.3}\n", self.waveform_zoom));
         text.push_str(&format!("score_zoom = {:.3}\n", self.score_zoom));
         if let (Some(x), Some(y)) = (self.window_x, self.window_y) {
@@ -847,7 +890,7 @@ mod tests {
         )
         .expect("write");
         let loaded = Settings::load(&path);
-        assert_eq!(loaded.timeline_zoom, 0.25);
+        assert_eq!(loaded.timeline_zoom, crate::timeline::MIN_ZOOM);
         assert_eq!(loaded.waveform_zoom, 8.0);
         assert_eq!(loaded.score_zoom, 3.0);
         let _ = std::fs::remove_file(path);

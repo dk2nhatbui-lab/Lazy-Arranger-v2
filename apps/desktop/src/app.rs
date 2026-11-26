@@ -23,6 +23,7 @@ mod drums;
 mod files;
 mod jam;
 mod layout;
+mod live_mix;
 mod map;
 mod menu;
 mod mixer;
@@ -819,7 +820,7 @@ pub struct ShellApp {
     mixer_visible: bool,
     kids_last_activity: Option<std::time::Instant>,
     timeline_mode: bool,
-    timeline_zoom: f32,
+    timeline_zoom: crate::timeline::Zoom,
     pending_clip_edit: Option<crate::timeline::ClipEdit>,
     inspector_name_track: Option<TrackId>,
     inspector_name: String,
@@ -936,6 +937,10 @@ pub struct ShellApp {
         std::sync::mpsc::Receiver<Result<RenderedSong, String>>,
         music_core::Tick,
     )>,
+    /// A render that will replace the playing buffer after a mixer change.
+    live_remix: Option<live_mix::LiveRemix>,
+    /// Mix fingerprint of the buffer that is playing or rendering.
+    mix_rendered: u64,
     autosave: Autosave,
     recovery: Option<std::path::PathBuf>,
     shown: bool,
@@ -979,7 +984,11 @@ impl ShellApp {
             .unwrap_or(music_core::lesson::LessonKind::ChordQuality);
         let initial_score_follow = settings.score_follow;
         let initial_score_frames = settings.score_frames;
-        let initial_timeline_zoom = settings.timeline_zoom;
+        let initial_timeline_zoom = crate::timeline::Zoom {
+            time: settings.timeline_zoom,
+            lane: settings.timeline_lane_height,
+        }
+        .clamped();
         let initial_waveform_zoom = settings.waveform_zoom;
         let initial_score_zoom = settings.score_zoom;
         let recent_file = crate::settings::Settings::path().with_file_name("recent-projects.txt");
@@ -1031,6 +1040,8 @@ impl ShellApp {
             icon,
             player: None,
             render_pending: None,
+            live_remix: None,
+            mix_rendered: 0,
             autosave: Autosave::new(std::time::Duration::from_secs(10)),
             recovery: project_path
                 .as_ref()
@@ -2101,21 +2112,24 @@ impl ShellApp {
         if let Some(start) = self.pending_beat_start.take() {
             self.load_beat_from(start);
         }
-        if let Some(edit) = self.pending_clip_edit.take() {
-            let result = match edit.kind {
-                crate::timeline::ClipEditKind::Move => {
-                    self.editor.move_clip(edit.track, edit.clip, edit.start)
-                }
-                crate::timeline::ClipEditKind::Resize => {
-                    self.editor.resize_clip(edit.track, edit.clip, edit.length)
-                }
-            };
+        if let Some(edit) = self.pending_clip_edit.take()
+            && (edit.start, edit.length) != (edit.old_start, edit.old_length)
+        {
+            let result = self.editor.edit_part(
+                edit.track,
+                edit.clip,
+                (edit.old_start, edit.old_length),
+                (edit.start, edit.length),
+            );
             match result {
-                Ok(()) => {
-                    self.selected_clip = Some((edit.track, edit.clip));
-                    self.status = Some(String::from("clip moved"));
+                Ok(clip) => {
+                    self.selected_clip = Some((edit.track, clip));
+                    self.status = Some(String::from(match edit.kind {
+                        crate::timeline::ClipEditKind::Move => "part moved",
+                        crate::timeline::ClipEditKind::Resize => "part resized",
+                    }));
                 }
-                Err(error) => self.status = Some(error.to_string()),
+                Err(error) => self.status = Some(error),
             }
         }
         self.refresh_waveform(context);
@@ -4666,6 +4680,8 @@ impl ShellApp {
         } else {
             self.song().clone()
         };
+        self.mix_rendered = self.current_mix_signature();
+        self.live_remix = None;
         let receiver = self.spawn_render(song, self.view == View::Mix);
         self.render_pending = Some((receiver, resume));
         self.status = Some(String::from("rendering audio"));
@@ -4798,6 +4814,7 @@ impl ShellApp {
     fn stop_playback(&mut self) {
         self.finish_jam();
         self.render_pending = None;
+        self.live_remix = None;
         self.reset_loops();
         if let Some(player) = self.player.take() {
             player.stop();
@@ -4894,6 +4911,7 @@ impl eframe::App for ShellApp {
         }
         self.sync_monitor();
         self.poll_render(context);
+        self.poll_live_remix(context);
         let _ = frame;
         // ADR-011: paint the first themed frame before the window becomes visible.
         let mut style = (*context.style()).clone();
@@ -4909,6 +4927,7 @@ impl eframe::App for ShellApp {
         self.poll_background(context);
         self.draw_windows(context);
         self.central_panel(context);
+        self.panel_handles(context);
         self.timeline_menu(context);
         self.notes_menu(context);
         if !self.shown {
@@ -4925,7 +4944,8 @@ impl eframe::App for ShellApp {
         if self.window_size.x >= 960.0 && self.window_size.y >= 600.0 {
             self.settings.window_width = self.window_size.x;
             self.settings.window_height = self.window_size.y;
-            self.settings.timeline_zoom = self.timeline_zoom;
+            self.settings.timeline_zoom = self.timeline_zoom.time;
+            self.settings.timeline_lane_height = self.timeline_zoom.lane;
             self.settings.waveform_zoom = self.waveform_zoom;
             self.settings.score_zoom = self.score.zoom;
             if let Some(position) = self.window_pos {

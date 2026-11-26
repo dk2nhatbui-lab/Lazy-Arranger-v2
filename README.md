@@ -9,7 +9,7 @@ This is the new version of Lazy Arranger, rebuilt in Rust. It is a **beta**.
 [Download the latest release](https://github.com/nhth-mibu/Lazy-Arranger-v2/releases/latest)
 · [User manual](docs/manual/user-manual.md) ([PDF](docs/manual/user-manual.pdf))
 
-![The main window](docs/manual/images/main-window.png)
+![The main window](docs/images/main-window.png)
 
 ## Arranger keyboard styles, on the computer
 
@@ -34,7 +34,7 @@ clients can open and change your song from outside the app.
 The **AI** menu has music tools too: humanise, drumify, write a bass, pad,
 arpeggio or melody part, and continue the last bars.
 
-![The AI assistant](docs/manual/images/assistant.png)
+![The AI assistant](docs/images/assistant.png)
 
 ## Arranging help
 
@@ -54,7 +54,7 @@ Type `Am F C G` or `vi IV I V` into the chord lane. The app finds the chords
 in your notes, reharmonises a bar, and gives you 16 chord pads in the key of
 the song.
 
-![Chord pads](docs/manual/images/perform.png)
+![Chord pads](docs/images/perform.png)
 
 ## A real score
 
@@ -62,7 +62,7 @@ Every song is also printed music: chord symbols, guitar chords, lyrics,
 dynamics and drum staves. Write notes with the mouse. Print, or export PDF
 and MusicXML.
 
-![The Score view](docs/manual/images/score.png)
+![The Score view](docs/images/score.png)
 
 ## Drums, loops and a metal mixer
 
@@ -71,7 +71,7 @@ grid, then record them into the song. Mix on a console with knobs, faders,
 meters, buses, sends, master effects and VST3 plug-ins (and Audio Units on a
 Mac).
 
-![The Loops view](docs/manual/images/loops.png)
+![The Loops view](docs/images/loops.png)
 
 ## Made for your keyboards and synths
 
@@ -84,14 +84,14 @@ Mac).
   Learn.
 - Import a multitrack recording from the Zoom LiveTrak L6max.
 
-![The MIDI Map](docs/manual/images/midi-map.png)
+![The MIDI Map](docs/images/midi-map.png)
 
 ## Kids Mode
 
 A child presses any key and the song plays, as if the child plays it. Stop
 pressing, and the song waits.
 
-![Kids Mode](docs/manual/images/kids-mode.png)
+![Kids Mode](docs/images/kids-mode.png)
 
 ## And a full DAW
 

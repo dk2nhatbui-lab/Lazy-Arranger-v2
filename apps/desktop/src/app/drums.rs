@@ -34,6 +34,13 @@ pub(super) struct DrumsUi {
     place: Option<(String, String, bool)>,
 }
 
+impl DrumsUi {
+    /// `BeatView::zoomBy`: bigger steps for `factor` > 1.
+    pub(super) fn zoom_by(&mut self, factor: f32) {
+        self.zoom = (self.zoom * factor).clamp(0.5, 4.0);
+    }
+}
+
 impl Default for DrumsUi {
     fn default() -> Self {
         Self {
@@ -416,7 +423,9 @@ impl ShellApp {
         let fit = ((area.width() / steps as f32)
             .min((area.height() - 26.0).max(1.0) / rows.len() as f32))
         .max(1.0);
-        let size = (fit * self.drums.zoom).clamp(14.0, 160.0).floor();
+        // A long pattern starts at the 14 pt floor; zoom from there, so the
+        // wheel still makes its steps bigger.
+        let size = (fit.max(14.0) * self.drums.zoom).clamp(14.0, 160.0).floor();
         let content = egui::vec2(steps as f32 * size, rows.len() as f32 * size + 26.0);
         if ui.rect_contains_pointer(body) {
             let (delta, zoom, command) = ui.input(|input| {
@@ -432,7 +441,7 @@ impl ShellApp {
                 } else {
                     zoom
                 };
-                self.drums.zoom = (self.drums.zoom * factor).clamp(0.5, 4.0);
+                self.drums.zoom_by(factor);
             } else {
                 self.drums.scroll -= delta;
             }
