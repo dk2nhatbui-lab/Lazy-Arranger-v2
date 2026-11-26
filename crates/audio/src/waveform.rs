@@ -88,7 +88,7 @@ impl Overview {
         let mut same = true;
         for chunk in samples[..frames * 2].chunks(per_bin * 2) {
             let (mut l, mut r, mut m) = (empty, empty, empty);
-            for frame in chunk.chunks_exact(2) {
+            for frame in chunk.as_chunks::<2>().0 {
                 let (a, b) = (frame[0], frame[1]);
                 same &= (a - b).abs() < 1e-4;
                 let mid = (a + b) * 0.5;
