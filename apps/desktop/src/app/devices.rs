@@ -576,13 +576,20 @@ impl ShellApp {
                 let Some(entry) = self.track_entry(track) else {
                     return;
                 };
-                let (mut muted, mut soloed, mut armed) = (entry.muted, entry.soloed, entry.armed);
-                match action {
-                    Action::TrackMute(_) => muted = !muted,
-                    Action::TrackSolo(_) => soloed = !soloed,
-                    _ => armed = !armed,
-                }
-                if let Err(error) = self.editor.set_track_flags(track, muted, soloed, armed) {
+                let (mut muted, soloed, mut armed) = (entry.muted, entry.soloed, entry.armed);
+                let result = match action {
+                    // A controller's solo button is exclusive too.
+                    Action::TrackSolo(_) => self.editor.solo_track(track, !soloed, false),
+                    Action::TrackMute(_) => {
+                        muted = !muted;
+                        self.editor.set_track_flags(track, muted, soloed, armed)
+                    }
+                    _ => {
+                        armed = !armed;
+                        self.editor.set_track_flags(track, muted, soloed, armed)
+                    }
+                };
+                if let Err(error) = result {
                     self.status = Some(error);
                 }
             }

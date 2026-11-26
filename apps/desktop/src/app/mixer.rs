@@ -411,9 +411,21 @@ impl ShellApp {
                 Err(error) => self.status = Some(error),
             }
         }
+        let add_solo = solo_adds(context);
         for (id, volume, pan, muted, soloed, send_level, armed) in edits {
             let _ = self.editor.set_track_gain(id, volume, pan);
-            let _ = self.editor.set_track_flags(id, muted, soloed, armed);
+            let was_soloed = self
+                .song()
+                .tracks
+                .iter()
+                .find(|track| track.id == id)
+                .is_some_and(|track| track.soloed);
+            // A solo click changes only the solo; it is exclusive.
+            let _ = if soloed == was_soloed {
+                self.editor.set_track_flags(id, muted, soloed, armed)
+            } else {
+                self.editor.solo_track(id, soloed, add_solo)
+            };
             if let Some(track) = self.song().tracks.iter().find(|track| track.id == id) {
                 let _ = self
                     .editor
@@ -2064,7 +2076,7 @@ impl ShellApp {
                     let _ = self.editor.set_track_flags(id, !muted, soloed, false);
                 }
                 if ui.selectable_label(soloed, "S").clicked() {
-                    let _ = self.editor.set_track_flags(id, muted, !soloed, false);
+                    let _ = self.editor.solo_track(id, !soloed, solo_adds(ui.ctx()));
                 }
             });
         }
@@ -2158,4 +2170,10 @@ impl ShellApp {
             });
         self.patch_open = open;
     }
+}
+
+/// Cmd/Ctrl-click on a solo button adds the track to the solo instead of
+/// soloing it alone.
+pub(super) fn solo_adds(context: &Context) -> bool {
+    context.input(|input| input.modifiers.command)
 }
