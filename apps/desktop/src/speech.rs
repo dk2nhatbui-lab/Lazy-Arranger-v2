@@ -76,6 +76,7 @@ pub fn clean(text: &str) -> String {
 
 /// Waits for a spawned speech process on a helper thread so it never stays a
 /// zombie.
+#[cfg(any(unix, target_os = "macos", target_os = "linux"))]
 fn reap(child: std::process::Child) {
     let mut child = child;
     std::thread::spawn(move || {
