@@ -13,6 +13,10 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
   master plug-ins still render again after a change.
 
 ### Changed
+- Tracks that only play notes (built-in synth or SoundFont, no recorded
+  audio and no plug-ins) are played live by the audio engine instead of
+  being rendered before play. Play starts sooner, and note edits are heard
+  while the song plays.
 - Playback runs through a new real-time engine core. The song is prepared
   off the audio thread and handed to the audio callback, which swaps it in
   at its next buffer. A mix change that needs a new render no longer

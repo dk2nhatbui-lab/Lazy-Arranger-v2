@@ -24,6 +24,7 @@ use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::live::LiveRender;
 use crate::master::{self, Meter};
+use crate::synth::SynthLane;
 
 /// Frames per processing quantum. Parameters change only on its edges.
 pub const QUANTUM: usize = 32;
@@ -31,6 +32,8 @@ pub const QUANTUM: usize = 32;
 const GRAPH_SLOTS: usize = 4;
 /// Parameter changes that can wait for the audio thread at once.
 const PARAM_SLOTS: usize = 4096;
+/// Synth lanes that can wait for the audio thread at once.
+const SYNTH_SLOTS: usize = 64;
 
 /// A sample position and the play flag, packed with an edit counter in one
 /// atomic.
@@ -353,11 +356,20 @@ impl Ramp {
     }
 }
 
-/// One live track buffer and its gains.
+/// Where a live lane's signal comes from.
+#[derive(Debug)]
+enum Source {
+    /// A rendered buffer at the graph's length.
+    Buffer(Vec<f32>),
+    /// Notes played in the callback.
+    Synth(Box<SynthLane>),
+}
+
+/// One live track and its gains.
 #[derive(Debug)]
 struct Lane {
     track: TrackId,
-    samples: Vec<f32>,
+    source: Source,
     left: Gain,
     right: Gain,
 }
@@ -375,6 +387,8 @@ struct MasterStage {
 pub struct Graph {
     fixed: Vec<f32>,
     lanes: Vec<Lane>,
+    /// Room for one quantum of a synth lane.
+    scratch: Vec<f32>,
     /// None for a finished mix that is copied out as it is.
     master: Option<MasterStage>,
     sample_rate: u32,
@@ -402,14 +416,20 @@ impl Graph {
         let plain =
             render.lanes.is_empty() && !render.limiter && (render.master_gain - 1.0).abs() < 1e-6;
         let fixed = clean(render.fixed.samples, len);
+        let mut synths = render.synths;
+        synths.resize_with(render.lanes.len(), || None);
         let lanes = render
             .lanes
             .into_iter()
+            .zip(synths)
             .zip(render.tracks)
             .zip(render.gains)
-            .map(|((samples, track), (left, right))| Lane {
+            .map(|(((samples, synth), track), (left, right))| Lane {
                 track,
-                samples: clean(samples, len),
+                source: match synth {
+                    Some(synth) => Source::Synth(Box::new(synth)),
+                    None => Source::Buffer(clean(samples, len)),
+                },
                 left: Gain::new(left),
                 right: Gain::new(right),
             })
@@ -417,6 +437,7 @@ impl Graph {
         Self {
             fixed,
             lanes,
+            scratch: vec![0.0; QUANTUM * 2],
             master: (!plain).then(|| MasterStage {
                 gain: Gain::new(render.master_gain),
                 limiter: render.limiter,
@@ -459,6 +480,19 @@ impl Graph {
         }
     }
 
+    /// Puts a new synth lane in place of a track's current one and returns
+    /// the one it replaced, or the new one when the track has no synth lane.
+    fn swap_synth(&mut self, track: TrackId, synth: Box<SynthLane>) -> Box<SynthLane> {
+        for lane in &mut self.lanes {
+            if lane.track == track
+                && let Source::Synth(current) = &mut lane.source
+            {
+                return std::mem::replace(current, synth);
+            }
+        }
+        synth
+    }
+
     /// Takes over the gains of the graph it replaces, so a swap neither
     /// jumps nor loses a change sent while the new graph was being built.
     fn adopt(&mut self, old: &Self) {
@@ -487,7 +521,18 @@ impl Graph {
         for lane in &mut self.lanes {
             let left = lane.left.ramp(frames);
             let right = lane.right.ramp(frames);
-            let Some(source) = lane.samples.get(pos..pos + output.len()) else {
+            let source = match &mut lane.source {
+                Source::Buffer(samples) => samples.get(pos..pos + output.len()),
+                Source::Synth(synth) => {
+                    // A render call never exceeds one quantum.
+                    let Some(scratch) = self.scratch.get_mut(..output.len()) else {
+                        continue;
+                    };
+                    synth.render(scratch, pos);
+                    Some(&*scratch)
+                }
+            };
+            let Some(source) = source else {
                 continue;
             };
             for (frame, (target, pair)) in output
@@ -517,6 +562,8 @@ pub struct Engine {
     graphs: Consumer<Box<Graph>>,
     garbage: Producer<Box<Graph>>,
     params: Consumer<Param>,
+    synths: Consumer<(TrackId, Box<SynthLane>)>,
+    synth_garbage: Producer<Box<SynthLane>>,
     transport: Arc<Transport>,
 }
 
@@ -526,6 +573,8 @@ pub struct EngineControl {
     graphs: Producer<Box<Graph>>,
     garbage: Consumer<Box<Graph>>,
     params: Producer<Param>,
+    synths: Producer<(TrackId, Box<SynthLane>)>,
+    synth_garbage: Consumer<Box<SynthLane>>,
     transport: Arc<Transport>,
 }
 
@@ -539,18 +588,24 @@ pub fn engine(graph: Graph) -> (Engine, EngineControl, Arc<Transport>) {
     let (graph_producer, graph_consumer) = RingBuffer::new(GRAPH_SLOTS);
     let (garbage_producer, garbage_consumer) = RingBuffer::new(GRAPH_SLOTS + 1);
     let (param_producer, param_consumer) = RingBuffer::new(PARAM_SLOTS);
+    let (synth_producer, synth_consumer) = RingBuffer::new(SYNTH_SLOTS);
+    let (synth_garbage_producer, synth_garbage_consumer) = RingBuffer::new(SYNTH_SLOTS + 1);
     (
         Engine {
             graph: Some(Box::new(graph)),
             graphs: graph_consumer,
             garbage: garbage_producer,
             params: param_consumer,
+            synths: synth_consumer,
+            synth_garbage: synth_garbage_producer,
             transport: Arc::clone(&transport),
         },
         EngineControl {
             graphs: graph_producer,
             garbage: garbage_consumer,
             params: param_producer,
+            synths: synth_producer,
+            synth_garbage: synth_garbage_consumer,
             transport: Arc::clone(&transport),
         },
         transport,
@@ -577,11 +632,28 @@ impl EngineControl {
         self.params.push(param).is_ok()
     }
 
-    /// Frees graphs the audio thread has handed back.
+    /// Replaces one track's synth lane at the next buffer, for a note edit
+    /// while playing.
+    ///
+    /// # Errors
+    ///
+    /// Returns the lane when too many are still waiting.
+    pub fn send_synth(&mut self, track: TrackId, synth: SynthLane) -> Result<(), Box<SynthLane>> {
+        self.collect_garbage();
+        self.synths
+            .push((track, Box::new(synth)))
+            .map_err(|rtrb::PushError::Full((_, synth))| synth)
+    }
+
+    /// Frees graphs and synth lanes the audio thread has handed back.
     pub fn collect_garbage(&mut self) -> usize {
         let mut freed = 0;
         while let Ok(graph) = self.garbage.pop() {
             drop(graph);
+            freed += 1;
+        }
+        while let Ok(synth) = self.synth_garbage.pop() {
+            drop(synth);
             freed += 1;
         }
         freed
@@ -611,6 +683,17 @@ impl Engine {
                 // Cannot fail: a slot was checked above.
                 let _ = self.garbage.push(old);
             }
+        }
+        while self.synth_garbage.slots() > 0 {
+            let Ok((track, synth)) = self.synths.pop() else {
+                break;
+            };
+            let old = match &mut self.graph {
+                Some(graph) => graph.swap_synth(track, synth),
+                None => synth,
+            };
+            // Cannot fail: a slot was checked above.
+            let _ = self.synth_garbage.push(old);
         }
         while let Ok(param) = self.params.pop() {
             if let Some(graph) = &mut self.graph {

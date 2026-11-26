@@ -15,6 +15,75 @@ use std::hash::{Hash, Hasher};
 
 use super::*;
 
+/// The synth lanes of the playing graph: what each was built from, and what
+/// a replacement needs.
+#[derive(Debug, Default)]
+pub(super) struct SynthState {
+    fonts: std::collections::HashMap<String, std::sync::Arc<audio::soundfont::SoundFont>>,
+    delay: usize,
+    rate: u32,
+    /// Each synth track and the fingerprint its lane was built from.
+    tracks: Vec<(TrackId, u64)>,
+}
+
+impl SynthState {
+    /// Records the synth lanes of a render of `song`.
+    pub(super) fn new(song: &Song, render: &audio::live::LiveRender) -> Self {
+        let tracks = render
+            .tracks
+            .iter()
+            .zip(&render.synths)
+            .filter(|(_, synth)| synth.is_some())
+            .filter_map(|(id, _)| {
+                let track = song.tracks.iter().find(|track| track.id == *id)?;
+                Some((*id, audio::synth::signature(song, track)))
+            })
+            .collect();
+        Self {
+            fonts: render.fonts.iter().cloned().collect(),
+            delay: render.synth_delay,
+            rate: render.sample_rate(),
+            tracks,
+        }
+    }
+
+    /// Keeps the state when the player runs at the rate the lanes were
+    /// built for; otherwise the player baked them and they cannot be
+    /// swapped.
+    pub(super) fn fit(self, player_rate: u32) -> Option<Self> {
+        (self.rate == player_rate && !self.tracks.is_empty()).then_some(self)
+    }
+
+    /// Rebuilds the lane of every synth track whose notes or sound changed,
+    /// and swaps it into the player, so the edit is heard while playing.
+    pub(super) fn swap_edited(&mut self, song: &Song, player: &audio::player::Player) {
+        for (id, built) in &mut self.tracks {
+            let Some(track) = song.tracks.iter().find(|track| track.id == *id) else {
+                continue;
+            };
+            if !audio::synth::can_play(track) {
+                continue;
+            }
+            let signature = audio::synth::signature(song, track);
+            if signature == *built {
+                continue;
+            }
+            let font = match &track.soundfont {
+                Some(reference) => match self.fonts.get(&reference.path) {
+                    Some(font) => Some(std::sync::Arc::clone(font)),
+                    // A new font needs loading: leave it to a full render.
+                    None => continue,
+                },
+                None => None,
+            };
+            let lane = audio::synth::SynthLane::build(song, track, font, self.rate, self.delay);
+            if player.swap_synth(*id, lane).is_ok() {
+                *built = signature;
+            }
+        }
+    }
+}
+
 /// A background render that will replace the playing buffer.
 pub(super) struct LiveRemix {
     pub(super) receiver: std::sync::mpsc::Receiver<Result<RenderedSong, String>>,
@@ -54,6 +123,9 @@ impl ShellApp {
         }
         if let Some(player) = &self.player {
             player.apply_mix(self.song(), self.settings.master_gain_db);
+            if let Some(state) = &mut self.synth_state {
+                state.swap_edited(self.editor.song(), player);
+            }
         }
         if let Some(remix) = &self.live_remix {
             let result = match remix.receiver.try_recv() {
@@ -103,6 +175,7 @@ impl ShellApp {
         }
         self.stem_sample_rate = stem_rate;
         self.stem_levels = rendered.stems;
+        self.synth_state = rendered.synths.fit(player.sample_rate());
         self.mix_rendered = signature;
     }
 }

@@ -21,6 +21,7 @@ pub mod player;
 pub mod record;
 pub mod soundfont;
 pub mod spsc;
+pub mod synth;
 pub mod wav;
 pub mod waveform;
 
@@ -377,7 +378,7 @@ pub fn render_with_soundfont(
     sample_rate: u32,
     load: &mut dyn FnMut(&str) -> Option<soundfont::SoundFont>,
 ) -> RenderedAudio {
-    render_parts(song, sample_rate, load, &[]).0
+    render_parts(song, sample_rate, load, &[], &[]).fixed
 }
 
 /// Renders the song, keeping the tracks marked in `live` out of the mix.
@@ -386,13 +387,18 @@ pub fn render_with_soundfont(
 /// bus and master stages, so playback can apply those gains while it plays.
 /// A live track is rendered even when it is muted, so unmuting it is
 /// instant. The other tracks are mixed as usual into the first buffer.
+///
+/// A live track also marked in `skip` is played by a live synth lane, so it
+/// is not rendered here and its lane buffer stays empty.
 pub(crate) fn render_parts(
     song: &Song,
     sample_rate: u32,
     load: &mut dyn FnMut(&str) -> Option<soundfont::SoundFont>,
     live: &[bool],
-) -> (RenderedAudio, Vec<Vec<f32>>) {
+    skip: &[bool],
+) -> Parts {
     let is_live = |index: usize| live.get(index).copied().unwrap_or(false);
+    let is_skipped = |index: usize| is_live(index) && skip.get(index).copied().unwrap_or(false);
     let mut end_tick = song.end_tick();
     for track in &song.tracks {
         if let Some(reference) = &track.audio {
@@ -435,6 +441,10 @@ pub(crate) fn render_parts(
         .enumerate()
         .filter(|(index, track)| is_live(*index) || song.is_audible(track))
     {
+        if is_skipped(track_index) {
+            lanes.push(Vec::new());
+            continue;
+        }
         let timbre = timbre_for(track);
         let sampled = track.soundfont.as_ref().and_then(|reference| {
             load(&reference.path).map(|font| (font, reference.bank, reference.program))
@@ -657,13 +667,25 @@ pub(crate) fn render_parts(
             *sample = crate::spsc::sanitize(*sample);
         }
     }
-    (
-        RenderedAudio {
+    Parts {
+        fixed: RenderedAudio {
             samples,
             sample_rate,
         },
         lanes,
-    )
+        delay: max_track_latency.saturating_add(max_bus_latency),
+    }
+}
+
+/// The result of [`render_parts`].
+pub(crate) struct Parts {
+    /// Every track that is not live, mixed.
+    pub(crate) fixed: RenderedAudio,
+    /// One buffer per live track; empty for a skipped one.
+    pub(crate) lanes: Vec<Vec<f32>>,
+    /// Frames a track without plug-ins is delayed by, to line up with the
+    /// latency of plug-ins elsewhere.
+    pub(crate) delay: usize,
 }
 
 /// Applies a track's fader and pan, following automation, to its buffer.

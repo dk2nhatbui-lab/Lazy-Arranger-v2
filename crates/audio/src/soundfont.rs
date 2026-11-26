@@ -477,6 +477,7 @@ pub fn parse(bytes: &[u8]) -> Result<SoundFont, String> {
     })
 }
 
+#[derive(Clone, Copy, Debug)]
 struct Lowpass {
     b0: f32,
     b1: f32,
@@ -533,31 +534,57 @@ fn timecents_to_seconds(value: i16) -> f32 {
     (2.0_f32.powf(f32::from(value) / 1200.0)).clamp(0.0, 30.0)
 }
 
-fn envelope(zone: &InstrumentZone, seconds: f32, held: f32) -> f32 {
-    let delay = timecents_to_seconds(zone.delay);
-    let attack = timecents_to_seconds(zone.attack);
-    let hold = timecents_to_seconds(zone.hold);
-    let decay = timecents_to_seconds(zone.decay);
-    let release = timecents_to_seconds(zone.release);
-    let sustain = 10.0_f32.powf(-f32::from(zone.sustain) / 200.0);
-    let level = if seconds < delay {
-        0.0
-    } else if attack > 0.0 && seconds < delay + attack {
-        (seconds - delay) / attack
-    } else {
-        let decay_start = delay + attack + hold;
-        if seconds < decay_start {
-            1.0
-        } else if decay > 0.0 && seconds < decay_start + decay {
-            1.0 - (1.0 - sustain) * ((seconds - decay_start) / decay)
-        } else {
-            sustain
+/// A zone's volume envelope, with its timecents converted once.
+#[derive(Clone, Copy, Debug)]
+struct Envelope {
+    delay: f32,
+    attack: f32,
+    hold: f32,
+    decay: f32,
+    release: f32,
+    sustain: f32,
+}
+
+impl Envelope {
+    fn new(zone: &InstrumentZone) -> Self {
+        Self {
+            delay: timecents_to_seconds(zone.delay),
+            attack: timecents_to_seconds(zone.attack),
+            hold: timecents_to_seconds(zone.hold),
+            decay: timecents_to_seconds(zone.decay),
+            release: timecents_to_seconds(zone.release),
+            sustain: 10.0_f32.powf(-f32::from(zone.sustain) / 200.0),
         }
-    };
-    if release > 0.0 && seconds > held - release {
-        level * ((held - seconds) / release).clamp(0.0, 1.0)
-    } else {
-        level
+    }
+
+    fn level(&self, seconds: f32, held: f32) -> f32 {
+        let Self {
+            delay,
+            attack,
+            hold,
+            decay,
+            release,
+            sustain,
+        } = *self;
+        let level = if seconds < delay {
+            0.0
+        } else if attack > 0.0 && seconds < delay + attack {
+            (seconds - delay) / attack
+        } else {
+            let decay_start = delay + attack + hold;
+            if seconds < decay_start {
+                1.0
+            } else if decay > 0.0 && seconds < decay_start + decay {
+                1.0 - (1.0 - sustain) * ((seconds - decay_start) / decay)
+            } else {
+                sustain
+            }
+        };
+        if release > 0.0 && seconds > held - release {
+            level * ((held - seconds) / release).clamp(0.0, 1.0)
+        } else {
+            level
+        }
     }
 }
 
@@ -587,6 +614,148 @@ fn resolve_zone(
     Some((zone, zone.sample?))
 }
 
+/// One sample of one note, played frame by frame.
+///
+/// Holds only plain values, so it can be cloned and run on the audio thread
+/// without allocating. Reads PCM from the [`SoundFont`] it was made from.
+#[derive(Clone, Copy, Debug)]
+pub struct SampleVoice {
+    envelope: Envelope,
+    end: usize,
+    loop_start: usize,
+    loop_end: usize,
+    looped: bool,
+    step: f32,
+    crossfade: f64,
+    loop_length: f64,
+    gain: f32,
+    seconds: f32,
+    ratio: f32,
+    frames: usize,
+    filter: Lowpass,
+    position: f64,
+    index: usize,
+}
+
+impl SampleVoice {
+    fn new(
+        font: &SoundFont,
+        zone: &InstrumentZone,
+        sample: &Sample,
+        key: u8,
+        velocity: u8,
+        seconds: f32,
+        rate: u32,
+    ) -> Option<Self> {
+        let pcm_len = font.pcm.len();
+        let start = usize::try_from(sample.start).unwrap_or(0).min(pcm_len);
+        let end = usize::try_from(sample.end).unwrap_or(0).min(pcm_len);
+        if end <= start {
+            return None;
+        }
+        // A loop outside the sample's own range would read a neighbour's PCM.
+        let loop_start = usize::try_from(sample.loop_start)
+            .unwrap_or(0)
+            .clamp(start, end);
+        let loop_end = usize::try_from(sample.loop_end)
+            .unwrap_or(0)
+            .clamp(start, end);
+        let looped = zone.sample_modes & 1 == 1 && loop_end > loop_start + 1;
+        let root = f32::from(zone.root_override.unwrap_or(sample.root));
+        let cents = f32::from(zone.coarse_tune) * 100.0
+            + f32::from(zone.fine_tune)
+            + f32::from(sample.correction);
+        // Ten octaves either way is plenty and keeps `step` finite.
+        let semitones = (f32::from(key) - root + cents / 100.0).clamp(-120.0, 120.0);
+        let ratio = rate as f32;
+        let sample_rate = sample.rate.max(1) as f32;
+        let step = (sample_rate / ratio) * 2.0_f32.powf(semitones / 12.0);
+        if !step.is_finite() || step <= 0.0 {
+            return None;
+        }
+        let loop_length = (loop_end.saturating_sub(loop_start)) as f64;
+        // A short equal-power-ish crossfade around the loop seam hides a click
+        // when the sample end and loop start do not match. It never spans
+        // more than half the loop.
+        let crossfade = if looped {
+            (0.005 * f64::from(rate) * f64::from(step)).min(loop_length * 0.5)
+        } else {
+            0.0
+        };
+        Some(Self {
+            envelope: Envelope::new(zone),
+            end,
+            loop_start,
+            loop_end,
+            looped,
+            step,
+            crossfade,
+            loop_length,
+            gain: f32::from(velocity.min(127)) / 127.0 * 0.6,
+            seconds,
+            ratio,
+            frames: (seconds * ratio) as usize,
+            filter: Lowpass::new(zone.filter_cutoff, zone.filter_q, rate),
+            position: start as f64,
+            index: 0,
+        })
+    }
+
+    /// Frames this voice plays at most.
+    #[must_use]
+    pub fn frames(&self) -> usize {
+        self.frames
+    }
+
+    fn read(&self, pcm: &[i16], position: f64) -> f32 {
+        let base = position.floor() as usize;
+        let fraction = (position - base as f64) as f32;
+        let first = pcm.get(base).copied().unwrap_or(0) as f32 / 32_768.0;
+        let next_index = if self.looped && base + 1 >= self.loop_end {
+            self.loop_start
+        } else {
+            // Past the end, hold the last frame instead of reading the next
+            // sample in the bank.
+            (base + 1).min(self.end - 1)
+        };
+        let next = pcm.get(next_index).copied().unwrap_or(0) as f32 / 32_768.0;
+        first + (next - first) * fraction
+    }
+
+    /// The next output sample, or `None` once the voice has ended.
+    pub fn next(&mut self, pcm: &[i16]) -> Option<f32> {
+        if self.index >= self.frames {
+            return None;
+        }
+        if self.looped {
+            if self.position >= self.loop_end as f64 {
+                self.position = self.loop_start as f64
+                    + (self.position - self.loop_end as f64) % self.loop_length;
+            }
+        } else if self.position >= self.end as f64 {
+            self.index = self.frames;
+            return None;
+        }
+        let mut sample = self.read(pcm, self.position);
+        if self.looped
+            && self.crossfade > 0.0
+            && self.position >= self.loop_end as f64 - self.crossfade
+        {
+            let into = self.position - (self.loop_end as f64 - self.crossfade);
+            let head = self.loop_start as f64 + into;
+            let blend = (into / self.crossfade).clamp(0.0, 1.0) as f32;
+            sample = sample * (1.0 - blend) + self.read(pcm, head) * blend;
+        }
+        let level = self
+            .envelope
+            .level(self.index as f32 / self.ratio, self.seconds);
+        let filtered = self.filter.process(sample);
+        self.position += self.step as f64;
+        self.index += 1;
+        Some(crate::spsc::sanitize(filtered * self.gain * level))
+    }
+}
+
 fn render_sample(
     font: &SoundFont,
     zone: &InstrumentZone,
@@ -596,82 +765,96 @@ fn render_sample(
     seconds: f32,
     rate: u32,
 ) -> Option<Vec<f32>> {
-    let pcm_len = font.pcm.len();
-    let start = usize::try_from(sample.start).unwrap_or(0).min(pcm_len);
-    let end = usize::try_from(sample.end).unwrap_or(0).min(pcm_len);
-    if end <= start {
-        return None;
-    }
-    // A loop outside the sample's own range would read a neighbour's PCM.
-    let loop_start = usize::try_from(sample.loop_start)
-        .unwrap_or(0)
-        .clamp(start, end);
-    let loop_end = usize::try_from(sample.loop_end)
-        .unwrap_or(0)
-        .clamp(start, end);
-    let looped = zone.sample_modes & 1 == 1 && loop_end > loop_start + 1;
-    let root = f32::from(zone.root_override.unwrap_or(sample.root));
-    let cents = f32::from(zone.coarse_tune) * 100.0
-        + f32::from(zone.fine_tune)
-        + f32::from(sample.correction);
-    // Ten octaves either way is plenty and keeps `step` finite.
-    let semitones = (f32::from(key) - root + cents / 100.0).clamp(-120.0, 120.0);
-    let ratio = rate as f32;
-    let sample_rate = sample.rate.max(1) as f32;
-    let step = (sample_rate / ratio) * 2.0_f32.powf(semitones / 12.0);
-    if !step.is_finite() || step <= 0.0 {
-        return None;
-    }
-    let frames = (seconds * ratio) as usize;
-    let gain = f32::from(velocity.min(127)) / 127.0 * 0.6;
+    let mut voice = SampleVoice::new(font, zone, sample, key, velocity, seconds, rate)?;
     let mut out = Vec::new();
-    out.try_reserve(frames).ok()?;
-    let mut filter = Lowpass::new(zone.filter_cutoff, zone.filter_q, rate);
-    let mut position = start as f64;
-    let loop_length = (loop_end.saturating_sub(loop_start)) as f64;
-    // A short equal-power-ish crossfade around the loop seam hides a click when
-    // the sample end and loop start do not match. It never spans more than half
-    // the loop.
-    let crossfade = if looped {
-        (0.005 * f64::from(rate) * f64::from(step)).min(loop_length * 0.5)
-    } else {
-        0.0
-    };
-    let read = |position: f64| -> f32 {
-        let base = position.floor() as usize;
-        let fraction = (position - base as f64) as f32;
-        let first = font.pcm.get(base).copied().unwrap_or(0) as f32 / 32_768.0;
-        let next_index = if looped && base + 1 >= loop_end {
-            loop_start
-        } else {
-            // Past the end, hold the last frame instead of reading the next
-            // sample in the bank.
-            (base + 1).min(end - 1)
-        };
-        let next = font.pcm.get(next_index).copied().unwrap_or(0) as f32 / 32_768.0;
-        first + (next - first) * fraction
-    };
-    for _ in 0..frames {
-        if looped {
-            if position >= loop_end as f64 {
-                position = loop_start as f64 + (position - loop_end as f64) % loop_length;
-            }
-        } else if position >= end as f64 {
-            break;
-        }
-        let mut sample = read(position);
-        if looped && crossfade > 0.0 && position >= loop_end as f64 - crossfade {
-            let into = position - (loop_end as f64 - crossfade);
-            let head = loop_start as f64 + into;
-            let blend = (into / crossfade).clamp(0.0, 1.0) as f32;
-            sample = sample * (1.0 - blend) + read(head) * blend;
-        }
-        let level = envelope(zone, out.len() as f32 / ratio, seconds);
-        let filtered = filter.process(sample);
-        out.push(crate::spsc::sanitize(filtered * gain * level));
-        position += step as f64;
+    out.try_reserve(voice.frames()).ok()?;
+    while let Some(sample) = voice.next(&font.pcm) {
+        out.push(sample);
     }
     Some(out)
+}
+
+/// One note as played by a track: a stereo pair, or a mono sample sent to
+/// both sides. Mirrors [`render_stereo`] and, failing that, [`render_note`].
+#[derive(Clone, Copy, Debug)]
+pub struct NoteVoice {
+    left: SampleVoice,
+    right: Option<SampleVoice>,
+}
+
+impl NoteVoice {
+    /// Prepares a note, or `None` when the font has nothing to play for it.
+    #[must_use]
+    pub fn new(
+        font: &SoundFont,
+        bank: u16,
+        program: u16,
+        key: u8,
+        velocity: u8,
+        seconds: f32,
+        rate: u32,
+    ) -> Option<Self> {
+        if !(seconds > 0.0 && seconds <= 3600.0) || rate == 0 {
+            return None;
+        }
+        let (zone, index) = resolve_zone(font, bank, program, key, velocity)?;
+        let sample = font.samples.get(index)?;
+        if let Some((left, right)) = stereo_pair(font, index, sample) {
+            let left = SampleVoice::new(font, zone, left, key, velocity, seconds, rate);
+            let right = SampleVoice::new(font, zone, right, key, velocity, seconds, rate);
+            if let (Some(left), Some(right)) = (left, right) {
+                return Some(Self {
+                    left,
+                    right: Some(right),
+                });
+            }
+        }
+        Some(Self {
+            left: SampleVoice::new(font, zone, sample, key, velocity, seconds, rate)?,
+            right: None,
+        })
+    }
+
+    /// Frames this note plays at most.
+    #[must_use]
+    pub fn frames(&self) -> usize {
+        self.left.frames()
+    }
+
+    /// The next left and right samples, or `None` once the note has ended.
+    pub fn next(&mut self, pcm: &[i16]) -> Option<(f32, f32)> {
+        let left = self.left.next(pcm);
+        match &mut self.right {
+            Some(right) => {
+                let right = right.next(pcm);
+                Some((left?, right?))
+            }
+            None => left.map(|mono| (mono, mono)),
+        }
+    }
+}
+
+/// The left and right samples of a stereo pair, or `None` for a mono one.
+fn stereo_pair<'a>(
+    font: &'a SoundFont,
+    index: usize,
+    sample: &Sample,
+) -> Option<(&'a Sample, &'a Sample)> {
+    let is_right = sample.kind & 2 != 0;
+    let is_left = sample.kind & 4 != 0;
+    if !is_right && !is_left {
+        return None;
+    }
+    let link = usize::from(sample.link);
+    let left_index = if is_left { index } else { link };
+    let right_index = if is_right { index } else { link };
+    if left_index == right_index {
+        return None;
+    }
+    Some((
+        font.samples.get(left_index)?,
+        font.samples.get(right_index)?,
+    ))
 }
 
 /// Renders one note, averaging a stereo pair to mono.
@@ -725,19 +908,7 @@ pub fn render_stereo(
     }
     let (zone, index) = resolve_zone(font, bank, program, key, velocity)?;
     let sample = font.samples.get(index)?;
-    let is_right = sample.kind & 2 != 0;
-    let is_left = sample.kind & 4 != 0;
-    if !is_right && !is_left {
-        return None;
-    }
-    let link = usize::from(sample.link);
-    let left_index = if is_left { index } else { link };
-    let right_index = if is_right { index } else { link };
-    if left_index == right_index {
-        return None;
-    }
-    let left_sample = font.samples.get(left_index)?;
-    let right_sample = font.samples.get(right_index)?;
+    let (left_sample, right_sample) = stereo_pair(font, index, sample)?;
     let left = render_sample(font, zone, left_sample, key, velocity, seconds, rate)?;
     let right = render_sample(font, zone, right_sample, key, velocity, seconds, rate)?;
     Some((left, right))

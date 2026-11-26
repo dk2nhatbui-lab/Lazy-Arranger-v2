@@ -178,6 +178,21 @@ impl Playback {
         Ok(())
     }
 
+    /// Replaces one track's synth lane, for a note edit while playing.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when earlier lanes are still waiting.
+    pub fn swap_synth(
+        &mut self,
+        track: project::TrackId,
+        synth: crate::synth::SynthLane,
+    ) -> Result<(), String> {
+        self.control
+            .send_synth(track, synth)
+            .map_err(|_| String::from("the audio engine is busy"))
+    }
+
     /// Frees graphs the engine has handed back.
     pub fn collect_garbage(&mut self) -> usize {
         self.control.collect_garbage()
@@ -223,6 +238,11 @@ fn stereo_config(
 /// Resamples every part of a live render.
 fn resample_live(mut render: LiveRender, target_rate: u32) -> LiveRender {
     let source_rate = render.fixed.sample_rate;
+    if source_rate == target_rate || source_rate == 0 || target_rate == 0 {
+        return render;
+    }
+    // Synth lanes play at the rate they were built for.
+    render.bake_synths();
     render.fixed = resample_stereo(std::mem::take(&mut render.fixed), target_rate);
     for lane in &mut render.lanes {
         *lane = resample_stereo(
@@ -544,6 +564,27 @@ impl Player {
         Ok(())
     }
 
+    /// Replaces one track's synth lane at the next buffer, for a note edit
+    /// while playing. The lane must be built at [`Player::sample_rate`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when earlier lanes are still waiting.
+    pub fn swap_synth(
+        &self,
+        track: project::TrackId,
+        synth: crate::synth::SynthLane,
+    ) -> Result<(), String> {
+        let mut guard = self
+            .control
+            .lock()
+            .map_err(|_| String::from("the audio engine is unavailable"))?;
+        guard
+            .0
+            .send_synth(track, synth)
+            .map_err(|_| String::from("the audio engine is busy"))
+    }
+
     /// Level of what was played since the last read.
     #[must_use]
     pub fn meter(&self) -> Meter {
@@ -810,6 +851,7 @@ mod tests {
             gains: vec![(1.0, 1.0)],
             master_gain: 1.0,
             limiter: false,
+            ..LiveRender::default()
         })
     }
 
@@ -871,6 +913,7 @@ mod tests {
             gains: vec![(0.8, 0.6)],
             master_gain: crate::master::gain(-3.0),
             limiter: true,
+            ..LiveRender::default()
         };
         let expected = render.mixdown();
         let mut playback = Playback::new_live(render);
@@ -946,6 +989,7 @@ mod tests {
             gains: vec![(gain, gain)],
             master_gain: 1.0,
             limiter: false,
+            ..LiveRender::default()
         };
         let mut playback = Playback::new_live(lane(1.0));
         playback.play();
@@ -956,5 +1000,67 @@ mod tests {
         playback.load(lane(1.0)).expect("load");
         playback.fill(&mut output);
         assert!(output.iter().all(|sample| (sample - 0.25).abs() < 1e-6));
+    }
+
+    fn note_song(pitch: u8) -> project::song::Song {
+        let mut song = live_song(100);
+        song.tracks[0].notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("note"),
+            start: 0,
+            duration: music_core::PPQ * 4,
+            pitch: music_core::Pitch::new(pitch).expect("pitch"),
+            velocity: music_core::Velocity::new(100).expect("velocity"),
+            channel: music_core::Channel::first(),
+        });
+        song
+    }
+
+    #[test]
+    fn note_tracks_play_live_and_match_the_offline_render() {
+        let song = note_song(60);
+        let render = crate::live::render(&song, 8_000);
+        assert!(
+            render.synths[0].is_some(),
+            "a notes-only track is a synth lane"
+        );
+        assert!(render.lanes[0].is_empty(), "and is not pre-rendered");
+        let expected = render.mixdown();
+        let mut playback = Playback::new_live(render);
+        playback.play();
+        let mut output = vec![0.0_f32; expected.samples.len()];
+        for chunk in output.chunks_mut(256) {
+            playback.fill(chunk);
+        }
+        let worst = output
+            .iter()
+            .zip(&expected.samples)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(worst < 1e-5, "engine and offline differ by {worst}");
+    }
+
+    #[test]
+    fn a_note_edit_swaps_in_while_playing() {
+        let song = note_song(60);
+        let render = crate::live::render(&song, 8_000);
+        let delay = render.synth_delay;
+        let mut playback = Playback::new_live(render);
+        playback.play();
+        let mut before = [0.0_f32; 512];
+        playback.fill(&mut before);
+
+        let edited = note_song(72);
+        let lane = crate::synth::SynthLane::build(&edited, &edited.tracks[0], None, 8_000, delay);
+        let expected = lane.render_all(2048);
+        playback
+            .swap_synth(edited.tracks[0].id, lane)
+            .expect("swap");
+        let mut after = [0.0_f32; 512];
+        playback.fill(&mut after);
+        // The new notes play from the current position on.
+        for (got, want) in after.iter().zip(&expected[512..1024]) {
+            assert!((got - want).abs() < 1e-5);
+        }
+        assert_eq!(playback.collect_garbage(), 1, "the old lane comes back");
     }
 }

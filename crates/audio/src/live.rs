@@ -10,13 +10,20 @@
 //! is not linear or changes over time: volume, pan or send automation, a bus
 //! with plug-ins, or master plug-ins. Changes that touch the fixed part still
 //! need a new render.
+//!
+//! A live track with notes only (no recorded audio, no plug-ins) is not
+//! rendered at all: its lane carries a [`SynthLane`] that plays the notes in
+//! the audio callback, and a note edit swaps in a new lane.
 
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use project::TrackId;
 use project::song::{AutomationTarget, Bus, PluginSlot, Song, Track};
 
 use crate::master::{self, Master};
+use crate::synth::SynthLane;
 use crate::{RenderedAudio, gains, soundfont};
 
 /// A song rendered for live mixing.
@@ -25,7 +32,14 @@ pub struct LiveRender {
     /// Everything that is not live, already through its own faders.
     pub fixed: RenderedAudio,
     /// One buffer per live track, before its fader, at `fixed`'s length.
+    /// Empty for a track played by a synth lane.
     pub lanes: Vec<Vec<f32>>,
+    /// The synth lane of each live track that has one, in lane order.
+    pub synths: Vec<Option<SynthLane>>,
+    /// Frames a synth lane is delayed by; needed to build a replacement.
+    pub synth_delay: usize,
+    /// SoundFonts the synth lanes play, by path, to build replacements.
+    pub fonts: Vec<(String, Arc<soundfont::SoundFont>)>,
     /// The track of each lane.
     pub tracks: Vec<TrackId>,
     /// Left and right gain of each lane when it was rendered.
@@ -43,6 +57,9 @@ impl LiveRender {
         Self {
             fixed: audio,
             lanes: Vec::new(),
+            synths: Vec::new(),
+            synth_delay: 0,
+            fonts: Vec::new(),
             tracks: Vec::new(),
             gains: Vec::new(),
             master_gain: 1.0,
@@ -59,6 +76,11 @@ impl LiveRender {
     /// Runs the linear master effects on every part and keeps the master
     /// gain and limiter for playback.
     pub fn apply_master(&mut self, settings: Master) {
+        if settings.chorus > 0.0 || settings.reverb > 0.0 {
+            // The master effects run offline for now, so synth lanes become
+            // plain buffers first.
+            self.bake_synths();
+        }
         master::apply_effects(&mut self.fixed, settings);
         let rate = self.fixed.sample_rate;
         for lane in &mut self.lanes {
@@ -73,11 +95,23 @@ impl LiveRender {
         self.limiter = settings.limiter;
     }
 
+    /// Renders every synth lane into its lane buffer.
+    pub fn bake_synths(&mut self) {
+        let len = self.fixed.samples.len();
+        for (lane, synth) in self.lanes.iter_mut().zip(&mut self.synths) {
+            if let Some(synth) = synth.take() {
+                *lane = synth.render_all(len);
+            }
+        }
+    }
+
     /// The finished mix with the gains it was rendered with.
     #[must_use]
     pub fn mixdown(&self) -> RenderedAudio {
         let mut samples = self.fixed.samples.clone();
-        for (lane, (left, right)) in self.lanes.iter().zip(&self.gains) {
+        let mut baked = self.clone();
+        baked.bake_synths();
+        for (lane, (left, right)) in baked.lanes.iter().zip(&self.gains) {
             for (target, pair) in samples
                 .as_chunks_mut::<2>()
                 .0
@@ -245,7 +279,8 @@ pub fn render_with_soundfont(
     load: &mut dyn FnMut(&str) -> Option<soundfont::SoundFont>,
 ) -> LiveRender {
     let live = live_tracks(song);
-    let (fixed, lanes) = crate::render_parts(song, sample_rate, load, &live);
+    let skip: Vec<bool> = song.tracks.iter().map(crate::synth::can_play).collect();
+    let parts = crate::render_parts(song, sample_rate, load, &live, &skip);
     let live_tracks: Vec<&Track> = song
         .tracks
         .iter()
@@ -253,9 +288,30 @@ pub fn render_with_soundfont(
         .filter(|(_, live)| **live)
         .map(|(track, _)| track)
         .collect();
+    let mut fonts: HashMap<String, Option<Arc<soundfont::SoundFont>>> = HashMap::new();
+    let synths = live_tracks
+        .iter()
+        .map(|track| {
+            crate::synth::can_play(track).then(|| {
+                let font = track.soundfont.as_ref().and_then(|reference| {
+                    fonts
+                        .entry(reference.path.clone())
+                        .or_insert_with(|| load(&reference.path).map(Arc::new))
+                        .clone()
+                });
+                SynthLane::build(song, track, font, sample_rate, parts.delay)
+            })
+        })
+        .collect();
     LiveRender {
-        fixed,
-        lanes,
+        fixed: parts.fixed,
+        lanes: parts.lanes,
+        synths,
+        synth_delay: parts.delay,
+        fonts: fonts
+            .into_iter()
+            .filter_map(|(path, font)| font.map(|font| (path, font)))
+            .collect(),
         tracks: live_tracks.iter().map(|track| track.id).collect(),
         gains: live_tracks
             .iter()
