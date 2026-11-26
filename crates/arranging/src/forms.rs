@@ -170,6 +170,8 @@ pub fn apply(
     sections: &[Section],
     form: &Form,
 ) -> Result<usize, ArrangingError> {
+    // Every edit below lands as one undo step, or none if any fails.
+    let mut batch = Vec::new();
     let placed = plan(sections, form);
     let melody = session
         .song()
@@ -218,14 +220,14 @@ pub fn apply(
             }
         }
         for (index, note) in notes.iter_mut().enumerate() {
-            if let Ok(id) = project::NoteId::new(index as u32 + 1) {
+            if let Ok(id) = project::NoteId::new(u32::try_from(index + 1).unwrap_or(u32::MAX)) {
                 note.id = id;
             }
         }
-        session.apply(Command::ReplaceTrackNotes {
+        batch.push(Command::ReplaceTrackNotes {
             track: track_id,
             notes,
-        })?;
+        });
     }
     let mut chords: Vec<ChordEvent> = Vec::new();
     let source_chords = session.song().chords.clone();
@@ -239,7 +241,7 @@ pub fn apply(
             }
         }
     }
-    session.apply(Command::SetChords { chords })?;
+    batch.push(Command::SetChords { chords });
     let markers: Vec<Marker> = placed
         .iter()
         .map(|(section, target, _)| Marker {
@@ -247,7 +249,11 @@ pub fn apply(
             name: section.name.clone(),
         })
         .collect();
-    session.apply(Command::SetMarkers { markers })?;
+    batch.push(Command::SetMarkers { markers });
+    session.apply(Command::Batch {
+        label: String::from("arrange form"),
+        commands: batch,
+    })?;
     Ok(copied)
 }
 
@@ -403,6 +409,7 @@ pub fn apply_break(
 ) -> Result<usize, ArrangingError> {
     let tracks: Vec<TrackId> = session.song().tracks.iter().map(|track| track.id).collect();
     let mut removed = 0;
+    let mut batch = Vec::new();
     for track in tracks {
         let notes: Vec<Note> = session
             .song()
@@ -427,15 +434,14 @@ pub fn apply_break(
         if notes.len() == before {
             continue;
         }
-        session.apply(Command::ReplaceTrackNotes { track, notes })?;
-        removed += before
-            - session
-                .song()
-                .tracks
-                .iter()
-                .find(|entry| entry.id == track)
-                .map_or(before, |entry| entry.notes.len());
+        removed += before - notes.len();
+        batch.push(Command::ReplaceTrackNotes { track, notes });
     }
+    // All tracks clear as one undo step, or none if any fails.
+    session.apply(Command::Batch {
+        label: String::from("add break"),
+        commands: batch,
+    })?;
     Ok(removed)
 }
 
@@ -495,6 +501,11 @@ pub fn transition(song: &Song, join_tick: Tick, kind: Transition) -> TransitionP
             if let Some(track) = drums {
                 for (index, velocity) in [70_u8, 85, 100, 115].into_iter().enumerate() {
                     let start = join_tick - (4 - index as Tick) * (music_core::PPQ / 4);
+                    // A join right at the song start has no room for the
+                    // early hits; never write negative ticks.
+                    if start < 0 {
+                        continue;
+                    }
                     notes.push((
                         track.id,
                         Note {
@@ -503,9 +514,11 @@ pub fn transition(song: &Song, join_tick: Tick, kind: Transition) -> TransitionP
                             duration: music_core::PPQ / 4,
                             pitch: music_core::Pitch::new(38).expect("valid"),
                             velocity: music_core::Velocity::new(velocity).expect("valid"),
+                            // The snare goes on the drum channel the track uses.
                             channel: track
                                 .notes
-                                .first()
+                                .iter()
+                                .find(|note| note.channel.zero_based() == 9)
                                 .map_or(music_core::Channel::first(), |note| note.channel),
                         },
                     ));
@@ -571,6 +584,8 @@ pub fn apply_transition(
     session: &mut EditSession,
     plan: &TransitionPlan,
 ) -> Result<usize, ArrangingError> {
+    // Every edit below lands as one undo step, or none if any fails.
+    let mut batch = Vec::new();
     use std::collections::BTreeMap;
     let mut by_track: BTreeMap<TrackId, Vec<Note>> = BTreeMap::new();
     for (track, note) in &plan.notes {
@@ -589,15 +604,19 @@ pub fn apply_transition(
         notes.extend(new_notes);
         notes.sort_by_key(|note| note.start);
         for (index, note) in notes.iter_mut().enumerate() {
-            if let Ok(id) = project::NoteId::new(index as u32 + 1) {
+            if let Ok(id) = project::NoteId::new(u32::try_from(index + 1).unwrap_or(u32::MAX)) {
                 note.id = id;
             }
         }
-        session.apply(Command::ReplaceTrackNotes {
+        batch.push(Command::ReplaceTrackNotes {
             track: track_id,
             notes,
-        })?;
+        });
     }
+    session.apply(Command::Batch {
+        label: String::from("add transition"),
+        commands: batch,
+    })?;
     Ok(plan.notes.len())
 }
 
@@ -790,6 +809,8 @@ pub fn join_loop(
     section_name: &str,
     total: usize,
 ) -> Result<LoopOutcome, ArrangingError> {
+    // Every edit below lands as one undo step, or none if any fails.
+    let mut batch = Vec::new();
     if total < 2 {
         return Err(ArrangingError::Command(
             app_commands::CommandError::Validation(String::from(
@@ -847,10 +868,10 @@ pub fn join_loop(
             }
         }
         if notes != track.notes {
-            session.apply(Command::ReplaceTrackNotes {
+            batch.push(Command::ReplaceTrackNotes {
                 track: track.id,
                 notes,
-            })?;
+            });
         }
 
         if !track.clips.is_empty() {
@@ -885,10 +906,10 @@ pub fn join_loop(
             }
             clips.sort_by_key(|clip| clip.start);
             if clips != track.clips {
-                session.apply(Command::SetClips {
+                batch.push(Command::SetClips {
                     track: track.id,
                     clips,
-                })?;
+                });
             }
         }
 
@@ -903,10 +924,10 @@ pub fn join_loop(
                 lane.points.sort_by_key(|point| point.tick);
             }
             if lanes != track.automation {
-                session.apply(Command::SetAutomation {
+                batch.push(Command::SetAutomation {
                     track: track.id,
                     lanes,
-                })?;
+                });
             }
         }
 
@@ -915,10 +936,10 @@ pub fn join_loop(
         {
             let mut moved = reference.clone();
             moved.start += shift;
-            session.apply(Command::SetAudioRef {
+            batch.push(Command::SetAudioRef {
                 track: track.id,
                 reference: Some(moved),
-            })?;
+            });
             outcome.audio = outcome.audio.saturating_add(1);
         }
     }
@@ -942,7 +963,7 @@ pub fn join_loop(
     }
     chords.sort_by_key(|event| event.tick);
     if chords != song.chords {
-        session.apply(Command::SetChords { chords })?;
+        batch.push(Command::SetChords { chords });
     }
 
     let mut lyrics = Vec::new();
@@ -964,7 +985,7 @@ pub fn join_loop(
     }
     lyrics.sort_by_key(|event| event.tick);
     if lyrics != song.lyrics {
-        session.apply(Command::SetLyrics { lyrics })?;
+        batch.push(Command::SetLyrics { lyrics });
     }
 
     let mut marks = Vec::new();
@@ -986,7 +1007,7 @@ pub fn join_loop(
     }
     marks.sort_by_key(|mark| mark.tick);
     if marks != song.marks {
-        session.apply(Command::SetMarks { marks })?;
+        batch.push(Command::SetMarks { marks });
     }
 
     let mut markers = Vec::new();
@@ -999,8 +1020,12 @@ pub fn join_loop(
     }
     markers.sort_by_key(|marker| marker.tick);
     if markers != song.markers {
-        session.apply(Command::SetMarkers { markers })?;
+        batch.push(Command::SetMarkers { markers });
     }
+    session.apply(Command::Batch {
+        label: String::from("loop section"),
+        commands: batch,
+    })?;
     Ok(outcome)
 }
 
@@ -1107,12 +1132,11 @@ mod join_loop_tests {
         assert_eq!(ids.len(), 3, "clip ids stay unique");
         assert_eq!(song.tracks[0].automation[0].points[0].tick, 7680);
         assert_eq!(song.tracks[0].audio.as_ref().expect("audio").start, 7680);
-        session.undo().expect("undo marks");
-        session.undo().expect("undo lyrics");
-        session.undo().expect("undo chords");
-        session.undo().expect("undo notes");
-        session.undo().expect("undo markers");
+        // The whole loop is one undo step.
+        session.undo().expect("undo loop");
         assert_eq!(session.song().markers[1].tick, 3840);
+        assert_eq!(session.song().tracks[0].notes.len(), 2);
+        assert!(session.undo().is_err());
     }
 
     #[test]

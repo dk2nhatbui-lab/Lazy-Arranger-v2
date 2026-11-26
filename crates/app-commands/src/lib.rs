@@ -26,6 +26,13 @@ use thiserror::Error;
 #[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum Command {
+    /// Several commands applied in order as one undo step: all or none.
+    Batch {
+        /// What the step shows in the history, like "copy scene".
+        label: String,
+        /// The commands, in order.
+        commands: Vec<Command>,
+    },
     /// Insert a note with a caller-chosen identifier.
     InsertNote {
         /// Owning track.
@@ -357,6 +364,7 @@ impl Command {
             Self::RemoveNote { .. } => "remove note",
             Self::SetNoteDuration { .. } => "set note duration",
             Self::SetChord { .. } => "set chord",
+            Self::Batch { .. } => "batch edit",
             Self::RemoveChord { .. } => "remove chord",
             Self::SetTempo { .. } => "set tempo",
             Self::RenameTrack { .. } => "rename track",
@@ -564,7 +572,7 @@ impl EditSession {
             return Err(CommandError::NothingToUndo);
         };
         let before = self.project.clone();
-        if let Err(err) = self.run(&entry.inverse) {
+        if let Err(err) = self.run_mode(&entry.inverse, false) {
             self.project = before;
             self.undo.push(entry);
             return Err(err);
@@ -591,7 +599,7 @@ impl EditSession {
             return Err(CommandError::NothingToRedo);
         };
         let before = self.project.clone();
-        if let Err(err) = self.run(&entry.inverse) {
+        if let Err(err) = self.run_mode(&entry.inverse, false) {
             self.project = before;
             self.redo.push(entry);
             return Err(err);
@@ -852,6 +860,25 @@ impl EditSession {
     /// Computes the command that reverses `command`, before applying it.
     fn inverse_for(&self, command: &Command) -> Result<Command, CommandError> {
         Ok(match command {
+            Command::Batch { label, commands } => {
+                // Each step's inverse is taken against the state the steps
+                // before it leave, so the batch is simulated on a copy.
+                let mut scratch = Self {
+                    project: self.project.clone(),
+                    undo: Vec::new(),
+                    redo: Vec::new(),
+                };
+                let mut inverses = Vec::with_capacity(commands.len());
+                for step in commands {
+                    inverses.push(scratch.inverse_for(step)?);
+                    scratch.run_mode(step, true)?;
+                }
+                inverses.reverse();
+                Command::Batch {
+                    label: label.clone(),
+                    commands: inverses,
+                }
+            }
             Command::InsertNote { track, note } => {
                 let target = self.track(*track)?;
                 if target.notes.iter().any(|existing| existing.id == note.id) {
@@ -1170,7 +1197,19 @@ impl EditSession {
     }
 
     fn run(&mut self, command: &Command) -> Result<(), CommandError> {
+        self.run_mode(command, true)
+    }
+
+    /// Runs `command`. With `normalize` false (undo and redo), list data is
+    /// stored exactly as given, so restoring a state never re-sorts or trims
+    /// what it captured.
+    fn run_mode(&mut self, command: &Command, normalize: bool) -> Result<(), CommandError> {
         match command {
+            Command::Batch { commands, .. } => {
+                for step in commands {
+                    self.run_mode(step, normalize)?;
+                }
+            }
             Command::InsertNote { track, note } => {
                 let target = self.track_mut(*track)?;
                 let position = target
@@ -1358,7 +1397,9 @@ impl EditSession {
             }
             Command::SetChords { chords } => {
                 self.project.song.chords = chords.clone();
-                self.project.song.chords.sort_by_key(|event| event.tick);
+                if normalize {
+                    self.project.song.chords.sort_by_key(|event| event.tick);
+                }
             }
             Command::SetSceneNames { names } => {
                 self.project.song.scene_names = names.clone();
@@ -1367,7 +1408,7 @@ impl EditSession {
                 for (track, slots) in tracks {
                     let entry = self.track_mut(*track)?;
                     entry.slots = slots.clone();
-                    while entry.slots.last().is_some_and(Option::is_none) {
+                    while normalize && entry.slots.last().is_some_and(Option::is_none) {
                         entry.slots.pop();
                     }
                 }
@@ -1386,7 +1427,9 @@ impl EditSession {
             }
             Command::SetMarkers { markers } => {
                 self.project.song.markers = markers.clone();
-                self.project.song.markers.sort_by_key(|marker| marker.tick);
+                if normalize {
+                    self.project.song.markers.sort_by_key(|marker| marker.tick);
+                }
             }
             Command::SetClips { track, clips } => {
                 self.track_mut(*track)?.clips = clips.clone();
@@ -1402,8 +1445,10 @@ impl EditSession {
                 let entry = self.track_mut(*track)?;
                 entry.notes = notes.clone();
                 entry.clips = clips.clone();
-                entry.notes.sort_by_key(|note| note.start);
-                entry.clips.sort_by_key(|clip| clip.start);
+                if normalize {
+                    entry.notes.sort_by_key(|note| note.start);
+                    entry.clips.sort_by_key(|clip| clip.start);
+                }
             }
             Command::ReplaceTrackNotesMany { tracks } => {
                 for (track, _) in tracks {
@@ -1471,6 +1516,7 @@ impl EditSession {
 
 fn describe(command: &Command) -> String {
     match command {
+        Command::Batch { label, .. } => label.clone(),
         Command::InsertNote { track, note } => {
             format!("insert {} on track {track} at {}", note.pitch, note.start)
         }
@@ -1681,6 +1727,39 @@ mod tests {
 
     fn pitch(name: &str) -> Pitch {
         Pitch::from_name(name).expect("valid pitch")
+    }
+
+    #[test]
+    fn undo_restores_lists_exactly_as_they_were() {
+        let mut song = Song::new("Exact", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        track.slots = vec![None, None];
+        song.tracks.push(track);
+        // Loaded out of order: undo must bring back this order, not a sorted one.
+        song.markers = vec![
+            project::Marker {
+                tick: 960,
+                name: String::from("B"),
+            },
+            project::Marker {
+                tick: 0,
+                name: String::from("A"),
+            },
+        ];
+        let mut edit = EditSession::new(ProjectFile::new(song)).expect("valid project");
+        let original = edit.project().clone();
+        edit.apply(Command::SetMarkers {
+            markers: Vec::new(),
+        })
+        .expect("markers");
+        edit.apply(Command::SetLoops {
+            tracks: vec![(TrackId::new(1).expect("valid"), Vec::new())],
+            names: None,
+        })
+        .expect("loops");
+        edit.undo().expect("undo loops");
+        edit.undo().expect("undo markers");
+        assert_eq!(edit.project(), &original);
     }
 
     #[test]
