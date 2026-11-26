@@ -9,6 +9,8 @@
 
 mod instance;
 mod module;
+mod realtime;
+pub use realtime::RealtimeEffect;
 mod trust;
 pub use trust::{approve_vst3_bundle, default_vst3_roots, is_vst3_bundle_trusted};
 mod vst3_instrument;

@@ -484,6 +484,17 @@ pub fn midi_map_path() -> PathBuf {
 }
 
 impl Settings {
+    /// The master bus settings, for the audio engine.
+    #[must_use]
+    pub fn master(&self) -> audio::master::Master {
+        audio::master::Master {
+            gain_db: self.master_gain_db,
+            limiter: self.master_limiter,
+            reverb: self.master_reverb,
+            chorus: self.master_chorus,
+        }
+    }
+
     /// Per-user directory for settings, keys, profiles and recent projects.
     #[must_use]
     pub fn data_dir() -> PathBuf {

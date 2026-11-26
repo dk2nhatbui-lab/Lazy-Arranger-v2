@@ -516,6 +516,48 @@ impl AuEffect {
         Ok(())
     }
 
+    /// Processes planar stereo audio in place without allocating, for the
+    /// audio callback. At most 4096 frames, the unit's promised maximum.
+    /// Returns false when the unit rejects the block.
+    pub(crate) fn process_planar(&mut self, left: &mut [f32], right: &mut [f32]) -> bool {
+        let frames = left.len().min(right.len());
+        if frames == 0 || frames > 4096 {
+            return frames == 0;
+        }
+        let mut buffers = AudioBufferList2 {
+            number_buffers: 2,
+            buffers: [
+                AudioBuffer {
+                    number_channels: 1,
+                    data_byte_size: u32::try_from(frames * 4).unwrap_or(0),
+                    data: left.as_mut_ptr().cast(),
+                },
+                AudioBuffer {
+                    number_channels: 1,
+                    data_byte_size: u32::try_from(frames * 4).unwrap_or(0),
+                    data: right.as_mut_ptr().cast(),
+                },
+            ],
+        };
+        let timestamp = AudioTimeStamp {
+            sample_time: self.sample_time,
+            flags: K_AUDIO_TIME_STAMP_SAMPLE_TIME_VALID,
+            ..AudioTimeStamp::default()
+        };
+        let mut action_flags = 0_u32;
+        let result = unsafe {
+            AudioUnitProcess(
+                self.unit,
+                &mut action_flags,
+                &timestamp,
+                u32::try_from(frames).unwrap_or(0),
+                &mut buffers,
+            )
+        };
+        self.sample_time += frames as f64;
+        result == 0
+    }
+
     pub(crate) fn raw_unit(&self) -> AudioUnit {
         self.unit
     }
