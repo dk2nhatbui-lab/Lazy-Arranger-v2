@@ -5,6 +5,8 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
+## [0.1.0-beta.5] - 2026-11-26
+
 ### Fixed
 - A plug-in that can't keep up while the song plays is turned off for the
   session, and its track plays dry, instead of making the sound stutter.
@@ -39,6 +41,9 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
   the mixer, as playback does.
 
 ### Changed
+- Audio clips on the timeline look like Luna: a pastel body in the track
+  colour, a name strip on top, the beat grid showing through, and a sharp
+  dark waveform for each channel at any zoom.
 - Export Audio (app, CLI and MCP), stems and bounce play the song through
   the same engine as playback, faster than real time, so an export sounds
   exactly like what you heard. The separate offline mix is gone.
