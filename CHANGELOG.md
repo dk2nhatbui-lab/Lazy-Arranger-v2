@@ -8,18 +8,20 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 ### Fixed
 - Mixer faders, pans, mute, solo, bus faders and the master fader are heard
   right away while the song plays, for MIDI and audio tracks. Before, each
-  move waited for the whole song to render again. Tracks with volume, pan
-  or send automation, and a bus such a track feeds, still render again
-  after a change.
+  move waited for the whole song to render again. This now holds for
+  tracks with volume, pan or send automation too: the engine follows the
+  automation as it plays, and an automation edit is heard at once.
+- Edits on a track with recorded audio, a plug-in instrument or plug-in
+  automation (a clip move, a take, a fade) are heard while the song plays.
+  Only that track is rendered again, in the background, and swapped in.
 - The master reverb, chorus and limiter react right away while the song
   plays, with no new render. Note tracks also stay live when the master
   reverb or chorus is on, and a reverb tail rings on when the mix changes.
 - Plug-in effects (VST3 and Audio Unit) on tracks, buses and the master
   run live while the song plays. A preset, knob or bypass change is heard
   within a moment, without rendering the song again, and bus plug-ins no
-  longer force the tracks on that bus to render. Tracks with plug-in
-  automation or a plug-in instrument still render again; so does a change
-  that alters a track or bus plug-in's latency.
+  longer force the tracks on that bus to render. A change that alters a
+  track or bus plug-in's latency still renders the song again.
 
 ### Changed
 - Tracks that only play notes (built-in synth or SoundFont, no recorded

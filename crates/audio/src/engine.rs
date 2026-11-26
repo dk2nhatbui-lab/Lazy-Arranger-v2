@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering}
 use project::TrackId;
 use rtrb::{Consumer, Producer, RingBuffer};
 
+use crate::automation::Envelope;
 use crate::inserts::{ChainId, Inserts};
 use crate::live::LiveRender;
 use crate::master::{self, Meter};
@@ -316,12 +317,24 @@ pub enum Param {
     },
     /// Whether the master soft limiter is on.
     Limiter(bool),
+    /// Left and right gain of a track's send to a plain bus at unity, for a
+    /// track whose send level follows automation.
+    TrackSend {
+        /// The track.
+        track: TrackId,
+        /// Left gain.
+        left: f32,
+        /// Right gain.
+        right: f32,
+    },
     /// Left and right gain of a track's route into a live bus.
     BusFeed {
         /// The track.
         track: TrackId,
         /// The bus id.
         bus: u8,
+        /// True for the track's send, false for its main output.
+        send: bool,
         /// Left gain.
         left: f32,
         /// Right gain.
@@ -400,6 +413,30 @@ fn mix_into(target: &mut [f32], source: &[f32], left: Ramp, right: Ramp) {
     }
 }
 
+/// Adds `source` into `target` like [`mix_into`], also scaled by the
+/// envelope's send level at each frame. `first` is the song frame of the
+/// first sample.
+fn mix_send(
+    target: &mut [f32],
+    source: &[f32],
+    left: Ramp,
+    right: Ramp,
+    envelope: &Envelope,
+    first: usize,
+) {
+    for (frame, (target, pair)) in target
+        .as_chunks_mut::<2>()
+        .0
+        .iter_mut()
+        .zip(source.as_chunks::<2>().0)
+        .enumerate()
+    {
+        let level = envelope.send(first + frame);
+        target[0] += pair[0] * level * left.at(frame);
+        target[1] += pair[1] * level * right.at(frame);
+    }
+}
+
 /// Where a live lane's signal comes from.
 #[derive(Debug)]
 enum Source {
@@ -419,6 +456,11 @@ struct Lane {
     /// Gains of the direct route to the master.
     left: Gain,
     right: Gain,
+    /// Gains of a plain send at unity, scaled by the envelope's send level.
+    send_left: Gain,
+    send_right: Gain,
+    /// Fader, pan and send automation, applied after the inserts.
+    envelope: Option<Box<Envelope>>,
     /// Routes into live buses.
     feeds: Vec<Feed>,
 }
@@ -429,6 +471,8 @@ struct Feed {
     /// Index of the bus in the graph.
     bus: usize,
     id: u8,
+    /// The track's send, scaled by the envelope's send level.
+    send: bool,
     left: Gain,
     right: Gain,
 }
@@ -538,6 +582,10 @@ impl Graph {
         inserts.resize_with(render.lanes.len(), || None);
         let mut feeds = render.feeds;
         feeds.resize_with(render.lanes.len(), Vec::new);
+        let mut sends = render.sends;
+        sends.resize(render.lanes.len(), (0.0, 0.0));
+        let mut envelopes = render.envelopes;
+        envelopes.resize_with(render.lanes.len(), || None);
         let buses: Vec<BusNode> = render
             .buses
             .into_iter()
@@ -556,10 +604,14 @@ impl Graph {
             .zip(synths)
             .zip(inserts)
             .zip(feeds)
+            .zip(sends.into_iter().zip(envelopes))
             .zip(render.tracks)
             .zip(render.gains)
             .map(
-                |(((((samples, synth), inserts), feeds), track), (left, right))| Lane {
+                |(
+                    (((((samples, synth), inserts), feeds), (send, envelope)), track),
+                    (left, right),
+                )| Lane {
                     track,
                     source: match synth {
                         Some(synth) => Source::Synth(Box::new(synth)),
@@ -568,12 +620,16 @@ impl Graph {
                     inserts: inserts.map(Box::new),
                     left: Gain::new(left),
                     right: Gain::new(right),
+                    send_left: Gain::new(send.0),
+                    send_right: Gain::new(send.1),
+                    envelope: envelope.map(Box::new),
                     feeds: feeds
                         .into_iter()
-                        .filter_map(|(id, left, right)| {
+                        .filter_map(|(id, send, left, right)| {
                             Some(Feed {
                                 bus: buses.iter().position(|bus| bus.id == id)?,
                                 id,
+                                send,
                                 left: Gain::new(left),
                                 right: Gain::new(right),
                             })
@@ -643,14 +699,25 @@ impl Graph {
                     master.limiter = on;
                 }
             }
+            Param::TrackSend { track, left, right } => {
+                if let Some(lane) = self.lanes.iter_mut().find(|lane| lane.track == track) {
+                    lane.send_left.set(left);
+                    lane.send_right.set(right);
+                }
+            }
             Param::BusFeed {
                 track,
                 bus,
+                send,
                 left,
                 right,
             } => {
                 for lane in self.lanes.iter_mut().filter(|lane| lane.track == track) {
-                    for feed in lane.feeds.iter_mut().filter(|feed| feed.id == bus) {
+                    for feed in lane
+                        .feeds
+                        .iter_mut()
+                        .filter(|feed| feed.id == bus && feed.send == send)
+                    {
                         feed.left.set(left);
                         feed.right.set(right);
                     }
@@ -700,6 +767,37 @@ impl Graph {
         }
     }
 
+    /// Puts a new buffer in place of a track's lane buffer and returns the
+    /// one it replaced, or the new one when the lane plays a synth. A
+    /// buffer longer than the graph is only read up to the graph's length;
+    /// a shorter one plays silence past its end.
+    fn swap_lane(&mut self, track: TrackId, mut samples: Vec<f32>) -> Vec<f32> {
+        for sample in &mut samples {
+            *sample = finite(*sample);
+        }
+        match self.lanes.iter_mut().find(|lane| lane.track == track) {
+            Some(Lane {
+                source: Source::Buffer(current),
+                ..
+            }) => std::mem::replace(current, samples),
+            _ => samples,
+        }
+    }
+
+    /// Puts a new envelope in place of a track's current one and returns
+    /// the one it replaced, or the new one when the lane has none.
+    fn swap_envelope(&mut self, track: TrackId, envelope: Box<Envelope>) -> Box<Envelope> {
+        match self
+            .lanes
+            .iter_mut()
+            .find(|lane| lane.track == track)
+            .and_then(|lane| lane.envelope.as_mut())
+        {
+            Some(current) => std::mem::replace(current, envelope),
+            None => envelope,
+        }
+    }
+
     /// Plays the whole graph from the start, as playback would, into a new
     /// buffer.
     pub(crate) fn render_all(mut self) -> Vec<f32> {
@@ -719,8 +817,14 @@ impl Graph {
             if let Some(previous) = old.lanes.iter().find(|entry| entry.track == lane.track) {
                 lane.left = previous.left;
                 lane.right = previous.right;
+                lane.send_left = previous.send_left;
+                lane.send_right = previous.send_right;
                 for feed in &mut lane.feeds {
-                    if let Some(known) = previous.feeds.iter().find(|entry| entry.id == feed.id) {
+                    if let Some(known) = previous
+                        .feeds
+                        .iter()
+                        .find(|entry| entry.id == feed.id && entry.send == feed.send)
+                    {
                         feed.left = known.left;
                         feed.right = known.right;
                     }
@@ -785,8 +889,12 @@ impl Graph {
         for lane in lanes.iter_mut() {
             let left = lane.left.ramp(frames);
             let right = lane.right.ramp(frames);
+            let first = pos / 2;
+            let envelope = lane.envelope.as_deref();
             let source = match (&mut lane.source, &mut lane.inserts) {
-                (Source::Buffer(samples), None) => samples.get(pos..pos + output.len()),
+                (Source::Buffer(samples), None) if envelope.is_none() => {
+                    samples.get(pos..pos + output.len())
+                }
                 (source, inserts) => {
                     match source {
                         Source::Buffer(samples) => match samples.get(pos..pos + scratch.len()) {
@@ -801,22 +909,41 @@ impl Graph {
                             *sample = finite(*sample);
                         }
                     }
+                    // The fader and pan curve, after the inserts.
+                    if let Some(envelope) = envelope {
+                        for (frame, pair) in scratch.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+                            let [left, right] = envelope.gains(first + frame);
+                            pair[0] *= left;
+                            pair[1] *= right;
+                        }
+                    }
                     Some(&*scratch)
                 }
             };
+            let send_left = lane.send_left.ramp(frames);
+            let send_right = lane.send_right.ramp(frames);
             let Some(source) = source else {
                 continue;
             };
             let target: &mut [f32] = if delayed { direct } else { output };
             mix_into(target, source, left, right);
+            if let Some(envelope) = envelope {
+                mix_send(target, source, send_left, send_right, envelope, first);
+            }
             for feed in &mut lane.feeds {
                 let left = feed.left.ramp(frames);
                 let right = feed.right.ramp(frames);
-                if let Some(sum) = buses
+                let Some(sum) = buses
                     .get_mut(feed.bus)
                     .and_then(|bus| bus.sum.get_mut(..source.len()))
-                {
-                    mix_into(sum, source, left, right);
+                else {
+                    continue;
+                };
+                match envelope {
+                    Some(envelope) if feed.send => {
+                        mix_send(sum, source, left, right, envelope, first);
+                    }
+                    _ => mix_into(sum, source, left, right),
                 }
             }
         }
@@ -875,6 +1002,10 @@ pub struct Engine {
     synth_garbage: Producer<Box<SynthLane>>,
     inserts: Consumer<(ChainId, Box<Inserts>)>,
     insert_garbage: Producer<Box<Inserts>>,
+    envelopes: Consumer<(TrackId, Box<Envelope>)>,
+    envelope_garbage: Producer<Box<Envelope>>,
+    buffers: Consumer<(TrackId, Vec<f32>)>,
+    buffer_garbage: Producer<Vec<f32>>,
     transport: Arc<Transport>,
 }
 
@@ -888,6 +1019,10 @@ pub struct EngineControl {
     synth_garbage: Consumer<Box<SynthLane>>,
     inserts: Producer<(ChainId, Box<Inserts>)>,
     insert_garbage: Consumer<Box<Inserts>>,
+    envelopes: Producer<(TrackId, Box<Envelope>)>,
+    envelope_garbage: Consumer<Box<Envelope>>,
+    buffers: Producer<(TrackId, Vec<f32>)>,
+    buffer_garbage: Consumer<Vec<f32>>,
     transport: Arc<Transport>,
 }
 
@@ -905,6 +1040,10 @@ pub fn engine(graph: Graph) -> (Engine, EngineControl, Arc<Transport>) {
     let (synth_garbage_producer, synth_garbage_consumer) = RingBuffer::new(SYNTH_SLOTS + 1);
     let (insert_producer, insert_consumer) = RingBuffer::new(SYNTH_SLOTS);
     let (insert_garbage_producer, insert_garbage_consumer) = RingBuffer::new(SYNTH_SLOTS + 1);
+    let (envelope_producer, envelope_consumer) = RingBuffer::new(SYNTH_SLOTS);
+    let (envelope_garbage_producer, envelope_garbage_consumer) = RingBuffer::new(SYNTH_SLOTS + 1);
+    let (buffer_producer, buffer_consumer) = RingBuffer::new(SYNTH_SLOTS);
+    let (buffer_garbage_producer, buffer_garbage_consumer) = RingBuffer::new(SYNTH_SLOTS + 1);
     (
         Engine {
             graph: Some(Box::new(graph)),
@@ -915,6 +1054,10 @@ pub fn engine(graph: Graph) -> (Engine, EngineControl, Arc<Transport>) {
             synth_garbage: synth_garbage_producer,
             inserts: insert_consumer,
             insert_garbage: insert_garbage_producer,
+            envelopes: envelope_consumer,
+            envelope_garbage: envelope_garbage_producer,
+            buffers: buffer_consumer,
+            buffer_garbage: buffer_garbage_producer,
             transport: Arc::clone(&transport),
         },
         EngineControl {
@@ -925,6 +1068,10 @@ pub fn engine(graph: Graph) -> (Engine, EngineControl, Arc<Transport>) {
             synth_garbage: synth_garbage_consumer,
             inserts: insert_producer,
             insert_garbage: insert_garbage_consumer,
+            envelopes: envelope_producer,
+            envelope_garbage: envelope_garbage_consumer,
+            buffers: buffer_producer,
+            buffer_garbage: buffer_garbage_consumer,
             transport: Arc::clone(&transport),
         },
         transport,
@@ -977,8 +1124,40 @@ impl EngineControl {
             .map_err(|rtrb::PushError::Full((_, inserts))| inserts)
     }
 
-    /// Frees graphs, synth lanes and insert chains the audio thread has
-    /// handed back.
+    /// Replaces one track's gain automation at the next buffer, for an
+    /// automation edit while playing.
+    ///
+    /// # Errors
+    ///
+    /// Returns the envelope when too many are still waiting.
+    pub fn send_envelope(
+        &mut self,
+        track: TrackId,
+        envelope: Envelope,
+    ) -> Result<(), Box<Envelope>> {
+        self.collect_garbage();
+        self.envelopes
+            .push((track, Box::new(envelope)))
+            .map_err(|rtrb::PushError::Full((_, envelope))| envelope)
+    }
+
+    /// Replaces one track's lane buffer at the next buffer, for an edit on
+    /// that track while playing. The buffer is cut or padded to the graph's
+    /// length on the audio thread without allocating, so it must already
+    /// be at least that long to keep the whole track.
+    ///
+    /// # Errors
+    ///
+    /// Returns the buffer when too many are still waiting.
+    pub fn send_lane(&mut self, track: TrackId, samples: Vec<f32>) -> Result<(), Vec<f32>> {
+        self.collect_garbage();
+        self.buffers
+            .push((track, samples))
+            .map_err(|rtrb::PushError::Full((_, samples))| samples)
+    }
+
+    /// Frees graphs, synth lanes, insert chains, envelopes and lane buffers
+    /// the audio thread has handed back.
     pub fn collect_garbage(&mut self) -> usize {
         let mut freed = 0;
         while let Ok(graph) = self.garbage.pop() {
@@ -991,6 +1170,14 @@ impl EngineControl {
         }
         while let Ok(inserts) = self.insert_garbage.pop() {
             drop(inserts);
+            freed += 1;
+        }
+        while let Ok(envelope) = self.envelope_garbage.pop() {
+            drop(envelope);
+            freed += 1;
+        }
+        while let Ok(samples) = self.buffer_garbage.pop() {
+            drop(samples);
             freed += 1;
         }
         freed
@@ -1042,6 +1229,28 @@ impl Engine {
             };
             // Cannot fail: a slot was checked above.
             let _ = self.insert_garbage.push(old);
+        }
+        while self.envelope_garbage.slots() > 0 {
+            let Ok((track, envelope)) = self.envelopes.pop() else {
+                break;
+            };
+            let old = match &mut self.graph {
+                Some(graph) => graph.swap_envelope(track, envelope),
+                None => envelope,
+            };
+            // Cannot fail: a slot was checked above.
+            let _ = self.envelope_garbage.push(old);
+        }
+        while self.buffer_garbage.slots() > 0 {
+            let Ok((track, samples)) = self.buffers.pop() else {
+                break;
+            };
+            let old = match &mut self.graph {
+                Some(graph) => graph.swap_lane(track, samples),
+                None => samples,
+            };
+            // Cannot fail: a slot was checked above.
+            let _ = self.buffer_garbage.push(old);
         }
         while let Ok(param) = self.params.pop() {
             if let Some(graph) = &mut self.graph {

@@ -18,7 +18,8 @@ use crate::master::{Master, Meter};
 #[derive(Debug, Default)]
 struct Sent {
     tracks: Vec<(project::TrackId, f32, f32)>,
-    feeds: Vec<(project::TrackId, u8, f32, f32)>,
+    sends: Vec<(project::TrackId, f32, f32)>,
+    feeds: Vec<(project::TrackId, u8, bool, f32, f32)>,
     buses: Vec<(u8, f32, f32)>,
     master: Option<f32>,
     effects: Option<(f32, f32)>,
@@ -36,28 +37,45 @@ fn send_mix(
     let buses = crate::live::live_buses(song);
     for track in &song.tracks {
         let routes = crate::live::lane_routes(song, &buses, track);
-        for (bus, left, right) in routes.feeds {
+        for (bus, send, left, right) in routes.feeds {
             let known = sent
                 .feeds
                 .iter_mut()
-                .find(|entry| entry.0 == track.id && entry.1 == bus);
+                .find(|entry| entry.0 == track.id && entry.1 == bus && entry.2 == send);
             if known
                 .as_ref()
-                .is_some_and(|entry| entry.2 == left && entry.3 == right)
+                .is_some_and(|entry| entry.3 == left && entry.4 == right)
             {
                 continue;
             }
             if !control.send(Param::BusFeed {
                 track: track.id,
                 bus,
+                send,
                 left,
                 right,
             }) {
                 continue;
             }
             match known {
-                Some(entry) => *entry = (track.id, bus, left, right),
-                None => sent.feeds.push((track.id, bus, left, right)),
+                Some(entry) => *entry = (track.id, bus, send, left, right),
+                None => sent.feeds.push((track.id, bus, send, left, right)),
+            }
+        }
+        let (left, right) = routes.send;
+        let known = sent.sends.iter_mut().find(|entry| entry.0 == track.id);
+        if !known
+            .as_ref()
+            .is_some_and(|entry| entry.1 == left && entry.2 == right)
+            && control.send(Param::TrackSend {
+                track: track.id,
+                left,
+                right,
+            })
+        {
+            match known {
+                Some(entry) => *entry = (track.id, left, right),
+                None => sent.sends.push((track.id, left, right)),
             }
         }
         let (left, right) = routes.direct;
@@ -266,6 +284,34 @@ impl Playback {
             .map_err(|_| String::from("the audio engine is busy"))
     }
 
+    /// Replaces one track's gain automation, for an automation edit while
+    /// playing.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when earlier envelopes are still waiting.
+    pub fn swap_envelope(
+        &mut self,
+        track: project::TrackId,
+        envelope: crate::automation::Envelope,
+    ) -> Result<(), String> {
+        self.control
+            .send_envelope(track, envelope)
+            .map_err(|_| String::from("the audio engine is busy"))
+    }
+
+    /// Replaces one track's lane buffer, for an edit on that track while
+    /// playing.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when earlier buffers are still waiting.
+    pub fn swap_lane(&mut self, track: project::TrackId, samples: Vec<f32>) -> Result<(), String> {
+        self.control
+            .send_lane(track, samples)
+            .map_err(|_| String::from("the audio engine is busy"))
+    }
+
     /// Frees graphs the engine has handed back.
     pub fn collect_garbage(&mut self) -> usize {
         self.control.collect_garbage()
@@ -321,6 +367,9 @@ fn resample_live(mut render: LiveRender, target_rate: u32) -> LiveRender {
         (frames as f64 * f64::from(target_rate) / f64::from(source_rate)).round() as usize
     };
     render.bus_delay = scale(render.bus_delay);
+    for envelope in render.envelopes.iter_mut().flatten() {
+        *envelope = envelope.resample(source_rate, target_rate);
+    }
     for bus in &mut render.buses {
         bus.inserts = crate::inserts::Inserts::from_slots(&bus.slots, target_rate);
         bus.delay = scale(bus.delay);
@@ -693,6 +742,46 @@ impl Player {
         guard
             .0
             .send_inserts(chain, inserts)
+            .map_err(|_| String::from("the audio engine is busy"))
+    }
+
+    /// Replaces one track's gain automation at the next buffer, for an
+    /// automation edit while playing. The envelope must be built at
+    /// [`Player::sample_rate`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when earlier envelopes are still waiting.
+    pub fn swap_envelope(
+        &self,
+        track: project::TrackId,
+        envelope: crate::automation::Envelope,
+    ) -> Result<(), String> {
+        let mut guard = self
+            .control
+            .lock()
+            .map_err(|_| String::from("the audio engine is unavailable"))?;
+        guard
+            .0
+            .send_envelope(track, envelope)
+            .map_err(|_| String::from("the audio engine is busy"))
+    }
+
+    /// Replaces one track's lane buffer at the next buffer, for an edit on
+    /// that track while playing. The buffer must be rendered at
+    /// [`Player::sample_rate`] with the playing graph's delays.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when earlier buffers are still waiting.
+    pub fn swap_lane(&self, track: project::TrackId, samples: Vec<f32>) -> Result<(), String> {
+        let mut guard = self
+            .control
+            .lock()
+            .map_err(|_| String::from("the audio engine is unavailable"))?;
+        guard
+            .0
+            .send_lane(track, samples)
             .map_err(|_| String::from("the audio engine is busy"))
     }
 
