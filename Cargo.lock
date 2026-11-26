@@ -2871,9 +2871,11 @@ dependencies = [
  "cecilia-core",
  "cecilia-engrave",
  "image",
+ "kurbo",
  "miniz_oxide 0.8.9",
  "music-core",
  "project",
+ "tiny-skia",
  "ttf-parser",
 ]
 

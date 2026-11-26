@@ -10,6 +10,9 @@ use std::path::Path;
 
 use crate::clef::{self, ClefImage};
 use crate::unicode_font::{UnicodePdfFont, pdf_utf16_hex_string};
+use std::cell::RefCell;
+
+use crate::full::{Anchor, Canvas, FullScore, Ink, Point};
 use crate::{Engraved, Settings};
 
 fn collect_non_winansi_chars<'a>(texts: impl IntoIterator<Item = &'a str>) -> Vec<char> {
@@ -183,19 +186,19 @@ pub fn to_pdf_with_font(
                     };
                     let space = settings.staff_space;
                     if treble {
-                        let image = clef::treble();
+                        let glyph = clef::treble_glyph();
                         draw_image(
                             &mut content,
                             "ClefTreble",
                             settings.margin - 42.0,
-                            system.y - 2.0 * space,
-                            7.0 * space,
-                            image,
+                            system.y + (3.0 + glyph.top) * space,
+                            glyph.height * space,
+                            &glyph.image,
                             settings.page_height,
                         );
                     }
                     if bass {
-                        let image = clef::bass();
+                        let glyph = clef::bass_glyph();
                         let offset = if engraved.staves == 2 {
                             6.0 * space
                         } else {
@@ -204,10 +207,10 @@ pub fn to_pdf_with_font(
                         draw_image(
                             &mut content,
                             "ClefBass",
-                            settings.margin - 48.0,
-                            system.y + offset - 0.3 * space,
-                            3.2 * space,
-                            image,
+                            settings.margin - 42.0,
+                            system.y + offset + (1.0 + glyph.top) * space,
+                            glyph.height * space,
+                            &glyph.image,
                             settings.page_height,
                         );
                     }
@@ -548,33 +551,10 @@ pub fn to_pdf_with_font(
     finish_pdf(objects, title)
 }
 
-fn is_percussion(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.contains("drum") || lower.contains("kit") || lower.contains("perc")
-}
-
-struct FullStaff {
-    name: String,
-    systems: Vec<(usize, crate::System)>,
-    notes: Vec<crate::PlacedNote>,
-    ties: Vec<crate::Tie>,
-    slurs: Vec<crate::SlurArc>,
-    tuplets: Vec<crate::Tuplet>,
-    chords: Vec<crate::ChordSymbol>,
-    frames: Vec<crate::ChordFrame>,
-    lyrics: Vec<crate::Lyric>,
-    marks: Vec<crate::PlacedMark>,
-    rests: Vec<crate::PlacedRest>,
-    key: crate::spelling::Key,
-    time_signature: music_core::TimeSignature,
-}
-
 /// Writes an all-track full score to PDF bytes.
 ///
-/// Each page holds one system, with every track as its own staff. Noteheads are
-/// placed from each track's engraving; stems, clefs and accidentals are omitted.
-/// This is a compact review score, not a replacement for the single-track
-/// engraving.
+/// One staff per track with shared barlines, laid out by [`crate::full`] like
+/// the desktop's all-tracks score.
 #[must_use]
 pub fn to_full_pdf(
     song: &project::Song,
@@ -608,68 +588,15 @@ pub fn to_full_pdf_with_options(
     frames: bool,
     font_path: Option<&Path>,
 ) -> Vec<u8> {
-    let mut staves: Vec<FullStaff> = Vec::new();
-    for id in track_ids {
-        let Some(track) = song.tracks.iter().find(|track| track.id == *id) else {
-            continue;
-        };
-        let engraved = crate::engrave(song, *id, settings);
-        let systems = engraved
-            .pages
-            .iter()
-            .enumerate()
-            .flat_map(|(page, page_data)| {
-                page_data
-                    .systems
-                    .iter()
-                    .cloned()
-                    .map(move |system| (page, system))
-            })
-            .collect();
-        staves.push(FullStaff {
-            name: track.name.clone(),
-            systems,
-            notes: engraved.notes,
-            ties: engraved.ties,
-            slurs: engraved.slurs,
-            tuplets: engraved.tuplets,
-            chords: engraved.chord_symbols,
-            frames: engraved.frames,
-            lyrics: engraved.lyrics,
-            marks: engraved.marks,
-            rests: engraved.rests,
-            key: engraved.key,
-            time_signature: engraved.time_signature,
-        });
-    }
-    if staves.is_empty() {
-        staves.push(FullStaff {
-            name: String::from("Empty"),
-            systems: Vec::new(),
-            notes: Vec::new(),
-            ties: Vec::new(),
-            slurs: Vec::new(),
-            tuplets: Vec::new(),
-            chords: Vec::new(),
-            frames: Vec::new(),
-            lyrics: Vec::new(),
-            marks: Vec::new(),
-            rests: Vec::new(),
-            key: crate::spelling::Key {
-                tonic: music_core::PitchClass::new(0),
-                minor: false,
-            },
-            time_signature: music_core::TimeSignature::default(),
-        });
-    }
-    let systems_per_page = 2;
-    let total_systems = staves
+    let tracks: Vec<(String, Engraved)> = track_ids
         .iter()
-        .map(|staff| staff.systems.len())
-        .max()
-        .unwrap_or(0)
-        .max(1);
-    let page_count = total_systems.div_ceil(systems_per_page);
+        .filter_map(|id| {
+            let track = song.tracks.iter().find(|track| track.id == *id)?;
+            Some((track.name.clone(), crate::engrave(song, *id, settings)))
+        })
+        .collect();
+    let full = FullScore::new(&tracks, frames, &song.markers, settings);
+    let page_count = full.page_count();
     let treble_id = 4 + page_count * 2;
     let treble_mask = treble_id + 1;
     let bass_id = treble_id + 2;
@@ -677,14 +604,15 @@ pub fn to_full_pdf_with_options(
     let unicode_font_id = bass_mask + 1;
     let needed = collect_non_winansi_chars(
         std::iter::once(title)
-            .chain(staves.iter().map(|staff| staff.name.as_str()))
+            .chain(tracks.iter().map(|(name, _)| name.as_str()))
             .chain(song.markers.iter().map(|marker| marker.name.as_str()))
             .chain(song.lyrics.iter().map(|lyric| lyric.text.as_str()))
-            .chain(
-                staves
+            .chain(tracks.iter().flat_map(|(_, engraved)| {
+                engraved
+                    .chord_symbols
                     .iter()
-                    .flat_map(|staff| staff.chords.iter().map(|chord| chord.name.as_str())),
-            ),
+                    .map(|chord| chord.name.as_str())
+            })),
     );
     let mut unicode_font = if needed.is_empty() {
         None
@@ -707,542 +635,19 @@ pub fn to_full_pdf_with_options(
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
             .to_vec(),
     );
-    let roster = staves.len().max(1);
-    let available = (settings.page_height - 2.0 * settings.margin - 36.0).max(24.0);
-    let span = (available / (systems_per_page * roster) as f32).max(12.0);
-    let line_gap = ((span - 4.0) / 4.0).clamp(1.5, settings.staff_space * 1.5);
-    for (page_index, _) in (0..page_count).enumerate() {
-        let mut content = String::new();
-        let _ = writeln!(
-            content,
-            "0.98 0.97 0.94 rg 0 0 {w} {h} re f 0.15 0.15 0.15 rg 0.2 0.2 0.2 RG 0.7 w",
-            w = settings.page_width,
-            h = settings.page_height
-        );
-        write_text(
-            &mut content,
-            12.0,
-            settings.margin,
-            settings.page_height - settings.margin,
-            title,
-            unicode_font.as_mut(),
-        );
-        if let Some(staff) = staves.first() {
-            let _ = writeln!(
-                content,
-                "BT /F1 8 Tf {x:.1} {y:.1} Td ({} {} / {}/{} · {:.0} BPM) Tj ET",
-                staff.key.tonic.name_sharp(),
-                if staff.key.minor { "minor" } else { "major" },
-                staff.time_signature.numerator,
-                staff.time_signature.denominator,
-                song.tempo_map.bpm_at(0),
-                x = settings.page_width - settings.margin - 80.0,
-                y = settings.page_height - settings.margin
-            );
-        }
-        if page_count > 1 {
-            let _ = writeln!(
-                content,
-                "BT /F1 8 Tf {x:.1} 20 Td ({} / {}) Tj ET",
-                page_index + 1,
-                page_count,
-                x = settings.page_width / 2.0 - 16.0
-            );
-        }
-        for slot in 0..systems_per_page {
-            let system_index = page_index * systems_per_page + slot;
-            if system_index >= total_systems {
-                break;
-            }
-            let staff_height = (roster.saturating_sub(1)) as f32 * span + 4.0 * line_gap;
-            let slot_top = settings.margin
-                + 12.0
-                + slot as f32 * (roster as f32 * span + 12.0)
-                + (roster as f32 * span - staff_height) * 0.5;
-            let first_system = staves
-                .first()
-                .and_then(|staff| staff.systems.get(system_index))
-                .map(|(_, system)| system);
-            let bracket_x = settings.margin - 10.0;
-            let bracket_bottom =
-                slot_top + (roster.saturating_sub(1)) as f32 * span + 4.0 * line_gap;
-            let _ = writeln!(
-                content,
-                "0.23 0.23 0.23 RG 1.4 w {bracket_x:.1} {:.1} m {bracket_x:.1} {:.1} l S",
-                settings.page_height - (slot_top - 2.0),
-                settings.page_height - (bracket_bottom + 2.0)
-            );
-            for y in [slot_top - 2.0, bracket_bottom + 2.0] {
-                let _ = writeln!(
-                    content,
-                    "0.23 0.23 0.23 RG 1 w {bracket_x:.1} {:.1} m {:.1} {:.1} l S",
-                    settings.page_height - y,
-                    bracket_x + 5.0,
-                    settings.page_height - y
-                );
-            }
-            for (staff_index, staff) in staves.iter().enumerate() {
-                let Some((page, system)) = staff.systems.get(system_index) else {
-                    continue;
-                };
-                let first_number = system.measures.first().map_or(0, |measure| measure.number);
-                let last_number = system.measures.last().map_or(0, |measure| measure.number);
-                let first_x = system.measures.first().map_or(0.0, |measure| measure.x);
-                let last_x = system
-                    .measures
-                    .last()
-                    .map_or(f32::MAX, |measure| measure.x_end);
-                let first_tick = system.measures.first().map_or(0, |measure| measure.start);
-                let last_tick = system.measures.last().map_or(i64::MAX, |measure| {
-                    measure.start.saturating_add(measure.length)
-                });
-                let top = slot_top + staff_index as f32 * span;
-                let vertical_limit = 60.0;
-                let percussion = is_percussion(&staff.name);
-                for line in 0..5 {
-                    let y = settings.page_height - (top + line as f32 * line_gap);
-                    let _ = writeln!(
-                        content,
-                        "{:.1} {y:.1} m {:.1} {y:.1} l S",
-                        settings.margin,
-                        settings.page_width - settings.margin
-                    );
-                }
-                let average = staff
-                    .notes
-                    .iter()
-                    .filter(|note| note.page == *page)
-                    .map(|note| f32::from(note.pitch.as_u8()))
-                    .sum::<f32>()
-                    / staff
-                        .notes
-                        .iter()
-                        .filter(|note| note.page == *page)
-                        .count()
-                        .max(1) as f32;
-                let image = if average < 52.0 {
-                    clef::bass()
-                } else {
-                    clef::treble()
-                };
-                draw_image(
-                    &mut content,
-                    if average < 52.0 {
-                        "ClefBass"
-                    } else {
-                        "ClefTreble"
-                    },
-                    settings.margin - 20.0,
-                    top - 2.0 * settings.staff_space,
-                    7.0 * settings.staff_space,
-                    image,
-                    settings.page_height,
-                );
-                let label = short_track_name(&staff.name);
-                write_text(
-                    &mut content,
-                    7.0,
-                    4.0,
-                    settings.page_height - (top + 2.0 * line_gap),
-                    &label,
-                    unicode_font.as_mut(),
-                );
-                if system_index == total_systems.saturating_sub(1)
-                    && let Some(last) = system.measures.last()
-                {
-                    let x = first_system.map_or(last.x_end, |sys| {
-                        crate::full_score_x(system, sys, last.x_end)
-                    });
-                    let _ = writeln!(
-                        content,
-                        "0.06 0.06 0.06 RG 1.4 w {:.1} {:.1} m {:.1} {:.1} l S",
-                        x - 3.0,
-                        settings.page_height - top,
-                        x - 3.0,
-                        settings.page_height - (top + 4.0 * line_gap)
-                    );
-                }
-                for rest in staff.rests.iter().filter(|rest| {
-                    rest.page == *page
-                        && rest.measure + 1 >= first_number
-                        && rest.measure < last_number
-                }) {
-                    let x =
-                        first_system.map_or(rest.x, |sys| crate::full_score_x(system, sys, rest.x));
-                    let y = top + (rest.y - system.y) * (line_gap / settings.staff_space);
-                    let (width, height) = match rest.kind {
-                        crate::RestKind::Whole | crate::RestKind::Half => {
-                            (line_gap * 0.9, line_gap * 0.45)
-                        }
-                        crate::RestKind::Quarter => (line_gap * 0.45, line_gap * 0.9),
-                        crate::RestKind::Eighth => (line_gap * 0.35, line_gap * 0.7),
-                    };
-                    let left = x - width / 2.0;
-                    let lower = settings.page_height - y - height / 2.0;
-                    let _ = writeln!(
-                        content,
-                        "0.15 0.15 0.15 rg {left:.1} {lower:.1} {width:.1} {height:.1} re f"
-                    );
-                    for dot in 0..rest.dots {
-                        circle(
-                            &mut content,
-                            left + width + 1.2 + f32::from(dot) * 2.2,
-                            settings.page_height - y,
-                            1.0,
-                        );
-                    }
-                }
-                if staff_index == 0 && frames {
-                    for frame in staff.frames.iter().filter(|frame| {
-                        frame.page == *page && frame.tick >= first_tick && frame.tick < last_tick
-                    }) {
-                        let x = first_system
-                            .map_or(frame.x, |sys| crate::full_score_x(system, sys, frame.x));
-                        let y = top + (frame.y - system.y) * (line_gap / settings.staff_space);
-                        let width = 3.0 * line_gap;
-                        let height = 4.0 * line_gap;
-                        let _ = writeln!(
-                            content,
-                            "{x:.1} {:.1} {width:.1} {height:.1} re S",
-                            settings.page_height - y
-                        );
-                        for (string, fret) in frame.frets.iter().enumerate() {
-                            if let Some(fret) = fret {
-                                let _ = writeln!(
-                                    content,
-                                    "BT /F1 6 Tf {:.1} {:.1} Td ({fret}) Tj ET",
-                                    x + 2.0 + string as f32 * (width / 6.0),
-                                    settings.page_height - y - height + 2.0
-                                );
-                            }
-                        }
-                        let _ = writeln!(
-                            content,
-                            "BT /F1 6 Tf {x:.1} {:.1} Td ({}) Tj ET",
-                            settings.page_height - y - height - 2.0,
-                            escape(&frame.name)
-                        );
-                    }
-                }
-                if staff_index == 0 {
-                    for marker in song
-                        .markers
-                        .iter()
-                        .filter(|marker| marker.tick >= first_tick && marker.tick < last_tick)
-                    {
-                        let Some(measure) = system.measures.iter().find(|measure| {
-                            marker.tick >= measure.start
-                                && marker.tick < measure.start.saturating_add(measure.length)
-                        }) else {
-                            continue;
-                        };
-                        let ratio = if measure.length > 0 && measure.x_end > measure.x {
-                            ((marker.tick - measure.start) as f32 / measure.length as f32)
-                                .clamp(0.0, 1.0)
-                        } else {
-                            0.0
-                        };
-                        let x = measure.x + (measure.x_end - measure.x) * ratio;
-                        let x = first_system.map_or(x, |sys| crate::full_score_x(system, sys, x));
-                        write_text(
-                            &mut content,
-                            7.0,
-                            x,
-                            settings.page_height - (top - 5.0 * line_gap),
-                            &marker.name,
-                            unicode_font.as_mut(),
-                        );
-                    }
-                    for chord in staff.chords.iter().filter(|chord| {
-                        chord.page == *page && chord.tick >= first_tick && chord.tick < last_tick
-                    }) {
-                        let x = first_system
-                            .map_or(chord.x, |sys| crate::full_score_x(system, sys, chord.x));
-                        let y = top + (chord.y - system.y) * (line_gap / settings.staff_space);
-                        write_text(
-                            &mut content,
-                            8.0,
-                            x,
-                            settings.page_height - y,
-                            &chord.name,
-                            unicode_font.as_mut(),
-                        );
-                    }
-                }
-                for note in staff.notes.iter().filter(|note| note.page == *page) {
-                    if note.measure + 1 < system.measures.first().map_or(0, |m| m.number)
-                        || note.measure + 1 > system.measures.last().map_or(0, |m| m.number)
-                    {
-                        continue;
-                    }
-                    let x = first_system
-                        .map_or(note.x, |first| crate::full_score_x(system, first, note.x));
-                    let relative = (note.y - system.y) * (line_gap / settings.staff_space);
-                    let note_y = if percussion {
-                        top + 2.0 * line_gap
-                    } else {
-                        top + relative
-                    };
-                    let y = settings.page_height - note_y;
-                    let relative_space = (note.y - system.y) / settings.staff_space;
-                    let low = relative_space.floor() as i32;
-                    let ledgers: Vec<i32> = if percussion {
-                        Vec::new()
-                    } else if low < 0 {
-                        (low..0).collect()
-                    } else if relative_space > 4.0 {
-                        (5..=low).collect()
-                    } else {
-                        Vec::new()
-                    };
-                    for step in ledgers {
-                        let ledger_y = top + step as f32 * line_gap;
-                        let _ = writeln!(
-                            content,
-                            "{:.1} {:.1} m {:.1} {:.1} l S",
-                            x - line_gap * 0.9,
-                            settings.page_height - ledger_y,
-                            x + line_gap * 0.9,
-                            settings.page_height - ledger_y
-                        );
-                    }
-                    if percussion {
-                        let radius = line_gap * 0.55;
-                        let _ = writeln!(
-                            content,
-                            "{:.1} {:.1} m {:.1} {:.1} l S {:.1} {:.1} m {:.1} {:.1} l S",
-                            x - radius,
-                            y - radius,
-                            x + radius,
-                            y + radius,
-                            x - radius,
-                            y + radius,
-                            x + radius,
-                            y - radius
-                        );
-                    } else {
-                        circle(&mut content, x, y, line_gap * 0.55);
-                    }
-                    if let Some(alter) = note.spelled.accidental {
-                        let accidental = match alter {
-                            1 => "#",
-                            -1 => "b",
-                            2 => "x",
-                            -2 => "bb",
-                            _ => "",
-                        };
-                        if !accidental.is_empty() {
-                            let _ = writeln!(
-                                content,
-                                "BT /F1 7 Tf {:.1} {:.1} Td ({accidental}) Tj ET",
-                                x - 5.5,
-                                y - 2.0
-                            );
-                        }
-                    }
-                    let stem = if note.pitch.as_u8() < 71 {
-                        note_y + 3.0 * line_gap
-                    } else {
-                        note_y - 3.0 * line_gap
-                    };
-                    let _ = writeln!(
-                        content,
-                        "{:.1} {y:.1} m {:.1} {:.1} l S",
-                        x,
-                        x,
-                        settings.page_height - stem
-                    );
-                }
-                if staff_index == 0 {
-                    for lyric in staff.lyrics.iter().filter(|lyric| {
-                        lyric.page == *page && lyric.tick >= first_tick && lyric.tick < last_tick
-                    }) {
-                        let x = first_system
-                            .map_or(lyric.x, |sys| crate::full_score_x(system, sys, lyric.x));
-                        let y = top + (lyric.y - system.y) * (line_gap / settings.staff_space);
-                        write_text(
-                            &mut content,
-                            7.0,
-                            x,
-                            settings.page_height - y,
-                            &lyric.text,
-                            unicode_font.as_mut(),
-                        );
-                    }
-                }
-                if staff_index == 0 {
-                    for mark in staff.marks.iter().filter(|mark| {
-                        mark.page == *page && mark.tick >= first_tick && mark.tick < last_tick
-                    }) {
-                        let x = first_system
-                            .map_or(mark.x, |sys| crate::full_score_x(system, sys, mark.x));
-                        let y = top + (mark.y - system.y) * (line_gap / settings.staff_space);
-                        let text = match mark.kind {
-                            project::song::MarkKind::Dynamic(dynamic) => dynamic.text().to_string(),
-                            project::song::MarkKind::Articulation(articulation) => {
-                                format!("{articulation:?}").to_lowercase()
-                            }
-                        };
-                        let _ = writeln!(
-                            content,
-                            "BT /F1 7 Tf {x:.1} {:.1} Td ({}) Tj ET",
-                            settings.page_height - y,
-                            escape(&text)
-                        );
-                    }
-                }
-                let mut shorts: Vec<&crate::PlacedNote> = staff
-                    .notes
-                    .iter()
-                    .filter(|note| note.page == *page && note.duration <= music_core::PPQ / 2)
-                    .collect();
-                shorts.sort_by_key(|note| note.tick);
-                for pair in shorts.windows(2) {
-                    let [first, second] = pair else {
-                        continue;
-                    };
-                    if first.measure != second.measure
-                        || second.tick - first.tick > music_core::PPQ / 2
-                    {
-                        continue;
-                    }
-                    let first_y = top + (first.y - system.y) * (line_gap / settings.staff_space);
-                    let second_y = top + (second.y - system.y) * (line_gap / settings.staff_space);
-                    let upward = first.pitch.as_u8() < 71 && second.pitch.as_u8() < 71;
-                    let offset = if upward {
-                        3.0 * line_gap
-                    } else {
-                        -3.0 * line_gap
-                    };
-                    let first_x = first_system
-                        .map_or(first.x, |sys| crate::full_score_x(system, sys, first.x));
-                    let second_x = first_system
-                        .map_or(second.x, |sys| crate::full_score_x(system, sys, second.x));
-                    let _ = writeln!(
-                        content,
-                        "{:.1} {:.1} m {:.1} {:.1} l S",
-                        first_x,
-                        settings.page_height - (first_y + offset),
-                        second_x,
-                        settings.page_height - (second_y + offset)
-                    );
-                    if first.duration <= music_core::PPQ / 4
-                        && second.duration <= music_core::PPQ / 4
-                    {
-                        let _ = writeln!(
-                            content,
-                            "{:.1} {:.1} m {:.1} {:.1} l S",
-                            first_x,
-                            settings.page_height - (first_y + offset + 1.5),
-                            second_x,
-                            settings.page_height - (second_y + offset + 1.5)
-                        );
-                    }
-                }
-                for slur in staff.slurs.iter().filter(|slur| {
-                    slur.page == *page
-                        && slur.start_x >= first_x
-                        && slur.start_x <= last_x
-                        && (slur.y - system.y).abs() < vertical_limit
-                }) {
-                    let y = settings.page_height
-                        - (top + (slur.y - system.y) * (line_gap / settings.staff_space));
-                    let start_x = first_system.map_or(slur.start_x, |sys| {
-                        crate::full_score_x(system, sys, slur.start_x)
-                    });
-                    let end_x = first_system.map_or(slur.end_x, |sys| {
-                        crate::full_score_x(system, sys, slur.end_x)
-                    });
-                    let control = (end_x - start_x).abs() * 0.33;
-                    let _ = writeln!(
-                        content,
-                        "{start_x:.1} {y:.1} m {:.1} {:.1} {:.1} {:.1} {end_x:.1} {y:.1} c S",
-                        start_x + control,
-                        y - 3.0,
-                        end_x - control,
-                        y - 3.0
-                    );
-                }
-                for tie in staff.ties.iter().filter(|tie| {
-                    tie.page == *page
-                        && tie.start_x >= first_x
-                        && tie.start_x <= last_x
-                        && (tie.y - system.y).abs() < vertical_limit
-                }) {
-                    let y = settings.page_height
-                        - (top + (tie.y - system.y) * (line_gap / settings.staff_space));
-                    let start_x = first_system.map_or(tie.start_x, |sys| {
-                        crate::full_score_x(system, sys, tie.start_x)
-                    });
-                    let end_x = first_system
-                        .map_or(tie.end_x, |sys| crate::full_score_x(system, sys, tie.end_x));
-                    let control = (end_x - start_x).abs() * 0.33;
-                    let _ = writeln!(
-                        content,
-                        "{:.1} {y:.1} m {:.1} {:.1} {:.1} {:.1} {:.1} {y:.1} c S",
-                        start_x,
-                        start_x + control,
-                        y + 3.0,
-                        end_x - control,
-                        y + 3.0,
-                        end_x
-                    );
-                }
-                for tuplet in staff.tuplets.iter().filter(|tuplet| {
-                    tuplet.page == *page
-                        && tuplet.start_x >= first_x
-                        && tuplet.start_x <= last_x
-                        && (tuplet.y - system.y).abs() < vertical_limit
-                }) {
-                    let y = settings.page_height
-                        - (top + (tuplet.y - system.y) * (line_gap / settings.staff_space));
-                    let _ = writeln!(
-                        content,
-                        "{:.1} {y:.1} m {:.1} {y:.1} l S {:.1} {:.1} m {:.1} {:.1} l S {:.1} {:.1} m {:.1} {:.1} l S",
-                        tuplet.start_x,
-                        tuplet.end_x,
-                        tuplet.start_x,
-                        y,
-                        tuplet.start_x,
-                        y + 3.0,
-                        tuplet.end_x,
-                        y,
-                        tuplet.end_x,
-                        y + 3.0
-                    );
-                    let _ = writeln!(
-                        content,
-                        "BT /F1 7 Tf {:.1} {:.1} Td ({} ) Tj ET",
-                        (tuplet.start_x + tuplet.end_x) / 2.0,
-                        y + 4.0,
-                        tuplet.count
-                    );
-                }
-            }
-            if let Some(staff) = staves.first()
-                && let Some((_, system)) = staff.systems.get(system_index)
-            {
-                let top = slot_top;
-                let bottom = top + (roster.saturating_sub(1)) as f32 * span + 4.0 * line_gap;
-                for measure in &system.measures {
-                    let _ = writeln!(
-                        content,
-                        "BT /F1 6 Tf {:.1} {:.1} Td ({}) Tj ET",
-                        measure.x + 1.0,
-                        settings.page_height - (top - 5.0),
-                        measure.number
-                    );
-                    for x in [measure.x, measure.x_end] {
-                        let _ = writeln!(
-                            content,
-                            "{x:.1} {:.1} m {x:.1} {:.1} l S",
-                            settings.page_height - bottom,
-                            settings.page_height - top
-                        );
-                    }
-                }
-            }
-        }
+    let bpm = song.tempo_map.bpm_at(0);
+    for page_index in 0..page_count {
+        let canvas = PdfCanvas {
+            content: RefCell::new(format!(
+                "0.957 0.945 0.918 rg 0 0 {w} {h} re f 1 J 1 j\n",
+                w = settings.page_width,
+                h = settings.page_height
+            )),
+            page_height: settings.page_height,
+            font: RefCell::new(unicode_font.as_mut()),
+        };
+        full.draw_page(&canvas, page_index, title, bpm, None, frames, &song.markers);
+        let content = canvas.content.into_inner();
         let contents = 5 + page_index * 2;
         let font_res = if unicode_font.is_some() {
             format!("/F1 3 0 R /F2 {unicode_font_id} 0 R")
@@ -1274,6 +679,141 @@ pub fn to_full_pdf_with_options(
         objects.extend(font.build_pdf_objects(unicode_font_id));
     }
     finish_pdf(objects, title)
+}
+
+/// Draws the all-tracks score into one page's content stream.
+struct PdfCanvas<'f> {
+    content: RefCell<String>,
+    page_height: f32,
+    font: RefCell<Option<&'f mut UnicodePdfFont>>,
+}
+
+impl PdfCanvas<'_> {
+    fn colour(ink: Ink) -> &'static str {
+        match ink {
+            Ink::Black => "0.08 0.08 0.08",
+            Ink::Grey => "0.31 0.31 0.31",
+            Ink::Paper => "0.957 0.945 0.918",
+            Ink::Playhead => "0.82 0.19 0.19",
+        }
+    }
+
+    fn path(&self, points: &[Point]) -> String {
+        let mut path = String::new();
+        for (index, (x, y)) in points.iter().enumerate() {
+            let op = if index == 0 { "m" } else { "l" };
+            let _ = write!(path, "{x:.2} {:.2} {op} ", self.page_height - y);
+        }
+        path
+    }
+}
+
+impl Canvas for PdfCanvas<'_> {
+    fn line(&self, from: Point, to: Point, width: f32, ink: Ink) {
+        let path = self.path(&[from, to]);
+        let _ = writeln!(
+            self.content.borrow_mut(),
+            "{} RG {width:.2} w {path}S",
+            Self::colour(ink)
+        );
+    }
+
+    fn polyline(&self, points: &[Point], width: f32) {
+        let path = self.path(points);
+        let _ = writeln!(
+            self.content.borrow_mut(),
+            "{} RG {width:.2} w {path}S",
+            Self::colour(Ink::Black)
+        );
+    }
+
+    fn polygon(&self, points: &[Point], fill: Ink, outline: Option<f32>) {
+        let path = self.path(points);
+        let mut content = self.content.borrow_mut();
+        match outline {
+            Some(width) => {
+                let _ = writeln!(
+                    content,
+                    "{} rg {} RG {width:.2} w {path}h B",
+                    Self::colour(fill),
+                    Self::colour(Ink::Black)
+                );
+            }
+            None => {
+                let _ = writeln!(content, "{} rg {path}h f", Self::colour(fill));
+            }
+        }
+    }
+
+    fn circle(&self, centre: Point, radius: f32) {
+        let mut content = self.content.borrow_mut();
+        let _ = write!(content, "{} rg ", Self::colour(Ink::Black));
+        circle(&mut content, centre.0, self.page_height - centre.1, radius);
+    }
+
+    fn fill_rect(&self, min: Point, max: Point) {
+        let _ = writeln!(
+            self.content.borrow_mut(),
+            "{} rg {:.2} {:.2} {:.2} {:.2} re f",
+            Self::colour(Ink::Black),
+            min.0,
+            self.page_height - max.1,
+            max.0 - min.0,
+            max.1 - min.1
+        );
+    }
+
+    fn stroke_rect(&self, min: Point, max: Point, width: f32) {
+        let _ = writeln!(
+            self.content.borrow_mut(),
+            "{} RG {width:.2} w {:.2} {:.2} {:.2} {:.2} re S",
+            Self::colour(Ink::Black),
+            min.0,
+            self.page_height - max.1,
+            max.0 - min.0,
+            max.1 - min.1
+        );
+    }
+
+    fn text(&self, at: Point, anchor: Anchor, text: &str, size: f32, ink: Ink) {
+        let x = at.0 - anchor.x * self.text_width(text, size);
+        let baseline = at.1 + (0.72 - anchor.y * 0.92) * size;
+        let mut content = self.content.borrow_mut();
+        let _ = write!(content, "{} rg ", Self::colour(ink));
+        let mut font = self.font.borrow_mut();
+        write_text(
+            &mut content,
+            size,
+            x,
+            self.page_height - baseline,
+            text,
+            font.as_deref_mut(),
+        );
+    }
+
+    fn text_width(&self, text: &str, size: f32) -> f32 {
+        text.chars()
+            .map(|ch| match ch {
+                'i' | 'l' | 'j' | '.' | ',' | ':' | ';' | '|' | '!' | '\'' | ' ' => 0.28,
+                'm' | 'w' | 'M' | 'W' => 0.83,
+                'A'..='Z' | '0'..='9' => 0.64,
+                _ => 0.55,
+            })
+            .sum::<f32>()
+            * size
+    }
+
+    fn clef(&self, treble: bool, min: Point, max: Point) {
+        let name = if treble { "ClefTreble" } else { "ClefBass" };
+        let _ = writeln!(
+            self.content.borrow_mut(),
+            "q {:.2} 0 0 {:.2} {:.2} {:.2} cm /{name} Do Q",
+            max.0 - min.0,
+            max.1 - min.1,
+            min.0,
+            self.page_height - max.1
+        );
+    }
 }
 
 fn finish_pdf(mut objects: Vec<Vec<u8>>, title: &str) -> Vec<u8> {
@@ -1469,17 +1009,6 @@ fn circle(content: &mut String, x: f32, y: f32, radius: f32) {
     );
 }
 
-fn short_track_name(name: &str) -> String {
-    if name.is_empty() {
-        return String::from("Track");
-    }
-    let mut short: String = name.chars().take(5).collect();
-    if name.chars().count() > 5 {
-        short.push_str("..");
-    }
-    short
-}
-
 fn pdf_encodable(character: char) -> bool {
     character.is_ascii()
         || u32::from(character) <= 0xFF
@@ -1631,6 +1160,14 @@ mod tests {
                 channel: Channel::first(),
             });
             if index == 1 {
+                track.notes.push(Note {
+                    id: project::NoteId::new(10).expect("valid"),
+                    start: PPQ,
+                    duration: PPQ,
+                    pitch: Pitch::from_name("E4").expect("valid"),
+                    velocity: Velocity::new(100).expect("valid"),
+                    channel: Channel::first(),
+                });
                 track.slurs.push(project::song::Slur { start: 0, end: PPQ });
             }
             song.tracks.push(track);
@@ -1644,16 +1181,18 @@ mod tests {
         assert!(text.contains("(Piano) Tj"));
         assert!(text.contains("(Bass) Tj"));
         assert!(text.contains("(C) Tj"));
-        assert!(text.contains("120 BPM"), "tempo header");
+        assert!(text.contains("(= 120) Tj"), "tempo mark");
         assert!(text.contains("/Title (Full score)"), "PDF metadata title");
         assert!(text.contains("(la) Tj"));
         assert!(text.contains("(f) Tj"));
         assert!(text.contains("(Intro) Tj"), "section marker");
         assert!(text.contains("/ClefTreble"), "clef image resource");
-        assert!(text.contains(" c "), "slur curve");
+        let mut unslurred = song.clone();
+        unslurred.tracks[0].slurs.clear();
+        let plain = to_full_pdf(&unslurred, small(), "Full score", &tracks);
         assert!(
-            text.contains("(#) Tj") || text.contains("(b) Tj"),
-            "accidental"
+            text.matches(" l ").count() > String::from_utf8_lossy(&plain).matches(" l ").count(),
+            "slur arc"
         );
         assert!(page_count(&pdf).is_some_and(|count| count >= 1));
         let one = to_full_pdf(&song, small(), "One", &[TrackId::new(1).expect("valid")]);
@@ -1708,7 +1247,7 @@ mod tests {
     }
 
     #[test]
-    fn a_long_full_score_uses_two_systems_per_page() {
+    fn a_long_full_score_fills_pages_with_systems() {
         let mut song = Song::new("Long", 120.0);
         let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
         for bar in 0..16 {
@@ -1731,7 +1270,9 @@ mod tests {
             .sum::<usize>()
             .max(1);
         let pdf = to_full_pdf(&song, settings, "Long", &[TrackId::new(1).expect("valid")]);
-        assert_eq!(page_count(&pdf), Some(systems.div_ceil(2)));
+        let tracks = vec![(String::from("Piano"), engraved.clone())];
+        let per_page = FullScore::new(&tracks, false, &[], settings).systems_per_page();
+        assert_eq!(page_count(&pdf), Some(systems.div_ceil(per_page)));
         assert!(systems >= 2, "test song needs more than one system");
         let text = String::from_utf8_lossy(&pdf);
         assert_eq!(
@@ -1786,7 +1327,15 @@ mod tests {
         let text = String::from_utf8_lossy(&pdf);
         assert_eq!(text.matches("(Piano) Tj").count(), systems);
         assert_eq!(text.matches("(Bass) Tj").count(), systems);
-        assert_eq!(page_count(&pdf), Some(systems.div_ceil(2)));
+        let tracks = vec![
+            (String::from("Piano"), engraved.clone()),
+            (
+                String::from("Bass"),
+                crate::engrave(&song, TrackId::new(2).expect("valid"), settings),
+            ),
+        ];
+        let per_page = FullScore::new(&tracks, false, &[], settings).systems_per_page();
+        assert_eq!(page_count(&pdf), Some(systems.div_ceil(per_page)));
     }
 
     #[test]
@@ -1937,8 +1486,8 @@ mod tests {
         if UnicodePdfFont::resolve(None, &chars).is_some() {
             assert!(text.contains("/Subtype /Type0"));
             assert!(text.contains("/ToUnicode "));
-            assert!(text.contains("/F2 12 Tf"));
-            assert!(text.contains("/F2 7 Tf"));
+            assert!(text.contains("/F2 16 Tf"), "title");
+            assert!(text.matches("/F2 ").count() >= 3, "name, lyric and marker");
         }
     }
 }

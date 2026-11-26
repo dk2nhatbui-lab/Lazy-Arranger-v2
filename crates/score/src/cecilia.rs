@@ -228,10 +228,18 @@ pub fn build_score(
         });
     }
 
+    let low = track
+        .notes
+        .iter()
+        .filter(|note| note.pitch.as_u8() < 60)
+        .count();
     let staves = if drums {
         Vec::new()
     } else if grand_staff {
         vec![Staff::Standard(Clef::Grand { split: 60 })]
+    } else if low * 2 > track.notes.len() {
+        // Mostly below middle C: a bass clef.
+        vec![Staff::Standard(Clef::Bass)]
     } else {
         Vec::new()
     };
@@ -288,6 +296,30 @@ pub fn render_pdf(
         },
     );
     Ok(cecilia_engrave::output::to_pdf(&layout.pages))
+}
+
+/// One track's score as PDF: Cecilia's engraving, with a grand staff when the
+/// notes reach both sides of middle C. Falls back to the classic layout when
+/// Cecilia cannot write the track.
+#[must_use]
+pub fn track_pdf(song: &Song, track: project::TrackId, title: &str) -> Vec<u8> {
+    let index = song.tracks.iter().position(|entry| entry.id == track);
+    let grand = index
+        .and_then(|index| song.tracks.get(index))
+        .is_some_and(|entry| {
+            entry.notes.iter().any(|note| note.pitch.as_u8() < 60)
+                && entry.notes.iter().any(|note| note.pitch.as_u8() >= 60)
+                && entry
+                    .notes
+                    .iter()
+                    .all(|note| note.channel.zero_based() != 9)
+        });
+    index
+        .and_then(|index| render_pdf(song, index, title, grand).ok())
+        .unwrap_or_else(|| {
+            let settings = crate::Settings::default();
+            crate::pdf::to_pdf(&crate::engrave(song, track, settings), settings, title)
+        })
 }
 
 /// Engraves the selected track and returns one PNG per page.
@@ -367,7 +399,7 @@ pub fn render_page_images(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use music_core::PitchClass;
+    use music_core::{Pitch, PitchClass};
 
     #[test]
     fn key_signatures_follow_the_circle_of_fifths() {
@@ -455,5 +487,17 @@ mod tests {
             beats[1].duration.ticks(),
             u32::try_from(music_core::PPQ).expect("ppq")
         );
+    }
+
+    #[test]
+    fn low_tracks_get_a_bass_clef_and_a_pdf() {
+        let mut song = test_song();
+        for note in &mut song.tracks[0].notes {
+            note.pitch = Pitch::new(note.pitch.as_u8() - 24).expect("in range");
+        }
+        let score = build_score(&song, 0, "Low", false).expect("build");
+        assert_eq!(score.tracks[0].staves, vec![Staff::Standard(Clef::Bass)]);
+        let pdf = track_pdf(&song, song.tracks[0].id, "Low");
+        assert!(pdf.starts_with(b"%PDF-"));
     }
 }

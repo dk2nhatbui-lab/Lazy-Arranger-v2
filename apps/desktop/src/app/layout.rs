@@ -4692,7 +4692,7 @@ impl ShellApp {
                                         grand_staff,
                                     )
                                 } else {
-                                    Ok(score::pdf::to_pdf(&engraved, score_settings, title))
+                                    Ok(score::cecilia::track_pdf(&project.song, track, title))
                                 };
                                 match pdf {
                                     Ok(pdf) => match std::fs::write(&self.score.pdf_path, pdf) {
@@ -4776,6 +4776,8 @@ impl ShellApp {
                                 && let Some(page) = crate::score_view::full_score_page_for_tick(
                                     &full_tracks,
                                     position,
+                                    self.score.full_frames,
+                                    &project.song.markers,
                                 )
                             {
                                 self.score.page = page;
