@@ -33,7 +33,7 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 - Export Audio (app, CLI and MCP), stems and bounce play the song through
   the same engine as playback, faster than real time, so an export sounds
   exactly like what you heard. The separate offline mix is gone.
-- Chord, drum, pad and style previews play live and start without a
+- Chord, drum and style previews play live and start without a
   render wait.
 - Tracks that only play notes (built-in synth or SoundFont, no recorded
   audio and no plug-ins) are played live by the audio engine instead of
