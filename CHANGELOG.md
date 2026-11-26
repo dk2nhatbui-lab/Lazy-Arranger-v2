@@ -5,6 +5,29 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
+## [0.1.0-beta.4] - 2026-11-26
+
+### Changed
+- New, Open, loading a demo and Quit now ask Save, Discard or Cancel when
+  the song has unsaved edits.
+- VST3 plug-ins outside the standard plug-in folders load only after you
+  approve them. The app asks once per project and remembers the answer.
+- Edits across several tracks (song forms, breaks, transitions, loops,
+  record to timeline, regenerate) are one undo step.
+
+### Fixed
+- Saving replaces the file in one step on every platform. If the save
+  fails, the old file stays. A restored autosave counts as unsaved until
+  you save it.
+- MCP clients get an answer only after the edit is saved, and an error if
+  the save fails.
+- On Windows, the local AI assistant, dictation and speech commands work.
+- Undo and redo restore exactly what was there before.
+- Large MIDI files, styles and MusicXML files open much faster.
+- Device windows and the plug-in window no longer slow the app down while
+  they look for ports or scan plug-ins.
+- More small fixes from the source code audit.
+
 ## [0.1.0-beta.3] - 2026-11-26
 
 ### Changed
