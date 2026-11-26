@@ -202,10 +202,13 @@ fn track_meters_follow_active_notes() {
         audio_track.id,
         (
             String::from("take.wav"),
-            vec![audio::waveform::Peak {
-                min: -0.5,
-                max: 0.5,
-            }],
+            Waveform::new(audio::waveform::Overview {
+                channels: Vec::new(),
+                mono: vec![audio::waveform::Peak {
+                    min: -0.5,
+                    max: 0.5,
+                }],
+            }),
         ),
     );
     assert!(track_meter_level(&audio_track, 0, &cache) > 0.4);

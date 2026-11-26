@@ -4156,7 +4156,7 @@ impl ShellApp {
                             });
                             if let Some(fraction) = Self::draw_waveform(
                                 ui,
-                                peaks,
+                                &peaks.mono,
                                 self.waveform_zoom,
                                 self.waveform_position,
                             ) && let Some(reference) = project
