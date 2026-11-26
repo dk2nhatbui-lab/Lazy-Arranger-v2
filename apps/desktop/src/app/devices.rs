@@ -1291,12 +1291,7 @@ impl ShellApp {
         {
             return Some(port.clone());
         }
-        if self.midi_ports.is_none()
-            && let Ok(ports) = midi_devices::devices::list_ports()
-        {
-            self.midi_ports = Some((ports.inputs, ports.outputs));
-        }
-        if let Some((_, outputs)) = &self.midi_ports
+        if let Some((_, outputs)) = self.recent_midi_ports()
             && let Some(found) = outputs
                 .iter()
                 .find(|name| name.contains("L6max Mixer Control"))
@@ -1345,8 +1340,16 @@ impl ShellApp {
             return;
         }
         let port = self.l6max_control_port();
+        // A worker that died without answering counts as an error, so the
+        // window never waits forever.
         if let Some(receiver) = &self.l6max.id_reply
-            && let Ok(result) = receiver.try_recv()
+            && let Some(result) = match receiver.try_recv() {
+                Ok(result) => Some(result),
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    Some(Err(String::from("the identity query stopped")))
+                }
+            }
         {
             match result {
                 Ok(info) => {
@@ -1582,11 +1585,11 @@ impl ShellApp {
             self.send_l6max_transport(action);
         }
         if identify {
-            let editor_port = midi_devices::list_ports().ok().and_then(|ports| {
-                ports
-                    .outputs
-                    .into_iter()
+            let editor_port = self.recent_midi_ports().and_then(|(_, outputs)| {
+                outputs
+                    .iter()
                     .find(|name| name.contains("L6 Editor"))
+                    .cloned()
             });
             if let Some(editor_port) = editor_port {
                 let (tx, rx) = std::sync::mpsc::channel();
@@ -1625,15 +1628,29 @@ impl ShellApp {
         self.send_l6max_changes(&changes, scene);
     }
 
-    pub(super) fn d05_port_name(&self) -> Option<String> {
+    /// The MIDI port list, listed again at most every two seconds: device
+    /// windows ask every frame, and listing ports is slow.
+    pub(super) fn recent_midi_ports(&mut self) -> Option<&(Vec<String>, Vec<String>)> {
+        let stale = self
+            .midi_ports_at
+            .is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(2));
+        if stale {
+            self.midi_ports_at = Some(std::time::Instant::now());
+            if let Ok(ports) = midi_devices::devices::list_ports() {
+                self.midi_ports = Some((ports.inputs, ports.outputs));
+            }
+        }
+        self.midi_ports.as_ref()
+    }
+
+    pub(super) fn d05_port_name(&mut self) -> Option<String> {
         if let Some(port) = &self.midi_out.port
             && port.contains("D-05")
         {
             return Some(port.clone());
         }
-        midi_devices::list_ports()
-            .ok()
-            .and_then(|ports| ports.outputs.into_iter().find(|name| name.contains("D-05")))
+        self.recent_midi_ports()
+            .and_then(|(_, outputs)| outputs.iter().find(|name| name.contains("D-05")).cloned())
     }
 
     pub(super) fn release_midi_out_if(&mut self, port: &str) {
@@ -1679,7 +1696,13 @@ impl ShellApp {
 
     pub(super) fn d05_editor_window(&mut self, context: &Context) {
         if let Some(receiver) = &self.d05.reply
-            && let Ok(result) = receiver.try_recv()
+            && let Some(result) = match receiver.try_recv() {
+                Ok(result) => Some(result),
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(D05TaskResult::TempPatch(
+                    Err(String::from("the D-05 task stopped without an answer")),
+                )),
+            }
         {
             self.d05.editor.busy = false;
             self.d05.reply = None;

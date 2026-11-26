@@ -873,6 +873,8 @@ pub struct ShellApp {
         ),
     >,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
+    /// When the device windows last listed MIDI ports.
+    midi_ports_at: Option<std::time::Instant>,
     audio_inputs: Option<Vec<String>>,
     audio_outputs: Option<Vec<String>>,
     /// Audio system name and whether it has an output, for the header pill.
@@ -904,6 +906,8 @@ pub struct ShellApp {
     device_dump_path: String,
     groove_open: bool,
     groove_entries: Vec<(String, std::path::PathBuf)>,
+    /// True once the groove folder was listed; Refresh lists it again.
+    groove_listed: bool,
     groove_selected: usize,
     groove_loaded: Option<arranging::groove::Groove>,
     groove_timing: f32,
@@ -1231,6 +1235,7 @@ impl ShellApp {
             timeline_waveforms: std::collections::HashMap::new(),
             waveform_pending: std::collections::HashMap::new(),
             midi_ports: None,
+            midi_ports_at: None,
             audio_inputs: None,
             audio_outputs: None,
             audio_host: None,
@@ -1263,6 +1268,7 @@ impl ShellApp {
             device_dump_path: String::from("dump.syx"),
             groove_open: initial_window == "groove",
             groove_entries: Vec::new(),
+            groove_listed: false,
             groove_selected: 0,
             groove_loaded: None,
             groove_timing: 1.0,
