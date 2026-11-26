@@ -38,12 +38,29 @@ pub fn can_run_live(track: &Track) -> bool {
             .any(|lane| matches!(lane.target, AutomationTarget::PluginParam { .. }))
 }
 
+/// Which chain of the mix a plug-in chain belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ChainId {
+    /// A track's inserts.
+    Track(project::TrackId),
+    /// A bus's effects, by bus id.
+    Bus(u8),
+    /// The master effects.
+    Master,
+}
+
 /// A fingerprint of everything a track's chain is built from. When it
 /// changes, the chain is out of date.
 #[must_use]
 pub fn signature(track: &Track) -> u64 {
+    slots_signature(&track.plugins)
+}
+
+/// A fingerprint of everything a chain of slots is built from.
+#[must_use]
+pub fn slots_signature(slots: &[PluginSlot]) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    for slot in &track.plugins {
+    for slot in slots {
         slot.id.hash(&mut hasher);
         slot.path.hash(&mut hasher);
         slot.identifier.hash(&mut hasher);
@@ -58,9 +75,14 @@ impl Inserts {
     /// Opens every active effect slot of a track at `sample_rate`.
     #[must_use]
     pub fn build(track: &Track, sample_rate: u32) -> Self {
+        Self::from_slots(&track.plugins, sample_rate)
+    }
+
+    /// Opens every active effect slot at `sample_rate`.
+    #[must_use]
+    pub fn from_slots(slots: &[PluginSlot], sample_rate: u32) -> Self {
         let rate = f64::from(sample_rate);
-        let effects: Vec<RealtimeEffect> = track
-            .plugins
+        let effects: Vec<RealtimeEffect> = slots
             .iter()
             .filter(|slot| active(slot))
             .filter_map(|slot| match slot.format {

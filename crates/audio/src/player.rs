@@ -18,6 +18,8 @@ use crate::master::{Master, Meter};
 #[derive(Debug, Default)]
 struct Sent {
     tracks: Vec<(project::TrackId, f32, f32)>,
+    feeds: Vec<(project::TrackId, u8, f32, f32)>,
+    buses: Vec<(u8, f32, f32)>,
     master: Option<f32>,
     effects: Option<(f32, f32)>,
     limiter: Option<bool>,
@@ -31,8 +33,34 @@ fn send_mix(
     master: Master,
 ) {
     control.collect_garbage();
+    let buses = crate::live::live_buses(song);
     for track in &song.tracks {
-        let (left, right) = crate::live::lane_gains(song, track);
+        let routes = crate::live::lane_routes(song, &buses, track);
+        for (bus, left, right) in routes.feeds {
+            let known = sent
+                .feeds
+                .iter_mut()
+                .find(|entry| entry.0 == track.id && entry.1 == bus);
+            if known
+                .as_ref()
+                .is_some_and(|entry| entry.2 == left && entry.3 == right)
+            {
+                continue;
+            }
+            if !control.send(Param::BusFeed {
+                track: track.id,
+                bus,
+                left,
+                right,
+            }) {
+                continue;
+            }
+            match known {
+                Some(entry) => *entry = (track.id, bus, left, right),
+                None => sent.feeds.push((track.id, bus, left, right)),
+            }
+        }
+        let (left, right) = routes.direct;
         let known = sent.tracks.iter_mut().find(|entry| entry.0 == track.id);
         if known
             .as_ref()
@@ -51,6 +79,22 @@ fn send_mix(
         match known {
             Some(entry) => *entry = (track.id, left, right),
             None => sent.tracks.push((track.id, left, right)),
+        }
+    }
+    for (bus, left, right) in crate::live::bus_gains(song, &buses) {
+        let known = sent.buses.iter_mut().find(|entry| entry.0 == bus);
+        if known
+            .as_ref()
+            .is_some_and(|entry| entry.1 == left && entry.2 == right)
+        {
+            continue;
+        }
+        if !control.send(Param::BusGain { bus, left, right }) {
+            continue;
+        }
+        match known {
+            Some(entry) => *entry = (bus, left, right),
+            None => sent.buses.push((bus, left, right)),
         }
     }
     let gain = crate::master::gain(master.gain_db);
@@ -207,18 +251,18 @@ impl Playback {
             .map_err(|_| String::from("the audio engine is busy"))
     }
 
-    /// Replaces one track's insert chain, for a plug-in edit while playing.
+    /// Replaces one plug-in chain, for a plug-in edit while playing.
     ///
     /// # Errors
     ///
     /// Returns a message when earlier chains are still waiting.
     pub fn swap_inserts(
         &mut self,
-        track: project::TrackId,
+        chain: crate::inserts::ChainId,
         inserts: crate::inserts::Inserts,
     ) -> Result<(), String> {
         self.control
-            .send_inserts(track, inserts)
+            .send_inserts(chain, inserts)
             .map_err(|_| String::from("the audio engine is busy"))
     }
 
@@ -270,8 +314,23 @@ fn resample_live(mut render: LiveRender, target_rate: u32) -> LiveRender {
     if source_rate == target_rate || source_rate == 0 || target_rate == 0 {
         return render;
     }
-    // Synth lanes and insert chains run at the rate they were built for.
+    // Synth lanes and insert chains run at the rate they were built for:
+    // lanes are baked, and bus and master chains open again at the new rate.
     render.bake_inserts();
+    let scale = |frames: usize| {
+        (frames as f64 * f64::from(target_rate) / f64::from(source_rate)).round() as usize
+    };
+    render.bus_delay = scale(render.bus_delay);
+    for bus in &mut render.buses {
+        bus.inserts = crate::inserts::Inserts::from_slots(&bus.slots, target_rate);
+        bus.delay = scale(bus.delay);
+    }
+    if render.master_inserts.is_some() {
+        render.master_inserts = Some(crate::inserts::Inserts::from_slots(
+            &render.master_slots,
+            target_rate,
+        ));
+    }
     render.fixed = resample_stereo(std::mem::take(&mut render.fixed), target_rate);
     for lane in &mut render.lanes {
         *lane = resample_stereo(
@@ -614,17 +673,17 @@ impl Player {
             .map_err(|_| String::from("the audio engine is busy"))
     }
 
-    /// Replaces one track's insert chain at the next buffer, for a plug-in
-    /// edit while playing. The chain must be built at
-    /// [`Player::sample_rate`]. The old chain is freed here, not on the
-    /// audio thread.
+    /// Replaces one plug-in chain (a track's, a bus's or the master's) at
+    /// the next buffer, for a plug-in edit while playing. The chain must be
+    /// built at [`Player::sample_rate`]. The old chain is freed here, not on
+    /// the audio thread.
     ///
     /// # Errors
     ///
     /// Returns a message when earlier chains are still waiting.
     pub fn swap_inserts(
         &self,
-        track: project::TrackId,
+        chain: crate::inserts::ChainId,
         inserts: crate::inserts::Inserts,
     ) -> Result<(), String> {
         let mut guard = self
@@ -633,7 +692,7 @@ impl Player {
             .map_err(|_| String::from("the audio engine is unavailable"))?;
         guard
             .0
-            .send_inserts(track, inserts)
+            .send_inserts(chain, inserts)
             .map_err(|_| String::from("the audio engine is busy"))
     }
 
@@ -959,7 +1018,7 @@ mod tests {
     #[test]
     fn the_engine_matches_the_rendered_mix_exactly() {
         let song = live_song(80);
-        let mut render = LiveRender {
+        let render = LiveRender {
             fixed: RenderedAudio {
                 samples: (0..512)
                     .map(|index| (index as f32 * 0.01).sin() * 0.3)
@@ -977,7 +1036,7 @@ mod tests {
             limiter: true,
             ..LiveRender::default()
         };
-        let expected = render.mixdown();
+        let expected = plain_mix(&render);
         let mut playback = Playback::new_live(render);
         playback.play();
         let mut output = vec![0.0_f32; 512];
@@ -985,7 +1044,41 @@ mod tests {
         for chunk in output.chunks_mut(94) {
             playback.fill(chunk);
         }
-        assert_eq!(output, expected.samples, "bit-exact with the offline mix");
+        assert_eq!(output, expected, "bit-exact with the offline mix");
+    }
+
+    /// The mix of a render with one lane and no buses, worked out by hand:
+    /// the lane at its gains plus the fixed part, the master effects, then
+    /// the master gain and limiter.
+    fn plain_mix(render: &LiveRender) -> Vec<f32> {
+        let (left, right) = render.gains[0];
+        let mut audio = RenderedAudio {
+            samples: render
+                .fixed
+                .samples
+                .iter()
+                .zip(&render.lanes[0])
+                .enumerate()
+                .map(|(index, (fixed, lane))| {
+                    fixed + lane * if index % 2 == 0 { left } else { right }
+                })
+                .collect(),
+            sample_rate: render.fixed.sample_rate,
+        };
+        crate::master::apply_effects(
+            &mut audio,
+            Master {
+                gain_db: 0.0,
+                limiter: false,
+                reverb: render.reverb,
+                chorus: render.chorus,
+            },
+        );
+        audio
+            .samples
+            .iter()
+            .map(|sample| crate::master::finish(sample * render.master_gain, render.limiter))
+            .collect()
     }
 
     #[test]
@@ -1162,15 +1255,15 @@ mod tests {
         let lane: Vec<f32> = (0..8192)
             .map(|index| (index as f32 * 0.02).sin() * 0.5)
             .collect();
-        let mut render = wet_render(&song, lane, 0.3, 0.4);
-        let expected = render.mixdown();
+        let render = wet_render(&song, lane, 0.3, 0.4);
+        let expected = plain_mix(&render);
         let mut playback = Playback::new_live(render);
         playback.play();
         let mut output = vec![0.0_f32; 8192];
         for chunk in output.chunks_mut(94) {
             playback.fill(chunk);
         }
-        assert_eq!(output, expected.samples, "bit-exact with the offline mix");
+        assert_eq!(output, expected, "bit-exact with the offline mix");
     }
 
     #[test]
