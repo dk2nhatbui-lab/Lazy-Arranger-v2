@@ -1526,3 +1526,61 @@ fn a_job_that_panics_reports_an_error() {
             .is_some_and(|error| error.contains("Crashing"))
     );
 }
+
+#[test]
+fn new_waits_for_save_or_discard_when_there_are_unsaved_edits() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let before = app.song().name.clone();
+    app.editor.mark_dirty();
+    app.replace_project(
+        ProjectFile::new(project::song::Song::new("Untitled", 120.0)),
+        "new project",
+    );
+    assert!(app.pending_swap.is_some(), "New must ask first");
+    assert_eq!(app.song().name, before, "the edits are still open");
+    // Choosing Save runs New once the save succeeded.
+    let path = std::env::temp_dir().join(format!(
+        "lazy-arranger-unsaved-{}.arranger.json",
+        std::process::id()
+    ));
+    app.after_save_swap = app.pending_swap.take();
+    app.editor.save(&path).expect("save");
+    app.after_save();
+    assert!(path.is_file());
+    assert_eq!(app.song().name, "Untitled");
+    assert!(!app.editor.dirty());
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn a_clean_project_is_replaced_without_asking() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    app.replace_project(
+        ProjectFile::new(project::song::Song::new("Fresh", 120.0)),
+        "new project",
+    );
+    assert!(app.pending_swap.is_none());
+    assert_eq!(app.song().name, "Fresh");
+}
+
+#[test]
+fn plug_ins_outside_the_vst3_folders_wait_for_approval() {
+    let mut song = project::song::Song::new("x", 120.0);
+    let mut track = project::song::Track::new(TrackId::new(1).expect("id"), "t");
+    let outside = std::env::temp_dir().join("lazy-arranger-untrusted-test.vst3");
+    track.plugins.push(project::song::PluginSlot {
+        id: 1,
+        name: String::from("Unknown"),
+        format: project::song::PluginFormat::Vst3,
+        path: outside.display().to_string(),
+        identifier: String::from("00000000000000000000000000000000"),
+        bypassed: false,
+        state: String::new(),
+    });
+    song.tracks.push(track);
+    assert_eq!(super::plugin_trust::untrusted(&song), vec![outside.clone()]);
+    plugin_host::approve_vst3_bundle(&outside);
+    assert!(super::plugin_trust::untrusted(&song).is_empty());
+}

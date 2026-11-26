@@ -49,6 +49,17 @@ fn authorized(message: &Value, token: &str) -> bool {
 /// Handles one line, checking the token first.
 #[must_use]
 pub fn handle_line(session: &mut EditSession, token: &str, line: &str) -> Option<Value> {
+    handle_line_saving(session, token, line, |_| Ok(()))
+}
+
+/// Like [`handle_line`], and saves an edit before replying, as
+/// [`crate::handle_message_saving`] does.
+pub fn handle_line_saving(
+    session: &mut EditSession,
+    token: &str,
+    line: &str,
+    save: impl FnOnce(&EditSession) -> Result<(), String>,
+) -> Option<Value> {
     let message: Value = match serde_json::from_str(line) {
         Ok(message) => message,
         Err(error) => {
@@ -66,7 +77,7 @@ pub fn handle_line(session: &mut EditSession, token: &str, line: &str) -> Option
             "error": {"code": -32001, "message": "unauthorized: token mismatch"},
         }));
     }
-    crate::handle_message(session, &message)
+    crate::handle_message_saving(session, &message, save)
 }
 
 /// Serves one connection until it closes.
@@ -83,15 +94,15 @@ pub fn serve_stream(
 }
 
 /// Serves one connection until it closes, calling `after_edit` after every
-/// successful `tools/call` so the caller can save the project.
+/// `tools/call` that changed the project, before its reply is sent, so the
+/// caller can save it. A failed `after_edit` is sent as an error reply.
 ///
 /// Each request line is capped at 1 MiB before it is buffered, and reads time
 /// out after 30 seconds.
 ///
 /// # Errors
 ///
-/// Returns an I/O error when reading or writing fails, or what `after_edit`
-/// returns.
+/// Returns an I/O error when reading or writing fails.
 pub fn serve_stream_with(
     session: &mut EditSession,
     token: &str,
@@ -126,22 +137,12 @@ pub fn serve_stream_with(
         if line.trim().is_empty() {
             continue;
         }
-        let is_call = serde_json::from_str::<Value>(line)
-            .ok()
-            .and_then(|message| {
-                message
-                    .get("method")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            })
-            .as_deref()
-            == Some("tools/call");
-        if let Some(reply) = handle_line(session, token, line) {
+        let reply = handle_line_saving(session, token, line, |session| {
+            after_edit(session).map_err(|error| error.to_string())
+        });
+        if let Some(reply) = reply {
             writeln!(writer, "{reply}")?;
             writer.flush()?;
-            if is_call && reply["result"]["isError"] == false {
-                after_edit(session)?;
-            }
         }
     }
     Ok(())

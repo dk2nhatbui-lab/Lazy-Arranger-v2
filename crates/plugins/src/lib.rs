@@ -78,46 +78,22 @@ pub fn default_roots() -> Vec<ScanRoot> {
                 path: PathBuf::from(base).join("Components"),
             });
         }
-        roots.push(ScanRoot {
-            format: Format::Vst3,
-            path: PathBuf::from("/Library/Audio/Plug-Ins/VST3"),
-        });
         if let Some(home) = std::env::var_os("HOME") {
             roots.push(ScanRoot {
                 format: Format::AudioUnit,
                 path: PathBuf::from(&home).join("Library/Audio/Plug-Ins/Components"),
             });
-            roots.push(ScanRoot {
-                format: Format::Vst3,
-                path: PathBuf::from(&home).join("Library/Audio/Plug-Ins/VST3"),
-            });
-        }
-    } else if cfg!(target_os = "windows") {
-        for base in [
-            r"C:\Program Files\Common Files\VST3",
-            r"C:\Program Files (x86)\Common Files\VST3",
-        ] {
-            roots.push(ScanRoot {
-                format: Format::Vst3,
-                path: PathBuf::from(base),
-            });
-        }
-    } else {
-        roots.push(ScanRoot {
-            format: Format::Vst3,
-            path: PathBuf::from("/usr/lib/vst3"),
-        });
-        roots.push(ScanRoot {
-            format: Format::Vst3,
-            path: PathBuf::from("/usr/local/lib/vst3"),
-        });
-        if let Some(home) = std::env::var_os("HOME") {
-            roots.push(ScanRoot {
-                format: Format::Vst3,
-                path: PathBuf::from(home).join(".vst3"),
-            });
         }
     }
+    // The same VST3 folders the host trusts for playback.
+    roots.extend(
+        plugin_host::default_vst3_roots()
+            .into_iter()
+            .map(|path| ScanRoot {
+                format: Format::Vst3,
+                path,
+            }),
+    );
     roots
 }
 

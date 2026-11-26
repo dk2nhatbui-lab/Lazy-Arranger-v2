@@ -3399,6 +3399,15 @@ impl ShellApp {
                             .hint_text("codex exec {prompt}")
                             .desired_width(340.0),
                     );
+                    if cfg!(windows) {
+                        ui.label(
+                            egui::RichText::new(
+                                "Runs the program directly (no shell); {prompt} is one argument.",
+                            )
+                            .size(9.0)
+                            .color(theme::text_dim()),
+                        );
+                    }
                     ui.label(
                         egui::RichText::new("Speak preset or command (use {text})")
                             .size(11.0)

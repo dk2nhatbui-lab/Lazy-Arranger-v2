@@ -5550,6 +5550,38 @@ pub fn handle_message(session: &mut EditSession, message: &Value) -> Option<Valu
     }
 }
 
+/// Handles one message like [`handle_message`], and calls `save` when a
+/// `tools/call` changed the project, before the reply is returned. A client
+/// is never told an edit succeeded before it is on disk: a failed save turns
+/// the reply into a JSON-RPC error. Calls that change nothing are not saved.
+pub fn handle_message_saving(
+    session: &mut EditSession,
+    message: &Value,
+    save: impl FnOnce(&EditSession) -> Result<(), String>,
+) -> Option<Value> {
+    let is_call = message.get("method").and_then(Value::as_str) == Some("tools/call");
+    let before = is_call.then(|| session.project().clone());
+    let reply = handle_message(session, message)?;
+    let succeeded = reply["result"]["isError"] == false;
+    let changed = before
+        .as_ref()
+        .is_some_and(|before| before != session.project());
+    if !(succeeded && changed) {
+        return Some(reply);
+    }
+    match save(session) {
+        Ok(()) => Some(reply),
+        Err(error) => Some(json!({
+            "jsonrpc": "2.0",
+            "id": message.get("id").cloned().unwrap_or(Value::Null),
+            "error": {
+                "code": -32603,
+                "message": format!("the edit was made but the project could not be saved: {error}"),
+            },
+        })),
+    }
+}
+
 /// Serves newline-delimited JSON-RPC until the input ends.
 ///
 /// # Errors
@@ -5599,6 +5631,43 @@ mod transport_tests {
             "Piano",
         ));
         EditSession::new(ProjectFile::new(song)).expect("valid")
+    }
+
+    #[test]
+    fn edits_are_saved_before_the_reply_and_reads_are_not_saved() {
+        let mut session = session();
+        let call = |id: u32, name: &str, arguments: Value| {
+            json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
+                   "params": {"name": name, "arguments": arguments}})
+        };
+        let mut saves = 0;
+        let read = handle_message_saving(&mut session, &call(1, "get_song", json!({})), |_| {
+            saves += 1;
+            Ok(())
+        })
+        .expect("reply");
+        assert_eq!(read["result"]["isError"], false);
+        assert_eq!(saves, 0, "a read-only call must not rewrite the file");
+        let edit = handle_message_saving(
+            &mut session,
+            &call(2, "add_track", json!({"name": "Bass"})),
+            |_| {
+                saves += 1;
+                Ok(())
+            },
+        )
+        .expect("reply");
+        assert_eq!(edit["result"]["isError"], false);
+        assert_eq!(saves, 1);
+        let failed = handle_message_saving(
+            &mut session,
+            &call(3, "add_track", json!({"name": "Drums"})),
+            |_| Err(String::from("disk full")),
+        )
+        .expect("reply");
+        assert!(failed.get("result").is_none(), "no success before the save");
+        assert_eq!(failed["error"]["code"], -32603);
+        assert_eq!(failed["id"], 3);
     }
 
     #[test]

@@ -53,6 +53,12 @@ impl Editor {
         self.dirty
     }
 
+    /// Marks the project as holding unsaved edits, as after restoring an
+    /// autosave that the project file does not have yet.
+    pub fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
     /// Number of undo steps.
     #[must_use]
     pub fn undo_depth(&self) -> usize {
@@ -2635,22 +2641,9 @@ impl Editor {
             .project()
             .to_json_pretty()
             .map_err(|error| error.to_string())?;
-        let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
-        std::fs::write(&temporary, json)
-            .map_err(|error| format!("{}: {error}", temporary.display()))?;
-        #[cfg(unix)]
-        std::fs::rename(&temporary, path).map_err(|error| {
-            let _ = std::fs::remove_file(&temporary);
-            format!("{}: {error}", path.display())
-        })?;
-        #[cfg(not(unix))]
-        {
-            let _ = std::fs::remove_file(path);
-            std::fs::rename(&temporary, path).map_err(|error| {
-                let _ = std::fs::remove_file(&temporary);
-                format!("{}: {error}", path.display())
-            })?;
-        }
+        // One rename replaces the old file on every platform, so a failed
+        // save never leaves the user without either copy.
+        crate::persistence::save_atomic(path, &json)?;
         self.dirty = false;
         Ok(())
     }

@@ -3167,17 +3167,17 @@ fn mcp_serve(project_path: &PathBuf) -> Result<(), Box<dyn Error>> {
                 continue;
             }
         };
-        let is_call =
-            message.get("method").and_then(|method| method.as_str()) == Some("tools/call");
-        if let Some(reply) = mcp::handle_message(&mut session, &message) {
+        let reply = mcp::handle_message_saving(&mut session, &message, |session| {
+            let json = session
+                .project()
+                .to_json_pretty()
+                .map_err(|error| error.to_string())?;
+            write_atomically(project_path, &json)
+                .map_err(|error| format!("{}: {error}", project_path.display()))
+        });
+        if let Some(reply) = reply {
             writeln!(stdout, "{reply}")?;
             stdout.flush()?;
-            if is_call && reply["result"]["isError"] == false {
-                let json = session.project().to_json_pretty()?;
-                write_atomically(project_path, &json).map_err(|error| {
-                    format!("could not save {}: {error}", project_path.display())
-                })?;
-            }
         }
     }
 }

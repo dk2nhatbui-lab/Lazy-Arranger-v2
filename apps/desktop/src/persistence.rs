@@ -21,14 +21,24 @@ pub fn autosave_path(project: &Path) -> PathBuf {
 ///
 /// Returns a message when the write or rename fails.
 pub fn save_atomic(path: &Path, json: &str) -> Result<(), String> {
+    // `fs::rename` replaces an existing file in one step on every platform
+    // (on Windows it is `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`), so
+    // the old file is never removed first.
+    save_atomic_with(path, json, |from, to| fs::rename(from, to))
+}
+
+fn save_atomic_with(
+    path: &Path,
+    json: &str,
+    replace: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), String> {
     // Append to the full name so `song.json` and `song.arranger` never share
-    // a temporary file. `fs::rename` replaces an existing file on every
-    // platform, Windows included.
+    // a temporary file.
     let mut name = path.as_os_str().to_owned();
     name.push(format!(".{}.tmp", std::process::id()));
     let temporary = PathBuf::from(name);
     fs::write(&temporary, json).map_err(|error| format!("{}: {error}", temporary.display()))?;
-    fs::rename(&temporary, path).map_err(|error| {
+    replace(&temporary, path).map_err(|error| {
         let _ = fs::remove_file(&temporary);
         format!("{}: {error}", path.display())
     })
@@ -111,6 +121,26 @@ mod tests {
 
     fn temp(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("lazy-arranger-{name}.json"))
+    }
+
+    #[test]
+    fn a_failed_replace_keeps_the_previous_file() {
+        let path = temp(&format!("failed-replace-{}", std::process::id()));
+        fs::write(&path, "old").expect("write");
+        let result = save_atomic_with(&path, "new", |_, _| {
+            Err(std::io::Error::other("replace refused"))
+        });
+        assert!(result.is_err());
+        assert_eq!(fs::read_to_string(&path).expect("read"), "old");
+        let mut temporary = path.as_os_str().to_owned();
+        temporary.push(format!(".{}.tmp", std::process::id()));
+        assert!(
+            !PathBuf::from(temporary).exists(),
+            "temporary file left behind"
+        );
+        save_atomic(&path, "new").expect("save");
+        assert_eq!(fs::read_to_string(&path).expect("read"), "new");
+        let _ = fs::remove_file(&path);
     }
 
     #[test]

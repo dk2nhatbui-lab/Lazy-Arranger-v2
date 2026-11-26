@@ -201,11 +201,7 @@ pub fn local_chat(command: &str, prompt: &str) -> Result<String, String> {
     if command.is_empty() {
         return Err(String::from("set a local assistant command in Settings"));
     }
-    let rendered = crate::shell::render(command, "{prompt}", "ARRANGER_PROMPT");
-    let output = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(&rendered)
-        .env("ARRANGER_PROMPT", prompt)
+    let output = crate::shell::command(command, "{prompt}", "ARRANGER_PROMPT", prompt)?
         .output()
         .map_err(|error| format!("assistant command: {error}"))?;
     if !output.status.success() {
@@ -299,6 +295,16 @@ mod tests {
         assert!(!marker.exists());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_local_assistant_runs_without_sh_on_windows() {
+        let text =
+            local_chat("cmd /C \"echo local answer & rem {prompt}\"", "hello").expect("text");
+        assert_eq!(text, "local answer");
+        assert!(local_chat("", "x").is_err());
+    }
+
+    #[cfg(unix)]
     #[test]
     fn a_local_assistant_command_returns_stdout() {
         let text = local_chat("printf '  local answer  '", "hello").expect("text");
