@@ -5,6 +5,8 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
+## [0.1.0-beta.5] - 2026-11-26
+
 ### Fixed
 - Mixer faders, pans, mute, solo, bus faders and the master fader are heard
   right away while the song plays, for MIDI and audio tracks. Before, each
@@ -30,6 +32,9 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
   the mixer, as playback does.
 
 ### Changed
+- Audio clips on the timeline look like Luna: a pastel body in the track
+  colour, a name strip on top, the beat grid showing through, and a sharp
+  dark waveform for each channel at any zoom.
 - Export Audio (app, CLI and MCP), stems and bounce play the song through
   the same engine as playback, faster than real time, so an export sounds
   exactly like what you heard. The separate offline mix is gone.
