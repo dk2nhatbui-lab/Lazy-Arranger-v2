@@ -9,6 +9,7 @@ pub mod chords;
 pub mod decode;
 pub mod drums;
 pub mod edit;
+pub mod engine;
 pub mod l6max;
 pub mod link;
 pub mod live;

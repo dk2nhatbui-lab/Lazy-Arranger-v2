@@ -16,6 +16,7 @@ music-core = { path = "../music-core" }
 symphonia = { version = "0.6", features = ["all"] }
 plugin-host = { path = "../plugin-host" }
 project = { path = "../project" }
+rtrb = "0.3"
 
 [lints]
 workspace = true
