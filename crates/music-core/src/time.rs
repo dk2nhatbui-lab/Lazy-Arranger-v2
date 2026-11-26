@@ -60,19 +60,30 @@ impl TimeSignature {
     /// Ticks in one beat.
     #[must_use]
     pub const fn beat_ticks(self) -> Tick {
-        PPQ * 4 / self.denominator as Tick
+        // The fields are public, so guard an unvalidated zero instead of
+        // dividing by it.
+        if self.denominator == 0 {
+            return PPQ;
+        }
+        let ticks = PPQ * 4 / self.denominator as Tick;
+        if ticks > 0 { ticks } else { 1 }
     }
 
     /// Ticks in one bar.
     #[must_use]
     pub const fn bar_ticks(self) -> Tick {
-        self.beat_ticks() * self.numerator as Tick
+        let numerator = if self.numerator == 0 {
+            1
+        } else {
+            self.numerator as Tick
+        };
+        self.beat_ticks() * numerator
     }
 
     /// Ticks in `bars` bars.
     #[must_use]
     pub const fn bars_to_ticks(self, bars: u32) -> Tick {
-        self.bar_ticks() * bars as Tick
+        self.bar_ticks().saturating_mul(bars as Tick)
     }
 
     /// Zero-based bar index that contains `tick`.
@@ -90,34 +101,45 @@ impl TimeSignature {
     /// One-based beat number inside the bar, `1..=numerator`.
     #[must_use]
     pub const fn beat_in_bar(self, tick: Tick) -> u8 {
-        (self.beat_index_at(tick).rem_euclid(self.numerator as i64) + 1) as u8
+        let numerator = if self.numerator == 0 {
+            1
+        } else {
+            self.numerator as i64
+        };
+        (self.beat_index_at(tick).rem_euclid(numerator) + 1) as u8
     }
 
     /// First beat boundary at or after `tick`.
     #[must_use]
     pub const fn beat_boundary_at_or_after(self, tick: Tick) -> Tick {
         let beat = self.beat_ticks();
-        (tick + beat - 1).div_euclid(beat) * beat
+        tick.saturating_add(beat - 1)
+            .div_euclid(beat)
+            .saturating_mul(beat)
     }
 
     /// First bar boundary at or after `tick`.
     #[must_use]
     pub const fn bar_boundary_at_or_after(self, tick: Tick) -> Tick {
         let bar = self.bar_ticks();
-        (tick + bar - 1).div_euclid(bar) * bar
+        tick.saturating_add(bar - 1)
+            .div_euclid(bar)
+            .saturating_mul(bar)
     }
 
     /// First beat boundary strictly after `tick`.
     #[must_use]
     pub const fn beat_boundary_after(self, tick: Tick) -> Tick {
         let beat = self.beat_ticks();
-        (tick.div_euclid(beat) + 1) * beat
+        tick.div_euclid(beat).saturating_add(1).saturating_mul(beat)
     }
 
     /// First bar boundary strictly after `tick`.
     #[must_use]
     pub const fn bar_boundary_after(self, tick: Tick) -> Tick {
-        (self.bar_index_at(tick) + 1) * self.bar_ticks()
+        self.bar_index_at(tick)
+            .saturating_add(1)
+            .saturating_mul(self.bar_ticks())
     }
 }
 

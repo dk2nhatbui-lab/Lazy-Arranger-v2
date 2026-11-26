@@ -203,7 +203,7 @@ fn a_legacy_import_reports_what_it_deferred() {
     let imported = project::legacy::import_cpp_project(LEGACY_V3).expect("legacy import");
     let text = imported.report.to_text();
     assert!(text.contains("deferred source features"), "{text}");
-    for key in ["loop", "scenes", "key", "metronome"] {
+    for key in ["loop", "scenes", "legacy_key", "metronome"] {
         assert!(imported.project.song.extra.contains_key(key), "song.{key}");
     }
     // Mixer, sound selection and routing are track-level keys.

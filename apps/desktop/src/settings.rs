@@ -469,6 +469,20 @@ fn clean_line(value: &str) -> String {
     value.replace(['\r', '\n'], " ")
 }
 
+/// A state file inside [`Settings::data_dir`], never the working directory.
+#[must_use]
+pub fn data_file(name: &str) -> PathBuf {
+    let dir = Settings::data_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join(name)
+}
+
+/// Where the MIDI controller map is kept.
+#[must_use]
+pub fn midi_map_path() -> PathBuf {
+    data_file("lazy-arranger-midi-map.txt")
+}
+
 impl Settings {
     /// Per-user directory for settings, keys, profiles and recent projects.
     #[must_use]
@@ -816,6 +830,13 @@ impl Settings {
         text.push_str(&format!("shortcut.play = {}\n", self.play_keys));
         for (key, value) in &self.extra {
             text.push_str(&format!("{} = {}\n", clean_line(key), clean_line(value)));
+        }
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("{}: {error}", parent.display()))?;
         }
         let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
         std::fs::write(&temporary, text)

@@ -31,19 +31,21 @@ impl SttPreset {
     /// Suggested command template for this preset.
     #[must_use]
     pub fn template(self, models_dir: &Path) -> String {
+        // The template runs through `sh -c`; quote the folder so a path with
+        // spaces (macOS "Application Support") stays one word.
+        let models_dir = crate::shell::quote(&models_dir.display().to_string());
         match self {
             Self::Auto => String::from("auto"),
-            Self::WhisperCpp => format!(
-                "whisper-cli -m {}/ggml-base.bin -f {{file}} -nt",
-                models_dir.display()
-            ),
+            Self::WhisperCpp => {
+                format!("whisper-cli -m {models_dir}/ggml-base.bin -f {{file}} -nt")
+            }
             Self::SherpaMoonshine => format!(
                 "sherpa-onnx-offline --moonshine-preprocessor={d}/moonshine-tiny/preprocess.onnx \
                  --moonshine-encoder={d}/moonshine-tiny/encode.int8.onnx \
                  --moonshine-uncached-decoder={d}/moonshine-tiny/uncached_decode.int8.onnx \
                  --moonshine-cached-decoder={d}/moonshine-tiny/cached_decode.int8.onnx \
                  --tokens={d}/moonshine-tiny/tokens.txt {{file}}",
-                d = models_dir.display()
+                d = models_dir
             ),
         }
     }

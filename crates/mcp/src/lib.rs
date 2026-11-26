@@ -1273,7 +1273,21 @@ fn checked_output(path: &std::path::Path) -> Result<std::path::PathBuf, ToolErro
     let Some(Some(root)) = OUTPUT_ROOT.get() else {
         return Ok(path.to_path_buf());
     };
-    let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    if path
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(ToolError::Arguments(String::from(
+            "output path must not contain ..",
+        )));
+    }
+    let name = path
+        .file_name()
+        .ok_or_else(|| ToolError::Arguments(String::from("output path needs a file name")))?;
+    let parent = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => std::path::Path::new("."),
+    };
     let parent = std::fs::canonicalize(parent).map_err(|error| {
         ToolError::Arguments(format!("output directory {}: {error}", parent.display()))
     })?;
@@ -1283,7 +1297,24 @@ fn checked_output(path: &std::path::Path) -> Result<std::path::PathBuf, ToolErro
             root.display()
         )));
     }
-    Ok(parent.join(path.file_name().unwrap_or_default()))
+    let out = parent.join(name);
+    if std::fs::symlink_metadata(&out).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Err(ToolError::Arguments(format!(
+            "output path {} is a symbolic link",
+            out.display()
+        )));
+    }
+    Ok(out)
+}
+
+/// Whether `directory` sits inside one of the standard plug-in folders.
+fn plugin_directory_allowed(directory: &str) -> bool {
+    let Ok(directory) = std::fs::canonicalize(directory) else {
+        return false;
+    };
+    plugins::default_roots()
+        .iter()
+        .any(|root| std::fs::canonicalize(&root.path).is_ok_and(|base| directory.starts_with(base)))
 }
 
 /// The tool list as a JSON array of `{name, description, inputSchema}`.
@@ -2743,7 +2774,7 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 .file_stem()
                 .and_then(|stem| stem.to_str())
                 .unwrap_or("audio");
-            let out = source.with_file_name(format!("{stem}-reversed.wav"));
+            let out = checked_output(&source.with_file_name(format!("{stem}-reversed.wav")))?;
             std::fs::write(&out, reversed.to_wav32f())
                 .map_err(|error| ToolError::Arguments(format!("{}: {error}", out.display())))?;
             let mut updated = reference;
@@ -2902,22 +2933,22 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             Ok(json!({"names": parsed}))
         }
         "plugin_scan" => {
-            let roots = arguments
-                .get("directories")
-                .and_then(Value::as_array)
-                .map(|directories| {
-                    directories
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .flat_map(|directory| {
-                            [
-                                plugins::root(plugins::Format::Vst3, directory),
-                                plugins::root(plugins::Format::AudioUnit, directory),
-                            ]
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_else(plugins::default_roots);
+            let roots = match arguments.get("directories").and_then(Value::as_array) {
+                Some(directories) => {
+                    let mut roots = Vec::new();
+                    for directory in directories.iter().filter_map(Value::as_str) {
+                        if !plugin_directory_allowed(directory) {
+                            return Err(ToolError::Arguments(format!(
+                                "{directory} is outside the standard plug-in folders"
+                            )));
+                        }
+                        roots.push(plugins::root(plugins::Format::Vst3, directory));
+                        roots.push(plugins::root(plugins::Format::AudioUnit, directory));
+                    }
+                    roots
+                }
+                None => plugins::default_roots(),
+            };
             let found = plugins::scan_roots(&roots);
             Ok(json!({
                 "plugins": found.iter().map(|plugin| json!({
@@ -3097,16 +3128,24 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
                 let id = plugin
                     .get("id")
                     .and_then(Value::as_u64)
-                    .unwrap_or((slots.len() as u64) + 1) as u32;
+                    .unwrap_or((slots.len() as u64) + 1);
+                let id = u32::try_from(id)
+                    .map_err(|_| ToolError::Arguments(String::from("plugin id is too large")))?;
+                let path = plugin
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if !path.is_empty() && !plugin_path_allowed(&path, format) {
+                    return Err(ToolError::Arguments(String::from(
+                        "plugin path is outside the standard plug-in folders",
+                    )));
+                }
                 slots.push(PluginSlot {
                     id,
                     name: name.to_string(),
                     format,
-                    path: plugin
-                        .get("path")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
+                    path,
                     identifier: plugin
                         .get("identifier")
                         .and_then(Value::as_str)
@@ -3531,7 +3570,8 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             let grid = (4 * music_core::PPQ / grid.max(1) as i64).max(1);
             let groove = arranging::groove::extract(&notes, bar, grid)
                 .ok_or_else(|| ToolError::Arguments(String::from("no groove")))?;
-            let path = arranging::groove_file::save(std::path::Path::new(dir), name, &groove)
+            let dir = checked_output(std::path::Path::new(dir))?;
+            let path = arranging::groove_file::save(&dir, name, &groove)
                 .map_err(|error| ToolError::Arguments(error.to_string()))?;
             Ok(json!({
                 "path": path,
@@ -5100,19 +5140,34 @@ mod tests {
     }
 
     #[test]
-    fn plugin_scan_finds_synthetic_bundles() {
+    fn plugin_scan_rejects_folders_outside_the_plugin_roots() {
         let directory = std::env::temp_dir().join("lazy-arranger-mcp-plugins");
         let _ = std::fs::remove_dir_all(&directory);
         std::fs::create_dir_all(directory.join("Demo.vst3")).expect("bundle");
         let mut session = session_with_track();
-        let result = call(
-            &mut session,
-            "plugin_scan",
-            &json!({"directories": [directory.display().to_string()]}),
-        )
-        .expect("scan");
-        assert_eq!(result["plugins"][0]["name"], "Demo");
+        assert!(
+            call(
+                &mut session,
+                "plugin_scan",
+                &json!({"directories": [directory.display().to_string()]}),
+            )
+            .is_err()
+        );
+        call(&mut session, "plugin_scan", &json!({})).expect("default scan");
         let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn set_plugins_rejects_paths_outside_the_plugin_roots() {
+        let mut session = session_with_track();
+        assert!(
+            call(
+                &mut session,
+                "set_plugins",
+                &json!({"track": 1, "plugins": [{"name": "Evil", "format": "vst3", "path": "/tmp/evil.vst3"}]}),
+            )
+            .is_err()
+        );
     }
 
     #[test]

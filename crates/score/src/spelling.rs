@@ -53,7 +53,7 @@ fn tonic_spelling(key: Key) -> (usize, i8) {
     let pc = key.tonic.as_u8();
     if key.minor {
         match pc {
-            0 => (5, 0),   // A
+            0 => (0, 0),   // C
             1 => (0, 1),   // C#
             2 => (1, 0),   // D
             3 => (2, -1),  // Eb

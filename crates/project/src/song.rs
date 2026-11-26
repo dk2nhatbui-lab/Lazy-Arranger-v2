@@ -981,16 +981,26 @@ impl ProjectFile {
     /// [`ProjectError::NewerSchema`] for a newer version, and
     /// [`ProjectError::Invalid`] when validation finds an error.
     pub fn from_json(text: &str) -> Result<Self, ProjectError> {
-        let file: Self = serde_json::from_str(text)?;
-        if file.format != PROJECT_FORMAT {
-            return Err(ProjectError::WrongFormat { found: file.format });
+        // Check the header before the song: a newer file may hold fields this
+        // build cannot parse, and must say "newer" rather than "bad JSON".
+        #[derive(serde::Deserialize)]
+        struct Header {
+            format: String,
+            version: u32,
         }
-        if file.version > SCHEMA_VERSION {
+        let header: Header = serde_json::from_str(text)?;
+        if header.format != PROJECT_FORMAT {
+            return Err(ProjectError::WrongFormat {
+                found: header.format,
+            });
+        }
+        if header.version > SCHEMA_VERSION {
             return Err(ProjectError::NewerSchema {
-                found: file.version,
+                found: header.version,
                 supported: SCHEMA_VERSION,
             });
         }
+        let file: Self = serde_json::from_str(text)?;
         let signature = file.song.time_signature;
         if signature.numerator == 0 || signature.denominator == 0 {
             return Err(ProjectError::Invalid(format!(

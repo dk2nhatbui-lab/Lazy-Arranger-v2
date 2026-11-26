@@ -120,8 +120,8 @@ pub fn decode_stereo(bytes: &[u8]) -> Result<RenderedAudio, String> {
         } else {
             left
         };
-        samples.push(left.clamp(-1.0, 1.0));
-        samples.push(right.clamp(-1.0, 1.0));
+        samples.push(crate::spsc::sanitize(left));
+        samples.push(crate::spsc::sanitize(right));
     }
     Ok(RenderedAudio {
         samples,
@@ -144,7 +144,7 @@ pub fn decode_mono(bytes: &[u8]) -> Result<RenderedAudio, String> {
         for channel in 0..usize::from(wav.channels) {
             sum += sample(chunk, channel * bytes_per_sample, wav.format_tag, wav.bits);
         }
-        samples.push((sum / f32::from(wav.channels)).clamp(-1.0, 1.0));
+        samples.push(crate::spsc::sanitize(sum / f32::from(wav.channels)));
     }
     Ok(RenderedAudio {
         samples,

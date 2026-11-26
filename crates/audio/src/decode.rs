@@ -16,6 +16,9 @@ use symphonia::core::meta::MetadataOptions;
 
 use crate::RenderedAudio;
 
+/// The most samples a decode keeps: three hours of 48 kHz stereo.
+const MAX_DECODED_SAMPLES: usize = 3 * 3600 * 48_000 * 2;
+
 /// Decodes a supported audio file into mono samples at its native rate.
 ///
 /// # Errors
@@ -90,6 +93,10 @@ fn decode_internal(path: &Path, stereo: bool) -> Result<RenderedAudio, String> {
         }
         match decoder.decode(&packet) {
             Ok(buffer) => {
+                // A tiny compressed file can expand to gigabytes of silence.
+                if samples.len() > MAX_DECODED_SAMPLES {
+                    return Err(format!("{}: audio is too long to load", path.display()));
+                }
                 buffer.copy_to_vecs_planar::<f32>(&mut planes);
                 let frames = planes.first().map_or(0, Vec::len);
                 if stereo {
@@ -100,8 +107,8 @@ fn decode_internal(path: &Path, stereo: bool) -> Result<RenderedAudio, String> {
                         let right = planes
                             .get(1)
                             .map_or(left, |plane| plane.get(frame).copied().unwrap_or(left));
-                        samples.push(left.clamp(-1.0, 1.0));
-                        samples.push(right.clamp(-1.0, 1.0));
+                        samples.push(crate::spsc::sanitize(left));
+                        samples.push(crate::spsc::sanitize(right));
                     }
                 } else {
                     for frame in 0..frames {
@@ -109,7 +116,7 @@ fn decode_internal(path: &Path, stereo: bool) -> Result<RenderedAudio, String> {
                         for plane in &planes {
                             sum += plane.get(frame).copied().unwrap_or(0.0);
                         }
-                        samples.push((sum / planes.len().max(1) as f32).clamp(-1.0, 1.0));
+                        samples.push(crate::spsc::sanitize(sum / planes.len().max(1) as f32));
                     }
                 }
             }

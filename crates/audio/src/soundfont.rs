@@ -361,8 +361,11 @@ pub fn parse(bytes: &[u8]) -> Result<SoundFont, String> {
             kind: u16_at(record, 44).unwrap_or(0),
             link: u16_at(record, 42).unwrap_or(0),
         })
-        .filter(|sample| !sample.name.is_empty())
         .collect();
+    // Zones point at samples by position, so only the closing terminal
+    // record ("EOS") may be dropped; removing any other would shift indices.
+    let mut samples = samples;
+    samples.pop();
 
     let raw_instruments: Vec<(String, usize)> = inst
         .chunks_exact(22)
@@ -373,11 +376,15 @@ pub fn parse(bytes: &[u8]) -> Result<SoundFont, String> {
             )
         })
         .collect();
+    // Bag indices must not go down, or a small file could ask for billions
+    // of zones.
+    if raw_instruments.windows(2).any(|pair| pair[1].1 < pair[0].1) {
+        return Err(String::from("instrument bag indices are out of order"));
+    }
     let mut instruments = Vec::new();
-    for (index, (name, bag)) in raw_instruments.iter().enumerate() {
-        if name.is_empty() {
-            continue;
-        }
+    // The last record only terminates the list ("EOI").
+    let instrument_count = raw_instruments.len().saturating_sub(1);
+    for (index, (name, bag)) in raw_instruments.iter().enumerate().take(instrument_count) {
         let next = raw_instruments
             .get(index + 1)
             .map_or(ibags.last().copied().unwrap_or(0), |(_, bag)| *bag);
@@ -399,11 +406,13 @@ pub fn parse(bytes: &[u8]) -> Result<SoundFont, String> {
             )
         })
         .collect();
+    if raw_presets.windows(2).any(|pair| pair[1].3 < pair[0].3) {
+        return Err(String::from("preset bag indices are out of order"));
+    }
     let mut presets = Vec::new();
-    for (index, (name, bank, program, bag)) in raw_presets.iter().enumerate() {
-        if name.is_empty() {
-            continue;
-        }
+    // The last record only terminates the list ("EOP").
+    let preset_count = raw_presets.len().saturating_sub(1);
+    for (index, (name, bank, program, bag)) in raw_presets.iter().enumerate().take(preset_count) {
         let next = raw_presets
             .get(index + 1)
             .map_or(pbags.last().copied().unwrap_or(0), |(_, _, _, bag)| *bag);
@@ -483,12 +492,15 @@ struct Lowpass {
 impl Lowpass {
     fn new(cutoff_cents: i16, q_centibels: i16, rate: u32) -> Self {
         let nyquist = rate.max(1) as f32 / 2.0;
-        let ceiling = (nyquist * 0.95).max(20.0);
-        let cutoff = (8.176 * 2.0_f32.powf(f32::from(cutoff_cents) / 1200.0)).clamp(20.0, ceiling);
+        // Stay below Nyquist even at absurdly low rates, or the poles go
+        // unstable.
+        let ceiling = nyquist * 0.95;
+        let cutoff = (8.176 * 2.0_f32.powf(f32::from(cutoff_cents) / 1200.0))
+            .clamp(20.0_f32.min(ceiling), ceiling);
         let q = 10.0_f32
             .powf(f32::from(q_centibels) / 200.0)
             .clamp(0.5, 20.0);
-        let w0 = std::f32::consts::TAU * cutoff / rate as f32;
+        let w0 = std::f32::consts::TAU * cutoff / rate.max(1) as f32;
         let cos = w0.cos();
         let alpha = w0.sin() / (2.0 * q);
         let a0 = 1.0 + alpha;
@@ -594,11 +606,17 @@ fn render_sample(
     let loop_end = usize::try_from(sample.loop_end).unwrap_or(0).min(pcm_len);
     let looped = zone.sample_modes & 1 == 1 && loop_end > loop_start + 1;
     let root = f32::from(zone.root_override.unwrap_or(sample.root));
-    let cents = f32::from(zone.coarse_tune) * 100.0 + f32::from(zone.fine_tune);
-    let semitones = f32::from(key) - root + cents / 100.0;
+    let cents = f32::from(zone.coarse_tune) * 100.0
+        + f32::from(zone.fine_tune)
+        + f32::from(sample.correction);
+    // Ten octaves either way is plenty and keeps `step` finite.
+    let semitones = (f32::from(key) - root + cents / 100.0).clamp(-120.0, 120.0);
     let ratio = rate as f32;
     let sample_rate = sample.rate.max(1) as f32;
     let step = (sample_rate / ratio) * 2.0_f32.powf(semitones / 12.0);
+    if !step.is_finite() || step <= 0.0 {
+        return None;
+    }
     let frames = (seconds * ratio) as usize;
     let gain = f32::from(velocity.min(127)) / 127.0 * 0.6;
     let mut out = Vec::new();
@@ -621,7 +639,9 @@ fn render_sample(
         let next_index = if looped && base + 1 >= loop_end {
             loop_start
         } else {
-            base + 1
+            // Past the end, hold the last frame instead of reading the next
+            // sample in the bank.
+            (base + 1).min(end - 1)
         };
         let next = font.pcm.get(next_index).copied().unwrap_or(0) as f32 / 32_768.0;
         first + (next - first) * fraction
@@ -643,7 +663,7 @@ fn render_sample(
         }
         let level = envelope(zone, out.len() as f32 / ratio, seconds);
         let filtered = filter.process(sample);
-        out.push((filtered * gain * level).clamp(-1.0, 1.0));
+        out.push(crate::spsc::sanitize(filtered * gain * level));
         position += step as f64;
     }
     Some(out)
@@ -663,7 +683,8 @@ pub fn render_note(
     seconds: f32,
     rate: u32,
 ) -> Option<Vec<f32>> {
-    if seconds <= 0.0 || rate == 0 {
+    // NaN fails `> 0.0`, and an hour caps the buffer.
+    if !(seconds > 0.0 && seconds <= 3600.0) || rate == 0 {
         return None;
     }
     if let Some((left, right)) = render_stereo(font, bank, program, key, velocity, seconds, rate) {
@@ -693,7 +714,8 @@ pub fn render_stereo(
     seconds: f32,
     rate: u32,
 ) -> Option<(Vec<f32>, Vec<f32>)> {
-    if seconds <= 0.0 || rate == 0 {
+    // NaN fails `> 0.0`, and an hour caps the buffer.
+    if !(seconds > 0.0 && seconds <= 3600.0) || rate == 0 {
         return None;
     }
     let (zone, index) = resolve_zone(font, bank, program, key, velocity)?;

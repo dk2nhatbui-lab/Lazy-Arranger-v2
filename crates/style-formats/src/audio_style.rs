@@ -45,12 +45,18 @@ pub fn style_from_audio(
     audio: &RenderedAudio,
     options: AudioStyleOptions<'_>,
 ) -> Result<BuiltAudioStyle, String> {
+    if audio.sample_rate == 0 {
+        return Err(String::from("audio has no sample rate"));
+    }
+    if !options.bpm.is_finite() {
+        return Err(String::from("tempo must be a finite number"));
+    }
     let bpm = if options.detect_tempo {
         audio::analysis::estimate_tempo(&audio.samples, audio.sample_rate)
             .unwrap_or(options.bpm)
-            .max(1.0)
+            .clamp(1.0, 999.0)
     } else {
-        options.bpm.max(1.0)
+        options.bpm.clamp(1.0, 999.0)
     };
     let detected = audio::analysis::to_midi(&audio.samples, audio.sample_rate);
     let seconds = audio.samples.len() as f64 / f64::from(audio.sample_rate);
@@ -217,10 +223,10 @@ fn uniform_sections(
     split_parts: bool,
     section_bars: u32,
 ) -> Style {
-    let section_length = i64::from(section_bars) * 4 * music_core::PPQ;
+    let section_length = (i64::from(section_bars) * 4 * music_core::PPQ).max(1);
     let names = ["Main A", "Main B", "Main C", "Main D"];
     let mut merged = Style::new(name, source);
-    let count = ((length + section_length - 1) / section_length).max(1);
+    let count = (length.saturating_add(section_length - 1) / section_length).clamp(1, 1_000);
     for index in 0..count {
         let start = index * section_length;
         let stop = (start + section_length).min(length);

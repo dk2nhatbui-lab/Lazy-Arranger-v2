@@ -4,23 +4,92 @@
 //! atomic transport fields, so it does no synthesis, locking, or allocation.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::RenderedAudio;
 use crate::master::{Meter, meter_at};
 
+/// A sample position packed with an edit counter in one atomic.
+///
+/// Seeks and stops bump the counter, so a callback that read the position
+/// before a seek cannot overwrite it afterwards, even when the seek lands on
+/// the same value (the ABA case).
+#[derive(Debug)]
+struct Cursor(AtomicU64);
+
+const POSITION_BITS: u32 = 44;
+const POSITION_MASK: u64 = (1 << POSITION_BITS) - 1;
+
+impl Cursor {
+    fn new() -> Self {
+        Self(AtomicU64::new(0))
+    }
+
+    fn position(raw: u64) -> usize {
+        (raw & POSITION_MASK) as usize
+    }
+
+    fn load_raw(&self) -> u64 {
+        self.0.load(Ordering::Acquire)
+    }
+
+    fn load(&self) -> usize {
+        Self::position(self.load_raw())
+    }
+
+    /// Moves the position from the control side, starting a new epoch.
+    fn store(&self, position: usize) {
+        let position = (position as u64).min(POSITION_MASK);
+        let mut raw = self.0.load(Ordering::Acquire);
+        loop {
+            let epoch = (raw >> POSITION_BITS).wrapping_add(1);
+            let next = (epoch << POSITION_BITS) | position;
+            match self
+                .0
+                .compare_exchange_weak(raw, next, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => break,
+                Err(current) => raw = current,
+            }
+        }
+    }
+
+    /// Advances from `expected` (a raw value read earlier) unless a control
+    /// store happened since. Returns true when it was applied.
+    fn advance(&self, expected: u64, position: usize) -> bool {
+        let position = (position as u64).min(POSITION_MASK);
+        let next = (expected & !POSITION_MASK) | position;
+        self.0
+            .compare_exchange(expected, next, Ordering::AcqRel, Ordering::Relaxed)
+            .is_ok()
+    }
+}
+
+/// Loop bounds in samples, packed as two `u32` frame counts so the callback
+/// reads both in one load and never sees a half-updated range.
+fn pack_loop(start: usize, end: usize) -> u64 {
+    let frames = |samples: usize| u64::from(u32::try_from(samples / 2).unwrap_or(u32::MAX));
+    (frames(start) << 32) | frames(end)
+}
+
+fn unpack_loop(raw: u64) -> (usize, usize) {
+    (
+        ((raw >> 32) as usize) * 2,
+        ((raw & 0xFFFF_FFFF) as usize) * 2,
+    )
+}
+
 /// Playback position and buffer, shared lock-free with the audio callback.
 #[derive(Debug)]
 pub struct Playback {
     samples: Vec<f32>,
     sample_rate: u32,
-    position: AtomicUsize,
+    position: Cursor,
     playing: AtomicBool,
     looping: AtomicBool,
-    loop_start: AtomicUsize,
-    loop_end: AtomicUsize,
+    loop_bounds: AtomicU64,
     loop_wraps: AtomicU64,
 }
 
@@ -32,11 +101,10 @@ impl Playback {
         Self {
             samples: audio.samples,
             sample_rate: audio.sample_rate,
-            position: AtomicUsize::new(0),
+            position: Cursor::new(),
             playing: AtomicBool::new(false),
             looping: AtomicBool::new(false),
-            loop_start: AtomicUsize::new(0),
-            loop_end: AtomicUsize::new(len),
+            loop_bounds: AtomicU64::new(pack_loop(0, len)),
             loop_wraps: AtomicU64::new(0),
         }
     }
@@ -49,14 +117,15 @@ impl Playback {
 
     /// Starts or resumes playback from the current position.
     pub fn play(&self) {
-        let (start, end) = self.active_bounds();
-        let pos = self.position.load(Ordering::Acquire);
-        if self.looping.load(Ordering::Acquire) {
+        let looping = self.looping.load(Ordering::Acquire);
+        let (start, end) = self.active_bounds(looping);
+        let pos = self.position.load();
+        if looping {
             if pos < start || pos >= end {
-                self.position.store(start, Ordering::Release);
+                self.position.store(start);
             }
         } else if pos >= self.samples.len() {
-            self.position.store(0, Ordering::Release);
+            self.position.store(0);
         }
         self.playing.store(true, Ordering::Release);
     }
@@ -69,15 +138,13 @@ impl Playback {
     /// Stops and rewinds.
     pub fn stop(&self) {
         self.playing.store(false, Ordering::Release);
-        self.position.store(0, Ordering::Release);
+        self.position.store(0);
     }
 
     /// Moves to a frame without changing the play state.
     pub fn seek_frame(&self, frame: usize) {
-        self.position.store(
-            frame.saturating_mul(2).min(self.samples.len()),
-            Ordering::Release,
-        );
+        self.position
+            .store(frame.saturating_mul(2).min(self.samples.len()));
     }
 
     /// Moves to a time in seconds without changing the play state.
@@ -103,8 +170,8 @@ impl Playback {
             len
         };
         let (start, end) = if end > start { (start, end) } else { (0, len) };
-        self.loop_start.store(start, Ordering::Relaxed);
-        self.loop_end.store(end, Ordering::Relaxed);
+        self.loop_bounds
+            .store(pack_loop(start, end), Ordering::Release);
         self.looping.store(enabled, Ordering::Release);
     }
 
@@ -117,7 +184,7 @@ impl Playback {
     /// Current position in frames.
     #[must_use]
     pub fn frame(&self) -> usize {
-        self.position.load(Ordering::Acquire) / 2
+        self.position.load() / 2
     }
 
     /// Current position in seconds using the playback sample rate.
@@ -129,7 +196,7 @@ impl Playback {
     /// Peak/RMS over the next `frames` stereo frames, for a meter.
     #[must_use]
     pub fn meter(&self, frames: usize) -> Meter {
-        meter_at(&self.samples, self.position.load(Ordering::Acquire), frames)
+        meter_at(&self.samples, self.position.load(), frames)
     }
 
     /// True while samples are being produced.
@@ -138,13 +205,13 @@ impl Playback {
         self.playing.load(Ordering::Acquire)
     }
 
-    fn active_bounds(&self) -> (usize, usize) {
+    fn active_bounds(&self, looping: bool) -> (usize, usize) {
         let len = self.samples.len();
-        if !self.looping.load(Ordering::Acquire) {
+        if !looping {
             return (0, len);
         }
-        let raw_start = self.loop_start.load(Ordering::Relaxed).min(len);
-        let raw_end = self.loop_end.load(Ordering::Relaxed);
+        let (raw_start, raw_end) = unpack_loop(self.loop_bounds.load(Ordering::Acquire));
+        let raw_start = raw_start.min(len);
         let end = if raw_end > raw_start && raw_end <= len {
             raw_end
         } else {
@@ -162,21 +229,18 @@ impl Playback {
             output.fill(0.0);
             return;
         }
+        // Read the loop state once, so one callback never mixes two ranges.
         let looping = self.looping.load(Ordering::Acquire);
-        let (start, end) = self.active_bounds();
-        let start_pos = self.position.load(Ordering::Acquire);
-        let mut pos = start_pos;
+        let (start, end) = self.active_bounds(looping);
+        let start_raw = self.position.load_raw();
+        let mut pos = Cursor::position(start_raw).min(self.samples.len());
         let mut written = 0;
         let mut wrapped = 0u64;
         let mut finished = false;
 
         if end <= start {
             output.fill(0.0);
-            if self
-                .position
-                .compare_exchange(start_pos, 0, Ordering::AcqRel, Ordering::Relaxed)
-                .is_ok()
-            {
+            if self.position.advance(start_raw, 0) {
                 self.playing.store(false, Ordering::Release);
             }
             return;
@@ -209,17 +273,11 @@ impl Playback {
         }
 
         if finished {
-            if self
-                .position
-                .compare_exchange(start_pos, 0, Ordering::AcqRel, Ordering::Relaxed)
-                .is_ok()
-            {
+            if self.position.advance(start_raw, 0) {
                 self.playing.store(false, Ordering::Release);
             }
         } else {
-            let _ =
-                self.position
-                    .compare_exchange(start_pos, pos, Ordering::AcqRel, Ordering::Relaxed);
+            let _ = self.position.advance(start_raw, pos);
         }
 
         if wrapped > 0 {
@@ -261,7 +319,7 @@ fn stereo_config(
 
 /// Resamples interleaved stereo audio with linear interpolation.
 #[must_use]
-fn resample_stereo(audio: RenderedAudio, target_rate: u32) -> RenderedAudio {
+pub(crate) fn resample_stereo(audio: RenderedAudio, target_rate: u32) -> RenderedAudio {
     if audio.sample_rate == target_rate || audio.sample_rate == 0 || target_rate == 0 {
         return audio;
     }
@@ -417,7 +475,7 @@ impl Player {
                         let slice = &mut chunk_buf[..dst.len()];
                         shared.fill(slice);
                         for (slot, value) in dst.iter_mut().zip(slice.iter().copied()) {
-                            *slot = (value.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
+                            *slot = (crate::spsc::sanitize(value) * f32::from(i16::MAX)) as i16;
                         }
                     }
                 },

@@ -172,6 +172,65 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
                     String::from("a slur must end after it starts"),
                 ));
             }
+            if slur.start < 0 {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.slurs[{slur_index}]"),
+                    String::from("a slur cannot start before zero"),
+                ));
+            }
+        }
+        if let Some(patch) = &track.patch {
+            // NaN or infinity would poison the synth and save as JSON null.
+            let values = [
+                patch.attack,
+                patch.decay,
+                patch.sustain,
+                patch.release,
+                patch.brightness,
+            ];
+            if values
+                .iter()
+                .any(|value| !value.is_finite() || *value < 0.0)
+            {
+                issues.push(issue(
+                    Severity::Error,
+                    format!("{track_path}.patch"),
+                    String::from("patch values must be finite and not negative"),
+                ));
+            }
+        }
+        for lane in &track.automation {
+            if let crate::song::AutomationTarget::PluginParam { slot, .. } = lane.target
+                && !track.plugins.iter().any(|plugin| plugin.id == slot)
+            {
+                issues.push(issue(
+                    Severity::Warning,
+                    format!("{track_path}.automation"),
+                    format!("automation targets plug-in slot {slot}, which the track lacks"),
+                ));
+            }
+        }
+        let spans = track
+            .clips
+            .iter()
+            .map(|clip| (clip.start, clip.length))
+            .chain(
+                track
+                    .audio
+                    .iter()
+                    .chain(track.takes.iter())
+                    .map(|reference| (reference.start, reference.length)),
+            )
+            .chain(track.comps.iter().map(|comp| (comp.start, comp.length)));
+        for (start, length) in spans {
+            if start.checked_add(length).is_none() {
+                issues.push(issue(
+                    Severity::Error,
+                    &track_path,
+                    format!("a clip or audio span at {start} runs past the end of time"),
+                ));
+            }
         }
         if let Some(reference) = &track.audio
             && (reference.path.trim().is_empty()

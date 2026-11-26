@@ -478,7 +478,7 @@ impl ShellApp {
         if let Some((control, action)) = learned {
             self.midi_map.bind(control, action);
             let text = self.midi_map.to_text();
-            if let Err(error) = std::fs::write("lazy-arranger-midi-map.txt", text) {
+            if let Err(error) = std::fs::write(crate::settings::midi_map_path(), text) {
                 self.status = Some(format!("midi map: {error}"));
             } else {
                 self.status = Some(format!("bound {} -> {}", control.label(), action.label()));
@@ -2287,7 +2287,7 @@ impl ShellApp {
                 {
                     self.midi_map = midi_devices::map::launchkey_mixer_map();
                     let text = self.midi_map.to_text();
-                    match std::fs::write("lazy-arranger-midi-map.txt", text) {
+                    match std::fs::write(crate::settings::midi_map_path(), text) {
                         Ok(()) => {
                             self.status = Some(String::from("loaded Launchkey mixer preset"));
                         }
@@ -2342,7 +2342,7 @@ impl ShellApp {
                 if ui.button("Clear all bindings").clicked() {
                     self.midi_map.bindings.clear();
                     let text = self.midi_map.to_text();
-                    match std::fs::write("lazy-arranger-midi-map.txt", text) {
+                    match std::fs::write(crate::settings::midi_map_path(), text) {
                         Ok(()) => self.status = Some(String::from("MIDI bindings cleared")),
                         Err(error) => self.status = Some(format!("midi map: {error}")),
                     }
@@ -2409,8 +2409,10 @@ impl ShellApp {
                     }
                     if ui.button("Clear all").clicked() {
                         self.midi_map = midi_devices::map::MidiMap::default();
-                        let _ =
-                            std::fs::write("lazy-arranger-midi-map.txt", self.midi_map.to_text());
+                        let _ = std::fs::write(
+                            crate::settings::midi_map_path(),
+                            self.midi_map.to_text(),
+                        );
                         self.status = Some(String::from("MIDI map cleared"));
                     }
                     if ui
@@ -2419,8 +2421,10 @@ impl ShellApp {
                         .clicked()
                     {
                         self.midi_map = midi_devices::map::launchkey_pad_map();
-                        let _ =
-                            std::fs::write("lazy-arranger-midi-map.txt", self.midi_map.to_text());
+                        let _ = std::fs::write(
+                            crate::settings::midi_map_path(),
+                            self.midi_map.to_text(),
+                        );
                         self.status = Some(String::from("Launchkey pad map loaded"));
                     }
                 });
@@ -2463,7 +2467,7 @@ impl ShellApp {
             });
         if let Some(control) = remove_control {
             self.midi_map.unbind(control);
-            let _ = std::fs::write("lazy-arranger-midi-map.txt", self.midi_map.to_text());
+            let _ = std::fs::write(crate::settings::midi_map_path(), self.midi_map.to_text());
             self.status = Some(String::from("MIDI binding removed"));
         }
         self.midi_map_open = open;

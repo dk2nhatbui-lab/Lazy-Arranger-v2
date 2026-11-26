@@ -172,13 +172,17 @@ impl TempoMap {
             let remaining = seconds - elapsed;
             match self.changes.get(index + 1) {
                 None => {
-                    return change.tick + (remaining / seconds_per_tick).floor() as Tick;
+                    return change
+                        .tick
+                        .saturating_add((remaining / seconds_per_tick).floor() as Tick);
                 }
                 Some(next) => {
                     let segment_ticks = next.tick - change.tick;
                     let segment_seconds = seconds_for_ticks(segment_ticks, change.bpm);
                     if remaining < segment_seconds {
-                        return change.tick + (remaining / seconds_per_tick).floor() as Tick;
+                        return change
+                            .tick
+                            .saturating_add((remaining / seconds_per_tick).floor() as Tick);
                     }
                     elapsed += segment_seconds;
                 }

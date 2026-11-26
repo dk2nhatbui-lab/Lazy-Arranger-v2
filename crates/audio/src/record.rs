@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::RenderedAudio;
+use crate::spsc::SampleQueue;
 
 /// Averages interleaved channels into mono frames.
 #[must_use]
@@ -84,7 +85,8 @@ pub fn record_seconds_from_channel(
     if !seconds.is_finite() {
         return Err(String::from("recording length must be finite"));
     }
-    let seconds = seconds.max(0.0);
+    // A day at most keeps Duration and the sample buffer in range.
+    let seconds = seconds.clamp(0.0, 86_400.0);
     let host = cpal::default_host();
     let device = match device_name {
         Some(name) => host
@@ -106,27 +108,40 @@ pub fn record_seconds_from_channel(
     if channels == 0 || sample_rate == 0 {
         return Err(String::from("input reports no channels or rate"));
     }
-    let buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+    // The callback only pushes into a preallocated lock-free queue; this
+    // thread drains it while the recording runs.
+    let queue = Arc::new(SampleQueue::new(
+        (sample_rate as usize)
+            .saturating_mul(channels)
+            .saturating_mul(2),
+    ));
     let error_slot: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
     let stream = match format {
-        cpal::SampleFormat::F32 => build::<f32>(&device, &config, &buffer, &error_slot)?,
-        cpal::SampleFormat::I16 => build::<i16>(&device, &config, &buffer, &error_slot)?,
-        cpal::SampleFormat::U16 => build::<u16>(&device, &config, &buffer, &error_slot)?,
+        cpal::SampleFormat::F32 => build::<f32>(&device, &config, &queue, &error_slot)?,
+        cpal::SampleFormat::I16 => build::<i16>(&device, &config, &queue, &error_slot)?,
+        cpal::SampleFormat::U16 => build::<u16>(&device, &config, &queue, &error_slot)?,
         other => return Err(format!("unsupported input sample format {other:?}")),
     };
     stream
         .play()
         .map_err(|error| format!("could not start input: {error}"))?;
-    std::thread::sleep(std::time::Duration::from_secs_f64(seconds));
+    let mut interleaved = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs_f64(seconds);
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        while let Some(sample) = queue.pop() {
+            interleaved.push(sample);
+        }
+    }
     drop(stream);
+    while let Some(sample) = queue.pop() {
+        interleaved.push(sample);
+    }
     if let Some(message) = error_slot.lock().ok().and_then(|slot| slot.clone()) {
         return Err(message);
     }
-    let interleaved = buffer
-        .lock()
-        .map_err(|_| String::from("input buffer lock poisoned"))?
-        .clone();
+    interleaved.truncate(interleaved.len() / channels * channels);
     let mono = channel_samples(&interleaved, channels, channel);
     if mono.is_empty() {
         return Err(String::from("input captured no samples"));
@@ -145,21 +160,25 @@ pub fn record_seconds_from_channel(
 fn build<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
-    buffer: &Arc<Mutex<Vec<f32>>>,
+    queue: &Arc<SampleQueue>,
     error_slot: &Arc<Mutex<Option<String>>>,
 ) -> Result<cpal::Stream, String>
 where
     T: cpal::SizedSample,
     f32: cpal::FromSample<T>,
 {
-    let buffer = Arc::clone(buffer);
+    let queue = Arc::clone(queue);
     let errors = Arc::clone(error_slot);
     device
         .build_input_stream(
             config,
             move |data: &[T], _| {
-                if let Ok(mut samples) = buffer.lock() {
-                    samples.extend(data.iter().map(|sample| sample.to_sample::<f32>()));
+                // Drop a whole buffer rather than split a frame.
+                if queue.free() < data.len() {
+                    return;
+                }
+                for sample in data {
+                    let _ = queue.push(sample.to_sample::<f32>());
                 }
             },
             move |error| {

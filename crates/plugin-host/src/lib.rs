@@ -61,20 +61,40 @@ pub fn scan_vst3(path: &Path) -> Result<Vec<Vst3Class>, String> {
         .unwrap_or_else(|_| Err(String::from("VST3 scan panicked")))
 }
 
-fn vst3_binary(path: &Path) -> Option<PathBuf> {
-    let macos = path.join("Contents").join("MacOS");
-    let stem = path
-        .file_stem()
-        .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned());
-    let direct = macos.join(&stem);
-    if direct.is_file() {
-        return Some(direct);
+/// The bundle sub-folder that holds this platform's VST3 binary.
+fn vst3_arch_folder() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "MacOS"
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "aarch64") {
+            "arm64-win"
+        } else {
+            "x86_64-win"
+        }
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64-linux"
+    } else {
+        "x86_64-linux"
     }
-    std::fs::read_dir(&macos)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|entry| entry.is_file())
+}
+
+/// The plug-in binary inside a VST3 bundle, for this platform.
+///
+/// The VST3 bundle layout names the binary after the bundle: `MacOS/<name>`,
+/// `x86_64-linux/<name>.so` or `x86_64-win/<name>.vst3`. Only that file is
+/// loaded, never some other file that happens to sit in the folder.
+pub(crate) fn vst3_binary(path: &Path) -> Option<PathBuf> {
+    let folder = path.join("Contents").join(vst3_arch_folder());
+    let stem = path.file_stem()?.to_string_lossy().into_owned();
+    let name = if cfg!(target_os = "macos") {
+        stem
+    } else if cfg!(target_os = "windows") {
+        format!("{stem}.vst3")
+    } else {
+        format!("{stem}.so")
+    };
+    let binary = folder.join(name);
+    binary.is_file().then_some(binary)
 }
 
 fn text<const N: usize>(chars: &[std::ffi::c_char; N]) -> String {

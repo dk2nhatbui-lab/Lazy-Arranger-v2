@@ -45,10 +45,12 @@ fn duration_for_ticks(ticks: Tick) -> Option<Duration> {
 /// notes that are a little short or long of a note value, as played notes
 /// usually are. Exact values, dots and triplets come first.
 fn nearest_duration(ticks: Tick, limit: Tick) -> Option<Duration> {
-    if let Some(exact) = duration_for_ticks(ticks) {
+    let limit = u32::try_from(limit.max(1)).ok()?;
+    if let Some(exact) = duration_for_ticks(ticks)
+        && exact.ticks() <= limit
+    {
         return Some(exact);
     }
-    let limit = u32::try_from(limit.max(1)).ok()?;
     let ticks = u32::try_from(ticks.max(1)).ok()?;
     DurationValue::ALL
         .into_iter()
@@ -113,7 +115,8 @@ pub fn build_score(
         .get(track_index)
         .ok_or_else(|| String::from("track index out of range"))?;
     let bar = song.time_signature.bar_ticks().max(1);
-    let bars = ((song.end_tick().max(bar) + bar - 1) / bar).max(1) as usize;
+    let bars = (song.end_tick().max(bar).saturating_add(bar - 1) / bar)
+        .clamp(1, crate::MAX_MEASURES) as usize;
     let key = spelling::detect_key(song);
     let drums = track
         .notes

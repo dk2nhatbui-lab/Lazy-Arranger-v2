@@ -64,10 +64,24 @@ pub struct DetectedTts {
 /// Cleans text for speech: no control characters and a bounded length.
 #[must_use]
 pub fn clean(text: &str) -> String {
-    text.chars()
+    let text: String = text
+        .chars()
         .filter(|character| !character.is_control())
         .take(240)
-        .collect()
+        .collect();
+    // A leading dash would be read as an option by `say` or `espeak-ng`.
+    text.trim_start_matches(|c: char| c == '-' || c.is_whitespace())
+        .to_string()
+}
+
+/// Waits for a spawned speech process on a helper thread so it never stays a
+/// zombie.
+#[cfg(any(unix, target_os = "macos", target_os = "linux"))]
+fn reap(child: std::process::Child) {
+    let mut child = child;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
 }
 
 /// The speech command and its arguments.
@@ -345,7 +359,7 @@ pub fn speak_with(text: &str, template: &str) -> Result<(), String> {
             .arg(rendered)
             .env("ARRANGER_TEXT", &text)
             .spawn()
-            .map(|_| ())
+            .map(reap)
             .map_err(|error| format!("speech: {error}"))
     }
     #[cfg(not(unix))]
@@ -371,7 +385,7 @@ pub fn speak(text: &str) -> Result<(), String> {
         std::process::Command::new(&built.program)
             .args(&built.arguments)
             .spawn()
-            .map(|_| ())
+            .map(reap)
             .map_err(|error| format!("speech: {error}"))
     }
     #[cfg(target_os = "linux")]
@@ -379,7 +393,7 @@ pub fn speak(text: &str) -> Result<(), String> {
         std::process::Command::new("espeak-ng")
             .arg(&text)
             .spawn()
-            .map(|_| ())
+            .map(reap)
             .map_err(|error| format!("speech: {error}"))
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]

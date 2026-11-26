@@ -125,12 +125,17 @@ impl Clipboard {
             return Ok(0);
         };
         let mut notes = entry.notes.clone();
-        let mut next = notes
-            .iter()
-            .map(|note| note.id.get())
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1);
+        let highest = notes.iter().map(|note| note.id.get()).max().unwrap_or(0);
+        let fits = u32::try_from(self.notes.len())
+            .ok()
+            .and_then(|count| highest.checked_add(count))
+            .is_some();
+        if !fits {
+            return Err(crate::CommandError::Validation(String::from(
+                "no note ids left",
+            )));
+        }
+        let mut next = highest + 1;
         for item in &self.notes {
             let Some(id) = project::NoteId::new(next).ok() else {
                 break;

@@ -6,7 +6,7 @@
 //! `<sound tempo>` elements; chords, lyrics, marks and dynamics are imported.
 //! The song has no key field, so `<key>` is not imported.
 
-use music_core::{Channel, PPQ, Pitch, TempoChange, TempoMap, Tick, TimeSignature, Velocity};
+use music_core::{Channel, Pitch, TempoChange, TempoMap, Tick, TimeSignature, Velocity};
 use project::song::{Note, Song, Track};
 use project::{NoteId, TrackId};
 use thiserror::Error;
@@ -158,11 +158,25 @@ fn number_of(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<f64> {
     text_of(node, tag).and_then(|text| text.parse().ok())
 }
 
+/// The furthest tick an imported event may sit at, about 230 days at 120 bpm.
+/// Keeps every later addition far from `i64` overflow.
+const MAX_IMPORT_TICK: Tick = 1 << 40;
+
+/// `units` of `divisions`-per-quarter as ticks, kept in `-MAX..=MAX`.
+fn units_to_ticks(units: f64, divisions: f64) -> Tick {
+    let ticks = (units / divisions * music_core::PPQ as f64).round();
+    if ticks.is_finite() {
+        (ticks as Tick).clamp(-MAX_IMPORT_TICK, MAX_IMPORT_TICK)
+    } else {
+        0
+    }
+}
+
 fn offset_ticks(node: roxmltree::Node<'_, '_>, divisions: f64) -> Tick {
     let Some(offset) = number_of(node, "offset") else {
         return 0;
     };
-    (offset * music_core::PPQ as f64 / divisions.max(1.0)).round() as Tick
+    units_to_ticks(offset, divisions)
 }
 
 /// Imports a partwise MusicXML document.
@@ -271,8 +285,10 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                         meter = found;
                     }
                 }
+                // A subnormal or huge value would blow every duration up.
                 if let Some(value) = number_of(attributes, "divisions")
-                    && value > 0.0
+                    && value.is_finite()
+                    && (1e-3..=1e6).contains(&value)
                 {
                     divisions = value;
                 }
@@ -281,7 +297,9 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                 .children()
                 .filter(|node| node.has_tag_name("direction"))
             {
-                let tick = measure_start + offset_ticks(direction, divisions);
+                let tick = measure_start
+                    .saturating_add(offset_ticks(direction, divisions))
+                    .max(0);
                 if let Some(marker) = read_rehearsal(direction, tick) {
                     song.markers.push(marker);
                 }
@@ -295,7 +313,9 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
             {
                 if let Some(chord) = read_harmony(harmony) {
                     song.chords.push(project::song::ChordEvent {
-                        tick: measure_start + offset_ticks(harmony, divisions),
+                        tick: measure_start
+                            .saturating_add(offset_ticks(harmony, divisions))
+                            .max(0),
                         chord,
                     });
                 }
@@ -305,7 +325,7 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
             for node in measure.children() {
                 if node.has_tag_name("backup") {
                     let units = number_of(node, "duration").unwrap_or(0.0);
-                    let back = (units / divisions * PPQ as f64).round().max(0.0) as Tick;
+                    let back = units_to_ticks(units, divisions).max(0);
                     cursor = cursor.saturating_sub(back).max(measure_start);
                     last_start = cursor;
                     continue;
@@ -315,7 +335,7 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                 }
                 let note = node;
                 let duration_units = number_of(note, "duration").unwrap_or(0.0);
-                let duration = (duration_units / divisions * PPQ as f64).round().max(0.0) as Tick;
+                let duration = units_to_ticks(duration_units, divisions).max(0);
                 let is_rest = note.children().any(|child| child.has_tag_name("rest"));
                 let is_chord = note.children().any(|child| child.has_tag_name("chord"));
                 let start = if is_chord { last_start } else { cursor };
@@ -324,7 +344,7 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                 }
                 if is_rest {
                     if !is_chord {
-                        cursor = start + duration;
+                        cursor = start.saturating_add(duration);
                     }
                     continue;
                 }
@@ -357,7 +377,7 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                         "B" => 11,
                         _ => 0,
                     };
-                    let midi = (octave + 1) * 12 + base + alter;
+                    let midi = (octave.clamp(-1, 10) + 1) * 12 + base + alter.clamp(-2, 2);
                     (
                         Pitch::new(midi.clamp(0, 127) as u8)
                             .unwrap_or_else(|_| Pitch::new(60).expect("valid middle C")),
@@ -402,12 +422,12 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                 if tie_stop
                     && let Some(previous) = track.notes.iter_mut().find(|held| {
                         held.pitch.as_u8() == pitch.as_u8()
-                            && held.start + held.duration.max(1) == start
+                            && held.start.saturating_add(held.duration.max(1)) == start
                     })
                 {
                     previous.duration = previous.duration.saturating_add(duration.max(1));
                     if !is_chord {
-                        cursor = start + duration.max(1);
+                        cursor = start.saturating_add(duration.max(1));
                     }
                     continue;
                 }
@@ -420,10 +440,10 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                     channel,
                 });
                 if !is_chord {
-                    cursor = start + duration.max(1);
+                    cursor = start.saturating_add(duration.max(1));
                 }
             }
-            measure_start += measure_meter.bar_ticks().max(1);
+            measure_start = measure_start.saturating_add(measure_meter.bar_ticks().max(1));
         }
         song.tracks.push(track);
     }

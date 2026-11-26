@@ -184,7 +184,11 @@ impl Pitch {
         let octave: i32 = rest
             .parse()
             .map_err(|_| MusicError::Pitch(format!("{trimmed:?} has no octave number")))?;
-        let midi = (octave + 1) * 12 + semitone;
+        let midi = octave
+            .checked_add(1)
+            .and_then(|octave| octave.checked_mul(12))
+            .and_then(|base| base.checked_add(semitone))
+            .unwrap_or(-1);
         if !(0..=127).contains(&midi) {
             return Err(MusicError::Pitch(format!(
                 "{trimmed:?} is outside the MIDI range 0..=127"

@@ -80,7 +80,7 @@ pub fn mix_audio_references(
         }
     }
     for sample in &mut rendered.samples {
-        *sample = sample.clamp(-1.0, 1.0);
+        *sample = crate::spsc::sanitize(*sample);
     }
     problems
 }
@@ -103,11 +103,16 @@ fn mix_one(
         return Err(String::from("audio has no samples"));
     }
     let rate = rendered.sample_rate;
+    if rate == 0 {
+        return Err(String::from("render has no sample rate"));
+    }
     let start_seconds = song.tempo_map.seconds_at(reference.start);
     let in_point = song.tempo_map.duration_seconds(0, reference.offset);
     let length_seconds = if reference.length > 0 {
-        song.tempo_map
-            .duration_seconds(reference.start, reference.start + reference.length)
+        song.tempo_map.duration_seconds(
+            reference.start,
+            reference.start.saturating_add(reference.length),
+        )
     } else {
         decoded.samples.len() as f64 / f64::from(decoded.sample_rate)
     };
@@ -116,14 +121,25 @@ fn mix_one(
     let ratio = f64::from(decoded.sample_rate) / f64::from(rate);
     let in_frames = (in_point * f64::from(decoded.sample_rate)).round() as usize;
     let fade_in_seconds = if reference.fade_in > 0 {
-        song.tempo_map
-            .duration_seconds(reference.start, reference.start + reference.fade_in)
+        song.tempo_map.duration_seconds(
+            reference.start,
+            reference.start.saturating_add(reference.fade_in),
+        )
     } else {
         0.0
     };
-    let fade_out_seconds = if reference.fade_out > 0 {
-        song.tempo_map
-            .duration_seconds(reference.start, reference.start + reference.fade_out)
+    // The fade-out sits at the end of the clip, so measure it there.
+    let fade_out_seconds = if reference.fade_out > 0 && reference.length > 0 {
+        let end = reference.start.saturating_add(reference.length);
+        song.tempo_map.duration_seconds(
+            end.saturating_sub(reference.fade_out.min(reference.length)),
+            end,
+        )
+    } else if reference.fade_out > 0 {
+        song.tempo_map.duration_seconds(
+            reference.start,
+            reference.start.saturating_add(reference.fade_out),
+        )
     } else {
         0.0
     };
@@ -134,6 +150,7 @@ fn mix_one(
     } else {
         ratio
     };
+    let clip_gain = 10.0_f32.powf(f32::from(reference.gain_mb) / 20_000.0);
     for frame in 0..frames {
         let target = start + frame;
         if target * 2 + 1 >= rendered.samples.len() {
@@ -150,7 +167,7 @@ fn mix_one(
         if fade_out_frames > 0.0 {
             envelope *= ((frames.saturating_sub(frame)) as f64 / fade_out_frames).clamp(0.0, 1.0);
         }
-        let value = decoded.samples[source] * gain * envelope as f32;
+        let value = decoded.samples[source] * gain * clip_gain * envelope as f32;
         rendered.samples[target * 2] += value * left_gain;
         rendered.samples[target * 2 + 1] += value * right_gain;
     }

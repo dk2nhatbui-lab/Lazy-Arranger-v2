@@ -119,9 +119,11 @@ impl TransitionState {
             .max_by_key(|request| (request.due, request.sequence))?
             .clone();
         // Everything requested before the winner is superseded, whether it is
-        // due yet or not; later requests stay queued for their own boundary.
+        // due yet or not, and so is anything already due: firing it on a later
+        // poll would jump back in time. Later requests stay queued for their
+        // own boundary.
         self.pending
-            .retain(|request| request.sequence > winner.sequence);
+            .retain(|request| request.due > now && request.sequence > winner.sequence);
         self.current = winner.section.clone();
         Some(winner.section)
     }

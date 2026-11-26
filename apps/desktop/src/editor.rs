@@ -1649,20 +1649,6 @@ impl Editor {
         Ok(copied)
     }
 
-    /// Replaces the project with the Kids Mode demo.
-    ///
-    /// # Errors
-    ///
-    /// Returns a message when the demo project is invalid.
-    pub fn load_kids_demo(&mut self) -> Result<(), String> {
-        self.session = app_commands::EditSession::new(project::song::ProjectFile::new(
-            arranging::demo::kids_song(),
-        ))
-        .map_err(|error| error.to_string())?;
-        self.dirty = true;
-        Ok(())
-    }
-
     /// Imports a style file's tracks with a name prefix.
     ///
     /// # Errors

@@ -101,6 +101,9 @@ impl IPluginBaseTrait for GainProcessor {
 
 impl IComponentTrait for GainProcessor {
     unsafe fn getControllerClassId(&self, class_id: *mut TUID) -> tresult {
+        if class_id.is_null() {
+            return kInvalidArgument;
+        }
         *class_id = GainController::CID;
         kResultOk
     }
@@ -128,6 +131,9 @@ impl IComponentTrait for GainProcessor {
         index: i32,
         bus: *mut BusInfo,
     ) -> tresult {
+        if bus.is_null() {
+            return kInvalidArgument;
+        }
         match mediaType as MediaTypes {
             MediaTypes_::kAudio => match dir as BusDirections {
                 BusDirections_::kInput => match index {
@@ -220,6 +226,9 @@ impl IAudioProcessorTrait for GainProcessor {
         outputs: *mut SpeakerArrangement,
         num_outs: i32,
     ) -> tresult {
+        if inputs.is_null() || outputs.is_null() {
+            return kInvalidArgument;
+        }
         if num_ins != 1 || num_outs != 1 {
             return kResultFalse;
         }
@@ -237,6 +246,9 @@ impl IAudioProcessorTrait for GainProcessor {
         index: i32,
         arr: *mut SpeakerArrangement,
     ) -> tresult {
+        if arr.is_null() {
+            return kInvalidArgument;
+        }
         match dir as BusDirections {
             BusDirections_::kInput => {
                 if index == 0 {
@@ -442,6 +454,9 @@ impl IEditControllerTrait for GainController {
     }
 
     unsafe fn getParameterInfo(&self, param_index: i32, info: *mut ParameterInfo) -> tresult {
+        if info.is_null() {
+            return kInvalidArgument;
+        }
         match param_index {
             0 => {
                 let info = &mut *info;
@@ -467,6 +482,9 @@ impl IEditControllerTrait for GainController {
         value_normalized: f64,
         string: *mut String128,
     ) -> tresult {
+        if string.is_null() {
+            return kInvalidArgument;
+        }
         let slice = unsafe { &mut *string };
 
         match id {
@@ -485,6 +503,9 @@ impl IEditControllerTrait for GainController {
         string: *mut TChar,
         value_normalized: *mut f64,
     ) -> tresult {
+        if string.is_null() || value_normalized.is_null() {
+            return kInvalidArgument;
+        }
         match id {
             0 => {
                 let len = len_wstring(string as *const TChar);
@@ -713,6 +734,9 @@ impl IComponentTrait for SynthProcessor {
         index: i32,
         bus: *mut BusInfo,
     ) -> tresult {
+        if bus.is_null() {
+            return kInvalidArgument;
+        }
         if index != 0 {
             return kInvalidArgument;
         }
@@ -779,6 +803,9 @@ impl IAudioProcessorTrait for SynthProcessor {
         outputs: *mut SpeakerArrangement,
         num_outs: i32,
     ) -> tresult {
+        if outputs.is_null() {
+            return kInvalidArgument;
+        }
         if num_ins != 0 || num_outs != 1 || *outputs != SpeakerArr::kStereo {
             return kResultFalse;
         }
@@ -791,6 +818,9 @@ impl IAudioProcessorTrait for SynthProcessor {
         index: i32,
         arr: *mut SpeakerArrangement,
     ) -> tresult {
+        if arr.is_null() {
+            return kInvalidArgument;
+        }
         if index != 0 || dir as BusDirections != BusDirections_::kOutput {
             return kInvalidArgument;
         }
@@ -887,6 +917,9 @@ impl Class for Factory {
 
 impl IPluginFactoryTrait for Factory {
     unsafe fn getFactoryInfo(&self, info: *mut PFactoryInfo) -> tresult {
+        if info.is_null() {
+            return kInvalidArgument;
+        }
         let info = &mut *info;
 
         copy_cstring("Vendor", &mut info.vendor);
@@ -902,6 +935,9 @@ impl IPluginFactoryTrait for Factory {
     }
 
     unsafe fn getClassInfo(&self, index: i32, info: *mut PClassInfo) -> tresult {
+        if info.is_null() {
+            return kInvalidArgument;
+        }
         match index {
             0 => {
                 let info = &mut *info;
@@ -939,6 +975,9 @@ impl IPluginFactoryTrait for Factory {
         iid: FIDString,
         obj: *mut *mut c_void,
     ) -> tresult {
+        if cid.is_null() || obj.is_null() {
+            return kInvalidArgument;
+        }
         let instance = match *(cid as *const TUID) {
             GainProcessor::CID => Some(
                 ComWrapper::new(GainProcessor::new())

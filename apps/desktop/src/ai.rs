@@ -81,8 +81,16 @@ pub fn chat_with_history(
         "temperature": 0.2,
         "messages": messages(history, prompt),
     });
+    let url = config.url.trim();
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(String::from(
+            "the AI endpoint must start with https:// or http://",
+        ));
+    }
     let mut command = std::process::Command::new("curl");
     command.args([
+        "--proto",
+        "=http,https",
         "--silent",
         "--show-error",
         "--max-time",
@@ -97,7 +105,13 @@ pub fn chat_with_history(
         }
     }
 
-    let key = config.api_key.trim();
+    // A line break in the key would let it add extra request headers.
+    let key: String = config
+        .api_key
+        .trim()
+        .chars()
+        .filter(|c| *c != '\r' && *c != '\n')
+        .collect();
     let mut _header_file = None;
     if !key.is_empty() {
         let path = std::env::temp_dir().join(format!(
@@ -125,9 +139,20 @@ pub fn chat_with_history(
         command.arg("-H").arg(format!("@{}", path.display()));
         _header_file = Some(guard);
     }
-    let output = command
-        .args(["-d", &body.to_string(), config.url.trim()])
-        .output();
+    // The body goes through stdin so the chat never shows in `ps` and a long
+    // history cannot overflow the argument list.
+    command
+        .args(["--data-binary", "@-", "--url", url])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let output = command.spawn().and_then(|mut child| {
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            stdin.write_all(body.to_string().as_bytes())?;
+        }
+        child.wait_with_output()
+    });
     drop(_header_file);
     let output = output.map_err(|error| format!("curl: {error}"))?;
     if !output.status.success() {

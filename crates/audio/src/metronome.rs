@@ -17,11 +17,13 @@ pub struct Click {
 /// Every beat from zero to the song end, with downbeats accented.
 #[must_use]
 pub fn clicks(song: &Song) -> Vec<Click> {
+    // Clamp after dividing: a bar shorter than its beat count must not give
+    // a zero step and loop forever.
     let beat = song
         .time_signature
         .bar_ticks()
-        .max(1)
-        .div_euclid(Tick::from(song.time_signature.numerator).max(1));
+        .div_euclid(Tick::from(song.time_signature.numerator).max(1))
+        .max(1);
     let mut out = Vec::new();
     let mut tick = 0;
     let end = song.end_tick().max(1);

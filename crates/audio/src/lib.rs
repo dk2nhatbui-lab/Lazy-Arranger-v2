@@ -18,6 +18,7 @@ pub mod monitor;
 pub mod player;
 pub mod record;
 pub mod soundfont;
+pub mod spsc;
 pub mod wav;
 pub mod waveform;
 
@@ -110,7 +111,7 @@ impl RenderedAudio {
         out.extend_from_slice(b"data");
         out.extend_from_slice(&(data_len as u32).to_le_bytes());
         for sample in &self.samples {
-            let value = (sample.clamp(-1.0, 1.0) * 8_388_607.0).round() as i32;
+            let value = (crate::spsc::sanitize(*sample) * 8_388_607.0).round() as i32;
             let bytes = value.to_le_bytes();
             out.extend_from_slice(&bytes[0..3]);
         }
@@ -136,7 +137,7 @@ impl RenderedAudio {
         out.extend_from_slice(b"data");
         out.extend_from_slice(&(data_len as u32).to_le_bytes());
         for sample in &self.samples {
-            let value = (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)).round() as i16;
+            let value = (crate::spsc::sanitize(*sample) * f32::from(i16::MAX)).round() as i16;
             out.extend_from_slice(&value.to_le_bytes());
         }
         out
@@ -200,11 +201,14 @@ fn stretch_interleaved(input: &[f32], target_frames: usize) -> Vec<f32> {
     const HOP: usize = 512;
     const SEARCH: usize = 128;
     let source_frames = input.len() / 2;
+    let Some(output_len) = target_frames.checked_mul(2) else {
+        return Vec::new();
+    };
     if source_frames < 16 || target_frames == 0 {
-        return vec![0.0; target_frames * 2];
+        return vec![0.0; output_len];
     }
     let ratio = source_frames as f64 / target_frames as f64;
-    let mut output = vec![0.0_f32; target_frames * 2];
+    let mut output = vec![0.0_f32; output_len];
     let mut previous = vec![0.0_f32; HOP.min(source_frames) * 2];
     let mut has_previous = false;
     let mut out_frame = 0_usize;
@@ -240,9 +244,14 @@ fn stretch_interleaved(input: &[f32], target_frames: usize) -> Vec<f32> {
             break;
         }
         let current = &input[best_start * 2..(best_start + length) * 2];
-        let overlap = if has_previous { HOP.min(length) } else { 0 };
+        // The previous tail can be shorter than a hop near the end.
+        let overlap = if has_previous {
+            HOP.min(length).min(previous.len() / 2)
+        } else {
+            0
+        };
         for index in 0..overlap {
-            let weight = index as f32 / HOP as f32;
+            let weight = index as f32 / overlap as f32;
             output[(out_frame + index) * 2] =
                 previous[index * 2] * (1.0 - weight) + current[index * 2] * weight;
             output[(out_frame + index) * 2 + 1] =
@@ -291,9 +300,17 @@ fn mix_audio_reference(
     if source_frames == 0 {
         return;
     }
-    let stretched = reference
-        .stretch
-        .then(|| stretch_interleaved(&source.samples[source_start * 2..], target_frames));
+    // Stretch at the output rate, or a different file rate would shift pitch.
+    let stretched = reference.stretch.then(|| {
+        let at_output_rate = player::resample_stereo(
+            RenderedAudio {
+                samples: source.samples[source_start * 2..].to_vec(),
+                sample_rate: source.sample_rate,
+            },
+            sample_rate,
+        );
+        stretch_interleaved(&at_output_rate.samples, target_frames)
+    });
     let ratio = f64::from(source.sample_rate.max(1)) / rate;
     let fade_in = if reference.fade_in > 0 {
         song.tempo_map.duration_seconds(
@@ -605,7 +622,7 @@ pub fn render_with_soundfont(
     }
     apply_plugins(&song.master_plugins, &mut samples, sample_rate);
     for sample in &mut samples {
-        *sample = sample.clamp(-1.0, 1.0);
+        *sample = crate::spsc::sanitize(*sample);
     }
     RenderedAudio {
         samples,

@@ -107,7 +107,7 @@ pub fn offset_to_address(offset: usize) -> [u8; 3] {
 /// Adds a linear byte offset to a 3-byte 7-bit Roland address.
 #[must_use]
 pub fn address_add(base: [u8; 3], offset: usize) -> [u8; 3] {
-    offset_to_address(address_to_offset(base) + offset)
+    offset_to_address(address_to_offset(base).saturating_add(offset))
 }
 
 /// Decodes D-05/D-50 name bytes into a trimmed UTF-8 string.
@@ -226,6 +226,10 @@ pub fn parse_data_packet(bytes: &[u8]) -> Option<Dt1Message> {
         || bytes[3] != MODEL_ID
         || (bytes[4] != CMD_DT1 && bytes[4] != CMD_DAT)
     {
+        return None;
+    }
+    // Everything between F0 and F7 must be 7-bit, device ids are 0..=31.
+    if bytes[1..bytes.len() - 1].iter().any(|byte| *byte > 0x7f) || bytes[2] > 31 {
         return None;
     }
     let address = [bytes[5], bytes[6], bytes[7]];

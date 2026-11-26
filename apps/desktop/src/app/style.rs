@@ -752,7 +752,7 @@ impl ShellApp {
             .show(context, |ui| {
                 if ui.button("Refresh").clicked() || self.groove_entries.is_empty() {
                     self.groove_entries =
-                        arranging::groove_file::list(std::path::Path::new("grooves"))
+                        arranging::groove_file::list(&crate::settings::data_file("grooves"))
                             .unwrap_or_default();
                 }
                 let selected = self

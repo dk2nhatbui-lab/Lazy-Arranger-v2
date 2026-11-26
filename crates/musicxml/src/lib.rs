@@ -46,12 +46,16 @@ fn escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// The most measures an export writes (about 5 hours of 4/4 at 120 bpm).
+const MAX_MEASURES: i64 = 10_000;
+
 /// Writes the song as a MusicXML partwise document.
 #[must_use]
 pub fn export(song: &Song, title: &str) -> String {
     let bar = song.time_signature.bar_ticks().max(1);
     let end = song.end_tick().max(bar);
-    let bars = (end + bar - 1) / bar;
+    // A stray note far in the future must not make billions of empty bars.
+    let bars = (end.saturating_add(bar - 1) / bar).min(MAX_MEASURES);
     let mut out = String::new();
     out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     out.push_str("<!DOCTYPE score-partwise PUBLIC \"-//Recordare//DTD MusicXML 4.0 Partwise//EN\" \"http://www.musicxml.org/dtds/partwise.dtd\">\n");

@@ -54,7 +54,7 @@ pub fn apply(rendered: &mut RenderedAudio, master: Master) {
         } else {
             *sample
         };
-        *sample = value.clamp(-1.0, 1.0);
+        *sample = crate::spsc::sanitize(value);
     }
 }
 

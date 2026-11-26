@@ -140,7 +140,7 @@ pub fn feel_match(a: &Groove, b: &Groove) -> f64 {
         .offsets
         .iter()
         .zip(&b.offsets)
-        .map(|(left, right)| f64::from((left - right).abs()) / spread)
+        .map(|(left, right)| (f64::from(*left) - f64::from(*right)).abs() / spread)
         .sum::<f64>()
         / a.offsets.len() as f64;
     let accent = a
@@ -149,7 +149,7 @@ pub fn feel_match(a: &Groove, b: &Groove) -> f64 {
         .zip(&b.levels)
         .map(|(left, right)| f64::from((left - right).abs()))
         .sum::<f64>()
-        / a.levels.len() as f64;
+        / a.levels.len().max(1) as f64;
     (1.0 - (timing + accent) / 2.0).clamp(0.0, 1.0)
 }
 
