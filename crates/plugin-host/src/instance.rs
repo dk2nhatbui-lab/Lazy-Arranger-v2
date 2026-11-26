@@ -49,6 +49,13 @@ pub struct Vst3Effect {
     max_block: usize,
     sample_rate: f64,
     pending_parameters: Vec<(u32, f64)>,
+    /// True once `setActive(1)` succeeded, so drop only undoes what was done.
+    active: bool,
+    /// True once `setProcessing(1)` succeeded.
+    processing: bool,
+    /// Held only while the instance is being built; always dropped before
+    /// the library, even on an early error return.
+    factory: Option<ComPtr<IPluginFactory>>,
     _library: libloading::Library,
 }
 
@@ -132,27 +139,34 @@ impl Vst3Effect {
             max_block,
             sample_rate,
             pending_parameters: Vec::new(),
+            active: false,
+            processing: false,
+            factory: Some(factory),
             _library: library,
         };
         let component = effect.component.clone();
         let mut controller_id: TUID = [0; 16];
-        effect.controller =
-            if unsafe { component.getControllerClassId(&mut controller_id) } == kResultOk {
-                match create::<IEditController>(&factory, &controller_id) {
-                    Ok(controller) => {
-                        let result = unsafe { controller.initialize(effect._host.as_ptr().cast()) };
-                        if result == kResultOk {
-                            effect.separate_controller = true;
-                            Some(controller)
-                        } else {
-                            None
-                        }
-                    }
-                    Err(_) => component.cast::<IEditController>(),
+        let separate = if unsafe { component.getControllerClassId(&mut controller_id) } == kResultOk
+            && let Some(factory) = &effect.factory
+        {
+            create::<IEditController>(factory, &controller_id).ok()
+        } else {
+            None
+        };
+        // The factory is not needed past this point.
+        effect.factory = None;
+        effect.controller = match separate {
+            Some(controller) => {
+                let result = unsafe { controller.initialize(effect._host.as_ptr().cast()) };
+                if result == kResultOk {
+                    effect.separate_controller = true;
+                    Some(controller)
+                } else {
+                    None
                 }
-            } else {
-                component.cast::<IEditController>()
-            };
+            }
+            None => component.cast::<IEditController>(),
+        };
         if let Some(controller) = &effect.controller {
             if let Some(handler) = &effect._handler {
                 let _ = unsafe { controller.setComponentHandler(handler.as_ptr()) };
@@ -211,10 +225,12 @@ impl Vst3Effect {
         if active != kResultOk {
             return Err(format!("setActive returned {active}"));
         }
+        effect.active = true;
         let processing = unsafe { effect.processor.setProcessing(1) };
         if processing != kResultOk {
             return Err(format!("setProcessing returned {processing}"));
         }
+        effect.processing = true;
         Ok(effect)
     }
 
@@ -458,8 +474,8 @@ impl Vst3Effect {
         };
         let (width, height) = if unsafe { view.getSize(&mut rect) } == kResultOk {
             (
-                (rect.right - rect.left).max(0),
-                (rect.bottom - rect.top).max(0),
+                rect.right.saturating_sub(rect.left).max(0),
+                rect.bottom.saturating_sub(rect.top).max(0),
             )
         } else {
             (0, 0)
@@ -503,9 +519,14 @@ impl Vst3Effect {
 
 impl Drop for Vst3Effect {
     fn drop(&mut self) {
+        self.factory = None;
         unsafe {
-            let _ = self.processor.setProcessing(0);
-            let _ = self.component.setActive(0);
+            if self.processing {
+                let _ = self.processor.setProcessing(0);
+            }
+            if self.active {
+                let _ = self.component.setActive(0);
+            }
             if let Some((component, controller)) = self.connection.take() {
                 let _ = component.disconnect(controller.as_ptr());
                 let _ = controller.disconnect(component.as_ptr());
@@ -548,14 +569,32 @@ pub(crate) fn negotiate_stereo(
     if let Some(first) = outputs.first_mut() {
         *first = STEREO;
     }
+    let pointer = |list: &mut Vec<SpeakerArrangement>| {
+        if list.is_empty() {
+            std::ptr::null_mut()
+        } else {
+            list.as_mut_ptr()
+        }
+    };
     let _ = unsafe {
         processor.setBusArrangements(
-            inputs.as_mut_ptr(),
+            pointer(&mut inputs),
             inputs.len() as i32,
-            outputs.as_mut_ptr(),
+            pointer(&mut outputs),
             outputs.len() as i32,
         )
     };
+    // Only the main buses get buffers, so switch every aux bus off.
+    for (direction, total) in [
+        (BusDirections_::kInput as i32, inputs.len()),
+        (BusDirections_::kOutput as i32, outputs.len()),
+    ] {
+        for index in 1..total {
+            let _ = unsafe {
+                component.activateBus(MediaTypes_::kAudio as i32, direction, index as i32, 0)
+            };
+        }
+    }
     let main_channels = |direction: i32| {
         let mut info: BusInfo = unsafe { std::mem::zeroed() };
         let result =

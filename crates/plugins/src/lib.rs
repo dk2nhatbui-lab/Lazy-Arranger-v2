@@ -321,10 +321,17 @@ const MAX_METADATA_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Reads a bundle metadata file, or `None` when it is missing or too large.
 fn read_capped(path: &Path) -> Option<Vec<u8>> {
-    if std::fs::metadata(path).ok()?.len() > MAX_METADATA_BYTES {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path).ok()?;
+    // Only regular files: a FIFO or device would block or never end.
+    if !file.metadata().ok()?.is_file() {
         return None;
     }
-    std::fs::read(path).ok()
+    let mut bytes = Vec::new();
+    file.take(MAX_METADATA_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= MAX_METADATA_BYTES).then_some(bytes)
 }
 
 fn scanner_path() -> Option<PathBuf> {
@@ -375,13 +382,13 @@ fn scan_vst3_isolated(path: &Path) -> Result<Vec<ScannedClass>, ()> {
             }
         }
     };
+    if !status.success() {
+        return Err(());
+    }
     let remaining = deadline
         .saturating_duration_since(Instant::now())
         .max(Duration::from_millis(100));
     let stdout = receiver.recv_timeout(remaining).map_err(|_| ())?;
-    if !status.success() {
-        return Err(());
-    }
     serde_json::from_slice(&stdout).map_err(|_| ())
 }
 
