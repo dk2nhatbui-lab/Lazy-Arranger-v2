@@ -57,14 +57,22 @@ pub fn gain(gain_db: f32) -> f32 {
 /// Applies the chorus and reverb only.
 ///
 /// Both are linear, so running them on parts of a mix and summing the parts
-/// gives the same result as running them on the whole mix. Live playback
-/// relies on this to keep track faders out of the pre-rendered buffers.
+/// gives the same result as running them on the whole mix.
 pub fn apply_effects(rendered: &mut RenderedAudio, master: Master) {
-    if master.chorus > 0.0 {
-        chorus(rendered, master.chorus.clamp(0.0, 1.0));
+    let chorus = master.chorus.clamp(0.0, 1.0);
+    let reverb = master.reverb.clamp(0.0, 1.0);
+    if chorus <= 0.0 && reverb <= 0.0 {
+        return;
     }
-    if master.reverb > 0.0 {
-        reverb(rendered, master.reverb.clamp(0.0, 1.0));
+    let mut effects = Effects::new(rendered.sample_rate);
+    for (frame_index, frame) in rendered
+        .samples
+        .as_chunks_mut::<2>()
+        .0
+        .iter_mut()
+        .enumerate()
+    {
+        effects.process(frame, frame_index, chorus, reverb);
     }
 }
 
@@ -76,63 +84,81 @@ pub fn finish(sample: f32, limiter: bool) -> f32 {
     crate::spsc::sanitize(if limiter { sample.tanh() } else { sample })
 }
 
-fn chorus(rendered: &mut RenderedAudio, amount: f32) {
-    let rate = rendered.sample_rate.max(1) as f32;
-    let max_delay = (rate * 0.05) as usize + 2;
-    if max_delay < 4 {
-        return;
-    }
-    let mut lines = [vec![0.0_f32; max_delay], vec![0.0_f32; max_delay]];
-    let mut index = 0;
-    for (frame_index, frame) in rendered
-        .samples
-        .as_chunks_mut::<2>()
-        .0
-        .iter_mut()
-        .enumerate()
-    {
-        let time = frame_index as f32 / rate;
-        for (channel, line) in lines.iter_mut().enumerate() {
-            let phase = time * std::f32::consts::TAU * 0.5 + channel as f32 * 0.8;
-            let delay = rate * 0.018 + phase.sin() * rate * 0.004;
-            let read = (index as f32 - delay).rem_euclid(max_delay as f32);
-            let first = (read.floor() as usize).min(max_delay - 1);
-            let second = (first + 1) % max_delay;
-            let mix = read - read.floor();
-            let delayed = line[first] * (1.0 - mix) + line[second] * mix;
-            line[index] = frame[channel];
-            frame[channel] += delayed * amount * 0.5;
-        }
-        index = (index + 1) % max_delay;
-    }
+/// The master chorus and reverb as a stream, one frame at a time.
+///
+/// It holds the delay lines, so it is built (and allocates) once, off the
+/// audio thread; [`Effects::process`] never allocates. The offline render
+/// and the live engine both use it, so they sound the same.
+#[derive(Debug)]
+pub struct Effects {
+    rate: f32,
+    lines: [Vec<f32>; 2],
+    index: usize,
+    reverb: [ReverbChannel; 2],
 }
 
-fn reverb(rendered: &mut RenderedAudio, amount: f32) {
-    let rate = rendered.sample_rate.max(1) as f32;
-    let comb_seconds = [0.0297_f32, 0.0371, 0.0411, 0.0437];
-    let allpass_seconds = [0.0050_f32, 0.0017];
-    let mut channels: [ReverbChannel; 2] =
-        std::array::from_fn(|_| ReverbChannel::new(rate, &comb_seconds, &allpass_seconds));
-    for frame in rendered.samples.as_chunks_mut::<2>().0.iter_mut() {
+impl Effects {
+    /// Delay lines for a sample rate.
+    #[must_use]
+    pub fn new(sample_rate: u32) -> Self {
+        let rate = sample_rate.max(1) as f32;
+        let max_delay = (rate * 0.05) as usize + 2;
+        let comb_seconds = [0.0297_f32, 0.0371, 0.0411, 0.0437];
+        let allpass_seconds = [0.0050_f32, 0.0017];
+        Self {
+            rate,
+            lines: [vec![0.0; max_delay], vec![0.0; max_delay]],
+            index: 0,
+            reverb: std::array::from_fn(|_| {
+                ReverbChannel::new(rate, &comb_seconds, &allpass_seconds)
+            }),
+        }
+    }
+
+    /// Runs one stereo frame through the chorus, then the reverb.
+    /// `frame_index` is the frame's place in the song, which sets the chorus
+    /// sweep; `chorus` and `reverb` are wet amounts in 0..=1.
+    #[inline]
+    pub fn process(&mut self, frame: &mut [f32; 2], frame_index: usize, chorus: f32, reverb: f32) {
+        let max_delay = self.lines[0].len();
+        if max_delay >= 4 {
+            let rate = self.rate;
+            let time = frame_index as f32 / rate;
+            for (channel, line) in self.lines.iter_mut().enumerate() {
+                let phase = time * std::f32::consts::TAU * 0.5 + channel as f32 * 0.8;
+                let delay = rate * 0.018 + phase.sin() * rate * 0.004;
+                let read = (self.index as f32 - delay).rem_euclid(max_delay as f32);
+                let first = (read.floor() as usize).min(max_delay - 1);
+                let second = (first + 1) % max_delay;
+                let mix = read - read.floor();
+                let delayed = line[first] * (1.0 - mix) + line[second] * mix;
+                line[self.index] = frame[channel];
+                frame[channel] += delayed * chorus * 0.5;
+            }
+            self.index = (self.index + 1) % max_delay;
+        }
         for (channel, sample) in frame.iter_mut().enumerate() {
             let dry = *sample;
-            let wet = channels[channel].process(dry);
-            *sample = dry + wet * amount * 0.6;
+            let wet = self.reverb[channel].process(dry);
+            *sample = dry + wet * reverb * 0.6;
         }
     }
 }
 
+#[derive(Debug)]
 struct CombLine {
     buffer: Vec<f32>,
     index: usize,
     damped: f32,
 }
 
+#[derive(Debug)]
 struct AllpassLine {
     buffer: Vec<f32>,
     index: usize,
 }
 
+#[derive(Debug)]
 struct ReverbChannel {
     combs: [CombLine; 4],
     allpasses: [AllpassLine; 2],

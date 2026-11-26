@@ -4841,12 +4841,7 @@ impl ShellApp {
     ) -> std::sync::mpsc::Receiver<Result<RenderedSong, String>> {
         let metronome = self.settings.metronome;
         let accent = self.settings.metronome_accent;
-        let master = audio::master::Master {
-            gain_db: self.settings.master_gain_db,
-            limiter: self.settings.master_limiter,
-            reverb: self.settings.master_reverb,
-            chorus: self.settings.master_chorus,
-        };
+        let master = self.settings.master();
         let output_name = self.settings.audio_output.clone();
         let (sender, receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {

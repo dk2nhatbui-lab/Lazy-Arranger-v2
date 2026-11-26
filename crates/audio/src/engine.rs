@@ -306,6 +306,15 @@ pub enum Param {
     },
     /// Linear master gain.
     MasterGain(f32),
+    /// Master chorus and reverb wet amounts, 0..=1.
+    MasterEffects {
+        /// Chorus amount.
+        chorus: f32,
+        /// Reverb amount.
+        reverb: f32,
+    },
+    /// Whether the master soft limiter is on.
+    Limiter(bool),
 }
 
 /// A gain the audio thread ramps from its current value to a target.
@@ -374,11 +383,15 @@ struct Lane {
     right: Gain,
 }
 
-/// The master stage after the lanes: gain, then the limiter.
+/// The master stage after the lanes: chorus and reverb, gain, then the
+/// limiter.
 #[derive(Debug)]
 struct MasterStage {
     gain: Gain,
     limiter: bool,
+    chorus: Gain,
+    reverb: Gain,
+    effects: master::Effects,
 }
 
 /// Everything the audio callback needs to produce the song, prepared on the
@@ -413,8 +426,7 @@ impl Graph {
     pub fn from_render(render: LiveRender) -> Self {
         let sample_rate = render.fixed.sample_rate;
         let len = render.fixed.samples.len() & !1;
-        let plain =
-            render.lanes.is_empty() && !render.limiter && (render.master_gain - 1.0).abs() < 1e-6;
+        let plain = render.finished;
         let fixed = clean(render.fixed.samples, len);
         let mut synths = render.synths;
         synths.resize_with(render.lanes.len(), || None);
@@ -441,6 +453,9 @@ impl Graph {
             master: (!plain).then(|| MasterStage {
                 gain: Gain::new(render.master_gain),
                 limiter: render.limiter,
+                chorus: Gain::new(render.chorus),
+                reverb: Gain::new(render.reverb),
+                effects: master::Effects::new(sample_rate),
             }),
             sample_rate,
         }
@@ -477,6 +492,17 @@ impl Graph {
                     master.gain.set(gain);
                 }
             }
+            Param::MasterEffects { chorus, reverb } => {
+                if let Some(master) = &mut self.master {
+                    master.chorus.set(chorus.clamp(0.0, 1.0));
+                    master.reverb.set(reverb.clamp(0.0, 1.0));
+                }
+            }
+            Param::Limiter(on) => {
+                if let Some(master) = &mut self.master {
+                    master.limiter = on;
+                }
+            }
         }
     }
 
@@ -495,15 +521,23 @@ impl Graph {
 
     /// Takes over the gains of the graph it replaces, so a swap neither
     /// jumps nor loses a change sent while the new graph was being built.
-    fn adopt(&mut self, old: &Self) {
+    /// The reverb and chorus tails carry over too: the old graph leaves with
+    /// the new graph's empty delay lines.
+    fn adopt(&mut self, old: &mut Self) {
         for lane in &mut self.lanes {
             if let Some(previous) = old.lanes.iter().find(|entry| entry.track == lane.track) {
                 lane.left = previous.left;
                 lane.right = previous.right;
             }
         }
-        if let (Some(master), Some(previous)) = (&mut self.master, &old.master) {
+        if let (Some(master), Some(previous)) = (&mut self.master, &mut old.master) {
             master.gain = previous.gain;
+            master.limiter = previous.limiter;
+            master.chorus = previous.chorus;
+            master.reverb = previous.reverb;
+            if self.sample_rate == old.sample_rate {
+                std::mem::swap(&mut master.effects, &mut previous.effects);
+            }
         }
     }
 
@@ -547,7 +581,15 @@ impl Graph {
             }
         }
         let gain = master.gain.ramp(frames);
+        let chorus = master.chorus.ramp(frames);
+        let reverb = master.reverb.ramp(frames);
+        let first = pos / 2;
         for (frame, pair) in output.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+            // The effects always run, so a send turned up mid-song already
+            // has the recent past in its delay lines.
+            master
+                .effects
+                .process(pair, first + frame, chorus.at(frame), reverb.at(frame));
             let at = gain.at(frame);
             pair[0] = master::finish(pair[0] * at, master.limiter);
             pair[1] = master::finish(pair[1] * at, master.limiter);
@@ -675,7 +717,7 @@ impl Engine {
             let Ok(mut next) = self.graphs.pop() else {
                 break;
             };
-            if let Some(old) = &self.graph {
+            if let Some(old) = self.graph.as_deref_mut() {
                 next.adopt(old);
             }
             self.transport.len.store(next.len(), Ordering::Release);

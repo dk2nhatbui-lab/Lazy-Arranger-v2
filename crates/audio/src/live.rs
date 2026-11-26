@@ -48,6 +48,13 @@ pub struct LiveRender {
     pub master_gain: f32,
     /// Whether the soft limiter runs after the master gain.
     pub limiter: bool,
+    /// Master chorus wet amount, 0..=1, run on the sum while playing.
+    pub chorus: f32,
+    /// Master reverb wet amount, 0..=1, run on the sum while playing.
+    pub reverb: f32,
+    /// True for a finished mix that plays back exactly as it is, with no
+    /// master stage.
+    pub finished: bool,
 }
 
 impl LiveRender {
@@ -64,6 +71,9 @@ impl LiveRender {
             gains: Vec::new(),
             master_gain: 1.0,
             limiter: false,
+            chorus: 0.0,
+            reverb: 0.0,
+            finished: true,
         }
     }
 
@@ -73,26 +83,13 @@ impl LiveRender {
         self.fixed.sample_rate
     }
 
-    /// Runs the linear master effects on every part and keeps the master
-    /// gain and limiter for playback.
+    /// Keeps the master settings for playback, which runs them on the sum
+    /// of every part.
     pub fn apply_master(&mut self, settings: Master) {
-        if settings.chorus > 0.0 || settings.reverb > 0.0 {
-            // The master effects run offline for now, so synth lanes become
-            // plain buffers first.
-            self.bake_synths();
-        }
-        master::apply_effects(&mut self.fixed, settings);
-        let rate = self.fixed.sample_rate;
-        for lane in &mut self.lanes {
-            let mut audio = RenderedAudio {
-                samples: std::mem::take(lane),
-                sample_rate: rate,
-            };
-            master::apply_effects(&mut audio, settings);
-            *lane = audio.samples;
-        }
         self.master_gain = master::gain(settings.gain_db);
         self.limiter = settings.limiter;
+        self.chorus = settings.chorus.clamp(0.0, 1.0);
+        self.reverb = settings.reverb.clamp(0.0, 1.0);
     }
 
     /// Renders every synth lane into its lane buffer.
@@ -122,6 +119,20 @@ impl LiveRender {
                 target[1] += pair[1] * right;
             }
         }
+        let mut audio = RenderedAudio {
+            samples,
+            sample_rate: self.fixed.sample_rate,
+        };
+        master::apply_effects(
+            &mut audio,
+            Master {
+                gain_db: 0.0,
+                limiter: false,
+                reverb: self.reverb,
+                chorus: self.chorus,
+            },
+        );
+        let mut samples = audio.samples;
         for sample in &mut samples {
             *sample = master::finish(*sample * self.master_gain, self.limiter);
         }
@@ -319,6 +330,9 @@ pub fn render_with_soundfont(
             .collect(),
         master_gain: 1.0,
         limiter: false,
+        chorus: 0.0,
+        reverb: 0.0,
+        finished: false,
     }
 }
 

@@ -11,7 +11,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::RenderedAudio;
 use crate::engine::{Engine, EngineControl, Graph, Param, Transport, engine};
 use crate::live::LiveRender;
-use crate::master::Meter;
+use crate::master::{Master, Meter};
 
 /// Remembers the last parameters sent, so only changes go to the audio
 /// thread.
@@ -19,14 +19,16 @@ use crate::master::Meter;
 struct Sent {
     tracks: Vec<(project::TrackId, f32, f32)>,
     master: Option<f32>,
+    effects: Option<(f32, f32)>,
+    limiter: Option<bool>,
 }
 
-/// Sends the song's mixer to the engine: lane gains and the master gain.
+/// Sends the song's mixer to the engine: lane gains and the master stage.
 fn send_mix(
     control: &mut EngineControl,
     sent: &mut Sent,
     song: &project::song::Song,
-    master_gain_db: f32,
+    master: Master,
 ) {
     control.collect_garbage();
     for track in &song.tracks {
@@ -51,9 +53,21 @@ fn send_mix(
             None => sent.tracks.push((track.id, left, right)),
         }
     }
-    let gain = crate::master::gain(master_gain_db);
+    let gain = crate::master::gain(master.gain_db);
     if sent.master != Some(gain) && control.send(Param::MasterGain(gain)) {
         sent.master = Some(gain);
+    }
+    let effects = (master.chorus.clamp(0.0, 1.0), master.reverb.clamp(0.0, 1.0));
+    if sent.effects != Some(effects)
+        && control.send(Param::MasterEffects {
+            chorus: effects.0,
+            reverb: effects.1,
+        })
+    {
+        sent.effects = Some(effects);
+    }
+    if sent.limiter != Some(master.limiter) && control.send(Param::Limiter(master.limiter)) {
+        sent.limiter = Some(master.limiter);
     }
 }
 
@@ -160,8 +174,8 @@ impl Playback {
     }
 
     /// Sends the song's mixer: heard from the next quantum, ramped.
-    pub fn apply_mix(&mut self, song: &project::song::Song, master_gain_db: f32) {
-        send_mix(&mut self.control, &mut self.sent, song, master_gain_db);
+    pub fn apply_mix(&mut self, song: &project::song::Song, master: Master) {
+        send_mix(&mut self.control, &mut self.sent, song, master);
     }
 
     /// Replaces the graph at the next buffer, keeping the position.
@@ -535,10 +549,10 @@ impl Player {
 
     /// Sends the song's mixer to the engine: track gains and the master
     /// gain, heard from the next 32-frame quantum.
-    pub fn apply_mix(&self, song: &project::song::Song, master_gain_db: f32) {
+    pub fn apply_mix(&self, song: &project::song::Song, master: Master) {
         if let Ok(mut guard) = self.control.lock() {
             let (control, sent) = &mut *guard;
-            send_mix(control, sent, song, master_gain_db);
+            send_mix(control, sent, song, master);
         }
     }
 
@@ -831,6 +845,16 @@ mod tests {
         assert_eq!(output, [0.0, 0.0]);
     }
 
+    /// Master settings with no limiter or effects.
+    fn dry(gain_db: f32) -> Master {
+        Master {
+            gain_db,
+            limiter: false,
+            reverb: 0.0,
+            chorus: 0.0,
+        }
+    }
+
     fn live_song(volume: u8) -> project::song::Song {
         let mut song = project::song::Song::default();
         let mut track = project::song::Track::new(project::TrackId::new(1).expect("track"), "Keys");
@@ -863,7 +887,7 @@ mod tests {
         playback.fill(&mut output);
         assert!(output.iter().all(|sample| (sample - 0.5).abs() < 1e-6));
 
-        playback.apply_mix(&live_song(50), 0.0);
+        playback.apply_mix(&live_song(50), dry(0.0));
         playback.fill(&mut output);
         // One buffer ramps from the old gain to the new one, without a click.
         assert!((output[0] - 0.5).abs() < 1e-6);
@@ -879,13 +903,13 @@ mod tests {
         playback.play();
         let mut song = live_song(100);
         song.tracks[0].muted = true;
-        playback.apply_mix(&song, 0.0);
+        playback.apply_mix(&song, dry(0.0));
         let mut output = [0.0_f32; 64];
         playback.fill(&mut output);
         playback.fill(&mut output);
         assert!(output.iter().all(|sample| sample.abs() < 1e-6));
 
-        playback.apply_mix(&live_song(100), -6.0);
+        playback.apply_mix(&live_song(100), dry(-6.0));
         playback.fill(&mut output);
         let _ = playback.meter();
         playback.fill(&mut output);
@@ -993,7 +1017,7 @@ mod tests {
         };
         let mut playback = Playback::new_live(lane(1.0));
         playback.play();
-        playback.apply_mix(&live_song(50), 0.0);
+        playback.apply_mix(&live_song(50), dry(0.0));
         let mut output = [0.0_f32; 64];
         playback.fill(&mut output);
         // A render that started before the move still bakes the old gain.
@@ -1062,5 +1086,94 @@ mod tests {
             assert!((got - want).abs() < 1e-5);
         }
         assert_eq!(playback.collect_garbage(), 1, "the old lane comes back");
+    }
+
+    fn wet_render(
+        song: &project::song::Song,
+        lane: Vec<f32>,
+        chorus: f32,
+        reverb: f32,
+    ) -> LiveRender {
+        let len = lane.len();
+        LiveRender {
+            fixed: RenderedAudio {
+                samples: vec![0.0; len],
+                sample_rate: 48_000,
+            },
+            lanes: vec![lane],
+            tracks: vec![song.tracks[0].id],
+            gains: vec![(0.9, 0.7)],
+            master_gain: crate::master::gain(-2.0),
+            limiter: true,
+            chorus,
+            reverb,
+            ..LiveRender::default()
+        }
+    }
+
+    fn impulse(len: usize) -> Vec<f32> {
+        let mut lane = vec![0.0; len];
+        lane[0] = 0.8;
+        lane[1] = 0.8;
+        lane
+    }
+
+    #[test]
+    fn live_reverb_and_chorus_match_the_rendered_mix() {
+        let song = live_song(100);
+        let lane: Vec<f32> = (0..8192)
+            .map(|index| (index as f32 * 0.02).sin() * 0.5)
+            .collect();
+        let render = wet_render(&song, lane, 0.3, 0.4);
+        let expected = render.mixdown();
+        let mut playback = Playback::new_live(render);
+        playback.play();
+        let mut output = vec![0.0_f32; 8192];
+        for chunk in output.chunks_mut(94) {
+            playback.fill(chunk);
+        }
+        assert_eq!(output, expected.samples, "bit-exact with the offline mix");
+    }
+
+    #[test]
+    fn a_reverb_change_is_heard_without_a_new_render() {
+        let song = live_song(100);
+        let mut playback = Playback::new_live(wet_render(&song, impulse(48_000), 0.0, 0.0));
+        playback.play();
+        let mut first = [0.0_f32; 64];
+        playback.fill(&mut first);
+        let mut dry_tail = [0.0_f32; 4096];
+        playback.fill(&mut dry_tail);
+        assert!(dry_tail.iter().all(|sample| sample.abs() < 1e-9));
+
+        let mut wet = dry(-2.0);
+        wet.limiter = true;
+        wet.reverb = 0.8;
+        playback.apply_mix(&song, wet);
+        let mut wet_tail = [0.0_f32; 4096];
+        playback.fill(&mut wet_tail);
+        assert!(
+            wet_tail.iter().any(|sample| sample.abs() > 1e-4),
+            "the reverb already holds the impulse and rings out"
+        );
+    }
+
+    #[test]
+    fn a_new_graph_keeps_the_reverb_tail() {
+        let song = live_song(100);
+        let mut playback = Playback::new_live(wet_render(&song, impulse(48_000), 0.0, 0.8));
+        playback.play();
+        let mut output = [0.0_f32; 256];
+        playback.fill(&mut output);
+        playback
+            .load(wet_render(&song, vec![0.0; 48_000], 0.0, 0.8))
+            .expect("load");
+        let mut tail = [0.0_f32; 8192];
+        playback.fill(&mut tail);
+        assert!(
+            tail.iter().any(|sample| sample.abs() > 1e-4),
+            "the tail rings on across the swap"
+        );
+        assert_eq!(playback.collect_garbage(), 1);
     }
 }

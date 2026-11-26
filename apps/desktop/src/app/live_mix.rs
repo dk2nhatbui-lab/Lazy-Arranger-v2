@@ -11,7 +11,7 @@
 //! song renders again in the background, and the engine swaps the new graph
 //! in at its next buffer, at the same position, on the same stream.
 
-use std::hash::{Hash, Hasher};
+use std::hash::Hasher;
 
 use super::*;
 
@@ -95,19 +95,19 @@ pub(super) struct LiveRemix {
 /// Two songs with the same fingerprint need the same render; their other
 /// mixer differences are applied live. A change to it means the playing
 /// buffer is out of date.
-pub(super) fn mix_signature(song: &Song, settings: &crate::settings::Settings) -> u64 {
+///
+/// The master gain, limiter, reverb and chorus run live in the engine, so
+/// they are not part of it.
+pub(super) fn mix_signature(song: &Song) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     audio::live::hash_fixed(song, &mut hasher);
-    settings.master_limiter.hash(&mut hasher);
-    settings.master_reverb.to_bits().hash(&mut hasher);
-    settings.master_chorus.to_bits().hash(&mut hasher);
     hasher.finish()
 }
 
 impl ShellApp {
-    /// Fingerprint of the current song and master settings.
+    /// Fingerprint of the current song's mixer.
     pub(super) fn current_mix_signature(&self) -> u64 {
-        mix_signature(self.song(), &self.settings)
+        mix_signature(self.song())
     }
 
     /// Renders again when the mix changed while playing, and swaps the
@@ -122,7 +122,7 @@ impl ShellApp {
             return;
         }
         if let Some(player) = &self.player {
-            player.apply_mix(self.song(), self.settings.master_gain_db);
+            player.apply_mix(self.song(), self.settings.master());
             if let Some(state) = &mut self.synth_state {
                 state.swap_edited(self.editor.song(), player);
             }
@@ -196,32 +196,22 @@ mod tests {
     #[test]
     fn plain_fader_moves_keep_the_signature() {
         // These are applied live, so they must not start a new render.
-        let settings = crate::settings::Settings::default();
         let base = song();
-        let start = mix_signature(&base, &settings);
-        assert_eq!(start, mix_signature(&base.clone(), &settings));
+        let start = mix_signature(&base);
+        assert_eq!(start, mix_signature(&base.clone()));
 
         let mut changed = base.clone();
         changed.tracks[0].volume = changed.tracks[0].volume.wrapping_sub(10);
         changed.tracks[0].pan = 0;
         changed.tracks[0].muted = !changed.tracks[0].muted;
         changed.tracks[0].soloed = !changed.tracks[0].soloed;
-        assert_eq!(start, mix_signature(&changed, &settings));
-
-        let mut louder = settings.clone();
-        louder.master_gain_db += 3.0;
-        assert_eq!(start, mix_signature(&base, &louder));
+        assert_eq!(start, mix_signature(&changed));
     }
 
     #[test]
     fn baked_settings_change_the_signature() {
-        let settings = crate::settings::Settings::default();
         let base = song();
-        let start = mix_signature(&base, &settings);
-
-        let mut wetter = settings.clone();
-        wetter.master_reverb += 0.2;
-        assert_ne!(start, mix_signature(&base, &wetter));
+        let start = mix_signature(&base);
 
         // A fader under volume automation is part of the render.
         let mut automated = base.clone();
@@ -231,21 +221,17 @@ mod tests {
                 target: project::song::AutomationTarget::Volume,
                 points: Vec::new(),
             });
-        let before = mix_signature(&automated, &settings);
+        let before = mix_signature(&automated);
         assert_ne!(start, before);
         automated.tracks[0].volume = 10;
-        assert_ne!(before, mix_signature(&automated, &settings));
+        assert_ne!(before, mix_signature(&automated));
     }
 
     #[test]
     fn note_edits_keep_the_signature() {
-        let settings = crate::settings::Settings::default();
         let base = song();
         let mut renamed = base.clone();
         renamed.tracks[0].name = String::from("Keys");
-        assert_eq!(
-            mix_signature(&base, &settings),
-            mix_signature(&renamed, &settings)
-        );
+        assert_eq!(mix_signature(&base), mix_signature(&renamed));
     }
 }
