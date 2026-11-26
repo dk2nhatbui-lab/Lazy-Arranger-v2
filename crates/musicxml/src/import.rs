@@ -413,7 +413,11 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                 if slur_start {
                     pending_slur = Some(start);
                 }
-                if slur_stop && let Some(slur_start) = pending_slur.take() {
+                if slur_stop
+                    && let Some(slur_start) = pending_slur.take()
+                    // A slur on one chord would fail validation.
+                    && start > slur_start
+                {
                     track.slurs.push(project::song::Slur {
                         start: slur_start,
                         end: start,

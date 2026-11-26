@@ -2347,7 +2347,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             Ok(())
         }
         Commands::MidiMapShow { file } => {
-            let text = fs::read_to_string(&file).unwrap_or_default();
+            // A missing file is an empty map; any other read error is real.
+            let text = match fs::read_to_string(&file) {
+                Ok(text) => text,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+                Err(error) => return Err(format!("{}: {error}", file.display()).into()),
+            };
             let map = midi_devices::map::MidiMap::from_text(&text)?;
             if map.bindings.is_empty() {
                 println!("no bindings in {}", file.display());
@@ -2830,6 +2835,9 @@ pub fn run_transport(
     block: usize,
     verbose: bool,
 ) -> Result<TransportSummary, Box<dyn Error>> {
+    if block == 0 {
+        return Err("block size must be at least 1".into());
+    }
     let prepared = PreparedPattern::prepare(song, sample_rate)?;
     let end_sample = prepared.end_sample();
     let mut scheduler = Scheduler::new(prepared);

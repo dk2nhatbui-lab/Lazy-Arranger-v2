@@ -235,8 +235,8 @@ impl IPlugFrameTrait for HostPlugFrame {
         }
         let rect = unsafe { &*new_size };
         let size = NSSize {
-            width: f64::from(rect.right.saturating_sub(rect.left).max(160)),
-            height: f64::from(rect.bottom.saturating_sub(rect.top).max(120)),
+            width: f64::from(rect.right.saturating_sub(rect.left).clamp(160, 8192)),
+            height: f64::from(rect.bottom.saturating_sub(rect.top).clamp(120, 8192)),
         };
         unsafe {
             let _: () = msg_send![window, setContentSize: size];
@@ -287,6 +287,34 @@ impl Vst3Editor {
         } else {
             effect.sync_controller_state();
         }
+        // The view is set up inside a local pool, so anything the plug-in
+        // autoreleases on an error path is freed before `effect` unloads it.
+        let (view, frame, frame_window, window, size) =
+            objc2::rc::autoreleasepool(|_| Self::attach(title, &effect))?;
+        Ok(Self {
+            view: Some(view),
+            frame: Some(frame),
+            frame_window,
+            window,
+            effect,
+            size,
+        })
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn attach(
+        title: &str,
+        effect: &Vst3Effect,
+    ) -> Result<
+        (
+            ComPtr<IPlugView>,
+            ComPtr<IPlugFrame>,
+            Arc<AtomicPtr<AnyObject>>,
+            NativeWindow,
+            (i32, i32),
+        ),
+        String,
+    > {
         let controller = effect
             .controller()
             .ok_or_else(|| String::from("VST3 plug-in has no edit controller"))?;
@@ -324,14 +352,7 @@ impl Vst3Editor {
             }
             return Err(format!("IPlugView::attached returned {attached}"));
         }
-        Ok(Self {
-            view: Some(view),
-            frame: Some(frame),
-            frame_window,
-            window,
-            effect,
-            size: (width, height),
-        })
+        Ok((view, frame, frame_window, window, (width, height)))
     }
 
     /// Initial editor width and height in points.
@@ -357,16 +378,20 @@ impl Vst3Editor {
 
     /// Detaches the plug-in view and closes the native window.
     pub fn close(&mut self) {
-        if let Some(view) = self.view.take() {
-            unsafe {
-                let _ = view.removed();
-                let _ = view.setFrame(std::ptr::null_mut());
+        // Drain whatever the plug-in autoreleases here before its library
+        // can be unloaded with `self.effect`.
+        objc2::rc::autoreleasepool(|_| {
+            self.frame_window
+                .store(std::ptr::null_mut(), Ordering::Release);
+            if let Some(view) = self.view.take() {
+                unsafe {
+                    let _ = view.removed();
+                    let _ = view.setFrame(std::ptr::null_mut());
+                }
             }
-        }
-        self.frame_window
-            .store(std::ptr::null_mut(), Ordering::Release);
-        self.frame = None;
-        self.window.close_and_release();
+            self.frame = None;
+            self.window.close_and_release();
+        });
     }
 }
 
@@ -422,6 +447,23 @@ impl std::fmt::Debug for AuEditor {
     }
 }
 
+/// The CF objects an Audio Unit wrote into a `CocoaUI` property buffer,
+/// released on drop so every return path frees them.
+struct CfBuffer {
+    words: Vec<*const c_void>,
+    written: usize,
+}
+
+impl Drop for CfBuffer {
+    fn drop(&mut self) {
+        for &ptr in &self.words[..self.written.min(self.words.len())] {
+            if !ptr.is_null() {
+                unsafe { CFRelease(ptr) };
+            }
+        }
+    }
+}
+
 unsafe fn try_custom_cocoa_au_view(unit: *mut c_void) -> Option<*mut AnyObject> {
     let mut size = 0_u32;
     let status = unsafe {
@@ -439,83 +481,72 @@ unsafe fn try_custom_cocoa_au_view(unit: *mut c_void) -> Option<*mut AnyObject> 
         return None;
     }
     let words = (size as usize).div_ceil(std::mem::size_of::<*const c_void>());
-    let mut buffer = vec![std::ptr::null::<c_void>(); words];
+    let mut buffer = CfBuffer {
+        words: vec![std::ptr::null::<c_void>(); words],
+        written: 0,
+    };
     let status = unsafe {
         AudioUnitGetProperty(
             unit,
             K_AUDIO_UNIT_PROPERTY_COCOA_UI,
             K_AUDIO_UNIT_SCOPE_GLOBAL,
             0,
-            buffer.as_mut_ptr().cast(),
+            buffer.words.as_mut_ptr().cast(),
             &mut size,
         )
     };
     // Only words the unit actually wrote are CF objects to release.
-    let written = (size as usize / std::mem::size_of::<*const c_void>()).min(words);
-    let release_all = |buffer: &[*const c_void]| {
-        for &ptr in &buffer[..written] {
-            if !ptr.is_null() {
-                unsafe { CFRelease(ptr) };
-            }
-        }
-    };
+    buffer.written = (size as usize / std::mem::size_of::<*const c_void>()).min(words);
     if status != 0 || (size as usize) < min_size {
-        release_all(&buffer);
         return None;
     }
-    let bundle_url = buffer[0].cast::<AnyObject>();
-    let class_name = buffer[1].cast::<AnyObject>();
-    let ns_bundle_cls = AnyClass::get(c"NSBundle");
-    let result = if let Some(ns_bundle_cls) = ns_bundle_cls
-        && !bundle_url.is_null()
-        && !class_name.is_null()
-    {
+    let bundle_url = buffer.words[0].cast::<AnyObject>();
+    let class_name = buffer.words[1].cast::<AnyObject>();
+    let ns_bundle_cls = AnyClass::get(c"NSBundle")?;
+    if bundle_url.is_null() || class_name.is_null() {
+        return None;
+    }
+    // Objects the plug-in autoreleases here are freed when this pool drains,
+    // not in an outer pool that may outlive the Audio Unit. The view itself
+    // is retained below, so it survives the drain.
+    objc2::rc::autoreleasepool(|_| {
         let bundle: *mut AnyObject = msg_send![ns_bundle_cls, bundleWithURL: bundle_url];
         if bundle.is_null() {
-            None
-        } else {
-            let view_cls: *const AnyClass = msg_send![bundle, classNamed: class_name];
-            if view_cls.is_null() {
-                None
-            } else {
-                let factory_alloc: *mut AnyObject = msg_send![view_cls, alloc];
-                let factory: *mut AnyObject = msg_send![factory_alloc, init];
-                // An unknown selector would raise an Objective-C exception
-                // across the Rust boundary, so ask first.
-                let responds: Bool = if factory.is_null() {
-                    Bool::NO
-                } else {
-                    msg_send![factory, respondsToSelector: objc2::sel!(uiViewForAudioUnit:withSize:)]
-                };
-                if !responds.as_bool() {
-                    if !factory.is_null() {
-                        let _: () = msg_send![factory, release];
-                    }
-                    None
-                } else {
-                    let preferred = NSSize {
-                        width: 640.0,
-                        height: 420.0,
-                    };
-                    let au_ptr = unit.cast::<OpaqueAudioComponentInstance>();
-                    let view: *mut AnyObject = msg_send![
-                        factory,
-                        uiViewForAudioUnit: au_ptr,
-                        withSize: preferred
-                    ];
-                    if !view.is_null() {
-                        let _: *mut AnyObject = msg_send![view, retain];
-                    }
-                    let _: () = msg_send![factory, release];
-                    (!view.is_null()).then_some(view)
-                }
-            }
+            return None;
         }
-    } else {
-        None
-    };
-    release_all(&buffer);
-    result
+        let view_cls: *const AnyClass = msg_send![bundle, classNamed: class_name];
+        if view_cls.is_null() {
+            return None;
+        }
+        let factory_alloc: *mut AnyObject = msg_send![view_cls, alloc];
+        let factory: *mut AnyObject = msg_send![factory_alloc, init];
+        if factory.is_null() {
+            return None;
+        }
+        // An unknown selector would raise an Objective-C exception across
+        // the Rust boundary, so ask first.
+        let responds: Bool =
+            msg_send![factory, respondsToSelector: objc2::sel!(uiViewForAudioUnit:withSize:)];
+        if !responds.as_bool() {
+            let _: () = msg_send![factory, release];
+            return None;
+        }
+        let preferred = NSSize {
+            width: 640.0,
+            height: 420.0,
+        };
+        let au_ptr = unit.cast::<OpaqueAudioComponentInstance>();
+        let view: *mut AnyObject = msg_send![
+            factory,
+            uiViewForAudioUnit: au_ptr,
+            withSize: preferred
+        ];
+        if !view.is_null() {
+            let _: *mut AnyObject = msg_send![view, retain];
+        }
+        let _: () = msg_send![factory, release];
+        (!view.is_null()).then_some(view)
+    })
 }
 
 unsafe fn generic_au_view(unit: *mut c_void) -> Result<*mut AnyObject, String> {
@@ -559,30 +590,35 @@ impl AuEditor {
             handle.apply_parameter_state(initial_state);
         }
         let unit = handle.raw_unit();
-        let (au_view, used_custom_view) = unsafe {
-            if let Some(view) = try_custom_cocoa_au_view(unit) {
-                (view, true)
-            } else {
-                (generic_au_view(unit)?, false)
-            }
-        };
-        let frame: NSRect = unsafe { msg_send![au_view, frame] };
-        let width = frame.size.width.max(420.0);
-        let height = frame.size.height.max(260.0);
-        let window = match NativeWindow::open(title, width, height, true) {
-            Ok(window) => window,
-            Err(error) => {
-                // The view is +1 retained; release it before the unit goes.
-                unsafe {
-                    let _: () = msg_send![au_view, release];
+        // A local pool, so nothing the view setup autoreleases outlives the
+        // unit if this returns an error.
+        let (au_view, used_custom_view, window) = objc2::rc::autoreleasepool(|_| {
+            let (au_view, used_custom_view) = unsafe {
+                if let Some(view) = try_custom_cocoa_au_view(unit) {
+                    (view, true)
+                } else {
+                    (generic_au_view(unit)?, false)
                 }
-                return Err(error);
+            };
+            let frame: NSRect = unsafe { msg_send![au_view, frame] };
+            let width = frame.size.width.max(420.0);
+            let height = frame.size.height.max(260.0);
+            let window = match NativeWindow::open(title, width, height, true) {
+                Ok(window) => window,
+                Err(error) => {
+                    // The view is +1 retained; release it before the unit goes.
+                    unsafe {
+                        let _: () = msg_send![au_view, release];
+                    }
+                    return Err(error);
+                }
+            };
+            unsafe {
+                let _: () = msg_send![window.window, setContentView: au_view];
             }
-        };
-        unsafe {
-            let _: () = msg_send![window.window, setContentView: au_view];
-        }
-        window.set_content_size(width, height);
+            window.set_content_size(width, height);
+            Ok((au_view, used_custom_view, window))
+        })?;
         Ok(Self {
             au_view,
             window,
@@ -611,28 +647,28 @@ impl AuEditor {
 
     /// Closes the native window and releases the Cocoa view.
     pub fn close(&mut self) {
-        // Detach the view first, so an autoreleased window cannot keep it
-        // alive past the Audio Unit it draws.
+        // Detach and release the view inside one pool, so an autoreleased
+        // window or view cannot outlive the Audio Unit it draws.
         objc2::rc::autoreleasepool(|_| {
             if !self.au_view.is_null() {
                 unsafe {
-                    let _: () = msg_send![self.au_view, removeFromSuperview];
                     if !self.window.window.is_null() {
                         let _: () = msg_send![
                             self.window.window,
                             setContentView: std::ptr::null::<AnyObject>()
                         ];
                     }
+                    let _: () = msg_send![self.au_view, removeFromSuperview];
                 }
             }
             self.window.close_and_release();
-        });
-        if !self.au_view.is_null() {
-            unsafe {
-                let _: () = msg_send![self.au_view, release];
+            if !self.au_view.is_null() {
+                unsafe {
+                    let _: () = msg_send![self.au_view, release];
+                }
+                self.au_view = std::ptr::null_mut();
             }
-            self.au_view = std::ptr::null_mut();
-        }
+        });
     }
 }
 

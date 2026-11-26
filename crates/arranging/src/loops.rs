@@ -295,11 +295,15 @@ fn jam_notes(
             Some(clip) => {
                 let length = clip.length.max(1);
                 let stop = to.min(until);
-                let mut base = from - (from - origin) % length;
+                let mut base = from - from.saturating_sub(origin).rem_euclid(length);
                 while base < stop {
                     for note in &clip.notes {
-                        let start = base + note.start;
-                        if note.start >= length || start < from || start >= stop {
+                        // Unvalidated clips: skip notes outside the loop.
+                        if note.start < 0 || note.start >= length {
+                            continue;
+                        }
+                        let start = base.saturating_add(note.start);
+                        if start < from || start >= stop {
                             continue;
                         }
                         let mut copy = note.clone();
@@ -307,12 +311,12 @@ fn jam_notes(
                         copy.duration = note
                             .duration
                             .min(length - note.start)
-                            .min(stop - start)
+                            .min(stop.saturating_sub(start))
                             .max(1);
                         notes.push(copy);
                         looped += 1;
                     }
-                    base += length;
+                    base = base.saturating_add(length);
                 }
             }
         }

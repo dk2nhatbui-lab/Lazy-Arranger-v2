@@ -310,7 +310,7 @@ pub fn parse(bytes: &[u8]) -> Result<SoundFont, String> {
         return Err(String::from("not an SF2 RIFF file"));
     }
     let size = u32_at(bytes, 4)? as usize;
-    let end = (8 + size).min(bytes.len());
+    let end = size.saturating_add(8).min(bytes.len());
     if end < 12 {
         return Err(String::from("RIFF size is too short"));
     }
@@ -602,8 +602,13 @@ fn render_sample(
     if end <= start {
         return None;
     }
-    let loop_start = usize::try_from(sample.loop_start).unwrap_or(0).min(pcm_len);
-    let loop_end = usize::try_from(sample.loop_end).unwrap_or(0).min(pcm_len);
+    // A loop outside the sample's own range would read a neighbour's PCM.
+    let loop_start = usize::try_from(sample.loop_start)
+        .unwrap_or(0)
+        .clamp(start, end);
+    let loop_end = usize::try_from(sample.loop_end)
+        .unwrap_or(0)
+        .clamp(start, end);
     let looped = zone.sample_modes & 1 == 1 && loop_end > loop_start + 1;
     let root = f32::from(zone.root_override.unwrap_or(sample.root));
     let cents = f32::from(zone.coarse_tune) * 100.0

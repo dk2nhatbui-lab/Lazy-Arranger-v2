@@ -231,7 +231,7 @@ impl Layout {
         let systems_per_page = (((available + SYSTEM_GAP * sp)
             / ((system_height + SYSTEM_GAP) * sp))
             .floor() as usize)
-            .max(1);
+            .clamp(1, 10_000);
         let total_systems = tracks
             .first()
             .map_or(0, |(_, engraved)| reference_systems(engraved).len())
@@ -286,10 +286,12 @@ impl Columns {
             .collect();
         let total: f32 = widths.iter().sum::<f32>().max(1.0);
         // A short last system keeps the bar widths of the full ones.
+        // A page too narrow for the prefix still draws bars left to right.
+        let room = (right - start).max(1.0);
         let scale = if last && total < widest * 0.7 {
-            (right - start) / widest.max(1.0)
+            room / widest.max(1.0)
         } else {
-            (right - start) / total
+            room / total
         };
         let mut bars = vec![start];
         let mut x = start;
@@ -670,6 +672,7 @@ impl<'a> FullScore<'a> {
         markers: &[project::Marker],
         settings: Settings,
     ) -> Self {
+        let settings = settings.sanitized();
         let layout = Layout::new(tracks, frames, markers, settings);
         let reference: Vec<&System> = tracks
             .first()
@@ -724,8 +727,11 @@ impl<'a> FullScore<'a> {
     }
 
     fn slots(&self, page: usize) -> impl Iterator<Item = (usize, &'a System, f32, Columns)> + '_ {
-        let first = page * self.layout.systems_per_page;
-        (0..self.layout.systems_per_page).filter_map(move |slot| {
+        // A page past the end has no slots, rather than an overflow.
+        let per_page = self.layout.systems_per_page;
+        let first = page.saturating_mul(per_page);
+        let count = per_page.min(self.reference.len().saturating_sub(first));
+        (0..count).filter_map(move |slot| {
             let index = first + slot;
             let system = *self.reference.get(index)?;
             let columns = Columns::new(
@@ -795,7 +801,11 @@ impl<'a> FullScore<'a> {
                     Anchor::CENTER_TOP,
                     &format!(
                         "{} {}",
-                        engraved.key.tonic.name_sharp(),
+                        if fifths(engraved.key) < 0 {
+                            engraved.key.tonic.name_flat()
+                        } else {
+                            engraved.key.tonic.name_sharp()
+                        },
                         if engraved.key.minor { "minor" } else { "major" }
                     ),
                     7.5,
@@ -1165,21 +1175,10 @@ fn draw_system<C: Canvas + ?Sized>(
             })
             .collect();
         // Slurs, as arcs over the staff between their first and last notes.
-        let tick_near = |page: usize, x: f32| {
-            engraved
-                .notes
-                .iter()
-                .filter(|note| note.page == page)
-                .min_by(|a, b| (a.x - x).abs().total_cmp(&(b.x - x).abs()))
-                .map(|note| note.tick)
-        };
+        // Each slur carries its own ticks, so it lands on the system that
+        // holds its first note.
         for slur in &engraved.slurs {
-            let (Some(start), Some(end)) = (
-                tick_near(slur.page, slur.start_x),
-                tick_near(slur.page, slur.end_x),
-            ) else {
-                continue;
-            };
+            let (start, end) = (slur.start_tick, slur.end_tick);
             let Some(from) = columns.x_at(system, start, sp) else {
                 continue;
             };
@@ -1216,7 +1215,13 @@ fn draw_system<C: Canvas + ?Sized>(
         }
         let percussion = staff.clef == Clef::Percussion;
 
-        // Beam runs: short notes in the same beat.
+        // Beam runs: short notes in the same beat and the same bar.
+        let same_bar = |a: Tick, b: Tick| {
+            system.measures.iter().any(|measure| {
+                let end = measure.start.saturating_add(measure.length);
+                (measure.start..end).contains(&a) && (measure.start..end).contains(&b)
+            })
+        };
         let mut runs: Vec<Vec<usize>> = Vec::new();
         for (position, group) in groups.iter().enumerate() {
             let joins = runs
@@ -1227,6 +1232,8 @@ fn draw_system<C: Canvas + ?Sized>(
                     previous.beamable()
                         && group.beamable()
                         && previous.tick.div_euclid(PPQ) == group.tick.div_euclid(PPQ)
+                        // In 3/8 or 5/8 a beat can straddle a barline.
+                        && same_bar(previous.tick, group.tick)
                 });
             if joins {
                 if let Some(run) = runs.last_mut() {
@@ -1594,5 +1601,20 @@ mod tests {
         );
         assert_eq!(written(PPQ * 3 / 2, 2 * PPQ), (PPQ, 1), "a dotted quarter");
         assert_eq!(written(4 * PPQ - 30, 4 * PPQ), (4 * PPQ, 0), "a whole note");
+    }
+
+    #[test]
+    fn bad_settings_and_far_pages_neither_hang_nor_panic() {
+        let song = song_with(&["C4", "D4", "E4", "F4"]);
+        let tracks = vec![(String::from("Lead"), engraved(&song))];
+        let settings = Settings {
+            page_height: f32::INFINITY,
+            margin: f32::NAN,
+            ..Settings::default()
+        };
+        let full = FullScore::new(&tracks, false, &[], settings);
+        assert_eq!(full.page_count(), 1);
+        assert!(full.tick_at(usize::MAX, 100.0, 100.0).is_none());
+        assert!(full.tick_at(5, 100.0, 100.0).is_none());
     }
 }

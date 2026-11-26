@@ -75,6 +75,10 @@ pub struct Vst3Instrument {
     sample_time: f64,
     sample_rate: f64,
     pending: Vec<PendingEvent>,
+    /// True once `setActive(1)` succeeded, so drop only undoes what was done.
+    active: bool,
+    /// True once `setProcessing(1)` succeeded.
+    processing: bool,
     // Keep the host and plug-in module alive while COM objects can call them.
     _host: ComPtr<vst3::Steinberg::Vst::IHostApplication>,
     _library: libloading::Library,
@@ -137,20 +141,26 @@ impl Vst3Instrument {
             let _ = unsafe { component.terminate() };
             return Err(String::from("component has no IAudioProcessor"));
         };
+        // The factory must go before the library is moved into `instrument`,
+        // or an early return would release it after the module unloads.
+        drop(factory);
         let max_block = clamp_max_block(max_block);
         // From here on an early return drops `instrument`, whose Drop
         // deactivates and terminates the component.
-        let instrument = Self {
+        let mut instrument = Self {
             processor,
             component,
             max_block,
             sample_time: 0.0,
             sample_rate,
             pending: Vec::new(),
+            active: false,
+            processing: false,
             _host: host,
             _library: library,
         };
-        let component = &instrument.component;
+        let component = instrument.component.clone();
+        let component = &component;
         let inputs = unsafe {
             component.getBusCount(MediaTypes_::kAudio as i32, BusDirections_::kInput as i32)
         }
@@ -201,17 +211,19 @@ impl Vst3Instrument {
         if active != kResultOk {
             return Err(format!("setActive returned {active}"));
         }
+        instrument.active = true;
         let processing = unsafe { instrument.processor.setProcessing(1) };
         if processing != kResultOk {
             return Err(format!("setProcessing returned {processing}"));
         }
+        instrument.processing = true;
         Ok(instrument)
     }
 
     /// Queues a note-on at a sample offset inside the next block.
     pub fn note_on_at(&mut self, key: u8, velocity: u8, offset: u32) {
         self.pending.push(PendingEvent {
-            offset: i32::try_from(offset).unwrap_or(0),
+            offset: i32::try_from(offset).unwrap_or(i32::MAX),
             on: true,
             key,
             velocity,
@@ -221,7 +233,7 @@ impl Vst3Instrument {
     /// Queues a note-off at a sample offset inside the next block.
     pub fn note_off_at(&mut self, key: u8, offset: u32) {
         self.pending.push(PendingEvent {
-            offset: i32::try_from(offset).unwrap_or(0),
+            offset: i32::try_from(offset).unwrap_or(i32::MAX),
             on: false,
             key,
             velocity: 0,
@@ -396,8 +408,12 @@ fn vst3_event(pending: &PendingEvent, offset: i32) -> Event {
 impl Drop for Vst3Instrument {
     fn drop(&mut self) {
         unsafe {
-            let _ = self.processor.setProcessing(0);
-            let _ = self.component.setActive(0);
+            if self.processing {
+                let _ = self.processor.setProcessing(0);
+            }
+            if self.active {
+                let _ = self.component.setActive(0);
+            }
             let _ = self.component.terminate();
         }
     }

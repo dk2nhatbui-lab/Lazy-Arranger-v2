@@ -188,6 +188,7 @@ impl ScoreState {
                     }
                     Err(error) => {
                         self.cecilia_page_count = 0;
+                        self.cecilia_pages.clear();
                         self.cecilia_error = Some(error);
                     }
                 }

@@ -10,9 +10,16 @@ fn main() -> eframe::Result<()> {
     let project_path: Option<PathBuf> = std::env::args().nth(1).map(PathBuf::from);
     let (project, project_path, startup_error) =
         lazy_arranger_desktop::load_startup_project(project_path.as_deref());
-    // Assistant tools may only write files inside the user's home folder.
-    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
-        let _ = mcp::set_output_root(std::path::Path::new(&home));
+    // Assistant tools may only write files inside the user's home folder,
+    // outside hidden folders. Without a home folder they get the app's own
+    // data folder, never the whole disk.
+    let root = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(lazy_arranger_desktop::settings::Settings::data_dir);
+    let _ = std::fs::create_dir_all(&root);
+    if let Err(error) = mcp::set_output_root(&root) {
+        eprintln!("assistant output folder: {error}");
     }
     let settings = lazy_arranger_desktop::settings::Settings::load(
         &lazy_arranger_desktop::settings::Settings::path(),

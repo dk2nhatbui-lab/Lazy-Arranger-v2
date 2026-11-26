@@ -717,15 +717,19 @@ mod tests {
 /// names are truncated to eight bytes. Rules keep their vendor tail.
 #[must_use]
 pub fn write_casm_sff1(groups: &[SectionRules]) -> Vec<u8> {
-    let mut cseg_children = Vec::new();
+    // One CSEG per group: merging them would give every section the
+    // first group's rules on re-import.
+    let mut segments = Vec::new();
     for group in groups {
+        let mut cseg_children = Vec::new();
         let names = group.sections.join(",");
         cseg_children.extend(chunk(b"Sdec", names.as_bytes()));
         for rule in &group.rules {
             cseg_children.extend(chunk(b"Ctab", &encode_rule_sff1(rule)));
         }
+        segments.extend(chunk(b"CSEG", &cseg_children));
     }
-    chunk(b"CASM", &chunk(b"CSEG", &cseg_children))
+    chunk(b"CASM", &segments)
 }
 
 fn chunk(id: &[u8; 4], payload: &[u8]) -> Vec<u8> {
@@ -831,6 +835,28 @@ mod writer_tests {
     }
 
     #[test]
+    fn each_group_keeps_its_own_segment() {
+        let groups = [
+            SectionRules {
+                sections: vec![String::from("Main A")],
+                rules: vec![ChordRule::new(11, 11)],
+            },
+            SectionRules {
+                sections: vec![String::from("Main B")],
+                rules: vec![ChordRule::new(12, 12), ChordRule::new(13, 13)],
+            },
+        ];
+        for bytes in [write_casm_sff1(&groups), write_casm_sff2(&groups)] {
+            let parsed = read_rules(&bytes);
+            assert_eq!(parsed.groups.len(), 2);
+            assert_eq!(parsed.groups[0].sections, vec!["Main A"]);
+            assert_eq!(parsed.groups[0].rules.len(), 1);
+            assert_eq!(parsed.groups[1].sections, vec!["Main B"]);
+            assert_eq!(parsed.groups[1].rules.len(), 2);
+        }
+    }
+
+    #[test]
     fn two_rules_and_special_bytes_round_trip_in_sff1_and_sff2() {
         let mut first = ChordRule::new(11, 11);
         first.transpose.ntt = Ntt::Chord;
@@ -860,14 +886,16 @@ mod writer_tests {
 /// round-trip exactly apart from an eight-byte name limit.
 #[must_use]
 pub fn write_casm_sff2(groups: &[SectionRules]) -> Vec<u8> {
-    let mut cseg_children = Vec::new();
+    let mut segments = Vec::new();
     for group in groups {
+        let mut cseg_children = Vec::new();
         cseg_children.extend(chunk(b"Sdec", group.sections.join(",").as_bytes()));
         for rule in &group.rules {
             cseg_children.extend(chunk(b"Ctb2", &encode_rule_sff2(rule)));
         }
+        segments.extend(chunk(b"CSEG", &cseg_children));
     }
-    chunk(b"CASM", &chunk(b"CSEG", &cseg_children))
+    chunk(b"CASM", &segments)
 }
 
 fn encode_rule_sff2(rule: &ChordRule) -> Vec<u8> {

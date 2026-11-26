@@ -11,16 +11,21 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::RenderedAudio;
 use crate::master::{Meter, meter_at};
 
-/// A sample position packed with an edit counter in one atomic.
+/// A sample position and the play flag, packed with an edit counter in one
+/// atomic.
 ///
-/// Seeks and stops bump the counter, so a callback that read the position
-/// before a seek cannot overwrite it afterwards, even when the seek lands on
-/// the same value (the ABA case).
+/// Every control change (seek, play, pause, stop) bumps the counter, so a
+/// callback that read the state before it cannot overwrite it afterwards,
+/// even when the change lands on the same value (the ABA case). Keeping the
+/// play flag in the same word means a callback that finishes the song clears
+/// it and rewinds in one step, never racing a `play()` in between.
 #[derive(Debug)]
 struct Cursor(AtomicU64);
 
 const POSITION_BITS: u32 = 44;
 const POSITION_MASK: u64 = (1 << POSITION_BITS) - 1;
+const PLAYING_BIT: u64 = 1 << POSITION_BITS;
+const EPOCH_SHIFT: u32 = POSITION_BITS + 1;
 
 impl Cursor {
     fn new() -> Self {
@@ -31,6 +36,15 @@ impl Cursor {
         (raw & POSITION_MASK) as usize
     }
 
+    fn playing(raw: u64) -> bool {
+        raw & PLAYING_BIT != 0
+    }
+
+    fn pack(epoch: u64, position: usize, playing: bool) -> u64 {
+        let position = (position as u64).min(POSITION_MASK);
+        (epoch << EPOCH_SHIFT) | if playing { PLAYING_BIT } else { 0 } | position
+    }
+
     fn load_raw(&self) -> u64 {
         self.0.load(Ordering::Acquire)
     }
@@ -39,13 +53,13 @@ impl Cursor {
         Self::position(self.load_raw())
     }
 
-    /// Moves the position from the control side, starting a new epoch.
-    fn store(&self, position: usize) {
-        let position = (position as u64).min(POSITION_MASK);
+    /// Applies a control change to `(position, playing)`, starting a new epoch.
+    fn update(&self, change: impl Fn(usize, bool) -> (usize, bool)) {
         let mut raw = self.0.load(Ordering::Acquire);
         loop {
-            let epoch = (raw >> POSITION_BITS).wrapping_add(1);
-            let next = (epoch << POSITION_BITS) | position;
+            let epoch = (raw >> EPOCH_SHIFT).wrapping_add(1);
+            let (position, playing) = change(Self::position(raw), Self::playing(raw));
+            let next = Self::pack(epoch, position, playing);
             match self
                 .0
                 .compare_exchange_weak(raw, next, Ordering::AcqRel, Ordering::Acquire)
@@ -56,11 +70,15 @@ impl Cursor {
         }
     }
 
+    /// Moves the position from the control side, keeping the play state.
+    fn store(&self, position: usize) {
+        self.update(|_, playing| (position, playing));
+    }
+
     /// Advances from `expected` (a raw value read earlier) unless a control
-    /// store happened since. Returns true when it was applied.
-    fn advance(&self, expected: u64, position: usize) -> bool {
-        let position = (position as u64).min(POSITION_MASK);
-        let next = (expected & !POSITION_MASK) | position;
+    /// change happened since. Returns true when it was applied.
+    fn advance(&self, expected: u64, position: usize, playing: bool) -> bool {
+        let next = Self::pack(expected >> EPOCH_SHIFT, position, playing);
         self.0
             .compare_exchange(expected, next, Ordering::AcqRel, Ordering::Relaxed)
             .is_ok()
@@ -76,8 +94,8 @@ fn pack_loop(start: usize, end: usize) -> u64 {
 
 fn unpack_loop(raw: u64) -> (usize, usize) {
     (
-        ((raw >> 32) as usize) * 2,
-        ((raw & 0xFFFF_FFFF) as usize) * 2,
+        ((raw >> 32) as usize).saturating_mul(2),
+        ((raw & 0xFFFF_FFFF) as usize).saturating_mul(2),
     )
 }
 
@@ -87,7 +105,6 @@ pub struct Playback {
     samples: Vec<f32>,
     sample_rate: u32,
     position: Cursor,
-    playing: AtomicBool,
     looping: AtomicBool,
     loop_bounds: AtomicU64,
     loop_wraps: AtomicU64,
@@ -97,12 +114,20 @@ impl Playback {
     /// Wraps rendered samples.
     #[must_use]
     pub fn new(audio: RenderedAudio) -> Self {
-        let len = audio.samples.len();
+        let mut samples = audio.samples;
+        // Whole stereo frames only, so left and right never swap, and clean
+        // samples, so the callback can copy them straight to the device.
+        samples.truncate(samples.len() & !1);
+        for sample in &mut samples {
+            if !sample.is_finite() {
+                *sample = 0.0;
+            }
+        }
+        let len = samples.len();
         Self {
-            samples: audio.samples,
+            samples,
             sample_rate: audio.sample_rate,
             position: Cursor::new(),
-            playing: AtomicBool::new(false),
             looping: AtomicBool::new(false),
             loop_bounds: AtomicU64::new(pack_loop(0, len)),
             loop_wraps: AtomicU64::new(0),
@@ -119,26 +144,31 @@ impl Playback {
     pub fn play(&self) {
         let looping = self.looping.load(Ordering::Acquire);
         let (start, end) = self.active_bounds(looping);
-        let pos = self.position.load();
-        if looping {
-            if pos < start || pos >= end {
-                self.position.store(start);
-            }
-        } else if pos >= self.samples.len() {
-            self.position.store(0);
-        }
-        self.playing.store(true, Ordering::Release);
+        let len = self.samples.len();
+        self.position.update(|pos, _| {
+            let pos = if looping {
+                if pos < start || pos >= end {
+                    start
+                } else {
+                    pos
+                }
+            } else if pos >= len {
+                0
+            } else {
+                pos
+            };
+            (pos, true)
+        });
     }
 
     /// Pauses without losing the position.
     pub fn pause(&self) {
-        self.playing.store(false, Ordering::Release);
+        self.position.update(|pos, _| (pos, false));
     }
 
     /// Stops and rewinds.
     pub fn stop(&self) {
-        self.playing.store(false, Ordering::Release);
-        self.position.store(0);
+        self.position.update(|_, _| (0, false));
     }
 
     /// Moves to a frame without changing the play state.
@@ -202,7 +232,7 @@ impl Playback {
     /// True while samples are being produced.
     #[must_use]
     pub fn is_playing(&self) -> bool {
-        self.playing.load(Ordering::Acquire)
+        Cursor::playing(self.position.load_raw())
     }
 
     fn active_bounds(&self, looping: bool) -> (usize, usize) {
@@ -225,24 +255,29 @@ impl Playback {
     ///
     /// Lock-free and allocation-free for safe use in a realtime audio callback.
     pub fn fill(&self, output: &mut [f32]) {
-        if !self.playing.load(Ordering::Acquire) {
+        let start_raw = self.position.load_raw();
+        if !Cursor::playing(start_raw) {
             output.fill(0.0);
             return;
         }
+        // Whole frames only; a stray odd slot gets silence, so the next
+        // callback still starts on a left sample.
+        let frames_len = output.len() & !1;
+        if let Some(extra) = output.get_mut(frames_len..) {
+            extra.fill(0.0);
+        }
+        let output = &mut output[..frames_len];
         // Read the loop state once, so one callback never mixes two ranges.
         let looping = self.looping.load(Ordering::Acquire);
         let (start, end) = self.active_bounds(looping);
-        let start_raw = self.position.load_raw();
-        let mut pos = Cursor::position(start_raw).min(self.samples.len());
+        let mut pos = Cursor::position(start_raw).min(self.samples.len()) & !1;
         let mut written = 0;
         let mut wrapped = 0u64;
         let mut finished = false;
 
         if end <= start {
             output.fill(0.0);
-            if self.position.advance(start_raw, 0) {
-                self.playing.store(false, Ordering::Release);
-            }
+            let _ = self.position.advance(start_raw, 0, false);
             return;
         }
 
@@ -272,12 +307,12 @@ impl Playback {
             finished = true;
         }
 
+        // A control change since `start_raw` wins; this callback's result is
+        // then dropped.
         if finished {
-            if self.position.advance(start_raw, 0) {
-                self.playing.store(false, Ordering::Release);
-            }
+            let _ = self.position.advance(start_raw, 0, false);
         } else {
-            let _ = self.position.advance(start_raw, pos);
+            let _ = self.position.advance(start_raw, pos, true);
         }
 
         if wrapped > 0 {
@@ -453,7 +488,14 @@ impl Player {
         let audio = resample_stereo(audio, sample_rate);
         let playback = Arc::new(Playback::new(audio));
         let shared = Arc::clone(&playback);
-        let error_callback = |error| eprintln!("audio stream error: {error}");
+        // Report the first stream error only, so a failing device cannot
+        // flood stderr from the audio thread.
+        let reported = Arc::new(AtomicBool::new(false));
+        let error_callback = move |error| {
+            if !reported.swap(true, Ordering::Relaxed) {
+                eprintln!("audio stream error: {error}");
+            }
+        };
         let actual_buffer = match stream_config.buffer_size {
             cpal::BufferSize::Fixed(frames) => Some(frames),
             cpal::BufferSize::Default => None,
@@ -790,11 +832,26 @@ mod tests {
     }
 
     #[test]
-    fn mono_buffers_are_filled_with_silence() {
-        let state = playback_with(2);
+    fn an_odd_output_slot_gets_silence_and_frames_stay_aligned() {
+        let state = playback_with(4);
         state.play();
         let mut output = [0.5_f32; 3];
         state.fill(&mut output);
-        assert_eq!(output, [0.0, 1.0, 2.0]);
+        assert_eq!(output, [0.0, 1.0, 0.0]);
+        let mut output = [0.5_f32; 2];
+        state.fill(&mut output);
+        assert_eq!(output, [2.0, 3.0]);
+    }
+
+    #[test]
+    fn non_finite_samples_play_as_silence() {
+        let state = Playback::new(RenderedAudio {
+            sample_rate: 48_000,
+            samples: vec![f32::NAN, f32::INFINITY, 0.25],
+        });
+        state.play();
+        let mut output = [1.0_f32; 2];
+        state.fill(&mut output);
+        assert_eq!(output, [0.0, 0.0]);
     }
 }

@@ -54,6 +54,40 @@ impl Default for Settings {
     }
 }
 
+impl Settings {
+    /// These settings with every size finite and in a usable range; a bad
+    /// value falls back to the default, so layout can never hang or emit NaN.
+    #[must_use]
+    pub fn sanitized(self) -> Self {
+        let fallback = Self::default();
+        let pick = |value: f32, default: f32, min: f32, max: f32| {
+            if value.is_finite() && value >= min {
+                value.min(max)
+            } else {
+                default
+            }
+        };
+        let page_width = pick(self.page_width, fallback.page_width, 72.0, 14_400.0);
+        let page_height = pick(self.page_height, fallback.page_height, 72.0, 14_400.0);
+        let margin_max = page_width.min(page_height) / 4.0;
+        Self {
+            page_width,
+            page_height,
+            margin: pick(
+                self.margin,
+                fallback.margin.min(margin_max),
+                0.0,
+                margin_max,
+            ),
+            staff_space: pick(self.staff_space, fallback.staff_space, 0.5, 100.0),
+            system_gap: pick(self.system_gap, fallback.system_gap, 0.0, 10_000.0),
+            quarter_width: pick(self.quarter_width, fallback.quarter_width, 0.5, 1_000.0),
+            measure_gap: pick(self.measure_gap, fallback.measure_gap, 0.0, 1_000.0),
+            grand_staff: self.grand_staff,
+        }
+    }
+}
+
 /// One positioned note.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlacedNote {
@@ -145,6 +179,10 @@ pub struct SlurArc {
     pub end_x: f32,
     /// Curve height above the staff.
     pub y: f32,
+    /// Tick of the first slurred note.
+    pub start_tick: Tick,
+    /// Tick of the last slurred note.
+    pub end_tick: Tick,
 }
 
 /// A rest glyph kind.
@@ -586,6 +624,8 @@ fn placed_slurs(notes: &[PlacedNote], slurs: &[project::song::Slur]) -> Vec<Slur
             start_x: first.x,
             end_x: last.x,
             y: highest - 14.0,
+            start_tick: first.tick,
+            end_tick: last.tick,
         });
     }
     out

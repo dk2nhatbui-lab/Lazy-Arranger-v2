@@ -266,7 +266,9 @@ fn stretch_interleaved(input: &[f32], target_frames: usize) -> Vec<f32> {
         previous.extend_from_slice(&current[tail_start * 2..]);
 
         has_previous = true;
-        out_frame += HOP;
+        // A short window (tiny source) moves on by its own length, so no
+        // silent gap is left behind it.
+        out_frame += HOP.min(length);
     }
     output
 }
@@ -355,7 +357,11 @@ fn mix_audio_reference(
         }
         let gain = gain as f32 * clip_gain;
         let (sample_left, sample_right) = if let Some(stretched) = &stretched {
-            (stretched[frame * 2], stretched[frame * 2 + 1])
+            // An empty stretch (size overflow) just ends the clip.
+            match (stretched.get(frame * 2), stretched.get(frame * 2 + 1)) {
+                (Some(left), Some(right)) => (*left, *right),
+                _ => break,
+            }
         } else {
             (
                 source.samples[source_position * 2],

@@ -195,10 +195,20 @@ where
     T: cpal::SizedSample + cpal::FromSample<f32>,
 {
     let channels = usize::from(config.channels).max(1);
+    // Keep at most ~50 ms waiting beyond this callback's need. A late start or
+    // clock drift would otherwise fill the queue and lock the delay at two
+    // seconds; dropping the oldest samples brings it back down.
+    let backlog = (config.sample_rate.0 as usize / 20).max(1);
     device
         .build_output_stream(
             config,
             move |data: &mut [T], _| {
+                let needed = data.len() / channels;
+                let limit = needed.saturating_add(backlog);
+                let excess = queue.len().saturating_sub(limit);
+                for _ in 0..excess {
+                    let _ = queue.pop();
+                }
                 for frame in data.chunks_exact_mut(channels) {
                     let sample = sanitize(queue.pop().unwrap_or(0.0) * gain);
                     let value = T::from_sample(sample);

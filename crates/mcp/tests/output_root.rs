@@ -43,6 +43,28 @@ fn exports_outside_the_allowed_root_are_refused() {
         )
         .is_err()
     );
+    // Folder tools may write into the root itself and new folders below it,
+    // but not into hidden folders or outside it.
+    let mut stems = |directory: std::path::PathBuf| {
+        mcp::call(
+            &mut session,
+            "export_stems",
+            &serde_json::json!({"directory": directory.display().to_string(), "sample_rate": 8000}),
+        )
+    };
+    assert!(stems(root.clone()).is_ok());
+    assert!(stems(root.join("new/stems")).is_ok());
+    assert!(stems(root.join(".hidden")).is_err());
+    assert!(stems(outside.join("stems")).is_err());
+    #[cfg(unix)]
+    {
+        let planted = root.join("linked");
+        std::fs::create_dir_all(&planted).expect("folder");
+        std::os::unix::fs::symlink(outside.join("stems.txt"), planted.join("stems.txt"))
+            .expect("link");
+        assert!(stems(planted).is_err());
+        assert!(!outside.join("stems.txt").exists());
+    }
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&outside);
 }

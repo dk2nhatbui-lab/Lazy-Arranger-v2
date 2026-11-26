@@ -537,6 +537,9 @@ impl Drop for AuEffect {
 pub struct AuInstrument {
     unit: AudioUnit,
     sample_time: f64,
+    /// MIDI waiting for the next `process_block`: (offset, status, key,
+    /// velocity). Each event goes out just before the slice that holds it.
+    pending: Vec<(u32, u32, u32, u32)>,
 }
 
 impl std::fmt::Debug for AuInstrument {
@@ -576,6 +579,7 @@ impl AuInstrument {
         let instrument = Self {
             unit,
             sample_time: 0.0,
+            pending: Vec::with_capacity(256),
         };
         instrument.configure(sample_rate)?;
         Ok(instrument)
@@ -661,25 +665,24 @@ impl AuInstrument {
     }
 
     /// Sends a MIDI note-on at the next render position.
-    pub fn note_on(&self, key: u8, velocity: u8) {
+    pub fn note_on(&mut self, key: u8, velocity: u8) {
         self.note_on_at(key, velocity, 0);
     }
 
-    /// Sends a MIDI note-on at a sample offset inside the next render block.
-    pub fn note_on_at(&self, key: u8, velocity: u8, offset: u32) {
-        let _ = unsafe {
-            MusicDeviceMIDIEvent(self.unit, 0x90, u32::from(key), u32::from(velocity), offset)
-        };
+    /// Queues a MIDI note-on at a sample offset inside the next render block.
+    pub fn note_on_at(&mut self, key: u8, velocity: u8, offset: u32) {
+        self.pending
+            .push((offset, 0x90, u32::from(key), u32::from(velocity)));
     }
 
-    /// Sends a MIDI note-off at the next render position.
-    pub fn note_off(&self, key: u8) {
+    /// Queues a MIDI note-off at the next render position.
+    pub fn note_off(&mut self, key: u8) {
         self.note_off_at(key, 0);
     }
 
-    /// Sends a MIDI note-off at a sample offset inside the next render block.
-    pub fn note_off_at(&self, key: u8, offset: u32) {
-        let _ = unsafe { MusicDeviceMIDIEvent(self.unit, 0x80, u32::from(key), 0, offset) };
+    /// Queues a MIDI note-off at a sample offset inside the next render block.
+    pub fn note_off_at(&mut self, key: u8, offset: u32) {
+        self.pending.push((offset, 0x80, u32::from(key), 0));
     }
 
     /// Renders one stereo block into `left`/`right`.
@@ -689,14 +692,38 @@ impl AuInstrument {
     /// Returns a message when the unit rejects the block.
     pub fn process_block(&mut self, left: &mut [f32], right: &mut [f32]) -> Result<(), String> {
         let frames = left.len().min(right.len());
+        if frames == 0 {
+            return Ok(());
+        }
+        let mut pending = std::mem::take(&mut self.pending);
+        // Stable sort keeps a note-off before a later note-on at one offset.
+        pending.sort_by_key(|event| event.0);
+        let mut next = 0;
+        let mut result = Ok(());
         // Never render more than the MaximumFramesPerSlice set in configure().
         let mut start = 0;
         while start < frames {
             let end = (start + INSTRUMENT_MAX_FRAMES).min(frames);
-            self.render_slice(&mut left[start..end], &mut right[start..end])?;
+            // Each event goes out just before its slice, with an offset
+            // inside that slice; events past the block land on its last frame.
+            while let Some(&(offset, status, key, velocity)) = pending.get(next) {
+                let at = (offset as usize).min(frames - 1);
+                if at >= end {
+                    break;
+                }
+                next += 1;
+                let local = u32::try_from(at - start).unwrap_or(0);
+                let _ = unsafe { MusicDeviceMIDIEvent(self.unit, status, key, velocity, local) };
+            }
+            if let Err(error) = self.render_slice(&mut left[start..end], &mut right[start..end]) {
+                result = Err(error);
+                break;
+            }
             start = end;
         }
-        Ok(())
+        pending.clear();
+        self.pending = pending;
+        result
     }
 
     fn render_slice(&mut self, left: &mut [f32], right: &mut [f32]) -> Result<(), String> {

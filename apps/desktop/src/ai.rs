@@ -149,7 +149,17 @@ pub fn chat_with_history(
     let output = command.spawn().and_then(|mut child| {
         if let Some(mut stdin) = child.stdin.take() {
             use std::io::Write;
-            stdin.write_all(body.to_string().as_bytes())?;
+            // curl may exit before reading (DNS, TLS, refused). Its own
+            // error is the useful one, and it must still be reaped.
+            match stdin.write_all(body.to_string().as_bytes()) {
+                Err(error) if error.kind() != std::io::ErrorKind::BrokenPipe => {
+                    drop(stdin);
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(error);
+                }
+                _ => {}
+            }
         }
         child.wait_with_output()
     });

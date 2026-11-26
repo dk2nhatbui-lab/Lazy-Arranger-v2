@@ -242,6 +242,21 @@ pub struct BlockReport {
     pub finished: bool,
 }
 
+/// A note the scheduler started and has not ended yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ActiveNote {
+    track: TrackId,
+    channel: music_core::Channel,
+    key: music_core::Pitch,
+    /// Overlapping note-ons of the same key on the same track.
+    count: u16,
+    /// Set when the next block must end this note itself.
+    release: bool,
+}
+
+/// Most notes tracked at once; storage is allocated up front.
+const MAX_ACTIVE_NOTES: usize = 512;
+
 /// The real-time scheduler: one prepared snapshot, one sample cursor.
 #[derive(Clone, Debug)]
 pub struct Scheduler {
@@ -249,10 +264,10 @@ pub struct Scheduler {
     position: SamplePosition,
     cursor: usize,
     playing: bool,
-    /// Sounding notes: one bit per key, one word per channel.
-    active: [u128; 16],
-    /// Set by stop and seek: the next block first releases every sounding
-    /// note, so none is left hanging.
+    /// Sounding notes, per track, channel and key.
+    active: Vec<ActiveNote>,
+    /// Set by stop, seek and publish: the next block first releases the
+    /// marked notes, so none is left hanging.
     release_pending: bool,
 }
 
@@ -265,7 +280,7 @@ impl Scheduler {
             position: 0,
             cursor: 0,
             playing: false,
-            active: [0; 16],
+            active: Vec::with_capacity(MAX_ACTIVE_NOTES),
             release_pending: false,
         }
     }
@@ -275,9 +290,25 @@ impl Scheduler {
     /// The new snapshot must be compiled for the same sample rate. The cursor
     /// moves to the first event at or after the current position, so a tempo
     /// edit during playback never replays or drops an event.
+    ///
+    /// A sounding note whose note-off is gone from the new snapshot (the note
+    /// was edited, deleted or muted) is released by the next block.
     pub fn publish(&mut self, prepared: PreparedPattern) {
         self.prepared = prepared;
         self.seek_to_position();
+        let upcoming = &self.prepared.events[self.cursor..];
+        for note in &mut self.active {
+            let ends_later = upcoming.iter().any(|event| {
+                event.track == note.track
+                    && matches!(
+                        event.message.normalized(),
+                        MidiMessage::NoteOff { channel, key, .. }
+                            if channel == note.channel && key == note.key
+                    )
+            });
+            note.release |= !ends_later;
+        }
+        self.release_pending = self.active.iter().any(|note| note.release);
     }
 
     /// The active snapshot.
@@ -295,13 +326,20 @@ impl Scheduler {
     /// note that is still sounding.
     pub fn stop(&mut self) {
         self.playing = false;
-        self.release_pending = self.has_active_notes();
+        self.release_all();
     }
 
     /// True while a note-on has been emitted without its note-off.
     #[must_use]
     pub fn has_active_notes(&self) -> bool {
-        self.active.iter().any(|keys| *keys != 0)
+        !self.active.is_empty()
+    }
+
+    fn release_all(&mut self) {
+        for note in &mut self.active {
+            note.release = true;
+        }
+        self.release_pending = self.has_active_notes();
     }
 
     /// True while the scheduler emits events.
@@ -327,7 +365,7 @@ impl Scheduler {
     /// Moves to an absolute sample position.
     pub fn seek(&mut self, sample: SamplePosition) {
         self.position = sample.max(0);
-        self.release_pending = self.has_active_notes();
+        self.release_all();
         self.seek_to_position();
     }
 
@@ -367,7 +405,8 @@ impl Scheduler {
                 }
                 if event.sample >= block_start && out.push(*event) {
                     emitted += 1;
-                    self.track_note(event.message);
+                    let event = *event;
+                    self.track_note(&event);
                 }
                 self.cursor += 1;
             }
@@ -385,48 +424,70 @@ impl Scheduler {
         }
     }
 
-    fn track_note(&mut self, message: MidiMessage) {
-        match message.normalized() {
-            MidiMessage::NoteOn { channel, key, .. } => {
-                self.active[usize::from(channel.zero_based())] |= 1 << key.as_u8();
+    fn track_note(&mut self, event: &ScheduledEvent) {
+        let (channel, key, on) = match event.message.normalized() {
+            MidiMessage::NoteOn { channel, key, .. } => (channel, key, true),
+            MidiMessage::NoteOff { channel, key, .. } => (channel, key, false),
+            _ => return,
+        };
+        let found = self.active.iter().position(|note| {
+            note.track == event.track && note.channel == channel && note.key == key
+        });
+        match (found, on) {
+            (Some(index), true) => {
+                let note = &mut self.active[index];
+                note.count = note.count.saturating_add(1);
             }
-            MidiMessage::NoteOff { channel, key, .. } => {
-                self.active[usize::from(channel.zero_based())] &= !(1 << key.as_u8());
+            (None, true) if self.active.len() < MAX_ACTIVE_NOTES => {
+                self.active.push(ActiveNote {
+                    track: event.track,
+                    channel,
+                    key,
+                    count: 1,
+                    release: false,
+                });
+            }
+            (Some(index), false) => {
+                let note = &mut self.active[index];
+                note.count = note.count.saturating_sub(1);
+                if note.count == 0 {
+                    self.active.swap_remove(index);
+                }
             }
             _ => {}
         }
     }
 
-    /// Emits a note-off at `sample` for every sounding note. Notes that do not
-    /// fit in `out` stay tracked and are released by the next block.
+    /// Emits a note-off at `sample` for every note marked for release, on
+    /// the track that started it. Notes that do not fit in `out` stay
+    /// tracked and are released by the next block.
     fn release_active(&mut self, sample: SamplePosition, out: &mut EventBuffer) -> usize {
+        let tick = self
+            .prepared
+            .tempo_map
+            .tick_at_samples(sample, self.prepared.sample_rate);
         let mut emitted = 0;
-        for (channel_index, keys) in self.active.iter_mut().enumerate() {
-            let Ok(channel) = music_core::Channel::new(channel_index as u8) else {
+        let mut index = 0;
+        while let Some(note) = self.active.get_mut(index) {
+            if !note.release {
+                index += 1;
                 continue;
-            };
-            for key in 0..128_u8 {
-                if *keys & (1 << key) == 0 {
-                    continue;
-                }
-                let Ok(pitch) = music_core::Pitch::new(key) else {
-                    continue;
-                };
+            }
+            // One note-off per overlapping note-on, for synths that count.
+            while note.count > 0 {
                 let event = ScheduledEvent {
                     sample,
-                    tick: self
-                        .prepared
-                        .tempo_map
-                        .tick_at_samples(sample, self.prepared.sample_rate),
-                    track: TrackId::new(1).expect("1 is a valid track id"),
-                    message: MidiMessage::note_off(channel, pitch, zero_velocity()),
+                    tick,
+                    track: note.track,
+                    message: MidiMessage::note_off(note.channel, note.key, zero_velocity()),
                 };
                 if !out.push(event) {
                     return emitted;
                 }
-                *keys &= !(1 << key);
+                note.count -= 1;
                 emitted += 1;
             }
+            self.active.swap_remove(index);
         }
         self.release_pending = false;
         emitted
@@ -803,6 +864,42 @@ mod tests {
             out.events()[0].message,
             MidiMessage::NoteOff { .. }
         ));
+        assert!(!scheduler.has_active_notes());
+    }
+
+    #[test]
+    fn deleting_a_sounding_note_releases_it_on_its_track() {
+        let note = Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: music_core::PPQ * 8,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        };
+        let mut song = Song::new("Held", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        song.tracks.push(track.clone());
+        track.id = TrackId::new(2).expect("valid");
+        track.notes.push(note);
+        song.tracks.push(track);
+        let mut scheduler =
+            Scheduler::new(PreparedPattern::prepare(&song, 48_000).expect("prepare"));
+        let mut out = EventBuffer::with_capacity(16);
+        scheduler.play();
+        scheduler.process_block(256, &mut out);
+        assert!(scheduler.has_active_notes());
+        // Publishing the same song keeps the note sounding.
+        scheduler.publish(PreparedPattern::prepare(&song, 48_000).expect("prepare"));
+        scheduler.process_block(256, &mut out);
+        assert!(out.events().is_empty());
+        assert!(scheduler.has_active_notes());
+        song.tracks[1].notes.clear();
+        scheduler.publish(PreparedPattern::prepare(&song, 48_000).expect("prepare"));
+        scheduler.process_block(256, &mut out);
+        let event = out.events()[0];
+        assert!(matches!(event.message, MidiMessage::NoteOff { .. }));
+        assert_eq!(event.track, TrackId::new(2).expect("valid"));
         assert!(!scheduler.has_active_notes());
     }
 }
