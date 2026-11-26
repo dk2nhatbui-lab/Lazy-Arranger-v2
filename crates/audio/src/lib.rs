@@ -5,6 +5,7 @@
 //! can check timing and level without opening an audio device.
 
 pub mod analysis;
+pub mod automation;
 pub mod chords;
 pub mod decode;
 pub mod drums;
@@ -2969,5 +2970,127 @@ mod tests {
         assert!(output.iter().all(|sample| sample.abs() < 1e-6));
         assert_eq!(playback.collect_garbage(), 1);
         let _ = std::fs::remove_dir_all(bundle.parent().expect("root"));
+    }
+
+    /// A song whose first track's fader, pan and send follow automation,
+    /// sending to a bus with or without (missing) plug-ins.
+    fn automated_song(bus_plugins: bool) -> Song {
+        use project::song::{Automation, AutomationPoint, AutomationTarget};
+        let mut song = bus_song(missing_slot());
+        if !bus_plugins {
+            song.buses[0].plugins.clear();
+        }
+        let ramp = |target, from: f32, to: f32| Automation {
+            target,
+            points: vec![
+                AutomationPoint {
+                    tick: 0,
+                    value: from,
+                },
+                AutomationPoint {
+                    tick: music_core::PPQ,
+                    value: to,
+                },
+            ],
+        };
+        song.tracks[1].automation = vec![
+            ramp(AutomationTarget::Volume, 20.0, 120.0),
+            ramp(AutomationTarget::Pan, 0.0, 127.0),
+            ramp(AutomationTarget::Send, 127.0, 0.0),
+        ];
+        song
+    }
+
+    #[test]
+    fn automated_tracks_play_live_as_they_render() {
+        for bus_plugins in [false, true] {
+            let song = automated_song(bus_plugins);
+            assert_eq!(crate::live::live_tracks(&song), vec![true, true]);
+            let live = crate::live::render(&song, SAMPLE_RATE);
+            assert!(live.envelopes[1].is_some(), "the automation runs live");
+            assert_eq!(live.buses.len(), usize::from(bus_plugins));
+            let offline = render(&song, SAMPLE_RATE);
+            let worst = worst_difference(&play_live(live), &offline.samples);
+            assert!(
+                worst < 1e-5,
+                "bus plug-ins {bus_plugins}: live and offline differ by {worst}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_automation_edit_swaps_in_while_playing() {
+        use project::song::AutomationPoint;
+        let mut song = automated_song(false);
+        let live = crate::live::render(&song, SAMPLE_RATE);
+        let len = live.fixed.samples.len();
+        let mut playback = crate::player::Playback::new_live(live);
+        playback.play();
+        // Fader down to silence for the whole song.
+        song.tracks[1].automation[0].points = vec![AutomationPoint {
+            tick: 0,
+            value: 0.0,
+        }];
+        song.tracks[1].automation[2].points = vec![AutomationPoint {
+            tick: 0,
+            value: 0.0,
+        }];
+        let envelope =
+            crate::automation::Envelope::build(&song, &song.tracks[1], SAMPLE_RATE, len / 2);
+        playback
+            .swap_envelope(song.tracks[1].id, envelope)
+            .expect("swap");
+        let mut output = vec![0.0_f32; len];
+        playback.fill(&mut output);
+        assert_eq!(playback.collect_garbage(), 1, "the old envelope comes back");
+        song.tracks[0].muted = true;
+        let only_automated = render(&song, SAMPLE_RATE);
+        assert!(
+            only_automated
+                .samples
+                .iter()
+                .all(|sample| sample.abs() < 1e-6)
+        );
+        song.tracks[0].muted = false;
+        let offline = render(&song, SAMPLE_RATE);
+        let worst = worst_difference(&output, &offline.samples);
+        assert!(worst < 1e-5, "live and offline differ by {worst}");
+    }
+
+    #[test]
+    fn an_edit_on_a_rendered_track_swaps_in_one_lane() {
+        let song = automated_song(true);
+        let mut moved = song.clone();
+        for note in &mut moved.tracks[0].notes {
+            note.start += music_core::PPQ / 2;
+        }
+        // A track with an effect slot is rendered, not a synth lane, like a
+        // track with recorded audio.
+        let mut with_slot = song.clone();
+        with_slot.tracks[0].plugins.push(missing_slot());
+        let mut moved_slot = moved.clone();
+        moved_slot.tracks[0].plugins.push(missing_slot());
+        assert_ne!(
+            crate::live::lane_signature(&with_slot, &with_slot.tracks[0]),
+            crate::live::lane_signature(&moved_slot, &moved_slot.tracks[0])
+        );
+        let live = crate::live::render(&with_slot, SAMPLE_RATE);
+        let len = live.fixed.samples.len();
+        let mut playback = crate::player::Playback::new_live(live);
+        playback.play();
+        let lane = crate::live::render_lane(&moved_slot, SAMPLE_RATE, moved_slot.tracks[0].id)
+            .expect("a rendered lane");
+        assert_eq!(lane.delay, 0);
+        playback
+            .swap_lane(moved_slot.tracks[0].id, lane.samples)
+            .expect("swap");
+        let mut output = vec![0.0_f32; len];
+        playback.fill(&mut output);
+        assert_eq!(playback.collect_garbage(), 1, "the old buffer comes back");
+        let offline = render(&moved_slot, SAMPLE_RATE);
+        let worst = worst_difference(&output, &offline.samples[..len]);
+        assert!(worst < 1e-5, "live and offline differ by {worst}");
+        // A synth lane is not rendered.
+        assert!(crate::live::render_lane(&song, SAMPLE_RATE, song.tracks[0].id).is_none());
     }
 }

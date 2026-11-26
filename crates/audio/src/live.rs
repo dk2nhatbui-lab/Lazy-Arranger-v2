@@ -6,12 +6,15 @@
 //! lane). The player sums the lanes with gains it reads while it plays, so a
 //! fader, pan, mute or solo change is heard at the next audio buffer.
 //!
-//! A track stays in the fixed part of the render when its gain changes over
-//! time: volume, pan or send automation. A bus such a track feeds stays
-//! fixed too, so its plug-ins run once over everything on it. Changes that
-//! touch the fixed part still need a new render.
+//! A track with volume, pan or send automation is live too: its lane
+//! carries an [`Envelope`] the engine follows as it plays. Only tracks past
+//! [`MAX_LANES`] stay in the fixed part of the render, and a bus such a
+//! track feeds stays fixed, so its plug-ins run once over everything on it.
 //!
-//! Every other bus with plug-ins is a [`LiveBus`]: the engine sums its feeds,
+//! An edit on one rendered lane (a clip move, a take) renders that lane
+//! alone again with [`render_lane`] and swaps it in.
+//!
+//! Every bus with plug-ins and only live feeds is a [`LiveBus`]: the engine sums its feeds,
 //! runs its plug-ins and applies its fader live, and delays the direct
 //! route to the master to line up with bus plug-in latency. The master
 //! plug-ins always run live.
@@ -29,8 +32,9 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use project::TrackId;
-use project::song::{AutomationTarget, Bus, PluginSlot, Song, Track};
+use project::song::{Bus, PluginSlot, Song, Track};
 
+use crate::automation::Envelope;
 use crate::inserts::Inserts;
 use crate::master::{self, Master};
 use crate::synth::SynthLane;
@@ -58,8 +62,13 @@ pub struct LiveRender {
     /// Left and right gain of each lane's direct route to the master (its
     /// fader, pan, and plain buses) when it was rendered.
     pub gains: Vec<(f32, f32)>,
-    /// Each lane's routes into live buses: bus id, left and right gain.
-    pub feeds: Vec<Vec<(u8, f32, f32)>>,
+    /// Each lane's routes into live buses: bus id, whether it is the send,
+    /// left and right gain.
+    pub feeds: Vec<Vec<(u8, bool, f32, f32)>>,
+    /// Each lane's plain send route at unity, for an automated send.
+    pub sends: Vec<(f32, f32)>,
+    /// Each lane's gain automation, when its fader, pan or send has any.
+    pub envelopes: Vec<Option<Envelope>>,
     /// Buses whose plug-ins run live.
     pub buses: Vec<LiveBus>,
     /// Frames the direct route is delayed by, to line up with bus plug-in
@@ -96,6 +105,8 @@ impl LiveRender {
             tracks: Vec::new(),
             gains: Vec::new(),
             feeds: Vec::new(),
+            sends: Vec::new(),
+            envelopes: Vec::new(),
             buses: Vec::new(),
             bus_delay: 0,
             master_inserts: None,
@@ -193,26 +204,11 @@ pub fn bus_audible(song: &Song, bus: &Bus) -> bool {
 /// the stack. Tracks past this count stay in the fixed part.
 pub const MAX_LANES: usize = 256;
 
-fn automated(track: &Track) -> bool {
-    track.automation.iter().any(|lane| {
-        matches!(
-            lane.target,
-            AutomationTarget::Volume | AutomationTarget::Pan | AutomationTarget::Send
-        )
-    })
-}
-
-/// Tracks that could be live before bus routing is considered: no gain
-/// automation, and within [`MAX_LANES`].
+/// Tracks that could be live before bus routing is considered: the first
+/// [`MAX_LANES`].
 fn candidates(song: &Song) -> Vec<bool> {
-    let mut count = 0;
-    song.tracks
-        .iter()
-        .map(|track| {
-            let candidate = count < MAX_LANES && !automated(track);
-            count += usize::from(candidate);
-            candidate
-        })
+    (0..song.tracks.len())
+        .map(|index| index < MAX_LANES)
         .collect()
 }
 
@@ -288,18 +284,28 @@ pub struct LaneGains {
     /// Straight to the master: the fader and pan, then a plain bus or the
     /// master, plus a send to a plain bus.
     pub direct: (f32, f32),
-    /// Into live buses: bus id, left and right gain.
-    pub feeds: Vec<(u8, f32, f32)>,
+    /// The send to a plain bus at unity level, for a track whose send
+    /// level follows automation; zero otherwise, as `direct` holds it.
+    pub send: (f32, f32),
+    /// Into live buses: bus id, whether it is the send, left and right gain.
+    pub feeds: Vec<(u8, bool, f32, f32)>,
 }
 
 /// The gains of a live track, given which buses run live.
 #[must_use]
+///
+/// For a track with gain automation the engine applies the fader, pan and
+/// send level from its [`crate::automation::Envelope`], so these gains are
+/// the routes only, and `send` carries the plain send route at unity.
 pub fn lane_routes(song: &Song, buses: &[bool], track: &Track) -> LaneGains {
     let audible = song.is_audible(track);
-    let (track_left, track_right) = if audible {
-        gains(f32::from(track.volume), track.pan)
-    } else {
+    let enveloped = crate::automation::automated(track);
+    let (track_left, track_right) = if !audible {
         (0.0, 0.0)
+    } else if enveloped {
+        (1.0, 1.0)
+    } else {
+        gains(f32::from(track.volume), track.pan)
     };
     let mut routes = LaneGains::default();
     let (mut left, mut right) = (0.0, 0.0);
@@ -307,19 +313,27 @@ pub fn lane_routes(song: &Song, buses: &[bool], track: &Track) -> LaneGains {
         Some(index) if buses[index] => {
             routes
                 .feeds
-                .push((song.buses[index].id, track_left, track_right));
+                .push((song.buses[index].id, false, track_left, track_right));
         }
         Some(index) => (left, right) = bus_gain(song, &song.buses[index]),
         None => (left, right) = (1.0, 1.0),
     }
     if let Some(index) = bus_index(song, track.send) {
-        let level = f32::from(track.send_level.min(127)) / 100.0;
+        let level = if enveloped {
+            1.0
+        } else {
+            f32::from(track.send_level.min(127)) / 100.0
+        };
         if buses[index] {
             routes.feeds.push((
                 song.buses[index].id,
+                true,
                 track_left * level,
                 track_right * level,
             ));
+        } else if enveloped {
+            let (send_left, send_right) = bus_gain(song, &song.buses[index]);
+            routes.send = (track_left * send_left, track_right * send_right);
         } else {
             let (send_left, send_right) = bus_gain(song, &song.buses[index]);
             left += send_left * level;
@@ -365,6 +379,8 @@ pub fn hash_fixed(song: &Song, hasher: &mut impl Hasher) {
         track.send.hash(hasher);
         let live_inserts = *live && crate::inserts::can_run_live(track);
         live_inserts.hash(hasher);
+        // Automation edits swap in a new envelope on their own.
+        crate::automation::automated(track).hash(hasher);
         // Live insert chains are swapped in on their own.
         if !live_inserts {
             for slot in &track.plugins {
@@ -439,6 +455,7 @@ pub fn render_with_soundfont(
         .filter(|(_, live)| **live)
         .map(|(track, _)| track)
         .collect();
+    let frames = parts.fixed.samples.len() / 2;
     let routes: Vec<LaneGains> = live_tracks
         .iter()
         .map(|track| lane_routes(song, &buses, track))
@@ -474,7 +491,15 @@ pub fn render_with_soundfont(
             .collect(),
         tracks: live_tracks.iter().map(|track| track.id).collect(),
         gains: routes.iter().map(|routes| routes.direct).collect(),
+        sends: routes.iter().map(|routes| routes.send).collect(),
         feeds: routes.into_iter().map(|routes| routes.feeds).collect(),
+        envelopes: live_tracks
+            .iter()
+            .map(|track| {
+                crate::automation::automated(track)
+                    .then(|| Envelope::build(song, track, sample_rate, frames))
+            })
+            .collect(),
         buses: song
             .buses
             .iter()
@@ -498,6 +523,98 @@ pub fn render_with_soundfont(
         reverb: 0.0,
         finished: false,
     }
+}
+
+/// A fingerprint of everything a rendered lane is built from: recorded
+/// audio, takes and comps, notes, sound, plug-ins, the automation the
+/// render bakes in, and the tempo. When it changes, the lane is out of date.
+#[must_use]
+pub fn lane_signature(song: &Song, track: &Track) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    // Small values without `Hash`: their debug text is enough.
+    format!(
+        "{:?}{:?}{:?}{:?}{:?}{:?}{:?}",
+        track.audio,
+        track.takes,
+        track.comps,
+        track.notes,
+        track.patch,
+        track.soundfont,
+        song.tempo_map
+    )
+    .hash(&mut hasher);
+    // Live inserts are left out of the lane and swapped on their own.
+    if !crate::inserts::can_run_live(track) {
+        format!("{:?}", track.plugins).hash(&mut hasher);
+    }
+    for lane in &track.automation {
+        if !matches!(
+            lane.target,
+            project::song::AutomationTarget::Volume
+                | project::song::AutomationTarget::Pan
+                | project::song::AutomationTarget::Send
+        ) {
+            format!("{:?}{:?}", lane.target, lane.points).hash(&mut hasher);
+        }
+    }
+    hasher.finish()
+}
+
+/// One track's lane rendered again, to swap into a playing graph.
+#[derive(Debug)]
+pub struct LaneRender {
+    /// The lane buffer, before the track's fader.
+    pub samples: Vec<f32>,
+    /// Frames lanes are delayed by for track plug-in latency. A lane fits a
+    /// playing graph only when this matches the graph's.
+    pub delay: usize,
+    /// Frames the direct route is delayed by for bus plug-in latency; must
+    /// match too.
+    pub bus_delay: usize,
+}
+
+/// Renders only one live track's lane, as [`render`] would, so an edit on
+/// that track (a clip move, a take, a plug-in instrument) is heard without
+/// rendering the whole song. None when the track is not live or plays as
+/// a synth lane.
+#[must_use]
+pub fn render_lane(song: &Song, sample_rate: u32, track: TrackId) -> Option<LaneRender> {
+    let live = live_tracks(song);
+    let index = song.tracks.iter().position(|entry| entry.id == track)?;
+    if !live[index] || crate::synth::can_play(&song.tracks[index]) {
+        return None;
+    }
+    // Every other track is skipped, as if a synth lane played it.
+    let skip: Vec<bool> = (0..song.tracks.len()).map(|other| other != index).collect();
+    let dry: Vec<bool> = song
+        .tracks
+        .iter()
+        .map(crate::inserts::can_run_live)
+        .collect();
+    let buses = live_buses(song);
+    let parts = crate::render_parts(
+        song,
+        sample_rate,
+        &mut |path| {
+            std::fs::read(path)
+                .ok()
+                .and_then(|bytes| soundfont::parse(&bytes).ok())
+        },
+        &crate::LivePlan {
+            live: &live,
+            skip: &skip,
+            dry: &dry,
+            buses: &buses,
+            master: true,
+        },
+    );
+    let lane = live[..index].iter().filter(|live| **live).count();
+    let samples = parts.lanes.into_iter().nth(lane)?;
+    Some(LaneRender {
+        samples,
+        delay: parts.delay,
+        bus_delay: parts.bus_delay,
+    })
 }
 
 #[cfg(test)]
@@ -568,12 +685,13 @@ mod tests {
     }
 
     #[test]
-    fn automation_keeps_a_track_and_the_bus_it_feeds_fixed() {
+    fn automated_tracks_and_their_buses_stay_live() {
         let mut song = song();
         song.tracks[0].automation.push(project::song::Automation {
-            target: AutomationTarget::Volume,
+            target: project::song::AutomationTarget::Volume,
             points: Vec::new(),
         });
+        song.tracks[0].send = Some(1);
         song.buses[0].plugins.push(PluginSlot {
             id: 1,
             name: String::from("Effect"),
@@ -583,23 +701,31 @@ mod tests {
             bypassed: false,
             state: String::new(),
         });
-        // The bus plug-ins run live, so the track on the bus stays live.
-        assert_eq!(live_tracks(&song), vec![false, true]);
+        assert_eq!(live_tracks(&song), vec![true, true]);
         assert_eq!(live_buses(&song), vec![true]);
-        // Once a fixed track feeds the bus too, the bus and both tracks
-        // are rendered.
-        song.tracks[0].send = Some(1);
-        assert_eq!(live_buses(&song), vec![false]);
-        assert_eq!(live_tracks(&song), vec![false, false]);
         let mut before = std::collections::hash_map::DefaultHasher::new();
         hash_fixed(&song, &mut before);
         song.tracks[0].volume = 10;
+        song.tracks[0].automation[0]
+            .points
+            .push(project::song::AutomationPoint {
+                tick: 0,
+                value: 20.0,
+            });
         let mut after = std::collections::hash_map::DefaultHasher::new();
         hash_fixed(&song, &mut after);
-        assert_ne!(
+        assert_eq!(
             before.finish(),
             after.finish(),
-            "a fixed fader renders again"
+            "an automation edit swaps in a new envelope"
+        );
+        song.tracks[0].automation.clear();
+        let mut cleared = std::collections::hash_map::DefaultHasher::new();
+        hash_fixed(&song, &mut cleared);
+        assert_ne!(
+            after.finish(),
+            cleared.finish(),
+            "removing it renders again"
         );
     }
 }

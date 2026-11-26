@@ -7,9 +7,10 @@
 //!
 //! A track's insert plug-ins run live too: a preset, knob or bypass change
 //! builds a new chain for that track and swaps it in. Some changes still
-//! need a new render: a fader on a track with volume automation, a bus fed
-//! by such a track, or a plug-in change that alters a track's or bus's
-//! latency. Bus and master plug-ins run live and swap like track inserts.
+//! need a new render: adding the first or removing the last gain automation
+//! lane of a track, or a plug-in change that alters a track's or bus's
+//! latency. Bus and master plug-ins run live and swap like track inserts,
+//! and a volume, pan or send automation edit swaps in a new envelope.
 //! The app watches a fingerprint of those settings. When it changes, the
 //! song renders again in the background, and the engine swaps the new graph
 //! in at its next buffer, at the same position, on the same stream.
@@ -32,6 +33,20 @@ pub(super) struct SynthState {
     /// Each plug-in chain that could run live: track inserts, live buses
     /// and the master.
     inserts: Vec<InsertLane>,
+    /// Each track with gain automation and the fingerprint its envelope
+    /// was built from.
+    envelopes: Vec<(TrackId, u64)>,
+    /// Length of the playing graph in frames.
+    frames: usize,
+    /// Each rendered lane and the fingerprint it was rendered from.
+    lanes: Vec<(TrackId, u64)>,
+    /// The direct route's bus delay in the playing graph.
+    bus_delay: usize,
+    /// A lane being rendered again in the background.
+    pending: Option<(
+        TrackId,
+        std::sync::mpsc::Receiver<Option<audio::live::LaneRender>>,
+    )>,
 }
 
 /// A plug-in chain that could run in the audio callback.
@@ -86,12 +101,37 @@ impl SynthState {
                 live: true,
             }))
             .collect();
+        let envelopes = render
+            .tracks
+            .iter()
+            .zip(&render.envelopes)
+            .filter(|(_, envelope)| envelope.is_some())
+            .filter_map(|(id, _)| {
+                let track = song.tracks.iter().find(|track| track.id == *id)?;
+                Some((*id, audio::automation::signature(song, track)))
+            })
+            .collect();
+        let lanes = render
+            .tracks
+            .iter()
+            .zip(&render.synths)
+            .filter(|(_, synth)| synth.is_none())
+            .filter_map(|(id, _)| {
+                let track = song.tracks.iter().find(|track| track.id == *id)?;
+                Some((*id, audio::live::lane_signature(song, track)))
+            })
+            .collect();
         Self {
             fonts: render.fonts.iter().cloned().collect(),
             delay: render.synth_delay,
             rate: render.sample_rate(),
             tracks,
             inserts,
+            envelopes,
+            frames: render.fixed.samples.len() / 2,
+            lanes,
+            bus_delay: render.bus_delay,
+            pending: None,
         }
     }
 
@@ -99,8 +139,12 @@ impl SynthState {
     /// built for; otherwise the player baked them and they cannot be
     /// swapped.
     pub(super) fn fit(self, player_rate: u32) -> Option<Self> {
-        (self.rate == player_rate && !(self.tracks.is_empty() && self.inserts.is_empty()))
-            .then_some(self)
+        (self.rate == player_rate
+            && !(self.tracks.is_empty()
+                && self.inserts.is_empty()
+                && self.envelopes.is_empty()
+                && self.lanes.is_empty()))
+        .then_some(self)
     }
 
     /// Rebuilds the lane of every synth track whose notes or sound changed,
@@ -108,9 +152,80 @@ impl SynthState {
     /// into the player, so the edit is heard while playing. Returns true
     /// when a change cannot be swapped in and needs a new render.
     pub(super) fn swap_edited(&mut self, song: &Song, player: &audio::player::Player) -> bool {
-        let rerender = self.swap_inserts(song, player);
+        let mut rerender = self.swap_inserts(song, player);
         self.swap_synths(song, player);
+        self.swap_envelopes(song, player);
+        rerender |= self.swap_lanes(song, player);
         rerender
+    }
+
+    /// Renders the lane of one edited track again in the background (a
+    /// clip move, a take, a plug-in instrument) and swaps it in when done.
+    /// Returns true when the new lane does not fit the playing graph.
+    fn swap_lanes(&mut self, song: &Song, player: &audio::player::Player) -> bool {
+        if let Some((id, receiver)) = &self.pending {
+            let id = *id;
+            match receiver.try_recv() {
+                Err(std::sync::mpsc::TryRecvError::Empty) => return false,
+                Ok(Some(lane)) => {
+                    self.pending = None;
+                    if lane.delay != self.delay
+                        || lane.bus_delay != self.bus_delay
+                        || lane.samples.len() > self.frames * 2
+                    {
+                        // The latency or the song length changed.
+                        return true;
+                    }
+                    if player.swap_lane(id, lane.samples).is_err()
+                        && let Some(entry) = self.lanes.iter_mut().find(|entry| entry.0 == id)
+                    {
+                        // Try again later.
+                        entry.1 = 0;
+                    }
+                }
+                Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.pending = None;
+                }
+            }
+        }
+        for (id, built) in &mut self.lanes {
+            let Some(track) = song.tracks.iter().find(|track| track.id == *id) else {
+                continue;
+            };
+            let signature = audio::live::lane_signature(song, track);
+            if signature == *built {
+                continue;
+            }
+            *built = signature;
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let (song, rate, track) = (song.clone(), self.rate, *id);
+            std::thread::spawn(move || {
+                let _ = sender.send(audio::live::render_lane(&song, rate, track));
+            });
+            self.pending = Some((*id, receiver));
+            break;
+        }
+        false
+    }
+
+    fn swap_envelopes(&mut self, song: &Song, player: &audio::player::Player) {
+        for (id, built) in &mut self.envelopes {
+            let Some(track) = song.tracks.iter().find(|track| track.id == *id) else {
+                continue;
+            };
+            // Adding or removing all gain automation renders again.
+            if !audio::automation::automated(track) {
+                continue;
+            }
+            let signature = audio::automation::signature(song, track);
+            if signature == *built {
+                continue;
+            }
+            let envelope = audio::automation::Envelope::build(song, track, self.rate, self.frames);
+            if player.swap_envelope(*id, envelope).is_ok() {
+                *built = signature;
+            }
+        }
     }
 
     fn swap_inserts(&mut self, song: &Song, player: &audio::player::Player) -> bool {
@@ -319,11 +434,12 @@ mod tests {
     }
 
     #[test]
-    fn baked_settings_change_the_signature() {
+    fn automation_lanes_change_the_signature_but_not_their_edits() {
         let base = song();
         let start = mix_signature(&base);
 
-        // A fader under volume automation is part of the render.
+        // The first gain automation lane renders again; later edits and the
+        // fader under it are swapped in live.
         let mut automated = base.clone();
         automated.tracks[0]
             .automation
@@ -334,7 +450,13 @@ mod tests {
         let before = mix_signature(&automated);
         assert_ne!(start, before);
         automated.tracks[0].volume = 10;
-        assert_ne!(before, mix_signature(&automated));
+        automated.tracks[0].automation[0]
+            .points
+            .push(project::song::AutomationPoint {
+                tick: 0,
+                value: 50.0,
+            });
+        assert_eq!(before, mix_signature(&automated));
     }
 
     #[test]
