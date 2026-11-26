@@ -8,7 +8,6 @@ use music_core::Tick;
 use project::ClipId;
 use project::TrackId;
 use project::song::Song;
-use std::collections::HashMap;
 
 const LABEL_WIDTH: f32 = 0.0;
 /// Points per quarter note at zoom 1: a 4/4 bar is 96 pt, as in v1
@@ -184,7 +183,7 @@ pub fn show(
     selected: Option<TrackId>,
     zoom: &mut Zoom,
     follow_playhead: bool,
-    waveforms: &HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
+    waveforms: &crate::app::WaveformCache,
 ) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
     show_with_loop(
         ui,
@@ -279,7 +278,7 @@ pub fn show_with_loop(
     zoom: &mut Zoom,
     follow_playhead: bool,
     loop_region: Option<(Tick, Tick)>,
-    waveforms: &HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
+    waveforms: &crate::app::WaveformCache,
 ) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
     let bar = song.time_signature.bar_ticks().max(1);
     let viewport = ui.available_rect_before_wrap();
@@ -517,7 +516,7 @@ fn draw(
     drag_id: egui::Id,
     edit_id: egui::Id,
     loop_region: Option<(Tick, Tick)>,
-    waveforms: &HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
+    waveforms: &crate::app::WaveformCache,
 ) -> (RollOutcome, Option<TrackId>, Option<ClipEdit>) {
     let lane_height = zoom.lane;
     let tracks = song.tracks.len().max(1);
@@ -826,35 +825,29 @@ fn draw(
                     top + lane_height - PART_INSET,
                 ),
             );
-            painter.rect_filled(block, 3.0, color.gamma_multiply(0.58));
-            painter.rect_stroke(block, 3.0, Stroke::new(1.0_f32, color), StrokeKind::Inside);
             let name = std::path::Path::new(&audio.path)
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or("audio");
-            if let Some((_, peaks)) = waveforms.get(&track.id)
-                && !peaks.is_empty()
-            {
-                let mut x = block.left() + 1.0;
-                while x < block.right() - 1.0 {
-                    let fraction = ((x - block.left()) / block.width().max(1.0)).clamp(0.0, 1.0);
-                    let index = (fraction * (peaks.len() - 1) as f32).round() as usize;
-                    let amplitude = peaks[index]
-                        .min
-                        .abs()
-                        .max(peaks[index].max.abs())
-                        .clamp(0.0, 1.0);
-                    let half = amplitude * (block.height() / 2.0 - 3.0);
-                    painter.line_segment(
-                        [
-                            pos2(x, block.center().y - half),
-                            pos2(x, block.center().y + half),
-                        ],
-                        Stroke::new(1.0_f32, theme::text().gamma_multiply(0.45)),
-                    );
-                    x += 2.0;
-                }
-            }
+            let overview = waveforms
+                .get(&track.id)
+                .map(|(_, overview)| overview.as_ref());
+            draw_audio_clip(
+                &painter,
+                block,
+                color,
+                name,
+                overview,
+                &AudioGrid {
+                    first_beat: (audio_start + beat - 1).div_euclid(beat) * beat,
+                    end: audio_end,
+                    beat,
+                    bar,
+                    beat_width: beat as f32 * points_per_tick,
+                    origin: content.left(),
+                    points_per_tick,
+                },
+            );
             for comp in &track.comps {
                 let start = comp.start.max(audio_start);
                 let end = comp.start.saturating_add(comp.length).min(audio_end);
@@ -878,13 +871,6 @@ fn draw(
                     Stroke::new(1.5_f32, theme::accent()),
                 );
             }
-            painter.text(
-                pos2(block.left() + 6.0, block.center().y),
-                Align2::LEFT_CENTER,
-                format!("audio · {name}"),
-                FontId::proportional(9.0),
-                theme::text(),
-            );
         }
         if let Some(pointer) = pointer
             && lane.contains(pointer)
@@ -1032,6 +1018,134 @@ fn draw(
 }
 
 /// `juce::Colour::darker`: scales the colour towards black.
+/// Beat grid passed to [`draw_audio_clip`] so the clip shows the bars and
+/// beats through its body, as Luna does.
+struct AudioGrid {
+    first_beat: Tick,
+    end: Tick,
+    beat: Tick,
+    bar: Tick,
+    beat_width: f32,
+    origin: f32,
+    points_per_tick: f32,
+}
+
+/// Height of the name strip along an audio clip's top.
+const AUDIO_HEADER: f32 = 14.0;
+
+/// Ink for audio waveforms: near black on the pastel clip, like Luna.
+const WAVE_INK: Color32 = Color32::from_rgb(0x17, 0x17, 0x1b);
+
+/// `colour` moved `amount` (0..=1) of the way to white.
+fn tint(colour: Color32, amount: f32) -> Color32 {
+    let lift = |channel: u8| {
+        let value = f32::from(channel);
+        (value + (255.0 - value) * amount).round() as u8
+    };
+    Color32::from_rgb(lift(colour.r()), lift(colour.g()), lift(colour.b()))
+}
+
+/// Draws an audio clip in Luna's style: a pastel body in the track colour,
+/// a slightly deeper name strip, the beat grid showing through, and a solid
+/// dark waveform per channel around its own centre line.
+fn draw_audio_clip(
+    painter: &egui::Painter,
+    block: Rect,
+    colour: Color32,
+    name: &str,
+    overview: Option<&audio::waveform::Overview>,
+    grid: &AudioGrid,
+) {
+    let body = tint(colour, 0.42);
+    let header_fill = tint(colour, 0.22);
+    let edge = darken(colour, 0.9);
+    painter.rect_filled(block, theme::RADIUS, body);
+    let clipped = painter.with_clip_rect(block.intersect(painter.clip_rect()));
+    let header = (block.height() >= 34.0)
+        .then(|| Rect::from_min_max(block.min, pos2(block.right(), block.top() + AUDIO_HEADER)));
+    let wave_top = header.map_or(block.top(), |header| header.bottom());
+
+    // Bars and beats through the body.
+    if grid.beat_width >= 6.0 {
+        let mut tick = grid.first_beat;
+        while tick < grid.end {
+            let x = grid.origin + tick as f32 * grid.points_per_tick;
+            if x > block.left() + 0.5 {
+                let strong = tick.rem_euclid(grid.bar.max(1)) == 0;
+                clipped.line_segment(
+                    [pos2(x, wave_top), pos2(x, block.bottom())],
+                    Stroke::new(1.0_f32, darken(body, if strong { 0.28 } else { 0.12 })),
+                );
+            }
+            tick += grid.beat.max(1);
+        }
+    }
+
+    if let Some(header) = header {
+        clipped.rect_filled(header, 0.0, header_fill);
+        clipped.line_segment(
+            [header.left_bottom(), header.right_bottom()],
+            Stroke::new(1.0_f32, darken(colour, 0.5)),
+        );
+        clipped.text(
+            pos2(header.left() + 5.0, header.center().y),
+            Align2::LEFT_CENTER,
+            name,
+            theme::semibold(9.5),
+            WAVE_INK.gamma_multiply(0.9),
+        );
+    }
+
+    let area = Rect::from_min_max(
+        pos2(block.left(), wave_top + 2.0),
+        pos2(block.right(), block.bottom() - 2.0),
+    );
+    let channels: &[Vec<audio::waveform::Peak>] = overview.map_or(&[], |o| &o.channels);
+    let count = channels.len().max(1);
+    let lane = area.height() / count as f32;
+    // Only the columns on screen: zoomed in, a clip can be far wider.
+    let visible = block.intersect(painter.clip_rect());
+    for index in 0..count {
+        let centre = area.top() + lane * (index as f32 + 0.5);
+        clipped.line_segment(
+            [pos2(block.left(), centre), pos2(block.right(), centre)],
+            Stroke::new(1.0_f32, WAVE_INK.gamma_multiply(0.75)),
+        );
+        let Some(peaks) = channels.get(index).filter(|peaks| !peaks.is_empty()) else {
+            continue;
+        };
+        let half = (lane / 2.0 - 1.0).max(1.0);
+        let per_point = peaks.len() as f32 / block.width().max(1.0);
+        let mut mesh = egui::Mesh::default();
+        let mut x = visible.left().max(block.left()).floor();
+        while x < visible.right().min(block.right()) {
+            let from = (x - block.left()) * per_point;
+            if let Some(peak) = audio::waveform::span(peaks, from, from + per_point) {
+                let top = centre - peak.max.clamp(-1.0, 1.0) * half;
+                let bottom = centre - peak.min.clamp(-1.0, 1.0) * half;
+                // Never thinner than the centre line, so quiet parts stay visible.
+                let (top, bottom) = if bottom - top < 1.0 {
+                    (centre - 0.5, centre + 0.5)
+                } else {
+                    (top, bottom)
+                };
+                mesh.add_colored_rect(
+                    Rect::from_min_max(pos2(x, top), pos2(x + 1.0, bottom)),
+                    WAVE_INK,
+                );
+            }
+            x += 1.0;
+        }
+        clipped.add(egui::Shape::mesh(mesh));
+    }
+    painter.rect_stroke(
+        block,
+        theme::RADIUS,
+        Stroke::new(1.0_f32, edge),
+        StrokeKind::Inside,
+    );
+}
+
 fn darken(colour: Color32, amount: f32) -> Color32 {
     let keep = 1.0 / (1.0 + amount);
     Color32::from_rgb(
@@ -1107,7 +1221,15 @@ mod tests {
             };
             let _ = context.run(input, |context| {
                 egui::CentralPanel::default().show(context, |ui| {
-                    let _ = show(ui, &song, 0, None, zoom, false, &HashMap::new());
+                    let _ = show(
+                        ui,
+                        &song,
+                        0,
+                        None,
+                        zoom,
+                        false,
+                        &crate::app::WaveformCache::new(),
+                    );
                 });
             });
         };
@@ -1176,7 +1298,15 @@ mod tests {
             egui::CentralPanel::default().show(context, |ui| {
                 let song = arranging::demo::demo_song();
                 let mut zoom = Zoom::default();
-                let _ = show(ui, &song, 0, None, &mut zoom, false, &HashMap::new());
+                let _ = show(
+                    ui,
+                    &song,
+                    0,
+                    None,
+                    &mut zoom,
+                    false,
+                    &crate::app::WaveformCache::new(),
+                );
                 let _ = show_with_loop(
                     ui,
                     &song,
@@ -1185,7 +1315,7 @@ mod tests {
                     &mut zoom,
                     false,
                     Some((0, 3840)),
-                    &HashMap::new(),
+                    &crate::app::WaveformCache::new(),
                 );
                 ran = true;
             });

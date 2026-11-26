@@ -865,15 +865,10 @@ pub struct ShellApp {
     update_download: Option<std::sync::mpsc::Receiver<Result<std::path::PathBuf, String>>>,
     downloaded_update: Option<std::path::PathBuf>,
     dictation_pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
-    waveform: Option<(TrackId, String, Vec<audio::waveform::Peak>)>,
-    timeline_waveforms: std::collections::HashMap<TrackId, (String, Vec<audio::waveform::Peak>)>,
-    waveform_pending: std::collections::HashMap<
-        TrackId,
-        (
-            String,
-            std::sync::mpsc::Receiver<Vec<audio::waveform::Peak>>,
-        ),
-    >,
+    waveform: Option<(TrackId, String, Waveform)>,
+    timeline_waveforms: WaveformCache,
+    waveform_pending:
+        std::collections::HashMap<TrackId, (String, std::sync::mpsc::Receiver<Waveform>)>,
     midi_ports: Option<(Vec<String>, Vec<String>)>,
     /// When the device windows last listed MIDI ports.
     midi_ports_at: Option<std::time::Instant>,
@@ -2827,7 +2822,7 @@ impl ShellApp {
             match receiver.try_recv() {
                 Ok(peaks) => finished.push((*track, path.clone(), peaks)),
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    finished.push((*track, path.clone(), Vec::new()))
+                    finished.push((*track, path.clone(), Waveform::default()))
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
@@ -2855,12 +2850,17 @@ impl ShellApp {
                     .ok()
                     .and_then(|bytes| {
                         if bytes.starts_with(b"RIFF") {
-                            audio::wav::decode_mono(&bytes).ok()
+                            audio::wav::decode_stereo(&bytes).ok()
                         } else {
-                            audio::decode::decode_mono(&source).ok()
+                            audio::decode::decode_stereo(&source).ok()
                         }
                     })
-                    .map(|decoded| audio::waveform::peaks(&decoded.samples, 240))
+                    .map(|decoded| {
+                        Waveform::new(audio::waveform::Overview::from_stereo(
+                            &decoded.samples,
+                            decoded.sample_rate,
+                        ))
+                    })
                     .unwrap_or_default();
                 let _ = sender.send(peaks);
             });
@@ -2919,8 +2919,16 @@ impl ShellApp {
         let height = rect.height() * 0.45;
         let (start, end) = audio::waveform::visible(peaks.len(), zoom, position);
         let visible = &peaks[start..end];
-        for (index, peak) in visible.iter().enumerate() {
-            let x = rect.left() + rect.width() * index as f32 / visible.len() as f32;
+        // One stroke per screen column, each the extremes of the columns
+        // under it, so a long file stays cheap and keeps its transients.
+        let columns = rect.width().max(1.0).floor() as usize;
+        let per_column = visible.len() as f32 / columns as f32;
+        for column in 0..columns {
+            let from = column as f32 * per_column;
+            let Some(peak) = audio::waveform::span(visible, from, from + per_column) else {
+                continue;
+            };
+            let x = rect.left() + column as f32 + 0.5;
             painter.line_segment(
                 [
                     egui::Pos2::new(x, centre - peak.max * height),
@@ -5078,17 +5086,21 @@ fn track_level(track: &project::song::Track, tick: Tick) -> f32 {
     level.clamp(0.0, 1.0)
 }
 
-type WaveformCache =
-    std::collections::HashMap<project::TrackId, (String, Vec<audio::waveform::Peak>)>;
+/// A decoded file's overview, shared between the timeline, meters and the
+/// clip editor without copying.
+pub(crate) type Waveform = std::sync::Arc<audio::waveform::Overview>;
+
+pub(crate) type WaveformCache = std::collections::HashMap<project::TrackId, (String, Waveform)>;
 
 fn track_meter_level(track: &project::song::Track, tick: Tick, waveforms: &WaveformCache) -> f32 {
     let mut level = track_level(track, tick);
     if let Some(reference) = &track.audio
-        && let Some((_, peaks)) = waveforms.get(&track.id)
-        && !peaks.is_empty()
+        && let Some((_, overview)) = waveforms.get(&track.id)
+        && !overview.mono.is_empty()
         && reference.start <= tick
         && tick < reference.start.saturating_add(reference.length)
     {
+        let peaks = &overview.mono;
         let fraction = (tick - reference.start) as f32 / reference.length.max(1) as f32;
         let index = (fraction * (peaks.len() - 1) as f32).round() as usize;
         let peak = peaks[index.min(peaks.len() - 1)];
