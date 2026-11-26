@@ -624,9 +624,10 @@ pub fn handshake_read(
 }
 
 /// Address of patch `index` (`0..64`) inside internal memory (`02 00 00`).
+/// An index past the last patch is clamped to patch 64.
 #[must_use]
 pub fn internal_patch_address(index: usize) -> [u8; 3] {
-    address_add(ADDR_INTERNAL_MEMORY, index * TEMP_PATCH_BYTES)
+    address_add(ADDR_INTERNAL_MEMORY, index.min(63) * TEMP_PATCH_BYTES)
 }
 
 /// Address of the 18-byte patch name for internal patch `index` (`0..64`).

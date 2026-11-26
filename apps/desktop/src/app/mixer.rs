@@ -785,7 +785,8 @@ impl ShellApp {
         if !self.plugins_open {
             return;
         }
-        if self.plugin_scan.is_none() {
+        // While a scan runs, do not read the catalog from disk every frame.
+        if self.plugin_scan.is_none() && !self.plugin_scanning {
             self.plugin_scan =
                 plugins::load_catalog(&crate::settings::data_file(plugins::CATALOG_FILE));
             if self.plugin_scan.is_none() {

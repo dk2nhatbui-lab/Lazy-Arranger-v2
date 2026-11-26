@@ -87,6 +87,8 @@ impl RenderedAudio {
         out.extend_from_slice(b"data");
         out.extend_from_slice(&(data_len as u32).to_le_bytes());
         for sample in &self.samples {
+            // NaN or infinity would poison every player that reads the file.
+            let sample = if sample.is_finite() { *sample } else { 0.0 };
             out.extend_from_slice(&sample.to_le_bytes());
         }
         out

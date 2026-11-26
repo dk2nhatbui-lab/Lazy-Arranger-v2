@@ -1,9 +1,9 @@
 //! Exercises the host against the workspace's own test gain plug-in.
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::path::PathBuf;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn dylib_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let name = if cfg!(target_os = "macos") {
@@ -39,7 +39,7 @@ fn dylib_path() -> Option<PathBuf> {
     })
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn the_test_gain_plugin_reports_params_processes_and_has_latency() {
     let Some(library) = dylib_path() else {
@@ -48,9 +48,16 @@ fn the_test_gain_plugin_reports_params_processes_and_has_latency() {
     let root =
         std::env::temp_dir().join(format!("lazy-arranger-test-plugin-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    let macos = root.join("Test.vst3").join("Contents").join("MacOS");
-    std::fs::create_dir_all(&macos).expect("bundle");
-    std::fs::copy(&library, macos.join("Test")).expect("copy");
+    let (folder, name) = if cfg!(target_os = "macos") {
+        ("MacOS", "Test")
+    } else if cfg!(target_arch = "aarch64") {
+        ("aarch64-linux", "Test.so")
+    } else {
+        ("x86_64-linux", "Test.so")
+    };
+    let binary = root.join("Test.vst3").join("Contents").join(folder);
+    std::fs::create_dir_all(&binary).expect("bundle");
+    std::fs::copy(&library, binary.join(name)).expect("copy");
     let bundle = root.join("Test.vst3");
     let classes = plugin_host::scan_vst3(&bundle).expect("scan");
     assert!(!classes.is_empty());
@@ -68,10 +75,14 @@ fn the_test_gain_plugin_reports_params_processes_and_has_latency() {
     );
     let state = effect.save_state_base64().expect("state");
     assert!(!state.is_empty());
-    let view = effect.probe_view().expect("editor view");
-    assert!(view.supports_nsview);
-    assert_eq!((view.width, view.height), (360, 220));
-    assert!(view.can_resize);
+    if cfg!(target_os = "macos") {
+        let view = effect.probe_view().expect("editor view");
+        assert!(view.supports_nsview);
+        assert_eq!((view.width, view.height), (360, 220));
+        assert!(view.can_resize);
+    }
+    // Dropping the effect calls `ModuleExit` before the library unloads.
+    drop(effect);
     let _ = std::fs::remove_dir_all(&root);
 }
 

@@ -309,7 +309,9 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
     for (index, events) in smf.tracks.iter().enumerate() {
         let mut absolute: u64 = 0;
         let mut name: Option<String> = None;
-        let mut sounding: Vec<(u8, u8, Tick, Velocity)> = Vec::new();
+        // Open notes per (channel, key), newest last: a note-off closes the
+        // newest match in constant time, however many notes hang.
+        let mut sounding: Sounding = std::collections::HashMap::new();
         let mut notes: Vec<RawNote> = Vec::new();
         let mut program: Option<u8> = None;
         let mut bank_msb: Option<u8> = None;
@@ -323,7 +325,10 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
                     Midi::NoteOn { key, vel } if vel.as_int() > 0 => {
                         let velocity = Velocity::new(vel.as_int())
                             .map_err(|err| SmfError::Range(err.to_string()))?;
-                        sounding.push((channel.as_int(), key.as_int(), tick, velocity));
+                        sounding
+                            .entry((channel.as_int(), key.as_int()))
+                            .or_default()
+                            .push((tick, velocity));
                     }
                     Midi::NoteOn { key, .. } => close_note(
                         &mut sounding,
@@ -399,7 +404,7 @@ pub fn decode(bytes: &[u8]) -> Result<(Song, DecodeReport), SmfError> {
                 }
             }
         }
-        report.unpaired_note_ons += sounding.len();
+        report.unpaired_note_ons += sounding.values().map(Vec::len).sum::<usize>();
         if notes.is_empty() {
             if index == 0 {
                 song_name = name;
@@ -532,22 +537,20 @@ fn key_from_fifths(fifths: i32, minor: bool) -> KeySignature {
     }
 }
 
+type Sounding = std::collections::HashMap<(u8, u8), Vec<(Tick, Velocity)>>;
+
 fn close_note(
-    sounding: &mut Vec<(u8, u8, Tick, Velocity)>,
+    sounding: &mut Sounding,
     notes: &mut Vec<RawNote>,
     channel: u8,
     key: u8,
     tick: Tick,
     report: &mut DecodeReport,
 ) {
-    let Some(position) = sounding
-        .iter()
-        .rposition(|(ch, pitch, _, _)| *ch == channel && *pitch == key)
-    else {
+    let Some((start, velocity)) = sounding.get_mut(&(channel, key)).and_then(Vec::pop) else {
         report.unmatched_note_offs += 1;
         return;
     };
-    let (_, _, start, velocity) = sounding.remove(position);
     let Some(duration) = tick.checked_sub(start).filter(|duration| *duration > 0) else {
         report.unmatched_note_offs += 1;
         return;

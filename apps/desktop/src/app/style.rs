@@ -742,7 +742,9 @@ impl ShellApp {
             .open(&mut open)
             .resizable(false)
             .show(context, |ui| {
-                if ui.button("Refresh").clicked() || self.groove_entries.is_empty() {
+                // An empty folder is listed once, not every frame.
+                if ui.button("Refresh").clicked() || !self.groove_listed {
+                    self.groove_listed = true;
                     self.groove_entries =
                         arranging::groove_file::list(&crate::settings::data_file("grooves"))
                             .unwrap_or_default();

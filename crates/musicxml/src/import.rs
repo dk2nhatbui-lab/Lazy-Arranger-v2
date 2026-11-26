@@ -257,6 +257,10 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
         let mut measure_start: Tick = 0;
         let mut measure_meter = meter;
         let mut pending_slur: Option<Tick> = None;
+        // Where each note ends, by pitch, so a tie finds the note it
+        // continues without scanning the whole part.
+        let mut ends: std::collections::HashMap<(u8, Tick), usize> =
+            std::collections::HashMap::new();
         for measure in part.children().filter(|node| node.has_tag_name("measure")) {
             if next_track == 1
                 && let Some(tempo) = measure
@@ -424,17 +428,26 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
                     });
                 }
                 if tie_stop
-                    && let Some(previous) = track.notes.iter_mut().find(|held| {
-                        held.pitch.as_u8() == pitch.as_u8()
-                            && held.start.saturating_add(held.duration.max(1)) == start
-                    })
+                    && let Some(index) = ends.remove(&(pitch.as_u8(), start))
+                    && let Some(previous) = track.notes.get_mut(index)
                 {
                     previous.duration = previous.duration.saturating_add(duration.max(1));
+                    ends.insert(
+                        (
+                            pitch.as_u8(),
+                            previous.start.saturating_add(previous.duration.max(1)),
+                        ),
+                        index,
+                    );
                     if !is_chord {
                         cursor = start.saturating_add(duration.max(1));
                     }
                     continue;
                 }
+                ends.insert(
+                    (pitch.as_u8(), start.saturating_add(duration.max(1))),
+                    track.notes.len(),
+                );
                 track.notes.push(Note {
                     id: NoteId::new(next_note).unwrap_or_else(|_| NoteId::new(1).expect("valid")),
                     start,
@@ -452,6 +465,14 @@ pub fn import(xml: &str) -> Result<Song, ImportError> {
         song.tracks.push(track);
     }
     song.time_signature = meter;
+    // Parts add their own lyrics, marks and chords; keep one of each per
+    // tick, in order, as the song model expects.
+    song.lyrics.sort_by_key(|event| event.tick);
+    song.lyrics.dedup_by_key(|event| event.tick);
+    song.chords.sort_by_key(|event| event.tick);
+    song.chords.dedup_by_key(|event| event.tick);
+    song.marks.sort_by_key(|mark| mark.tick);
+    song.marks.dedup();
     tempo_changes.sort_by_key(|change| change.tick);
     tempo_changes.dedup_by_key(|change| change.tick);
     if let Ok(map) = TempoMap::new(tempo_changes) {

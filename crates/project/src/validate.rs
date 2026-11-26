@@ -83,86 +83,12 @@ pub fn validate(project: &ProjectFile) -> Vec<ValidationIssue> {
                 String::from("program and bank values must be 0..=127"),
             ));
         }
-        let mut automation_targets = HashSet::new();
-        for (lane_index, lane) in track.automation.iter().enumerate() {
-            let lane_path = format!("{track_path}.automation[{lane_index}]");
-            if !automation_targets.insert(format!("{:?}", lane.target)) {
-                issues.push(issue(
-                    Severity::Error,
-                    &lane_path,
-                    String::from("duplicate automation target"),
-                ));
-            }
-            let mut previous: Option<Tick> = None;
-            for (point_index, point) in lane.points.iter().enumerate() {
-                if point.tick < 0 {
-                    issues.push(issue(
-                        Severity::Error,
-                        format!("{lane_path}.points[{point_index}].tick"),
-                        format!("negative tick {}", point.tick),
-                    ));
-                }
-                if !point.value.is_finite() || !(0.0..=127.0).contains(&point.value) {
-                    issues.push(issue(
-                        Severity::Error,
-                        format!("{lane_path}.points[{point_index}].value"),
-                        format!("value {} is outside 0..=127", point.value),
-                    ));
-                }
-                if let Some(previous) = previous
-                    && point.tick < previous
-                {
-                    issues.push(issue(
-                        Severity::Error,
-                        format!("{lane_path}.points[{point_index}].tick"),
-                        format!("points are not sorted: {previous} then {}", point.tick),
-                    ));
-                }
-                previous = Some(point.tick);
-            }
-        }
-        let mut plugin_ids = HashSet::new();
-        for plugin in &track.plugins {
-            if !plugin_ids.insert(plugin.id) {
-                issues.push(issue(
-                    Severity::Error,
-                    format!("{track_path}.plugins"),
-                    format!("duplicate plug-in id {}", plugin.id),
-                ));
-            }
-        }
         if track.volume > 127 || track.pan > 127 || track.send_level > 127 {
             issues.push(issue(
                 Severity::Error,
                 format!("{track_path}.mix"),
                 String::from("volume, pan and send level must be 0..=127"),
             ));
-        }
-        for (lane_index, lane) in track.automation.iter().enumerate() {
-            let mut previous = None;
-            for point in &lane.points {
-                if point.tick < 0
-                    || !point.value.is_finite()
-                    || !(0.0..=127.0).contains(&point.value)
-                {
-                    issues.push(issue(
-                        Severity::Error,
-                        format!("{track_path}.automation[{lane_index}]"),
-                        String::from(
-                            "automation points need a non-negative tick and value 0..=127",
-                        ),
-                    ));
-                    break;
-                }
-                if previous.is_some_and(|tick| point.tick < tick) {
-                    issues.push(issue(
-                        Severity::Warning,
-                        format!("{track_path}.automation[{lane_index}]"),
-                        String::from("automation points are not sorted"),
-                    ));
-                }
-                previous = Some(point.tick);
-            }
         }
         for (slot_index, clip) in track.slots.iter().enumerate() {
             let Some(clip) = clip else { continue };

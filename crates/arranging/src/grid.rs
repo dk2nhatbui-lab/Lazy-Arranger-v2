@@ -243,6 +243,8 @@ pub fn record_to_timeline(
     grid: &Grid,
     log: &[(usize, Tick)],
 ) -> Result<usize, ArrangingError> {
+    // Every edit below lands as one undo step, or none if any fails.
+    let mut batch = Vec::new();
     use std::collections::BTreeMap;
 
     let mut additions: BTreeMap<TrackId, Vec<Note>> = BTreeMap::new();
@@ -312,14 +314,14 @@ pub fn record_to_timeline(
         merged.extend(notes.iter().cloned());
         merged.sort_by_key(|note| note.start);
         for (index, note) in merged.iter_mut().enumerate() {
-            if let Ok(id) = project::NoteId::new(index as u32 + 1) {
+            if let Ok(id) = project::NoteId::new(u32::try_from(index + 1).unwrap_or(u32::MAX)) {
                 note.id = id;
             }
         }
-        session.apply(Command::ReplaceTrackNotes {
+        batch.push(Command::ReplaceTrackNotes {
             track: *track,
             notes: merged,
-        })?;
+        });
     }
     for (track, regions) in &clips {
         let Some(entry) = session
@@ -333,11 +335,15 @@ pub fn record_to_timeline(
         let mut merged = entry.clips.clone();
         merged.extend(regions.iter().cloned());
         merged.sort_by_key(|clip| clip.start);
-        session.apply(Command::SetClips {
+        batch.push(Command::SetClips {
             track: *track,
             clips: merged,
-        })?;
+        });
     }
+    session.apply(Command::Batch {
+        label: String::from("record to timeline"),
+        commands: batch,
+    })?;
     Ok(copied)
 }
 
@@ -408,8 +414,8 @@ mod launcher_tests {
         assert_eq!(track.notes[1].start, 7680);
         assert_eq!(track.clips.len(), 2);
         assert_eq!(track.clips[1].start, 7680);
-        session.undo().expect("undo clips");
-        session.undo().expect("undo notes");
+        // Notes and clips come back in one undo step.
+        session.undo().expect("undo record");
         assert_eq!(session.song().tracks[0].notes.len(), 1);
         assert_eq!(session.song().tracks[0].clips.len(), 1);
     }

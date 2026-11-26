@@ -1148,9 +1148,12 @@ fn draw_system<C: Canvas + ?Sized>(
                     .measures
                     .iter()
                     .find(|measure| {
-                        *tick >= measure.start && *tick < measure.start + measure.length
+                        *tick >= measure.start
+                            && *tick < measure.start.saturating_add(measure.length)
                     })
-                    .map_or(*tick + PPQ, |measure| measure.start + measure.length);
+                    .map_or(tick.saturating_add(PPQ), |measure| {
+                        measure.start.saturating_add(measure.length)
+                    });
                 let next = chords
                     .get(index + 1)
                     .map_or(bar_end, |(next, _)| (*next).min(bar_end));
@@ -1190,7 +1193,7 @@ fn draw_system<C: Canvas + ?Sized>(
         }
         // Rests fill the gaps between the written notes.
         for (bar, measure) in system.measures.iter().enumerate() {
-            let end = measure.start + measure.length;
+            let end = measure.start.saturating_add(measure.length);
             let in_bar: Vec<&Group<'_>> = groups
                 .iter()
                 .filter(|group| group.tick >= measure.start && group.tick < end)
@@ -1325,10 +1328,27 @@ fn draw_system<C: Canvas + ?Sized>(
                     );
                 };
                 beam(x0, x1, 0.0);
-                for pair in run.windows(2) {
+                let short = |index: usize| groups[run[index]].duration <= PPQ / 4;
+                for (index, pair) in run.windows(2).enumerate() {
                     let (a, b) = (&groups[pair[0]], &groups[pair[1]]);
-                    if a.duration <= PPQ / 4 && b.duration <= PPQ / 4 {
+                    if short(index) && short(index + 1) {
                         beam(stem_x(a), stem_x(b), 0.75 * sp * toward);
+                    }
+                }
+                // A lone sixteenth (as after a dotted eighth) gets a short
+                // beamlet, pointing into the group.
+                for index in 0..run.len() {
+                    let before = index > 0 && short(index - 1);
+                    let after = index + 1 < run.len() && short(index + 1);
+                    if short(index) && !before && !after {
+                        let x = stem_x(&groups[run[index]]);
+                        let stub = if index + 1 < run.len() { sp } else { -sp };
+                        let (from, to) = if stub > 0.0 {
+                            (x, x + stub)
+                        } else {
+                            (x + stub, x)
+                        };
+                        beam(from, to, 0.75 * sp * toward);
                     }
                 }
             } else {

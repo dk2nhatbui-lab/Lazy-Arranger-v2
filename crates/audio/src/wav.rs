@@ -295,9 +295,10 @@ pub fn info(bytes: &[u8]) -> Result<WavInfo, String> {
             bytes[offset + 6],
             bytes[offset + 7],
         ]) as usize;
-        let body = bytes
-            .get(offset + 8..offset + 8 + size)
+        let end = (offset + 8)
+            .checked_add(size)
             .ok_or("truncated WAV chunk")?;
+        let body = bytes.get(offset + 8..end).ok_or("truncated WAV chunk")?;
         match id {
             b"fmt " if body.len() >= 16 => {
                 format_tag = u16::from_le_bytes([body[0], body[1]]);
@@ -308,7 +309,7 @@ pub fn info(bytes: &[u8]) -> Result<WavInfo, String> {
             b"data" => data_len = body.len(),
             _ => {}
         }
-        offset += 8 + size + size % 2;
+        offset = end.saturating_add(size % 2);
     }
     if channels == 0 || sample_rate == 0 || bits == 0 {
         return Err(String::from("WAV has no usable format chunk"));

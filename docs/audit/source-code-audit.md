@@ -5,6 +5,14 @@
 - **Method:** Static source-code inspection across all subsystems (`plugin-host`/`plugins`/`test-plugin`, `audio`/`sequencer`/`performance`/`midi-devices`, `project`/`app-commands`/`music-core`/`arranger`/`arranging`/`library`, `smf`/`style-formats`/`musicxml`/`score`, `mcp`, `apps/desktop`, `apps/cli`).
 - **Verification notes:** `./scripts/rust.sh fmt --all --check` passed locally; full `clippy`/`test`/`doc` could not fetch crates offline in the audit VM, while GitHub Actions CI was green on `main` (`a3f786d`).
 
+## Status (2026-11-26)
+
+- **Fixed:** All five handoff batches (Critical, High and the key Medium findings) in PR #26. The Round 2 audit ([`source-code-audit-round2.md`](source-code-audit-round2.md)) checked these fixes; its gaps were fixed in PR #28, PR #29 and the round 2 follow-up PR.
+- **Fixed later:** M17 (`validate.rs` duplicate loops, exact undo), the remaining UI-thread blocking from H25, and the Low items listed under "Status" in the Round 2 report.
+- **Left as is:**
+  - macOS VST3 `bundleEntry`/`bundleExit` is not called. It needs a `CFBundleRef`, and plug-ins load without it.
+  - `// SAFETY:` notes are per module (a `# Safety` section at the top of each `plugin-host` file), not on every block.
+
 ## Summary
 
 | Severity | Count | Primary Areas |
