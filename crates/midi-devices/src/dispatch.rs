@@ -132,17 +132,19 @@ pub fn play_timed(
     sink: &mut impl MidiSink,
     clock: &mut impl Clock,
 ) -> Result<usize, DeviceError> {
+    // Check the whole schedule first, so a bad one sends nothing at all.
+    if let Some(pair) = messages
+        .windows(2)
+        .find(|pair| pair[1].at_micros < pair[0].at_micros)
+    {
+        return Err(DeviceError::ScheduleOrder {
+            at: pair[1].at_micros,
+            previous: pair[0].at_micros,
+        });
+    }
     let start = clock.now();
     let mut sent = 0usize;
-    let mut previous = 0u64;
     for message in messages {
-        if message.at_micros < previous {
-            return Err(DeviceError::ScheduleOrder {
-                at: message.at_micros,
-                previous,
-            });
-        }
-        previous = message.at_micros;
         let target = start + Duration::from_micros(message.at_micros);
         let now = clock.now();
         if target > now {
@@ -197,12 +199,15 @@ fn play_with(
     sink: &mut impl MidiSink,
     clock: &mut impl Clock,
 ) -> Result<usize, DeviceError> {
-    let sent = play_timed(messages, sink, clock)?;
+    let played = play_timed(messages, sink, clock);
     // The second schedule starts when the first one ends, so its timestamps
     // are relative to that instant. One millisecond after the last note is
     // enough to release every channel without replaying the song duration.
+    // It runs even when playback failed part way, so no note is left held.
     let panic = all_notes_off_messages(messages, 0);
-    play_timed(&panic, sink, clock)?;
+    let released = play_timed(&panic, sink, clock);
+    let sent = played?;
+    released?;
     Ok(sent)
 }
 

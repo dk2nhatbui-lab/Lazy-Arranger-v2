@@ -5,8 +5,9 @@
 //! output channel. Input and output must share a sample rate. Feedback is the
 //! caller's risk; the setting that enables this is off by default.
 
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use crate::spsc::{SampleQueue, sanitize};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -92,7 +93,11 @@ pub fn start_on_channel(
             input_config.sample_rate.0, output_config.sample_rate.0
         ));
     }
-    let queue: Arc<Mutex<VecDeque<f32>>> = Arc::new(Mutex::new(VecDeque::new()));
+    // Two seconds of headroom, allocated before any callback runs.
+    let capacity = (input_config.sample_rate.0 as usize)
+        .saturating_mul(2)
+        .max(1);
+    let queue = Arc::new(SampleQueue::new(capacity));
     let input_stream = build_input(
         &input,
         &input_config,
@@ -118,7 +123,7 @@ fn build_input(
     config: &cpal::StreamConfig,
     format: cpal::SampleFormat,
     channel: Option<usize>,
-    queue: Arc<Mutex<VecDeque<f32>>>,
+    queue: Arc<SampleQueue>,
 ) -> Result<cpal::Stream, String> {
     match format {
         cpal::SampleFormat::F32 => input_stream::<f32>(device, config, channel, queue),
@@ -132,7 +137,7 @@ fn build_output(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     format: cpal::SampleFormat,
-    queue: Arc<Mutex<VecDeque<f32>>>,
+    queue: Arc<SampleQueue>,
     gain: f32,
 ) -> Result<cpal::Stream, String> {
     match format {
@@ -147,36 +152,31 @@ fn input_stream<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     channel: Option<usize>,
-    queue: Arc<Mutex<VecDeque<f32>>>,
+    queue: Arc<SampleQueue>,
 ) -> Result<cpal::Stream, String>
 where
     T: cpal::SizedSample,
     f32: cpal::FromSample<T>,
 {
     let channels = usize::from(config.channels).max(1);
-    let capacity = config.sample_rate.0 as usize * 2;
     device
         .build_input_stream(
             config,
             move |data: &[T], _| {
-                if let Ok(mut queue) = queue.lock() {
-                    for frame in data.chunks_exact(channels) {
-                        let mono = if let Some(channel) = channel {
-                            frame
-                                .get(channel)
-                                .map_or(0.0, |sample| sample.to_sample::<f32>())
-                        } else {
-                            frame
-                                .iter()
-                                .map(|sample| sample.to_sample::<f32>())
-                                .sum::<f32>()
-                                / frame.len() as f32
-                        };
-                        queue.push_back(mono);
-                    }
-                    while queue.len() > capacity {
-                        queue.pop_front();
-                    }
+                // Lock-free and allocation-free: a full queue drops samples.
+                for frame in data.chunks_exact(channels) {
+                    let mono = if let Some(channel) = channel {
+                        frame
+                            .get(channel)
+                            .map_or(0.0, |sample| sample.to_sample::<f32>())
+                    } else {
+                        frame
+                            .iter()
+                            .map(|sample| sample.to_sample::<f32>())
+                            .sum::<f32>()
+                            / frame.len() as f32
+                    };
+                    let _ = queue.push(mono);
                 }
             },
             move |_| {},
@@ -188,7 +188,7 @@ where
 fn output_stream<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
-    queue: Arc<Mutex<VecDeque<f32>>>,
+    queue: Arc<SampleQueue>,
     gain: f32,
 ) -> Result<cpal::Stream, String>
 where
@@ -199,13 +199,8 @@ where
         .build_output_stream(
             config,
             move |data: &mut [T], _| {
-                let mut queue = queue.lock().ok();
                 for frame in data.chunks_exact_mut(channels) {
-                    let sample = queue
-                        .as_mut()
-                        .and_then(|queue| queue.pop_front())
-                        .unwrap_or(0.0)
-                        * gain;
+                    let sample = sanitize(queue.pop().unwrap_or(0.0) * gain);
                     let value = T::from_sample(sample);
                     for slot in frame {
                         *slot = value;

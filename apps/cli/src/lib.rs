@@ -3942,8 +3942,12 @@ fn midi_cc(output: &str, channel: u8, controller: u8, value: u8) -> Result<(), B
 }
 
 fn midi_monitor(input: &str, seconds: f64) -> Result<(), Box<dyn Error>> {
+    if !seconds.is_finite() {
+        return Err("--seconds must be a finite number".into());
+    }
     let live = midi_devices::LiveInput::open(input).map_err(map_device_error)?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs_f64(seconds.max(0.1));
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_secs_f64(seconds.clamp(0.1, 86_400.0));
     let mut count = 0_usize;
     let mut controllers = 0_usize;
     while std::time::Instant::now() < deadline {

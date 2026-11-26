@@ -4,12 +4,27 @@
 //! emits the parameter-change form, and [`checksum`] is available for bulk
 //! dumps that need it. `xg_on` is the one well-known message this build sends.
 
-/// The 7-bit checksum Yamaha uses: the address and data bytes summed, then
-/// negated within the 7-bit range.
+/// The Roland-style 7-bit checksum: the address and data bytes summed, then
+/// negated within the 7-bit range. Roland DT1/RQ1 messages (the D-05) use it.
+///
+/// A Yamaha XG bulk dump also counts its two byte-count bytes; use
+/// [`yamaha_bulk_checksum`] for those.
 #[must_use]
 pub fn checksum(address: [u8; 3], data: &[u8]) -> u8 {
     let sum = address
         .iter()
+        .chain(data.iter())
+        .fold(0_u32, |sum, byte| sum + u32::from(*byte));
+    ((128 - (sum % 128)) % 128) as u8
+}
+
+/// The Yamaha XG bulk-dump checksum: byte count, address and data summed,
+/// then negated within the 7-bit range.
+#[must_use]
+pub fn yamaha_bulk_checksum(byte_count: [u8; 2], address: [u8; 3], data: &[u8]) -> u8 {
+    let sum = byte_count
+        .iter()
+        .chain(address.iter())
         .chain(data.iter())
         .fold(0_u32, |sum, byte| sum + u32::from(*byte));
     ((128 - (sum % 128)) % 128) as u8
@@ -35,6 +50,11 @@ impl ParameterChange {
     pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
         if self.device > 15 {
             return Err(String::from("device number must be 0..=15"));
+        }
+        if self.data.is_empty() {
+            return Err(String::from(
+                "a parameter change needs at least one data byte",
+            ));
         }
         if self
             .address
@@ -71,6 +91,11 @@ mod tests {
     #[test]
     fn xg_on_is_the_nine_byte_parameter_change() {
         assert_eq!(checksum([0x00, 0x00, 0x7e], &[0x00]), 2);
+        // Count 0x00 0x01 adds one to the sum.
+        assert_eq!(
+            yamaha_bulk_checksum([0x00, 0x01], [0x00, 0x00, 0x7e], &[0x00]),
+            1
+        );
         assert_eq!(
             xg_on(0),
             vec![0xf0, 0x43, 0x10, 0x4c, 0x00, 0x00, 0x7e, 0x00, 0xf7]

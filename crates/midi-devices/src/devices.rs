@@ -44,6 +44,9 @@ pub enum DeviceError {
     /// input closed.
     #[error("MIDI input closed early")]
     InputClosed,
+    /// A SysEx handshake was rejected, failed or timed out.
+    #[error("SysEx handshake failed: {0}")]
+    Handshake(String),
     /// A project could not be built from the recording.
     #[error("recording could not be stored: {0}")]
     Project(String),
@@ -272,8 +275,9 @@ pub fn channel_check(
     output
         .send(&messages[0])
         .map_err(|err| DeviceError::Connect(err.to_string()))?;
-    std::thread::sleep(std::time::Duration::from_secs_f64(
-        seconds.clamp(0.05, 10.0),
+    std::thread::sleep(seconds_duration(seconds).clamp(
+        std::time::Duration::from_millis(50),
+        std::time::Duration::from_secs(10),
     ));
     output
         .send(&messages[1])
@@ -365,10 +369,18 @@ pub fn collect_sysex_chunks(pending: &mut Vec<u8>, chunk: &[u8], out: &mut Vec<V
         } else if byte & 0x80 != 0 {
             pending.clear();
         } else if !pending.is_empty() {
-            pending.push(byte);
+            // A SysEx message longer than any device sends is dropped.
+            if pending.len() >= MAX_SYSEX_BYTES {
+                pending.clear();
+            } else {
+                pending.push(byte);
+            }
         }
     }
 }
+
+/// The longest SysEx message kept while assembling chunks (1 MiB).
+const MAX_SYSEX_BYTES: usize = 1024 * 1024;
 
 /// Sends one SysEx request to `output_name` and collects complete `F0..F7`
 /// replies arriving on `input_name`.
@@ -481,13 +493,21 @@ where
     let mut replies = Vec::new();
     let mut pending = Vec::new();
     let mut batch = Vec::new();
+    // However chatty the device, the whole exchange ends within this limit.
+    let total = Instant::now() + HANDSHAKE_LIMIT;
     loop {
-        match receiver.recv_timeout(timeout) {
+        let wait = timeout.min(total.saturating_duration_since(Instant::now()));
+        match receiver.recv_timeout(wait) {
             Ok(chunk) => {
                 batch.clear();
                 collect_sysex_chunks(&mut pending, &chunk, &mut batch);
                 for message in batch.drain(..) {
-                    if is_done(&message) || is_abort(&message) {
+                    if is_abort(&message) {
+                        return Err(DeviceError::Handshake(String::from(
+                            "the device rejected the request or reported an error",
+                        )));
+                    }
+                    if is_done(&message) {
                         return Ok(replies);
                     }
                     replies.push(message);
@@ -496,12 +516,19 @@ where
                         .map_err(|err| DeviceError::Send(err.to_string()))?;
                 }
             }
-            Err(RecvTimeoutError::Timeout) => break,
+            Err(RecvTimeoutError::Timeout) => {
+                return Err(DeviceError::Handshake(format!(
+                    "no end-of-data after {} packet(s)",
+                    replies.len()
+                )));
+            }
             Err(RecvTimeoutError::Disconnected) => return Err(DeviceError::InputClosed),
         }
     }
-    Ok(replies)
 }
+
+/// The longest a SysEx handshake may run in total.
+const HANDSHAKE_LIMIT: Duration = Duration::from_secs(120);
 
 /// Captures raw MIDI bytes (including SysEx and realtime) from `input_name`
 /// for `seconds`.
@@ -527,7 +554,7 @@ pub fn monitor_raw(input_name: &str, seconds: f64) -> Result<Vec<(u64, Vec<u8>)>
             (),
         )
         .map_err(|err| DeviceError::Connect(err.to_string()))?;
-    let deadline = Instant::now() + Duration::from_secs_f64(seconds.clamp(0.0, 120.0));
+    let deadline = Instant::now() + seconds_duration(seconds).min(Duration::from_secs(120));
     let mut packets = Vec::new();
     while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
         match receiver.recv_timeout(remaining) {
@@ -604,7 +631,7 @@ pub fn echo(input_name: &str, output_name: &str, seconds: f64) -> Result<EchoRep
         )
         .map_err(|err| DeviceError::Connect(err.to_string()))?;
 
-    let deadline = Instant::now() + Duration::from_secs_f64(seconds.max(0.0));
+    let deadline = Instant::now() + seconds_duration(seconds);
     let mut report = EchoReport::default();
     while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
         match receiver.recv_timeout(remaining) {
@@ -695,7 +722,7 @@ pub fn record_to_song_after(
     let mut deadline = if wait_for_note {
         wait_deadline
     } else {
-        Instant::now() + Duration::from_secs_f64(seconds.max(0.0))
+        Instant::now() + seconds_duration(seconds)
     };
     let mut capture = NoteCapture::new();
     let mut waiting = wait_for_note;
@@ -708,7 +735,7 @@ pub fn record_to_song_after(
                     {
                         waiting = false;
                         origin = Some(timestamp);
-                        deadline = Instant::now() + Duration::from_secs_f64(seconds);
+                        deadline = Instant::now() + seconds_duration(seconds);
                     } else {
                         continue;
                     }
@@ -732,6 +759,16 @@ pub fn record_to_song_after(
     song.tempo_map = tempo_map.clone();
     song.tracks.push(track);
     Ok((song, notes, stats))
+}
+
+/// A wait in seconds as a `Duration`: NaN and negatives become zero and
+/// infinity a day, where `Duration::from_secs_f64` would panic.
+fn seconds_duration(seconds: f64) -> std::time::Duration {
+    if seconds.is_nan() || seconds <= 0.0 {
+        std::time::Duration::ZERO
+    } else {
+        std::time::Duration::from_secs_f64(seconds.min(86_400.0))
+    }
 }
 
 #[cfg(test)]

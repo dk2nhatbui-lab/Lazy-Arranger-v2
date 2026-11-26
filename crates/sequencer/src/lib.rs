@@ -95,7 +95,7 @@ impl PreparedPattern {
                     });
                 }
                 let on_tick = note.start;
-                let off_tick = note.start + note.duration;
+                let off_tick = note.start.saturating_add(note.duration);
                 events.push(ScheduledEvent {
                     sample: song.tempo_map.samples_at(on_tick, sample_rate),
                     tick: on_tick,
@@ -249,6 +249,11 @@ pub struct Scheduler {
     position: SamplePosition,
     cursor: usize,
     playing: bool,
+    /// Sounding notes: one bit per key, one word per channel.
+    active: [u128; 16],
+    /// Set by stop and seek: the next block first releases every sounding
+    /// note, so none is left hanging.
+    release_pending: bool,
 }
 
 impl Scheduler {
@@ -260,6 +265,8 @@ impl Scheduler {
             position: 0,
             cursor: 0,
             playing: false,
+            active: [0; 16],
+            release_pending: false,
         }
     }
 
@@ -284,9 +291,17 @@ impl Scheduler {
         self.playing = true;
     }
 
-    /// Stops playback and keeps the position.
+    /// Stops playback and keeps the position. The next block releases any
+    /// note that is still sounding.
     pub fn stop(&mut self) {
         self.playing = false;
+        self.release_pending = self.has_active_notes();
+    }
+
+    /// True while a note-on has been emitted without its note-off.
+    #[must_use]
+    pub fn has_active_notes(&self) -> bool {
+        self.active.iter().any(|keys| *keys != 0)
     }
 
     /// True while the scheduler emits events.
@@ -312,6 +327,7 @@ impl Scheduler {
     /// Moves to an absolute sample position.
     pub fn seek(&mut self, sample: SamplePosition) {
         self.position = sample.max(0);
+        self.release_pending = self.has_active_notes();
         self.seek_to_position();
     }
 
@@ -338,8 +354,12 @@ impl Scheduler {
     pub fn process_block(&mut self, frames: usize, out: &mut EventBuffer) -> BlockReport {
         out.clear();
         let block_start = self.position;
-        let block_end = block_start + frames as SamplePosition;
+        let block_end = block_start
+            .saturating_add(SamplePosition::try_from(frames).unwrap_or(SamplePosition::MAX));
         let mut emitted = 0;
+        if self.release_pending {
+            emitted += self.release_active(block_start, out);
+        }
         if self.playing {
             while let Some(event) = self.prepared.events.get(self.cursor) {
                 if event.sample >= block_end {
@@ -347,6 +367,7 @@ impl Scheduler {
                 }
                 if event.sample >= block_start && out.push(*event) {
                     emitted += 1;
+                    self.track_note(event.message);
                 }
                 self.cursor += 1;
             }
@@ -362,6 +383,53 @@ impl Scheduler {
                 .tick_at_samples(self.position, self.prepared.sample_rate),
             finished: self.finished(),
         }
+    }
+
+    fn track_note(&mut self, message: MidiMessage) {
+        match message.normalized() {
+            MidiMessage::NoteOn { channel, key, .. } => {
+                self.active[usize::from(channel.zero_based())] |= 1 << key.as_u8();
+            }
+            MidiMessage::NoteOff { channel, key, .. } => {
+                self.active[usize::from(channel.zero_based())] &= !(1 << key.as_u8());
+            }
+            _ => {}
+        }
+    }
+
+    /// Emits a note-off at `sample` for every sounding note. Notes that do not
+    /// fit in `out` stay tracked and are released by the next block.
+    fn release_active(&mut self, sample: SamplePosition, out: &mut EventBuffer) -> usize {
+        let mut emitted = 0;
+        for (channel_index, keys) in self.active.iter_mut().enumerate() {
+            let Ok(channel) = music_core::Channel::new(channel_index as u8) else {
+                continue;
+            };
+            for key in 0..128_u8 {
+                if *keys & (1 << key) == 0 {
+                    continue;
+                }
+                let Ok(pitch) = music_core::Pitch::new(key) else {
+                    continue;
+                };
+                let event = ScheduledEvent {
+                    sample,
+                    tick: self
+                        .prepared
+                        .tempo_map
+                        .tick_at_samples(sample, self.prepared.sample_rate),
+                    track: TrackId::new(1).expect("1 is a valid track id"),
+                    message: MidiMessage::note_off(channel, pitch, zero_velocity()),
+                };
+                if !out.push(event) {
+                    return emitted;
+                }
+                *keys &= !(1 << key);
+                emitted += 1;
+            }
+        }
+        self.release_pending = false;
+        emitted
     }
 
     fn seek_to_position(&mut self) {
@@ -708,5 +776,33 @@ mod tests {
         assert_eq!(buffer.capacity(), 2);
         buffer.clear();
         assert_eq!(buffer.overflowed(), 0);
+    }
+
+    #[test]
+    fn stopping_mid_note_releases_it() {
+        let mut song = Song::new("Held", 120.0);
+        let mut track = Track::new(TrackId::new(1).expect("valid"), "Piano");
+        track.notes.push(Note {
+            id: NoteId::new(1).expect("valid"),
+            start: 0,
+            duration: music_core::PPQ * 8,
+            pitch: Pitch::from_name("C4").expect("valid"),
+            velocity: Velocity::new(100).expect("valid"),
+            channel: Channel::first(),
+        });
+        song.tracks.push(track);
+        let mut scheduler =
+            Scheduler::new(PreparedPattern::prepare(&song, 48_000).expect("prepare"));
+        let mut out = EventBuffer::with_capacity(16);
+        scheduler.play();
+        scheduler.process_block(256, &mut out);
+        assert!(scheduler.has_active_notes());
+        scheduler.stop();
+        scheduler.process_block(256, &mut out);
+        assert!(matches!(
+            out.events()[0].message,
+            MidiMessage::NoteOff { .. }
+        ));
+        assert!(!scheduler.has_active_notes());
     }
 }
