@@ -12,6 +12,11 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
   and parts move and resize on the timeline as in the first version.
 
 ### Fixed
+- Fixes from a source code audit: safer plug-in hosting (VST3 and Audio
+  Units), no stuck notes after stop or seek, glitch-free audio and recording
+  callbacks, sturdier file import (SoundFont, MusicXML, C++ projects), and
+  tighter limits on what the AI assistant and MCP server may touch. A project
+  that fails to open is no longer overwritten by the demo song.
 - The score with all tracks now lays out correctly on screen and in the PDF:
   each staff has its own correct clef (Bravura font), and the staves no
   longer overlap. A one-track PDF follows the same notation rules.
