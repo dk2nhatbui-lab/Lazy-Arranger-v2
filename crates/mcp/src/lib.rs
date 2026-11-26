@@ -2174,7 +2174,10 @@ pub fn call(session: &mut EditSession, name: &str, arguments: &Value) -> Result<
             } else {
                 let engraved = score::engrave(session.song(), track, settings);
                 let pages = engraved.pages.len();
-                (score::pdf::to_pdf(&engraved, settings, title), pages)
+                (
+                    score::cecilia::track_pdf(session.song(), track, title),
+                    pages,
+                )
             };
             std::fs::write(&path, &pdf)
                 .map_err(|error| ToolError::Arguments(format!("{}: {error}", path.display())))?;

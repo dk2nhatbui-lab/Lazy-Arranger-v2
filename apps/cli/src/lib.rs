@@ -1379,7 +1379,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
                 return Err(format!("no track at index {track}").into());
             };
             let engraved = score::engrave(&project.song, entry.id, settings);
-            let pdf = score::pdf::to_pdf(&engraved, settings, &score_title);
+            let pdf = score::cecilia::track_pdf(&project.song, entry.id, &score_title);
             fs::write(&out, &pdf)
                 .map_err(|error| format!("could not write {}: {error}", out.display()))?;
             println!(

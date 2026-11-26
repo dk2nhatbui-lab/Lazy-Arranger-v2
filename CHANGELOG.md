@@ -5,7 +5,16 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
+## [0.1.0-beta.2] - 2026-11-26
+
+### Changed
+- Panels resize when you drag the seams between them, the timeline zooms,
+  and parts move and resize on the timeline as in the first version.
+
 ### Fixed
+- The score with all tracks now lays out correctly on screen and in the PDF:
+  each staff has its own correct clef (Bravura font), and the staves no
+  longer overlap. A one-track PDF follows the same notation rules.
 - The mixer now changes the song while it plays. Moving a fader or pan knob,
   or pressing mute or solo, used to do nothing until playback was restarted.
 - Projects saved by the C++ app with audio tracks now open with their audio:

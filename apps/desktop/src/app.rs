@@ -3270,18 +3270,6 @@ impl ShellApp {
             self.status = Some(String::from("pages must look like 1-4, 7"));
             return;
         }
-        let grand_staff = self.score.grand
-            || !self.score.one_staff
-                && self
-                    .song()
-                    .tracks
-                    .iter()
-                    .find(|entry| entry.id == track)
-                    .is_some_and(needs_grand_staff);
-        let settings = score::Settings {
-            grand_staff,
-            ..score::Settings::default()
-        };
         let title = if self.song().name.is_empty() {
             String::from("Lazy Arranger score")
         } else {
@@ -3309,8 +3297,7 @@ impl ShellApp {
                 }
             }
         } else {
-            let engraved = score::engrave(self.song(), track, settings);
-            score::pdf::to_pdf(&engraved, settings, &title)
+            score::cecilia::track_pdf(self.song(), track, &title)
         };
         let path = std::env::temp_dir().join(format!(
             "lazy-arranger-score-{}-{stamp}.pdf",
