@@ -423,8 +423,13 @@ pub fn sysex_exchange(
     let mut replies = Vec::new();
     let mut pending = Vec::new();
     let first_deadline = Instant::now() + timeout;
+    // A device that never stops sending cannot hold the exchange forever.
+    let total = Instant::now() + timeout.saturating_add(HANDSHAKE_LIMIT);
     let mut got_any = false;
     loop {
+        if Instant::now() >= total {
+            break;
+        }
         let wait = if got_any {
             idle_gap
         } else {
@@ -496,7 +501,16 @@ where
     // However chatty the device, the whole exchange ends within this limit.
     let total = Instant::now() + HANDSHAKE_LIMIT;
     loop {
-        let wait = timeout.min(total.saturating_duration_since(Instant::now()));
+        let left = total.saturating_duration_since(Instant::now());
+        // Checked here, not only through the wait: queued chunks would
+        // otherwise keep arriving with a zero timeout.
+        if left.is_zero() {
+            return Err(DeviceError::Handshake(format!(
+                "the transfer took longer than {} s",
+                HANDSHAKE_LIMIT.as_secs()
+            )));
+        }
+        let wait = timeout.min(left);
         match receiver.recv_timeout(wait) {
             Ok(chunk) => {
                 batch.clear();

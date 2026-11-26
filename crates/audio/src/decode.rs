@@ -16,8 +16,8 @@ use symphonia::core::meta::MetadataOptions;
 
 use crate::RenderedAudio;
 
-/// The most samples a decode keeps: three hours of 48 kHz stereo.
-const MAX_DECODED_SAMPLES: usize = 3 * 3600 * 48_000 * 2;
+/// The most samples a decode keeps: two hours of 48 kHz stereo (~2.8 GB).
+const MAX_DECODED_SAMPLES: usize = 2 * 3600 * 48_000 * 2;
 
 /// Decodes a supported audio file into mono samples at its native rate.
 ///

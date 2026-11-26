@@ -178,11 +178,14 @@ where
                     return;
                 }
                 for sample in data {
-                    let _ = queue.push(sample.to_sample::<f32>());
+                    let _ = queue.push(crate::spsc::sanitize(sample.to_sample::<f32>()));
                 }
             },
             move |error| {
-                if let Ok(mut slot) = errors.lock() {
+                // Never block the audio thread; a second error can wait.
+                if let Ok(mut slot) = errors.try_lock()
+                    && slot.is_none()
+                {
                     *slot = Some(format!("input stream error: {error}"));
                 }
             },
