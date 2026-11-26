@@ -8,8 +8,8 @@
 //! Some changes still need a new render: a fader on a track with volume
 //! automation, a bus with plug-ins, a plug-in bypass, or a master effect.
 //! The app watches a fingerprint of those settings. When it changes, the
-//! song renders again in the background, and the new buffer replaces the old
-//! one at the same position.
+//! song renders again in the background, and the engine swaps the new graph
+//! in at its next buffer, at the same position, on the same stream.
 
 use std::hash::{Hash, Hasher};
 
@@ -90,43 +90,19 @@ impl ShellApp {
 
     /// Replaces the playing buffer with a new render, keeping the position.
     fn swap_in_render(&mut self, rendered: RenderedSong, signature: u64) {
-        let Some(old) = self.player.take() else {
+        let Some(player) = &self.player else {
             return;
         };
         let stem_rate = rendered.audio.sample_rate();
-        let new = match audio::player::Player::new_live_on(
-            rendered.audio,
-            self.settings.audio_output.as_deref(),
-            (self.settings.audio_buffer_frames > 0).then_some(self.settings.audio_buffer_frames),
-        ) {
-            Ok(player) => player,
-            Err(error) => {
-                // Keep playing the old mix.
-                self.player = Some(old);
-                self.mix_rendered = signature;
-                self.status = Some(format!("audio: {error}"));
-                return;
-            }
-        };
-        if self.loop_enabled
-            && let Some((start, end)) = self.loop_region
-            && end > start
-        {
-            let from = self.song().tempo_map.seconds_at(start);
-            let to = self.song().tempo_map.seconds_at(end);
-            new.set_loop(true, from, to);
+        // The engine installs the new graph at its next buffer and keeps the
+        // position, the stream and the loop; the old graph is freed here.
+        if let Err(error) = player.load(rendered.audio) {
+            // Keep playing the old mix; the next change tries again.
+            self.status = Some(format!("audio: {error}"));
+            return;
         }
-        // Read the position as late as possible so the jump is not heard.
-        let _ = new.seek_seconds(old.seconds());
-        if old.is_playing() {
-            new.play();
-        }
-        old.stop();
-        old.release();
-        self.last_loop_wraps = 0;
         self.stem_sample_rate = stem_rate;
         self.stem_levels = rendered.stems;
-        self.player = Some(new);
         self.mix_rendered = signature;
     }
 }

@@ -1,537 +1,191 @@
-//! Realtime playback of a pre-rendered song.
+//! Device playback through the real-time engine.
 //!
-//! The stream callback only copies from an immutable finished buffer and updates
-//! atomic transport fields, so it does no synthesis, locking, or allocation.
+//! The device callback owns an [`Engine`] and runs its graph; it does no
+//! locking, allocation or freeing. See [`crate::engine`].
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use crate::RenderedAudio;
+use crate::engine::{Engine, EngineControl, Graph, Param, Transport, engine};
 use crate::live::LiveRender;
-use crate::master::{Meter, meter_at};
+use crate::master::Meter;
 
-/// A sample position and the play flag, packed with an edit counter in one
-/// atomic.
-///
-/// Every control change (seek, play, pause, stop) bumps the counter, so a
-/// callback that read the state before it cannot overwrite it afterwards,
-/// even when the change lands on the same value (the ABA case). Keeping the
-/// play flag in the same word means a callback that finishes the song clears
-/// it and rewinds in one step, never racing a `play()` in between.
-#[derive(Debug)]
-struct Cursor(AtomicU64);
+/// Remembers the last parameters sent, so only changes go to the audio
+/// thread.
+#[derive(Debug, Default)]
+struct Sent {
+    tracks: Vec<(project::TrackId, f32, f32)>,
+    master: Option<f32>,
+}
 
-const POSITION_BITS: u32 = 44;
-const POSITION_MASK: u64 = (1 << POSITION_BITS) - 1;
-const PLAYING_BIT: u64 = 1 << POSITION_BITS;
-const EPOCH_SHIFT: u32 = POSITION_BITS + 1;
-
-impl Cursor {
-    fn new() -> Self {
-        Self(AtomicU64::new(0))
-    }
-
-    fn position(raw: u64) -> usize {
-        (raw & POSITION_MASK) as usize
-    }
-
-    fn playing(raw: u64) -> bool {
-        raw & PLAYING_BIT != 0
-    }
-
-    fn pack(epoch: u64, position: usize, playing: bool) -> u64 {
-        let position = (position as u64).min(POSITION_MASK);
-        (epoch << EPOCH_SHIFT) | if playing { PLAYING_BIT } else { 0 } | position
-    }
-
-    fn load_raw(&self) -> u64 {
-        self.0.load(Ordering::Acquire)
-    }
-
-    fn load(&self) -> usize {
-        Self::position(self.load_raw())
-    }
-
-    /// Applies a control change to `(position, playing)`, starting a new epoch.
-    fn update(&self, change: impl Fn(usize, bool) -> (usize, bool)) {
-        let mut raw = self.0.load(Ordering::Acquire);
-        loop {
-            let epoch = (raw >> EPOCH_SHIFT).wrapping_add(1);
-            let (position, playing) = change(Self::position(raw), Self::playing(raw));
-            let next = Self::pack(epoch, position, playing);
-            match self
-                .0
-                .compare_exchange_weak(raw, next, Ordering::AcqRel, Ordering::Acquire)
-            {
-                Ok(_) => break,
-                Err(current) => raw = current,
-            }
+/// Sends the song's mixer to the engine: lane gains and the master gain.
+fn send_mix(
+    control: &mut EngineControl,
+    sent: &mut Sent,
+    song: &project::song::Song,
+    master_gain_db: f32,
+) {
+    control.collect_garbage();
+    for track in &song.tracks {
+        let (left, right) = crate::live::lane_gains(song, track);
+        let known = sent.tracks.iter_mut().find(|entry| entry.0 == track.id);
+        if known
+            .as_ref()
+            .is_some_and(|entry| entry.1 == left && entry.2 == right)
+        {
+            continue;
+        }
+        if !control.send(Param::TrackGain {
+            track: track.id,
+            left,
+            right,
+        }) {
+            // Full: try again next time.
+            continue;
+        }
+        match known {
+            Some(entry) => *entry = (track.id, left, right),
+            None => sent.tracks.push((track.id, left, right)),
         }
     }
-
-    /// Moves the position from the control side, keeping the play state.
-    fn store(&self, position: usize) {
-        self.update(|_, playing| (position, playing));
-    }
-
-    /// Advances from `expected` (a raw value read earlier) unless a control
-    /// change happened since. Returns true when it was applied.
-    fn advance(&self, expected: u64, position: usize, playing: bool) -> bool {
-        let next = Self::pack(expected >> EPOCH_SHIFT, position, playing);
-        self.0
-            .compare_exchange(expected, next, Ordering::AcqRel, Ordering::Relaxed)
-            .is_ok()
+    let gain = crate::master::gain(master_gain_db);
+    if sent.master != Some(gain) && control.send(Param::MasterGain(gain)) {
+        sent.master = Some(gain);
     }
 }
 
-/// Loop bounds in samples, packed as two `u32` frame counts so the callback
-/// reads both in one load and never sees a half-updated range.
-fn pack_loop(start: usize, end: usize) -> u64 {
-    let frames = |samples: usize| u64::from(u32::try_from(samples / 2).unwrap_or(u32::MAX));
-    (frames(start) << 32) | frames(end)
-}
-
-fn unpack_loop(raw: u64) -> (usize, usize) {
-    (
-        ((raw >> 32) as usize).saturating_mul(2),
-        ((raw & 0xFFFF_FFFF) as usize).saturating_mul(2),
-    )
-}
-
-/// A gain the control side sets and the callback ramps to, as `f32` bits.
-#[derive(Debug)]
-struct LiveGain {
-    target: AtomicU32,
-    current: AtomicU32,
-}
-
-impl LiveGain {
-    fn new(value: f32) -> Self {
-        Self {
-            target: AtomicU32::new(value.to_bits()),
-            current: AtomicU32::new(value.to_bits()),
-        }
-    }
-
-    fn set(&self, value: f32) {
-        let value = if value.is_finite() { value } else { 0.0 };
-        self.target.store(value.to_bits(), Ordering::Release);
-    }
-
-    fn target(&self) -> f32 {
-        f32::from_bits(self.target.load(Ordering::Acquire))
-    }
-
-    /// Start and end of this callback's ramp; the end becomes the next start.
-    fn ramp(&self) -> (f32, f32) {
-        let target = self.target();
-        let current = f32::from_bits(self.current.swap(target.to_bits(), Ordering::AcqRel));
-        (current, target)
-    }
-}
-
-/// A live track buffer with its left and right gains.
-#[derive(Debug)]
-struct Lane {
-    samples: Vec<f32>,
-    track: project::TrackId,
-    left: LiveGain,
-    right: LiveGain,
-}
-
-/// Gains that one callback ramps across its output.
-struct Ramp {
-    start: f32,
-    step: f32,
-}
-
-impl Ramp {
-    fn new((start, end): (f32, f32), frames: usize) -> Self {
-        Self {
-            start,
-            step: (end - start) / frames.max(1) as f32,
-        }
-    }
-
-    fn at(&self, frame: usize) -> f32 {
-        self.start + self.step * frame as f32
-    }
-}
-
-/// Live mixing stages: lanes summed with gains, then the master.
-#[derive(Debug)]
-struct Live {
-    lanes: Vec<Lane>,
-    master_gain: LiveGain,
-    limiter: bool,
-}
-
-/// Playback position and buffer, shared lock-free with the audio callback.
+/// An engine driven by hand instead of by a device: for tests, offline
+/// bounces and tools.
 #[derive(Debug)]
 pub struct Playback {
-    samples: Vec<f32>,
-    sample_rate: u32,
-    position: Cursor,
-    looping: AtomicBool,
-    loop_bounds: AtomicU64,
-    loop_wraps: AtomicU64,
-    live: Option<Live>,
-}
-
-/// Whole stereo frames only, so left and right never swap, and clean
-/// samples, so the callback can copy them straight to the device.
-fn clean(mut samples: Vec<f32>, len: usize) -> Vec<f32> {
-    samples.resize(len, 0.0);
-    for sample in &mut samples {
-        if !sample.is_finite() {
-            *sample = 0.0;
-        }
-    }
-    samples
+    engine: Engine,
+    control: EngineControl,
+    transport: Arc<Transport>,
+    sent: Sent,
 }
 
 impl Playback {
-    /// Wraps rendered samples.
+    /// Wraps a finished mix.
     #[must_use]
     pub fn new(audio: RenderedAudio) -> Self {
-        let len = audio.samples.len() & !1;
-        let samples = clean(audio.samples, len);
-        Self {
-            samples,
-            sample_rate: audio.sample_rate,
-            position: Cursor::new(),
-            looping: AtomicBool::new(false),
-            loop_bounds: AtomicU64::new(pack_loop(0, len)),
-            loop_wraps: AtomicU64::new(0),
-            live: None,
-        }
+        Self::new_live(LiveRender::from_audio(audio))
     }
 
-    /// Wraps a live render; its lane gains and master gain can change while
-    /// it plays.
+    /// Wraps a live render; its lane gains and master gain follow
+    /// [`Playback::apply_mix`].
     #[must_use]
     pub fn new_live(render: LiveRender) -> Self {
-        let mut playback = Self::new(render.fixed);
-        let len = playback.samples.len();
-        let lanes = render
-            .lanes
-            .into_iter()
-            .zip(render.tracks)
-            .zip(render.gains)
-            .map(|((samples, track), (left, right))| Lane {
-                samples: clean(samples, len),
-                track,
-                left: LiveGain::new(left),
-                right: LiveGain::new(right),
-            })
-            .collect();
-        playback.live = Some(Live {
-            lanes,
-            master_gain: LiveGain::new(render.master_gain),
-            limiter: render.limiter,
-        });
-        playback
-    }
-
-    /// Sets the gains of live tracks from the song's mixer, and the master
-    /// gain. Heard from the next audio buffer, with a short ramp.
-    pub fn apply_mix(&self, song: &project::song::Song, master_gain_db: f32) {
-        let Some(live) = &self.live else {
-            return;
-        };
-        for lane in &live.lanes {
-            let (left, right) = song
-                .tracks
-                .iter()
-                .find(|track| track.id == lane.track)
-                .map_or((0.0, 0.0), |track| crate::live::lane_gains(song, track));
-            lane.left.set(left);
-            lane.right.set(right);
-        }
-        live.master_gain.set(crate::master::gain(master_gain_db));
-    }
-
-    /// Adds the live lanes and runs the master over `output`, which holds
-    /// fixed samples copied from `pos`. `offset` is the output's first frame
-    /// in this callback, for the gain ramps.
-    fn mix_live(
-        live: &Live,
-        ramps: &[(Ramp, Ramp)],
-        master: &Ramp,
-        output: &mut [f32],
-        pos: usize,
-        offset: usize,
-    ) {
-        for (lane, (left, right)) in live.lanes.iter().zip(ramps) {
-            let Some(source) = lane.samples.get(pos..pos + output.len()) else {
-                continue;
-            };
-            for (frame, (target, pair)) in output
-                .as_chunks_mut::<2>()
-                .0
-                .iter_mut()
-                .zip(source.as_chunks::<2>().0)
-                .enumerate()
-            {
-                let at = offset + frame;
-                target[0] += pair[0] * left.at(at);
-                target[1] += pair[1] * right.at(at);
-            }
-        }
-        for (frame, pair) in output.as_chunks_mut::<2>().0.iter_mut().enumerate() {
-            let gain = master.at(offset + frame);
-            pair[0] = crate::master::finish(pair[0] * gain, live.limiter);
-            pair[1] = crate::master::finish(pair[1] * gain, live.limiter);
+        let (engine, control, transport) = engine(Graph::from_render(render));
+        Self {
+            engine,
+            control,
+            transport,
+            sent: Sent::default(),
         }
     }
 
-    /// Sample rate of the underlying buffer in Hz.
+    /// The shared transport.
+    #[must_use]
+    pub fn transport(&self) -> &Arc<Transport> {
+        &self.transport
+    }
+
+    /// Sample rate in Hz.
     #[must_use]
     pub fn sample_rate(&self) -> u32 {
-        self.sample_rate
+        self.transport.sample_rate()
     }
 
-    /// Starts or resumes playback from the current position.
+    /// Starts or resumes playback.
     pub fn play(&self) {
-        let looping = self.looping.load(Ordering::Acquire);
-        let (start, end) = self.active_bounds(looping);
-        let len = self.samples.len();
-        self.position.update(|pos, _| {
-            let pos = if looping {
-                if pos < start || pos >= end {
-                    start
-                } else {
-                    pos
-                }
-            } else if pos >= len {
-                0
-            } else {
-                pos
-            };
-            (pos, true)
-        });
+        self.transport.play();
     }
 
     /// Pauses without losing the position.
     pub fn pause(&self) {
-        self.position.update(|pos, _| (pos, false));
+        self.transport.pause();
     }
 
     /// Stops and rewinds.
     pub fn stop(&self) {
-        self.position.update(|_, _| (0, false));
+        self.transport.stop();
     }
 
     /// Moves to a frame without changing the play state.
     pub fn seek_frame(&self, frame: usize) {
-        self.position
-            .store(frame.saturating_mul(2).min(self.samples.len()));
+        self.transport.seek_frame(frame);
     }
 
     /// Moves to a time in seconds without changing the play state.
     pub fn seek_seconds(&self, seconds: f64) {
-        let frame = (seconds.max(0.0) * f64::from(self.sample_rate)).round() as usize;
-        self.seek_frame(frame);
+        self.transport.seek_seconds(seconds);
     }
 
-    /// Enables or disables seamless in-callback looping over a time range.
-    ///
-    /// When `end_seconds <= start_seconds`, loops to the end of the buffer.
+    /// Enables or disables looping over a time range.
     pub fn set_loop(&self, enabled: bool, start_seconds: f64, end_seconds: f64) {
-        let len = self.samples.len() & !1;
-        let rate = f64::from(self.sample_rate);
-        let start = ((start_seconds.max(0.0) * rate).round() as usize)
-            .saturating_mul(2)
-            .min(len);
-        let end = if end_seconds > start_seconds {
-            ((end_seconds.max(0.0) * rate).round() as usize)
-                .saturating_mul(2)
-                .min(len)
-        } else {
-            len
-        };
-        let (start, end) = if end > start { (start, end) } else { (0, len) };
-        self.loop_bounds
-            .store(pack_loop(start, end), Ordering::Release);
-        self.looping.store(enabled, Ordering::Release);
+        self.transport.set_loop(enabled, start_seconds, end_seconds);
     }
 
-    /// Number of times playback wrapped from loop end back to loop start.
+    /// Times playback wrapped from the loop end to its start.
     #[must_use]
     pub fn loop_wraps(&self) -> u64 {
-        self.loop_wraps.load(Ordering::Relaxed)
+        self.transport.loop_wraps()
     }
 
     /// Current position in frames.
     #[must_use]
     pub fn frame(&self) -> usize {
-        self.position.load() / 2
+        self.transport.frame()
     }
 
-    /// Current position in seconds using the playback sample rate.
+    /// Current position in seconds.
     #[must_use]
     pub fn seconds(&self) -> f64 {
-        self.frame() as f64 / f64::from(self.sample_rate.max(1))
-    }
-
-    /// Peak/RMS over the next `frames` stereo frames, for a meter.
-    #[must_use]
-    pub fn meter(&self, frames: usize) -> Meter {
-        let pos = self.position.load();
-        let Some(live) = &self.live else {
-            return meter_at(&self.samples, pos, frames);
-        };
-        let end = pos
-            .saturating_add(frames.saturating_mul(2))
-            .min(self.samples.len());
-        let Some(window) = self.samples.get(pos..end) else {
-            return Meter::default();
-        };
-        let mut window = window.to_vec();
-        let ramps: Vec<(Ramp, Ramp)> = live
-            .lanes
-            .iter()
-            .map(|lane| {
-                let left = lane.left.target();
-                let right = lane.right.target();
-                (Ramp::new((left, left), 1), Ramp::new((right, right), 1))
-            })
-            .collect();
-        let gain = live.master_gain.target();
-        Self::mix_live(
-            live,
-            &ramps,
-            &Ramp::new((gain, gain), 1),
-            &mut window,
-            pos,
-            0,
-        );
-        meter_at(&window, 0, frames)
+        self.transport.seconds()
     }
 
     /// True while samples are being produced.
     #[must_use]
     pub fn is_playing(&self) -> bool {
-        Cursor::playing(self.position.load_raw())
+        self.transport.is_playing()
     }
 
-    fn active_bounds(&self, looping: bool) -> (usize, usize) {
-        let len = self.samples.len();
-        if !looping {
-            return (0, len);
-        }
-        let (raw_start, raw_end) = unpack_loop(self.loop_bounds.load(Ordering::Acquire));
-        let raw_start = raw_start.min(len);
-        let end = if raw_end > raw_start && raw_end <= len {
-            raw_end
-        } else {
-            len
-        };
-        let start = if raw_start < end { raw_start } else { 0 };
-        (start, end)
+    /// Level of what was played since the last read.
+    #[must_use]
+    pub fn meter(&self) -> Meter {
+        self.transport.meter()
     }
 
-    /// Copies the next frames into an interleaved stereo output buffer.
+    /// Sends the song's mixer: heard from the next quantum, ramped.
+    pub fn apply_mix(&mut self, song: &project::song::Song, master_gain_db: f32) {
+        send_mix(&mut self.control, &mut self.sent, song, master_gain_db);
+    }
+
+    /// Replaces the graph at the next buffer, keeping the position.
     ///
-    /// Lock-free and allocation-free for safe use in a realtime audio callback.
-    pub fn fill(&self, output: &mut [f32]) {
-        let start_raw = self.position.load_raw();
-        if !Cursor::playing(start_raw) {
-            output.fill(0.0);
-            return;
-        }
-        // Whole frames only; a stray odd slot gets silence, so the next
-        // callback still starts on a left sample.
-        let frames_len = output.len() & !1;
-        if let Some(extra) = output.get_mut(frames_len..) {
-            extra.fill(0.0);
-        }
-        let output = &mut output[..frames_len];
-        // Read the loop state once, so one callback never mixes two ranges.
-        let looping = self.looping.load(Ordering::Acquire);
-        let (start, end) = self.active_bounds(looping);
-        let mut pos = Cursor::position(start_raw).min(self.samples.len()) & !1;
-        let mut written = 0;
-        let mut wrapped = 0u64;
-        let mut finished = false;
+    /// # Errors
+    ///
+    /// Returns a message when earlier graphs are still waiting.
+    pub fn load(&mut self, render: LiveRender) -> Result<(), String> {
+        let render = resample_live(render, self.sample_rate());
+        self.control
+            .send_graph(Graph::from_render(render))
+            .map_err(|_| String::from("the audio engine is busy"))?;
+        self.sent = Sent::default();
+        Ok(())
+    }
 
-        if end <= start {
-            output.fill(0.0);
-            let _ = self.position.advance(start_raw, 0, false);
-            return;
-        }
+    /// Frees graphs the engine has handed back.
+    pub fn collect_garbage(&mut self) -> usize {
+        self.control.collect_garbage()
+    }
 
-        // Ramp the live gains once across the whole output. The ramps are
-        // built in a fixed-size array so the callback does not allocate.
-        let frames = output.len() / 2;
-        let live = self.live.as_ref();
-        let mut ramps: [(Ramp, Ramp); crate::live::MAX_LANES] =
-            std::array::from_fn(|_| (Ramp::new((0.0, 0.0), 1), Ramp::new((0.0, 0.0), 1)));
-        let mut lane_count = 0;
-        let master = live.map_or_else(
-            || Ramp::new((1.0, 1.0), 1),
-            |live| Ramp::new(live.master_gain.ramp(), frames),
-        );
-        if let Some(live) = live {
-            for (slot, lane) in ramps.iter_mut().zip(&live.lanes) {
-                *slot = (
-                    Ramp::new(lane.left.ramp(), frames),
-                    Ramp::new(lane.right.ramp(), frames),
-                );
-                lane_count += 1;
-            }
-        }
-
-        while written < output.len() {
-            if pos >= end {
-                if looping {
-                    pos = start;
-                    wrapped += 1;
-                } else {
-                    output[written..].fill(0.0);
-                    finished = true;
-                    break;
-                }
-            }
-            let available = end - pos;
-            let needed = output.len() - written;
-            let chunk = available.min(needed);
-            let target = &mut output[written..written + chunk];
-            target.copy_from_slice(&self.samples[pos..pos + chunk]);
-            if let Some(live) = live {
-                Self::mix_live(
-                    live,
-                    &ramps[..lane_count],
-                    &master,
-                    target,
-                    pos,
-                    written / 2,
-                );
-            }
-            pos += chunk;
-            written += chunk;
-        }
-
-        if looping && pos >= end {
-            pos = start;
-            wrapped += 1;
-        } else if !looping && pos >= self.samples.len() {
-            finished = true;
-        }
-
-        // A control change since `start_raw` wins; this callback's result is
-        // then dropped.
-        if finished {
-            let _ = self.position.advance(start_raw, 0, false);
-        } else {
-            let _ = self.position.advance(start_raw, pos, true);
-        }
-
-        if wrapped > 0 {
-            self.loop_wraps.fetch_add(wrapped, Ordering::Relaxed);
-        }
+    /// Runs the engine for one output buffer, as the device callback does.
+    pub fn fill(&mut self, output: &mut [f32]) {
+        self.engine.fill(output);
     }
 }
 
@@ -677,7 +331,10 @@ pub fn preferred_sample_rate(name: Option<&str>, fallback: u32) -> u32 {
 /// A live output stream.
 pub struct Player {
     stream: cpal::Stream,
-    playback: Arc<Playback>,
+    transport: Arc<Transport>,
+    /// Control side of the engine. Locked only on the control thread; the
+    /// audio thread never sees this lock.
+    control: Mutex<(EngineControl, Sent)>,
     sample_rate: u32,
     buffer_frames: Option<u32>,
 }
@@ -730,14 +387,8 @@ impl Player {
             stream_config.buffer_size = cpal::BufferSize::Fixed(frames.max(32));
         }
         let sample_rate = stream_config.sample_rate.0;
-        let plain =
-            render.lanes.is_empty() && !render.limiter && (render.master_gain - 1.0).abs() < 1e-6;
-        let playback = Arc::new(if plain {
-            Playback::new(resample_stereo(render.fixed, sample_rate))
-        } else {
-            Playback::new_live(resample_live(render, sample_rate))
-        });
-        let shared = Arc::clone(&playback);
+        let (mut engine, control, transport) =
+            engine(Graph::from_render(resample_live(render, sample_rate)));
         // Report the first stream error only, so a failing device cannot
         // flood stderr from the audio thread.
         let reported = Arc::new(AtomicBool::new(false));
@@ -754,7 +405,7 @@ impl Player {
             cpal::SampleFormat::F32 => device.build_output_stream(
                 &stream_config,
                 move |output: &mut [f32], _| {
-                    shared.fill(output);
+                    engine.fill(output);
                 },
                 error_callback,
                 None,
@@ -765,7 +416,7 @@ impl Player {
                     let mut chunk_buf = [0.0_f32; 512];
                     for dst in output.chunks_mut(chunk_buf.len()) {
                         let slice = &mut chunk_buf[..dst.len()];
-                        shared.fill(slice);
+                        engine.fill(slice);
                         for (slot, value) in dst.iter_mut().zip(slice.iter().copied()) {
                             *slot = (crate::spsc::sanitize(value) * f32::from(i16::MAX)) as i16;
                         }
@@ -782,7 +433,8 @@ impl Player {
             .map_err(|error| format!("could not start the stream: {error}"))?;
         Ok(Self {
             stream,
-            playback,
+            transport,
+            control: Mutex::new((control, Sent::default())),
             sample_rate,
             buffer_frames: actual_buffer,
         })
@@ -809,7 +461,7 @@ impl Player {
 
     /// Starts playback from the current position.
     pub fn play(&self) {
-        self.playback.play();
+        self.transport.play();
     }
 
     /// Moves the live playback position, keeping the play state.
@@ -818,58 +470,84 @@ impl Player {
     ///
     /// Always succeeds; retained as `Result` for caller compatibility.
     pub fn seek_seconds(&self, seconds: f64) -> Result<(), String> {
-        self.playback.seek_seconds(seconds);
+        self.transport.seek_seconds(seconds);
         Ok(())
     }
 
     /// Enables or disables seamless in-callback looping over a time range.
     pub fn set_loop(&self, enabled: bool, start_seconds: f64, end_seconds: f64) {
-        self.playback.set_loop(enabled, start_seconds, end_seconds);
+        self.transport.set_loop(enabled, start_seconds, end_seconds);
     }
 
     /// Number of times playback wrapped from loop end back to loop start.
     #[must_use]
     pub fn loop_wraps(&self) -> u64 {
-        self.playback.loop_wraps()
+        self.transport.loop_wraps()
     }
 
     /// Pauses playback.
     pub fn pause(&self) {
-        self.playback.pause();
+        self.transport.pause();
     }
 
     /// Stops and rewinds.
     pub fn stop(&self) {
-        self.playback.stop();
+        self.transport.stop();
     }
 
     /// Current frame position.
     #[must_use]
     pub fn frame(&self) -> usize {
-        self.playback.frame()
+        self.transport.frame()
     }
 
     /// Current playback time in seconds using the output device's sample rate.
     #[must_use]
     pub fn seconds(&self) -> f64 {
-        self.playback.seconds()
+        self.transport.seconds()
     }
 
     /// True while playing.
     #[must_use]
     pub fn is_playing(&self) -> bool {
-        self.playback.is_playing()
+        self.transport.is_playing()
     }
 
-    /// Sets live track gains from the song's mixer and the master gain.
+    /// Sends the song's mixer to the engine: track gains and the master
+    /// gain, heard from the next 32-frame quantum.
     pub fn apply_mix(&self, song: &project::song::Song, master_gain_db: f32) {
-        self.playback.apply_mix(song, master_gain_db);
+        if let Ok(mut guard) = self.control.lock() {
+            let (control, sent) = &mut *guard;
+            send_mix(control, sent, song, master_gain_db);
+        }
     }
 
-    /// Master peak/RMS over a short window at the current position.
+    /// Replaces what plays with a new render at the next buffer, keeping the
+    /// position and the stream. The old graph is freed here, not on the
+    /// audio thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when earlier graphs are still waiting.
+    pub fn load(&self, render: LiveRender) -> Result<(), String> {
+        let graph = Graph::from_render(resample_live(render, self.sample_rate));
+        let mut guard = self
+            .control
+            .lock()
+            .map_err(|_| String::from("the audio engine is unavailable"))?;
+        let (control, sent) = &mut *guard;
+        control
+            .send_graph(graph)
+            .map_err(|_| String::from("the audio engine is busy"))?;
+        // Send the whole mixer again for the new graph.
+        *sent = Sent::default();
+        Ok(())
+    }
+
+    /// Level of what was played since the last read.
     #[must_use]
     pub fn meter(&self) -> Meter {
-        self.playback.meter(self.sample_rate as usize / 20)
+        self.transport.meter()
     }
 
     /// Drops the stream; the device is released.
@@ -933,7 +611,7 @@ mod tests {
     #[test]
     fn looping_wraps_seamlessly_across_buffer_boundaries() {
         // 44.1 kHz playback looping from 0.25s..0.75s (half-second region = 22,050 frames).
-        let state = playback_with_rate(44_100, 44_100);
+        let mut state = playback_with_rate(44_100, 44_100);
         state.set_loop(true, 0.25, 0.75);
         state.seek_seconds(0.25);
         state.play();
@@ -969,20 +647,20 @@ mod tests {
     fn concurrent_meter_and_frame_reads_never_drop_samples() {
         let frames = 44_100;
         let samples = vec![0.5_f32; frames * 2];
-        let playback = Arc::new(Playback::new(RenderedAudio {
+        let mut playback = Playback::new(RenderedAudio {
             samples,
             sample_rate: 44_100,
-        }));
+        });
         playback.set_loop(true, 0.0, 1.0);
         playback.play();
 
-        let reader = Arc::clone(&playback);
+        let reader = Arc::clone(playback.transport());
         let done = Arc::new(AtomicBool::new(false));
         let done_reader = Arc::clone(&done);
         let ui_thread = std::thread::spawn(move || {
             while !done_reader.load(Ordering::Relaxed) {
-                let meter = reader.meter(2048);
-                assert!((meter.peak - 0.5).abs() < 1.0e-6);
+                let meter = reader.meter();
+                assert!(meter.peak == 0.0 || (meter.peak - 0.5).abs() < 1.0e-6);
                 let _ = reader.seconds();
             }
         });
@@ -1014,23 +692,25 @@ mod tests {
     }
 
     #[test]
-    fn the_playback_meter_reports_the_current_window() {
-        let playback = Playback::new(RenderedAudio {
-            samples: vec![0.5, -0.5, 1.0, -1.0],
+    fn the_meter_reports_what_was_played() {
+        let mut playback = Playback::new(RenderedAudio {
+            samples: vec![0.25, -0.25, 1.0, -1.0, 0.0, 0.0],
             sample_rate: 48_000,
         });
-        let meter = playback.meter(1);
-        assert!((meter.peak - 0.5).abs() < 1.0e-6);
-        assert!((meter.rms - 0.5).abs() < 1.0e-6);
-        playback.seek_frame(1);
-        assert!((playback.meter(1).peak - 1.0).abs() < 1.0e-6);
-        playback.seek_frame(2);
-        assert_eq!(playback.meter(1), Meter::default());
+        assert_eq!(playback.meter(), Meter::default());
+        playback.play();
+        let mut output = [0.0_f32; 2];
+        playback.fill(&mut output);
+        assert!((playback.meter().peak - 0.25).abs() < 1.0e-6);
+        playback.fill(&mut output);
+        assert!((playback.meter().peak - 1.0).abs() < 1.0e-6);
+        // The peak is the largest since the last read.
+        assert_eq!(playback.meter().peak, 0.0);
     }
 
     #[test]
     fn fill_copies_samples_only_while_playing() {
-        let state = playback_with(4);
+        let mut state = playback_with(4);
         let mut output = [1.0_f32; 4];
         state.fill(&mut output);
         assert_eq!(output, [0.0; 4], "paused means silence");
@@ -1060,7 +740,7 @@ mod tests {
 
     #[test]
     fn reaching_the_end_stops_and_rewinds() {
-        let state = playback_with(2);
+        let mut state = playback_with(2);
         state.play();
         let mut output = [0.0_f32; 4];
         state.fill(&mut output);
@@ -1071,7 +751,7 @@ mod tests {
 
     #[test]
     fn pause_keeps_the_position_and_stop_rewinds() {
-        let state = playback_with(8);
+        let mut state = playback_with(8);
         state.play();
         let mut output = [0.0_f32; 4];
         state.fill(&mut output);
@@ -1088,7 +768,7 @@ mod tests {
 
     #[test]
     fn an_odd_output_slot_gets_silence_and_frames_stay_aligned() {
-        let state = playback_with(4);
+        let mut state = playback_with(4);
         state.play();
         let mut output = [0.5_f32; 3];
         state.fill(&mut output);
@@ -1100,7 +780,7 @@ mod tests {
 
     #[test]
     fn non_finite_samples_play_as_silence() {
-        let state = Playback::new(RenderedAudio {
+        let mut state = Playback::new(RenderedAudio {
             sample_rate: 48_000,
             samples: vec![f32::NAN, f32::INFINITY, 0.25],
         });
@@ -1135,7 +815,7 @@ mod tests {
 
     #[test]
     fn a_fader_change_is_heard_in_the_next_buffer() {
-        let playback = live_playback();
+        let mut playback = live_playback();
         playback.play();
         let mut output = [0.0_f32; 64];
         playback.fill(&mut output);
@@ -1153,7 +833,7 @@ mod tests {
 
     #[test]
     fn mute_and_master_gain_apply_live() {
-        let playback = live_playback();
+        let mut playback = live_playback();
         playback.play();
         let mut song = live_song(100);
         song.tracks[0].muted = true;
@@ -1165,9 +845,116 @@ mod tests {
 
         playback.apply_mix(&live_song(100), -6.0);
         playback.fill(&mut output);
+        let _ = playback.meter();
         playback.fill(&mut output);
         let expected = 0.5 * crate::master::gain(-6.0);
         assert!(output.iter().all(|sample| (sample - expected).abs() < 1e-5));
-        assert!((playback.meter(16).peak - expected).abs() < 1e-5);
+        assert!((playback.meter().peak - expected).abs() < 1e-5);
+    }
+
+    #[test]
+    fn the_engine_matches_the_rendered_mix_exactly() {
+        let song = live_song(80);
+        let render = LiveRender {
+            fixed: RenderedAudio {
+                samples: (0..512)
+                    .map(|index| (index as f32 * 0.01).sin() * 0.3)
+                    .collect(),
+                sample_rate: 48_000,
+            },
+            lanes: vec![
+                (0..512)
+                    .map(|index| (index as f32 * 0.03).cos() * 0.4)
+                    .collect(),
+            ],
+            tracks: vec![song.tracks[0].id],
+            gains: vec![(0.8, 0.6)],
+            master_gain: crate::master::gain(-3.0),
+            limiter: true,
+        };
+        let expected = render.mixdown();
+        let mut playback = Playback::new_live(render);
+        playback.play();
+        let mut output = vec![0.0_f32; 512];
+        // Odd buffer sizes cross quantum edges.
+        for chunk in output.chunks_mut(94) {
+            playback.fill(chunk);
+        }
+        assert_eq!(output, expected.samples, "bit-exact with the offline mix");
+    }
+
+    #[test]
+    fn a_new_graph_keeps_the_position_and_old_graphs_are_freed_off_the_audio_thread() {
+        let mut playback = Playback::new(RenderedAudio {
+            samples: vec![0.25; 4096],
+            sample_rate: 48_000,
+        });
+        playback.play();
+        let mut output = [0.0_f32; 64];
+        playback.fill(&mut output);
+        assert_eq!(playback.frame(), 32);
+
+        playback
+            .load(LiveRender::from_audio(RenderedAudio {
+                samples: vec![0.5; 4096],
+                sample_rate: 48_000,
+            }))
+            .expect("load");
+        playback.fill(&mut output);
+        assert!(output.iter().all(|sample| (sample - 0.5).abs() < 1e-6));
+        assert_eq!(playback.frame(), 64, "the swap keeps the position");
+        // The callback handed the old graph back; the control side frees it.
+        assert_eq!(playback.collect_garbage(), 1);
+    }
+
+    #[test]
+    fn graphs_wait_when_the_engine_is_busy() {
+        let mut playback = Playback::new(RenderedAudio {
+            samples: vec![0.0; 64],
+            sample_rate: 48_000,
+        });
+        let graph = || {
+            LiveRender::from_audio(RenderedAudio {
+                samples: vec![0.0; 64],
+                sample_rate: 48_000,
+            })
+        };
+        // The callback has not run, so graphs pile up until the ring is full.
+        let mut accepted = 0;
+        while playback.load(graph()).is_ok() {
+            accepted += 1;
+            assert!(accepted < 100, "the graph ring is bounded");
+        }
+        let mut output = [0.0_f32; 4];
+        playback.fill(&mut output);
+        assert!(
+            playback.load(graph()).is_ok(),
+            "room again after a callback"
+        );
+    }
+
+    #[test]
+    fn a_swap_keeps_a_fader_moved_during_the_render() {
+        let song = live_song(100);
+        let lane = |gain: f32| LiveRender {
+            fixed: RenderedAudio {
+                samples: vec![0.0; 256],
+                sample_rate: 48_000,
+            },
+            lanes: vec![vec![0.5; 256]],
+            tracks: vec![song.tracks[0].id],
+            gains: vec![(gain, gain)],
+            master_gain: 1.0,
+            limiter: false,
+        };
+        let mut playback = Playback::new_live(lane(1.0));
+        playback.play();
+        playback.apply_mix(&live_song(50), 0.0);
+        let mut output = [0.0_f32; 64];
+        playback.fill(&mut output);
+        // A render that started before the move still bakes the old gain.
+        playback.load(lane(1.0)).expect("load");
+        playback.fill(&mut output);
+        assert!(output.iter().all(|sample| (sample - 0.25).abs() < 1e-6));
     }
 }

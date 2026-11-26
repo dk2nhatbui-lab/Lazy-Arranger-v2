@@ -13,6 +13,11 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
   master plug-ins still render again after a change.
 
 ### Changed
+- Playback runs through a new real-time engine core. The song is prepared
+  off the audio thread and handed to the audio callback, which swaps it in
+  at its next buffer. A mix change that needs a new render no longer
+  restarts the audio stream, so the swap is gapless.
+- The master meter shows what was actually played.
 - A track's fader and pan now come after its insert plug-ins, as on a
   mixing console.
 
