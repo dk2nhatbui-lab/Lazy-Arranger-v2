@@ -538,11 +538,10 @@ fn read_audio_clips(
     }
     let mut comps = Vec::with_capacity(references.len());
     for (index, reference) in references.iter().enumerate() {
+        let own_end = reference.start.saturating_add(reference.length);
         let end = references
             .get(index + 1)
-            .map_or(reference.start + reference.length, |next| {
-                next.start.min(reference.start + reference.length)
-            });
+            .map_or(own_end, |next| next.start.min(own_end));
         if end > reference.start {
             comps.push(crate::song::AudioComp {
                 take: index,

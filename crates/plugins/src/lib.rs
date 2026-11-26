@@ -172,13 +172,17 @@ pub fn scan_roots(roots: &[ScanRoot]) -> Vec<FoundPlugin> {
 #[must_use]
 pub fn scan_roots_filtered(roots: &[ScanRoot], blocked: &[PathBuf]) -> ScanReport {
     let mut report = ScanReport::default();
+    // Compare canonical paths so a symlink cannot sneak a blocked bundle in.
+    let canonical =
+        |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let blocked: Vec<PathBuf> = blocked.iter().map(|path| canonical(path)).collect();
     for root in roots {
         let Ok(entries) = std::fs::read_dir(&root.path) else {
             continue;
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if blocked.iter().any(|entry| entry == &path) {
+            if !path.is_dir() || blocked.contains(&canonical(&path)) {
                 continue;
             }
             let extension = path.extension().and_then(|value| value.to_str());
@@ -228,7 +232,9 @@ fn role_from_text(text: &str) -> Role {
 
 fn au_plugins(path: &Path) -> Vec<FoundPlugin> {
     let info = path.join("Contents").join("Info.plist");
-    let Ok(value) = plist::Value::from_file(&info) else {
+    let Some(Ok(value)) =
+        read_capped(&info).map(|bytes| plist::Value::from_reader(std::io::Cursor::new(bytes)))
+    else {
         return vec![fallback(path, Format::AudioUnit)];
     };
     let Some(dict) = value.as_dictionary() else {
@@ -310,24 +316,30 @@ struct ScannedClass {
     subcategories: String,
 }
 
-fn scanner_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("ARRANGER_PLUGIN_SCANNER") {
-        let path = PathBuf::from(path);
-        return path.is_file().then_some(path);
+/// The largest metadata file (`moduleinfo.json`, `Info.plist`) the scanner reads.
+const MAX_METADATA_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Reads a bundle metadata file, or `None` when it is missing or too large.
+fn read_capped(path: &Path) -> Option<Vec<u8>> {
+    if std::fs::metadata(path).ok()?.len() > MAX_METADATA_BYTES {
+        return None;
     }
+    std::fs::read(path).ok()
+}
+
+fn scanner_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    let names = ["lazy-arranger-plugin-scan", "plugin-scan"];
-    for base in [dir, dir.parent()?] {
-        for name in names {
-            let candidate = base.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
-            if candidate.is_file() && candidate != exe {
-                return Some(candidate);
-            }
-        }
-    }
-    None
+    // Test binaries live one folder below the helper (`target/*/deps`).
+    let name = format!("lazy-arranger-plugin-scan{}", std::env::consts::EXE_SUFFIX);
+    std::iter::once(dir)
+        .chain(dir.parent())
+        .map(|base| base.join(&name))
+        .find(|candidate| candidate.is_file() && *candidate != exe)
 }
+
+/// The most the scanner helper may print before its output is ignored.
+const MAX_SCAN_OUTPUT: u64 = 1024 * 1024;
 
 fn scan_vst3_isolated(path: &Path) -> Result<Vec<ScannedClass>, ()> {
     use std::process::{Command, Stdio};
@@ -339,35 +351,34 @@ fn scan_vst3_isolated(path: &Path) -> Result<Vec<ScannedClass>, ()> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|_| ())?;
-    let mut stdout = child.stdout.take().ok_or(())?;
-    let reader = std::thread::spawn(move || {
+    let stdout = child.stdout.take().ok_or(())?;
+    // The reader reports through a channel, so a grandchild that keeps the
+    // pipe open can never block the host past the deadline.
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
         use std::io::Read;
         let mut bytes = Vec::new();
-        let _ = stdout.read_to_end(&mut bytes);
-        bytes
+        let _ = stdout.take(MAX_SCAN_OUTPUT).read_to_end(&mut bytes);
+        let _ = sender.send(bytes);
     });
     let deadline = Instant::now() + Duration::from_secs(5);
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = reader.join();
-                    return Err(());
-                }
+            Ok(None) if Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(10));
             }
-            Err(_) => {
+            _ => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let _ = reader.join();
                 return Err(());
             }
         }
     };
-    let stdout = reader.join().map_err(|_| ())?;
+    let remaining = deadline
+        .saturating_duration_since(Instant::now())
+        .max(Duration::from_millis(100));
+    let stdout = receiver.recv_timeout(remaining).map_err(|_| ())?;
     if !status.success() {
         return Err(());
     }
@@ -414,7 +425,7 @@ fn moduleinfo_plugins(path: &Path) -> Option<Vec<FoundPlugin>> {
         .join("Contents")
         .join("Resources")
         .join("moduleinfo.json");
-    let bytes = std::fs::read(&moduleinfo).ok()?;
+    let bytes = read_capped(&moduleinfo)?;
     let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     let classes = value.get("Classes")?.as_array()?;
     let mut found = Vec::new();

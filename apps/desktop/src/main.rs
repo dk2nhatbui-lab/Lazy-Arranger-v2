@@ -10,6 +10,10 @@ fn main() -> eframe::Result<()> {
     let project_path: Option<PathBuf> = std::env::args().nth(1).map(PathBuf::from);
     let (project, project_path, startup_error) =
         lazy_arranger_desktop::load_startup_project(project_path.as_deref());
+    // Assistant tools may only write files inside the user's home folder.
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        let _ = mcp::set_output_root(std::path::Path::new(&home));
+    }
     let settings = lazy_arranger_desktop::settings::Settings::load(
         &lazy_arranger_desktop::settings::Settings::path(),
     );

@@ -3,7 +3,7 @@
 //! Every line carries the token; a wrong or missing token is answered with an
 //! error and never reaches a tool. The listener is bound to 127.0.0.1 only.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 
 /// Refuse a single JSON-RPC line larger than this.
 const MAX_LINE_BYTES: usize = 1_048_576;
@@ -79,12 +79,34 @@ pub fn serve_stream(
     token: &str,
     stream: TcpStream,
 ) -> std::io::Result<()> {
+    serve_stream_with(session, token, stream, |_| Ok(()))
+}
+
+/// Serves one connection until it closes, calling `after_edit` after every
+/// successful `tools/call` so the caller can save the project.
+///
+/// Each request line is capped at 1 MiB before it is buffered, and reads time
+/// out after 30 seconds.
+///
+/// # Errors
+///
+/// Returns an I/O error when reading or writing fails, or what `after_edit`
+/// returns.
+pub fn serve_stream_with(
+    session: &mut EditSession,
+    token: &str,
+    stream: TcpStream,
+    mut after_edit: impl FnMut(&EditSession) -> std::io::Result<()>,
+) -> std::io::Result<()> {
     stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
     loop {
         let mut bytes = Vec::new();
-        let read = reader.read_until(b'\n', &mut bytes)?;
+        let read = reader
+            .by_ref()
+            .take((MAX_LINE_BYTES + 1) as u64)
+            .read_until(b'\n', &mut bytes)?;
         if read == 0 {
             break;
         }
@@ -104,9 +126,22 @@ pub fn serve_stream(
         if line.trim().is_empty() {
             continue;
         }
+        let is_call = serde_json::from_str::<Value>(line)
+            .ok()
+            .and_then(|message| {
+                message
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .as_deref()
+            == Some("tools/call");
         if let Some(reply) = handle_line(session, token, line) {
             writeln!(writer, "{reply}")?;
             writer.flush()?;
+            if is_call && reply["result"]["isError"] == false {
+                after_edit(session)?;
+            }
         }
     }
     Ok(())

@@ -3134,7 +3134,7 @@ fn mcp_serve(project_path: &PathBuf) -> Result<(), Box<dyn Error>> {
             stdout.flush()?;
             if is_call && reply["result"]["isError"] == false {
                 let json = session.project().to_json_pretty()?;
-                fs::write(project_path, json).map_err(|error| {
+                write_atomically(project_path, &json).map_err(|error| {
                     format!("could not save {}: {error}", project_path.display())
                 })?;
             }
@@ -3185,33 +3185,38 @@ fn mcp_socket(
     write_private_file(token_file, &token)?;
     println!("listening on {address}; token in {}", token_file.display());
     for stream in listener.incoming() {
-        let stream = stream?;
-        let reader = std::io::BufReader::new(stream.try_clone()?);
-        let mut writer = stream;
-        for line in std::io::BufRead::lines(reader) {
-            let line = line?;
-            if line.trim().is_empty() {
+        let stream = match stream {
+            Ok(stream) => stream,
+            Err(error) => {
+                eprintln!("connection failed: {error}");
                 continue;
             }
-            let is_call = serde_json::from_str::<serde_json::Value>(&line)
-                .ok()
-                .and_then(|message| message.get("method").cloned())
-                .and_then(|method| method.as_str().map(str::to_string))
-                .as_deref()
-                == Some("tools/call");
-            if let Some(reply) = mcp::socket::handle_line(&mut session, &token, &line) {
-                writeln!(writer, "{reply}")?;
-                writer.flush()?;
-                if is_call && reply["result"]["isError"] == false {
-                    let json = session.project().to_json_pretty()?;
-                    fs::write(project_path, json).map_err(|error| {
-                        format!("could not save {}: {error}", project_path.display())
-                    })?;
-                }
-            }
+        };
+        // One bad client must not stop the server: log and keep accepting.
+        let served = mcp::socket::serve_stream_with(&mut session, &token, stream, |session| {
+            let json = session
+                .project()
+                .to_json_pretty()
+                .map_err(std::io::Error::other)?;
+            write_atomically(project_path, &json)
+        });
+        if let Err(error) = served {
+            eprintln!("connection closed: {error}");
         }
     }
     Ok(())
+}
+
+/// Writes `contents` to a temporary file beside `path`, then renames it over
+/// `path`, so a crash never leaves a half-written project.
+fn write_atomically(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{}.tmp", std::process::id()));
+    let temporary = path.with_file_name(name);
+    fs::write(&temporary, contents)?;
+    fs::rename(&temporary, path).inspect_err(|_| {
+        let _ = fs::remove_file(&temporary);
+    })
 }
 
 fn mcp_call(
