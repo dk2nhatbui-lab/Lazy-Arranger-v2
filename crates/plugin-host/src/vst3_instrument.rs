@@ -105,8 +105,9 @@ impl Vst3Instrument {
     ///
     /// # Errors
     ///
-    /// Returns a message when the class cannot be created, initialized or
-    /// activated, or when it has no audio output bus.
+    /// Returns a message when the bundle is not trusted (see
+    /// [`crate::is_vst3_bundle_trusted`]), when the class cannot be created,
+    /// initialized or activated, or when it has no audio output bus.
     pub fn new(
         bundle: &Path,
         class_id: &str,
@@ -126,6 +127,7 @@ impl Vst3Instrument {
         max_block: usize,
     ) -> Result<Self, String> {
         let cid = parse_cid(class_id).ok_or_else(|| String::from("invalid VST3 class id"))?;
+        crate::trust::check(bundle)?;
         let binary = vst3_binary(bundle).ok_or_else(|| String::from("no VST3 binary"))?;
         let library = crate::module::Module::open(&binary)?;
         type GetFactory = unsafe extern "system" fn() -> *mut IPluginFactory;

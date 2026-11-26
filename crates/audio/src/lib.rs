@@ -1183,6 +1183,7 @@ mod tests {
         let macos = root.join("Test.vst3").join("Contents").join("MacOS");
         std::fs::create_dir_all(&macos).ok()?;
         std::fs::copy(&library, macos.join("Test")).ok()?;
+        plugin_host::approve_vst3_bundle(&root.join("Test.vst3"));
         Some(root.join("Test.vst3"))
     }
 

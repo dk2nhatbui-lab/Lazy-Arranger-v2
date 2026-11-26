@@ -76,7 +76,6 @@ pub fn clean(text: &str) -> String {
 
 /// Waits for a spawned speech process on a helper thread so it never stays a
 /// zombie.
-#[cfg(any(unix, target_os = "macos", target_os = "linux"))]
 fn reap(child: std::process::Child) {
     let mut child = child;
     std::thread::spawn(move || {
@@ -351,21 +350,10 @@ pub fn speak_with(text: &str, template: &str) -> Result<(), String> {
     if template.is_empty() || template.eq_ignore_ascii_case("system") {
         return speak(&text);
     }
-    #[cfg(unix)]
-    {
-        let rendered = crate::shell::render(template, "{text}", "ARRANGER_TEXT");
-        std::process::Command::new("sh")
-            .arg("-c")
-            .arg(rendered)
-            .env("ARRANGER_TEXT", &text)
-            .spawn()
-            .map(reap)
-            .map_err(|error| format!("speech: {error}"))
-    }
-    #[cfg(not(unix))]
-    {
-        Err(String::from("custom speech commands need a Unix shell"))
-    }
+    crate::shell::command(template, "{text}", "ARRANGER_TEXT", &text)?
+        .spawn()
+        .map(reap)
+        .map_err(|error| format!("speech: {error}"))
 }
 
 /// Speaks one utterance with the platform system voice (`say` on macOS,

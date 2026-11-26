@@ -30,8 +30,10 @@ mod menu;
 mod mixer;
 mod native_menu;
 mod notes_menu;
+mod plugin_trust;
 mod style;
 mod timeline_menu;
+mod unsaved;
 mod user_instruments;
 
 use assistant::AssistantState;
@@ -908,6 +910,16 @@ pub struct ShellApp {
     groove_entries: Vec<(String, std::path::PathBuf)>,
     /// True once the groove folder was listed; Refresh lists it again.
     groove_listed: bool,
+    /// Plug-in bundles of the open project that wait for the user's approval.
+    untrusted_plugins: Vec<PathBuf>,
+    /// An action waiting on Save / Discard / Cancel.
+    pending_swap: Option<unsaved::PendingSwap>,
+    /// The action to run once the chosen Save finishes.
+    after_save_swap: Option<unsaved::PendingSwap>,
+    /// The user agreed to close with unsaved edits (or had none).
+    quit_confirmed: bool,
+    /// Close the window on the next frame.
+    close_requested: bool,
     groove_selected: usize,
     groove_loaded: Option<arranging::groove::Groove>,
     groove_timing: f32,
@@ -1112,6 +1124,8 @@ impl ShellApp {
         let mut roll = RollState::default();
         roll.selected =
             initial_track.or_else(|| editor.song().tracks.first().map(|track| track.id));
+        plugin_trust::load_approvals();
+        let untrusted_plugins = plugin_trust::untrusted(editor.song());
         Self {
             editor,
             icon,
@@ -1269,6 +1283,11 @@ impl ShellApp {
             groove_open: initial_window == "groove",
             groove_entries: Vec::new(),
             groove_listed: false,
+            untrusted_plugins,
+            pending_swap: None,
+            after_save_swap: None,
+            quit_confirmed: false,
+            close_requested: false,
             groove_selected: 0,
             groove_loaded: None,
             groove_timing: 1.0,
@@ -2255,6 +2274,9 @@ impl ShellApp {
     fn draw_windows(&mut self, context: &Context) {
         self.run_autosave();
         self.recovery_dialog(context);
+        self.plugin_trust_dialog(context);
+        self.unsaved_dialog(context);
+        self.guard_close(context);
         self.chord_dialog(context);
         self.reharmonize_dialog(context);
         self.doctor_dialog(context);
@@ -2350,7 +2372,12 @@ impl ShellApp {
             self.load_error = Some(error);
             return;
         }
+        // The edits are on disk now, so their autosaves can go: the one
+        // for this path and, after Save As, the one for the old path.
         let _ = std::fs::remove_file(persistence::autosave_path(&path));
+        if let Some(previous) = self.project_path.as_ref().filter(|old| **old != path) {
+            let _ = std::fs::remove_file(persistence::autosave_path(previous));
+        }
         self.recent = project::recent::record(&self.recent_file, &path)
             .unwrap_or_else(|_| self.recent.clone());
         self.project_path = Some(path.clone());
@@ -2359,6 +2386,7 @@ impl ShellApp {
         self.recovery = None;
         self.load_error = None;
         self.status = Some(format!("saved {}", path.display()));
+        self.after_save();
     }
 
     fn file_window(&mut self, context: &egui::Context) {
@@ -2426,6 +2454,9 @@ impl ShellApp {
         }
         if !open {
             self.file_mode = None;
+            // A Save As closed without saving cancels the New/Open/Quit
+            // that waited for it.
+            self.after_save_swap = None;
         }
     }
 
@@ -3178,7 +3209,7 @@ impl ShellApp {
     }
 
     /// Settings and shortcut windows.
-    fn replace_project(&mut self, project: ProjectFile, label: &str) {
+    fn replace_project_now(&mut self, project: ProjectFile, label: &str) {
         match Editor::new(project) {
             Ok(editor) => {
                 self.install_editor(editor);
@@ -3220,6 +3251,7 @@ impl ShellApp {
         {
             self.roll.selected = self.song().tracks.first().map(|track| track.id);
         }
+        self.untrusted_plugins = plugin_trust::untrusted(self.song());
         self.load_error = None;
     }
 
@@ -4722,15 +4754,21 @@ impl ShellApp {
                     if ui.button("Restore").clicked() {
                         match load_project(&autosave) {
                             Ok(project) => match Editor::new(project) {
-                                Ok(editor) => {
+                                Ok(mut editor) => {
+                                    // The edits exist only in the autosave:
+                                    // keep it until a save succeeds, and
+                                    // count them as unsaved.
+                                    editor.mark_dirty();
                                     self.install_editor(editor);
                                     let original = self
                                         .project_path
                                         .clone()
                                         .unwrap_or_else(|| autosave.clone());
                                     self.project_path = Some(original);
-                                    let _ = std::fs::remove_file(&autosave);
                                     self.recovery = None;
+                                    self.status = Some(String::from(
+                                        "restored the autosave; save to keep it",
+                                    ));
                                 }
                                 Err(error) => self.load_error = Some(error.to_string()),
                             },
@@ -4918,7 +4956,7 @@ impl ShellApp {
         self.position = 0;
     }
 
-    fn open(&mut self, path: &PathBuf) {
+    fn open_now(&mut self, path: &PathBuf) {
         let kind = file_kind(path);
         let imported = kind != ProjectKind::Json;
         // Validate first: a file that fails leaves the open project playing.

@@ -61,6 +61,11 @@ fn the_test_gain_plugin_reports_params_processes_and_has_latency() {
     let bundle = root.join("Test.vst3");
     let classes = plugin_host::scan_vst3(&bundle).expect("scan");
     assert!(!classes.is_empty());
+    assert!(
+        plugin_host::Vst3Effect::new(&bundle, &classes[0].cid, 48_000.0, 512).is_err(),
+        "a bundle outside the VST3 folders loads only once approved"
+    );
+    plugin_host::approve_vst3_bundle(&bundle);
     let mut effect =
         plugin_host::Vst3Effect::new(&bundle, &classes[0].cid, 48_000.0, 512).expect("effect");
     assert!(effect.parameter_count() > 0, "gain parameter missing");
@@ -112,6 +117,7 @@ fn the_test_synth_renders_a_note() {
     std::fs::create_dir_all(&macos).expect("bundle");
     std::fs::copy(&library, macos.join("Synth")).expect("copy");
     let bundle = root.join("Synth.vst3");
+    plugin_host::approve_vst3_bundle(&bundle);
     let classes = plugin_host::scan_vst3(&bundle).expect("scan");
     let class = classes
         .iter()

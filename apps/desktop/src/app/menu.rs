@@ -570,7 +570,7 @@ impl ShellApp {
             MenuCommand::ExportMusicXml => self.choose_file(FileMode::ExportMusicXml),
             MenuCommand::ExportWav => self.choose_file(FileMode::ExportWav),
             MenuCommand::ExportStems => self.choose_file(FileMode::ExportStems),
-            MenuCommand::Quit => context.send_viewport_cmd(egui::ViewportCommand::Close),
+            MenuCommand::Quit => self.quit(context),
             MenuCommand::Undo => {
                 self.press(user_binding(&self.settings.undo_keys, "cmd+z"), None);
             }

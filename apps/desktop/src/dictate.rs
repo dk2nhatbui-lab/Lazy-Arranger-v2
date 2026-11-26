@@ -325,11 +325,7 @@ pub fn transcribe(wav: &Path, command: &str) -> Result<String, String> {
         }
         return Ok(text);
     }
-    let rendered = crate::shell::render(command, "{file}", "ARRANGER_FILE");
-    let output = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(&rendered)
-        .env("ARRANGER_FILE", wav)
+    let output = crate::shell::command(command, "{file}", "ARRANGER_FILE", wav)?
         .output()
         .map_err(|error| format!("speech command: {error}"))?;
     if !output.status.success() {
