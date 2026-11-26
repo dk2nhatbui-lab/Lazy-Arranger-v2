@@ -797,6 +797,9 @@ impl Canvas for PdfCanvas<'_> {
                 'i' | 'l' | 'j' | '.' | ',' | ':' | ';' | '|' | '!' | '\'' | ' ' => 0.28,
                 'm' | 'w' | 'M' | 'W' => 0.83,
                 'A'..='Z' | '0'..='9' => 0.64,
+                ch if ch.is_control() => 0.0,
+                // CJK and other wide glyphs fill a full em.
+                ch if u32::from(ch) >= 0x1100 => 1.0,
                 _ => 0.55,
             })
             .sum::<f32>()
@@ -1050,6 +1053,7 @@ fn escape(text: &str) -> String {
             '(' => out.push_str("\\("),
             ')' => out.push_str("\\)"),
             '\n' | '\r' | '\t' => out.push(' '),
+            character if character.is_control() => {}
             '\u{2013}' => out.push_str("\\226"),
             '\u{2014}' => out.push_str("\\227"),
             // WinAnsi: 0x91 ‘, 0x92 ’, 0x93 “, 0x94 ”.

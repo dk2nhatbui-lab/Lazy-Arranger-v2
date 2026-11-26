@@ -3,10 +3,12 @@
 //! This is the only crate allowed to contain `unsafe` code. Every block here is
 //! a C ABI boundary; the rest of the workspace keeps `unsafe_code = "forbid"`.
 //! Nothing in this crate loads a plug-in unless a caller explicitly asks for it.
+//! Each module states the rules its `unsafe` blocks rely on under `# Safety`.
 
 #![allow(unsafe_code)]
 
 mod instance;
+mod module;
 mod vst3_instrument;
 pub use instance::{Vst3Effect, Vst3ViewInfo};
 pub use vst3_instrument::Vst3Instrument;
@@ -123,8 +125,8 @@ fn scan_vst3_inner(path: &Path) -> Result<Vec<Vst3Class>, String> {
 
     type GetFactory = unsafe extern "system" fn() -> *mut IPluginFactory;
     let binary = vst3_binary(path).ok_or_else(|| String::from("no VST3 binary in bundle"))?;
-    let library = unsafe { libloading::Library::new(&binary) }
-        .map_err(|error| format!("load {}: {error}", binary.display()))?;
+    let library = module::Module::open(&binary)?;
+    // SAFETY: the VST3 SDK declares `IPluginFactory* GetPluginFactory()`.
     let get_factory: libloading::Symbol<'_, GetFactory> =
         unsafe { library.get(b"GetPluginFactory\0") }
             .map_err(|error| format!("GetPluginFactory: {error}"))?;

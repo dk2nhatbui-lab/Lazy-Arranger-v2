@@ -643,8 +643,8 @@ impl IPlugViewTrait for GainPlugView {
             return kInvalidArgument;
         }
         let rect = &*new_size;
-        let w = (rect.right - rect.left).max(120);
-        let h = (rect.bottom - rect.top).max(80);
+        let w = rect.right.saturating_sub(rect.left).max(120);
+        let h = rect.bottom.saturating_sub(rect.top).max(80);
         self.width.store(w, Ordering::Relaxed);
         self.height.store(h, Ordering::Relaxed);
         kResultOk
@@ -667,11 +667,11 @@ impl IPlugViewTrait for GainPlugView {
             return kInvalidArgument;
         }
         let rect = &mut *rect;
-        if rect.right - rect.left < 120 {
-            rect.right = rect.left + 120;
+        if rect.right.saturating_sub(rect.left) < 120 {
+            rect.right = rect.left.saturating_add(120);
         }
-        if rect.bottom - rect.top < 80 {
-            rect.bottom = rect.top + 80;
+        if rect.bottom.saturating_sub(rect.top) < 80 {
+            rect.bottom = rect.top.saturating_add(80);
         }
         kResultOk
     }
@@ -975,7 +975,7 @@ impl IPluginFactoryTrait for Factory {
         iid: FIDString,
         obj: *mut *mut c_void,
     ) -> tresult {
-        if cid.is_null() || obj.is_null() {
+        if cid.is_null() || iid.is_null() || obj.is_null() {
             return kInvalidArgument;
         }
         let instance = match *(cid as *const TUID) {

@@ -1,6 +1,12 @@
 #![allow(clippy::unnecessary_cast)]
 //! Minimal in-process VST3 instrument: no audio input, MIDI event input and a
 //! stereo output block loop.
+//!
+//! # Safety
+//! Every `unsafe` block here calls a VST3 COM method or passes buffers to
+//! the plug-in. The rules are the same as in `instance.rs`: pointers come from
+//! `ComPtr`, out-pointers and buffers are live for the call, blocks never
+//! exceed `max_block`, and `_library` drops last.
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -81,7 +87,7 @@ pub struct Vst3Instrument {
     processing: bool,
     // Keep the host and plug-in module alive while COM objects can call them.
     _host: ComPtr<vst3::Steinberg::Vst::IHostApplication>,
-    _library: libloading::Library,
+    _library: crate::module::Module,
 }
 
 impl std::fmt::Debug for Vst3Instrument {
@@ -121,8 +127,7 @@ impl Vst3Instrument {
     ) -> Result<Self, String> {
         let cid = parse_cid(class_id).ok_or_else(|| String::from("invalid VST3 class id"))?;
         let binary = vst3_binary(bundle).ok_or_else(|| String::from("no VST3 binary"))?;
-        let library = unsafe { libloading::Library::new(&binary) }
-            .map_err(|error| format!("load {}: {error}", binary.display()))?;
+        let library = crate::module::Module::open(&binary)?;
         type GetFactory = unsafe extern "system" fn() -> *mut IPluginFactory;
         let get_factory: libloading::Symbol<'_, GetFactory> =
             unsafe { library.get(b"GetPluginFactory\0") }

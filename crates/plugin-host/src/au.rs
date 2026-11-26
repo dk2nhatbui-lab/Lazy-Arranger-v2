@@ -2,6 +2,11 @@
 //!
 //! Uses `AudioUnitProcess` with non-interleaved 32-bit float stereo buffers.
 //! No parameter, state or editor support yet.
+//!
+//! # Safety
+//! Every `unsafe` block here calls the AudioToolbox C API. The unit pointer
+//! comes from `AudioComponentInstanceNew` and is disposed once, in `Drop`.
+//! Buffers passed to `AudioUnitRender`/`AudioUnitProcess` live for the call.
 
 use std::ffi::c_void;
 
@@ -445,6 +450,9 @@ impl AuEffect {
             let (Ok(id), Ok(value)) = (id.parse::<u32>(), value.parse::<f32>()) else {
                 continue;
             };
+            if !value.is_finite() {
+                continue;
+            }
             let _ = self.set_parameter(id, value);
         }
     }
@@ -654,6 +662,9 @@ impl AuInstrument {
             let (Ok(id), Ok(value)) = (id.parse::<u32>(), value.parse::<f32>()) else {
                 continue;
             };
+            if !value.is_finite() {
+                continue;
+            }
             let _ = self.set_parameter(id, value);
         }
     }

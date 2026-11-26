@@ -2,6 +2,11 @@
 //!
 //! Must be called on the macOS main thread (which AppKit requires for all
 //! `NSWindow` and `NSView` operations).
+//!
+//! # Safety
+//! Every `unsafe` block here sends an Objective-C message or calls a plug-in
+//! view. Objects are retained while used, messages are sent on the main
+//! thread, and a plug-in view is `removed()` before its window closes.
 
 use std::ffi::{CString, c_void};
 use std::path::Path;

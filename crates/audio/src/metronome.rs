@@ -47,6 +47,8 @@ pub fn mix(rendered: &mut RenderedAudio, song: &Song, gain: f32) {
 /// Mixes clicks with a separate downbeat accent amount, 0..=1.
 pub fn mix_accent(rendered: &mut RenderedAudio, song: &Song, gain: f32, accent: f32) {
     let rate = rendered.sample_rate;
+    let gain = if gain.is_finite() { gain.max(0.0) } else { 0.0 };
+    let accent = if accent.is_finite() { accent } else { 1.0 };
     for click in clicks(song) {
         let start = (song.tempo_map.seconds_at(click.tick) * f64::from(rate)).round() as usize;
         let length = (f64::from(rate) * 0.03) as usize;

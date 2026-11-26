@@ -1,6 +1,18 @@
 #![allow(clippy::unnecessary_cast)]
 //! Minimal in-process VST3 effect instance: component, audio processor and a
 //! block-processing loop. No editor or parameter automation yet.
+//!
+//! # Safety
+//! Every `unsafe` block here calls a VST3 COM method or reads plug-in memory.
+//! They rely on these rules, which the code keeps:
+//! - COM pointers come from `ComPtr`, so each is non-null and ref-counted.
+//! - Out-pointers passed to the plug-in point at live, zeroed locals.
+//! - Audio buffers handed to `process` live until the call returns and hold
+//!   at most `max_block` frames, the size promised in `setupProcessing`.
+//! - All COM pointers drop before `_library`, the last field, so the plug-in
+//!   code stays loaded while anything can call into it.
+//! - Host objects we hand out (`IComponentHandler`, `IHostApplication`) are
+//!   kept alive in this struct for as long as the plug-in may call them.
 
 use std::ffi::c_void;
 use std::path::Path;
@@ -56,7 +68,7 @@ pub struct Vst3Effect {
     /// Held only while the instance is being built; always dropped before
     /// the library, even on an early error return.
     factory: Option<ComPtr<IPluginFactory>>,
-    _library: libloading::Library,
+    _library: crate::module::Module,
 }
 
 /// The largest block a VST3 host may promise: positive, fits `i32`, and
@@ -104,8 +116,7 @@ impl Vst3Effect {
     ) -> Result<Self, String> {
         let cid = parse_cid(class_id).ok_or_else(|| String::from("invalid VST3 class id"))?;
         let binary = vst3_binary(bundle).ok_or_else(|| String::from("no VST3 binary"))?;
-        let library = unsafe { libloading::Library::new(&binary) }
-            .map_err(|error| format!("load {}: {error}", binary.display()))?;
+        let library = crate::module::Module::open(&binary)?;
         type GetFactory = unsafe extern "system" fn() -> *mut IPluginFactory;
         let get_factory: libloading::Symbol<'_, GetFactory> =
             unsafe { library.get(b"GetPluginFactory\0") }

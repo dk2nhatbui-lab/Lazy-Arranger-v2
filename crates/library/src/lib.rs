@@ -62,6 +62,22 @@ impl Default for Entry {
     }
 }
 
+impl Entry {
+    /// Replaces a zero or non-finite tempo and a zero meter part with the
+    /// defaults, so playback never divides by zero.
+    fn repair(&mut self) {
+        if !self.tempo.is_finite() || self.tempo <= 0.0 {
+            self.tempo = default_tempo();
+        }
+        if self.time_numerator == 0 {
+            self.time_numerator = 4;
+        }
+        if self.time_denominator == 0 {
+            self.time_denominator = 4;
+        }
+    }
+}
+
 fn default_tempo() -> f64 {
     120.0
 }
@@ -101,12 +117,7 @@ impl Book {
         let mut parsed: Vec<Entry> = serde_json::from_value(entries)
             .map_err(|error| LibraryError::Format(error.to_string()))?;
         for entry in &mut parsed {
-            if entry.time_numerator == 0 {
-                entry.time_numerator = 4;
-            }
-            if entry.time_denominator == 0 {
-                entry.time_denominator = 4;
-            }
+            entry.repair();
         }
         Ok(Self { entries: parsed })
     }
@@ -196,6 +207,9 @@ impl Book {
                 voices: Vec::new(),
                 notes,
             });
+        }
+        for entry in &mut entries {
+            entry.repair();
         }
         Ok(Self { entries })
     }
