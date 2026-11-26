@@ -105,9 +105,10 @@ impl CasmRules {
     #[must_use]
     pub fn section_names(&self) -> Vec<String> {
         let mut names = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         for group in &self.groups {
             for name in &group.sections {
-                if !names.contains(name) {
+                if seen.insert(name.as_str()) {
                     names.push(name.clone());
                 }
             }

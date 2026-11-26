@@ -108,13 +108,12 @@ pub fn import_style(bytes: &[u8]) -> Result<ImportedStyle, StyleError> {
         ..ImportStats::default()
     };
 
-    let mut selected = Vec::new();
+    let mut selected: Vec<(String, Tick)> = Vec::new();
+    let known: std::collections::HashSet<&str> = section_names.iter().map(String::as_str).collect();
+    let mut taken: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for marker in &song.markers {
-        if section_names.iter().any(|name| name == &marker.name) {
-            if selected
-                .iter()
-                .any(|(name, _): &(String, Tick)| name == &marker.name)
-            {
+        if known.contains(marker.name.as_str()) {
+            if !taken.insert(marker.name.as_str()) {
                 continue;
             }
             selected.push((marker.name.clone(), marker.tick));
@@ -129,11 +128,19 @@ pub fn import_style(bytes: &[u8]) -> Result<ImportedStyle, StyleError> {
     }
 
     let song_end = song.end_tick().max(selected[selected.len() - 1].1 + 1);
-    let notes: Vec<_> = song
+    // Sorted by start, so each section takes its notes as one slice instead
+    // of scanning the whole song again.
+    let mut notes: Vec<_> = song
         .tracks
         .iter()
         .flat_map(|track| track.notes.iter())
         .collect();
+    notes.sort_by_key(|note| note.start);
+    let in_range = |from: Tick, to: Tick| {
+        let low = notes.partition_point(|note| note.start < from);
+        let high = notes.partition_point(|note| note.start < to);
+        &notes[low..high.max(low)]
+    };
     let first_start = selected[0].1;
 
     let mut native_sections = Vec::new();
@@ -148,9 +155,8 @@ pub fn import_style(bytes: &[u8]) -> Result<ImportedStyle, StyleError> {
         if index == last {
             // No marker follows the last section, so its length comes from its
             // notes. Round it up to a bar, because styles loop by the bar.
-            let note_end = notes
+            let note_end = in_range(*start, end)
                 .iter()
-                .filter(|note| note.start >= *start && note.start < end)
                 .map(|note| note.start + note.duration.min(end - note.start))
                 .max()
                 .unwrap_or(*start);
@@ -161,10 +167,7 @@ pub fn import_style(bytes: &[u8]) -> Result<ImportedStyle, StyleError> {
             continue;
         }
         let mut by_channel: BTreeMap<u8, Vec<arranger::StyleNote>> = BTreeMap::new();
-        for note in &notes {
-            if note.start < *start || note.start >= end {
-                continue;
-            }
+        for note in in_range(*start, end) {
             let duration = note.duration.min(end - note.start).max(1);
             by_channel
                 .entry(note.channel.one_based())
