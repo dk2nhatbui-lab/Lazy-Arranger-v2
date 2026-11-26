@@ -1,11 +1,15 @@
 //! Live mixer changes while the song plays.
 //!
-//! Playback is a pre-rendered buffer, so a fader, pan, mute or solo change
-//! does nothing until the song is rendered again. While the song plays, the
-//! app watches a fingerprint of the mix. When it changes, the song renders
-//! again in the background, and the new buffer replaces the old one at the
-//! same position. This matches the C++ app, which rebuilds its playback
-//! snapshot when the mixer changes.
+//! Playback mixes most tracks live (see `audio::live`): their faders, pans,
+//! mutes, solos, the buses they feed and the master gain are applied by the
+//! audio callback, so a change is heard at the next audio buffer. Every frame
+//! the app hands the current mixer to the player.
+//!
+//! Some changes still need a new render: a fader on a track with volume
+//! automation, a bus with plug-ins, a plug-in bypass, or a master effect.
+//! The app watches a fingerprint of those settings. When it changes, the
+//! song renders again in the background, and the new buffer replaces the old
+//! one at the same position.
 
 use std::hash::{Hash, Hasher};
 
@@ -17,39 +21,14 @@ pub(super) struct LiveRemix {
     pub(super) signature: u64,
 }
 
-/// A fingerprint of every setting the mixer controls.
+/// A fingerprint of every mixer setting that the playing buffer bakes in.
 ///
-/// Two songs with the same fingerprint sound the same through the mixer, so a
-/// change to it means the playing buffer is out of date.
+/// Two songs with the same fingerprint need the same render; their other
+/// mixer differences are applied live. A change to it means the playing
+/// buffer is out of date.
 pub(super) fn mix_signature(song: &Song, settings: &crate::settings::Settings) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    for track in &song.tracks {
-        track.id.hash(&mut hasher);
-        track.volume.hash(&mut hasher);
-        track.pan.hash(&mut hasher);
-        track.muted.hash(&mut hasher);
-        track.soloed.hash(&mut hasher);
-        track.bus.hash(&mut hasher);
-        track.send.hash(&mut hasher);
-        track.send_level.hash(&mut hasher);
-        for slot in &track.plugins {
-            slot.bypassed.hash(&mut hasher);
-        }
-    }
-    for bus in &song.buses {
-        bus.id.hash(&mut hasher);
-        bus.volume.hash(&mut hasher);
-        bus.pan.hash(&mut hasher);
-        bus.muted.hash(&mut hasher);
-        bus.soloed.hash(&mut hasher);
-        for slot in &bus.plugins {
-            slot.bypassed.hash(&mut hasher);
-        }
-    }
-    for slot in &song.master_plugins {
-        slot.bypassed.hash(&mut hasher);
-    }
-    settings.master_gain_db.to_bits().hash(&mut hasher);
+    audio::live::hash_fixed(song, &mut hasher);
     settings.master_limiter.hash(&mut hasher);
     settings.master_reverb.to_bits().hash(&mut hasher);
     settings.master_chorus.to_bits().hash(&mut hasher);
@@ -72,6 +51,9 @@ impl ShellApp {
         if !playing || self.launcher.active() {
             self.live_remix = None;
             return;
+        }
+        if let Some(player) = &self.player {
+            player.apply_mix(self.song(), self.settings.master_gain_db);
         }
         if let Some(remix) = &self.live_remix {
             let result = match remix.receiver.try_recv() {
@@ -111,8 +93,8 @@ impl ShellApp {
         let Some(old) = self.player.take() else {
             return;
         };
-        let stem_rate = rendered.audio.sample_rate;
-        let new = match audio::player::Player::new_on(
+        let stem_rate = rendered.audio.sample_rate();
+        let new = match audio::player::Player::new_live_on(
             rendered.audio,
             self.settings.audio_output.as_deref(),
             (self.settings.audio_buffer_frames > 0).then_some(self.settings.audio_buffer_frames),
@@ -163,7 +145,8 @@ mod tests {
     }
 
     #[test]
-    fn mixer_changes_change_the_signature() {
+    fn plain_fader_moves_keep_the_signature() {
+        // These are applied live, so they must not start a new render.
         let settings = crate::settings::Settings::default();
         let base = song();
         let start = mix_signature(&base, &settings);
@@ -171,23 +154,38 @@ mod tests {
 
         let mut changed = base.clone();
         changed.tracks[0].volume = changed.tracks[0].volume.wrapping_sub(10);
-        assert_ne!(start, mix_signature(&changed, &settings));
-
-        let mut changed = base.clone();
         changed.tracks[0].pan = 0;
-        assert_ne!(start, mix_signature(&changed, &settings));
-
-        let mut changed = base.clone();
         changed.tracks[0].muted = !changed.tracks[0].muted;
-        assert_ne!(start, mix_signature(&changed, &settings));
-
-        let mut changed = base.clone();
         changed.tracks[0].soloed = !changed.tracks[0].soloed;
-        assert_ne!(start, mix_signature(&changed, &settings));
+        assert_eq!(start, mix_signature(&changed, &settings));
 
         let mut louder = settings.clone();
         louder.master_gain_db += 3.0;
-        assert_ne!(start, mix_signature(&base, &louder));
+        assert_eq!(start, mix_signature(&base, &louder));
+    }
+
+    #[test]
+    fn baked_settings_change_the_signature() {
+        let settings = crate::settings::Settings::default();
+        let base = song();
+        let start = mix_signature(&base, &settings);
+
+        let mut wetter = settings.clone();
+        wetter.master_reverb += 0.2;
+        assert_ne!(start, mix_signature(&base, &wetter));
+
+        // A fader under volume automation is part of the render.
+        let mut automated = base.clone();
+        automated.tracks[0]
+            .automation
+            .push(project::song::Automation {
+                target: project::song::AutomationTarget::Volume,
+                points: Vec::new(),
+            });
+        let before = mix_signature(&automated, &settings);
+        assert_ne!(start, before);
+        automated.tracks[0].volume = 10;
+        assert_ne!(before, mix_signature(&automated, &settings));
     }
 
     #[test]

@@ -5,6 +5,17 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+- Mixer faders, pans, mute, solo, bus faders and the master fader are heard
+  right away while the song plays, for MIDI and audio tracks. Before, each
+  move waited for the whole song to render again. Tracks with volume, pan
+  or send automation, tracks routed to a bus with plug-ins, and songs with
+  master plug-ins still render again after a change.
+
+### Changed
+- A track's fader and pan now come after its insert plug-ins, as on a
+  mixing console.
+
 ## [0.1.0-beta.4] - 2026-11-26
 
 ### Changed

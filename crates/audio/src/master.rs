@@ -38,24 +38,42 @@ pub struct Meter {
 /// Applies gain and, when enabled, a soft limiter that keeps samples within
 /// -1..=1.
 pub fn apply(rendered: &mut RenderedAudio, master: Master) {
-    let gain = 10.0_f32.powf(master.gain_db / 20.0);
+    let gain = gain(master.gain_db);
     for sample in &mut rendered.samples {
         *sample *= gain;
     }
+    apply_effects(rendered, master);
+    for sample in &mut rendered.samples {
+        *sample = finish(*sample, master.limiter);
+    }
+}
+
+/// Linear gain for a master level in decibels.
+#[must_use]
+pub fn gain(gain_db: f32) -> f32 {
+    10.0_f32.powf(gain_db / 20.0)
+}
+
+/// Applies the chorus and reverb only.
+///
+/// Both are linear, so running them on parts of a mix and summing the parts
+/// gives the same result as running them on the whole mix. Live playback
+/// relies on this to keep track faders out of the pre-rendered buffers.
+pub fn apply_effects(rendered: &mut RenderedAudio, master: Master) {
     if master.chorus > 0.0 {
         chorus(rendered, master.chorus.clamp(0.0, 1.0));
     }
     if master.reverb > 0.0 {
         reverb(rendered, master.reverb.clamp(0.0, 1.0));
     }
-    for sample in &mut rendered.samples {
-        let value = if master.limiter {
-            sample.tanh()
-        } else {
-            *sample
-        };
-        *sample = crate::spsc::sanitize(value);
-    }
+}
+
+/// The last master stage for one sample: the soft limiter, when on, and a
+/// clean-up of non-finite values.
+#[must_use]
+#[inline]
+pub fn finish(sample: f32, limiter: bool) -> f32 {
+    crate::spsc::sanitize(if limiter { sample.tanh() } else { sample })
 }
 
 fn chorus(rendered: &mut RenderedAudio, amount: f32) {
