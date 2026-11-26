@@ -153,6 +153,12 @@ pub fn show_full(
     let fit = ((available.x - 24.0).max(120.0) / settings.page_width)
         .min((available.y - 24.0).max(120.0) / settings.page_height)
         .clamp(0.15, 1.0);
+    // A zero or NaN zoom would divide by zero when mapping clicks back.
+    let zoom = if zoom.is_finite() {
+        zoom.clamp(0.1, 8.0)
+    } else {
+        1.0
+    };
     let scale = fit * zoom;
     let page_rect = super::page_rect(response.rect.center(), settings, scale);
     painter.rect_filled(page_rect, 0.0, PAPER);

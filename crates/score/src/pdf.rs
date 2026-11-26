@@ -817,7 +817,9 @@ impl Canvas for PdfCanvas<'_> {
 }
 
 fn finish_pdf(mut objects: Vec<Vec<u8>>, title: &str) -> Vec<u8> {
-    let title_pdf = if title.chars().all(pdf_encodable) {
+    // The Info dictionary is PDFDocEncoding, not WinAnsi, so only plain
+    // ASCII goes in as a literal string; anything else is UTF-16.
+    let title_pdf = if title.chars().all(|c| c.is_ascii() && !c.is_ascii_control()) {
         format!("({})", escape(title))
     } else {
         pdf_utf16_hex_string(title)
