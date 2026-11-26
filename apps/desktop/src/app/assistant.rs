@@ -363,13 +363,14 @@ impl ShellApp {
         {
             project = session.project().clone();
         }
-        let rendered = audio::render(&project.song, audio::SAMPLE_RATE);
-        let _ = audio::mix::check_audio_references(&project.song);
-        self.audition_player = audio::player::Player::new(rendered).ok();
-        self.status = Some(String::from(if after {
-            "audition: after"
-        } else {
-            "audition: before"
-        }));
+        self.audition_in_background(
+            project.song,
+            super::jobs::AuditionSlot::Main,
+            if after {
+                "audition: after"
+            } else {
+                "audition: before"
+            },
+        );
     }
 }

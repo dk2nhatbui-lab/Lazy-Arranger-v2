@@ -1040,6 +1040,8 @@ impl ShellApp {
                     .count();
                 let (hint, colour) = if errors > 0 {
                     (format!("{errors} validation error(s)"), theme::recording())
+                } else if let Some(note) = self.jobs.progress_note() {
+                    (note, theme::text())
                 } else if let Some(status) = &self.status {
                     (status.clone(), theme::text())
                 } else {
@@ -4584,8 +4586,12 @@ impl ShellApp {
                     View::Score => {
                         let mut save_pdf = false;
                         if !self.printers_loaded {
-                            self.printers = available_printers();
+                            // `lpstat` can stall on a slow print server.
                             self.printers_loaded = true;
+                            self.jobs
+                                .spawn("Finding printers", available_printers, |app, list| {
+                                    app.printers = list;
+                                });
                         }
                         if self.score.track.is_none() {
                             self.score.track = project
@@ -4664,51 +4670,62 @@ impl ShellApp {
                                 .iter()
                                 .position(|entry| entry.id == track)
                                 .unwrap_or(0);
-                            if save_pdf {
-                                let pdf = if self.score.all_tracks {
-                                    let tracks: Vec<TrackId> = project
-                                        .song
-                                        .tracks
-                                        .iter()
-                                        .filter(|entry| !self.score.full_hidden.contains(&entry.id))
-                                        .map(|entry| entry.id)
-                                        .collect();
-                                    let tracks = if tracks.is_empty() {
-                                        project.song.tracks.iter().map(|entry| entry.id).collect()
-                                    } else {
-                                        tracks
-                                    };
-                                    Ok(score::pdf::to_full_pdf(
-                                        &project.song,
-                                        score_settings,
-                                        title,
-                                        &tracks,
-                                    ))
-                                } else if self.score.preview {
-                                    score::cecilia::render_pdf(
-                                        &project.song,
-                                        track_index,
-                                        title,
-                                        grand_staff,
-                                    )
-                                } else {
-                                    Ok(score::cecilia::track_pdf(&project.song, track, title))
-                                };
-                                match pdf {
-                                    Ok(pdf) => match std::fs::write(&self.score.pdf_path, pdf) {
-                                        Ok(()) => {
-                                            score_status =
-                                                Some(format!("wrote {}", self.score.pdf_path));
+                            if save_pdf && self.jobs.is_running("Saving PDF") {
+                                score_status = Some(String::from("Saving PDF is still running"));
+                            } else if save_pdf {
+                                // Engraving a long score takes a while; it
+                                // runs in the background on a copy.
+                                let song = project.song.clone();
+                                let title = title.to_string();
+                                let path = self.score.pdf_path.clone();
+                                let full_tracks: Option<Vec<TrackId>> =
+                                    self.score.all_tracks.then(|| {
+                                        let tracks: Vec<TrackId> = song
+                                            .tracks
+                                            .iter()
+                                            .filter(|entry| {
+                                                !self.score.full_hidden.contains(&entry.id)
+                                            })
+                                            .map(|entry| entry.id)
+                                            .collect();
+                                        if tracks.is_empty() {
+                                            song.tracks.iter().map(|entry| entry.id).collect()
+                                        } else {
+                                            tracks
                                         }
-                                        Err(error) => {
-                                            score_status =
-                                                Some(format!("{}: {error}", self.score.pdf_path));
-                                        }
+                                    });
+                                let preview = self.score.preview;
+                                self.jobs.spawn(
+                                    "Saving PDF",
+                                    move || {
+                                        let pdf = if let Some(tracks) = full_tracks {
+                                            Ok(score::pdf::to_full_pdf(
+                                                &song,
+                                                score_settings,
+                                                &title,
+                                                &tracks,
+                                            ))
+                                        } else if preview {
+                                            score::cecilia::render_pdf(
+                                                &song,
+                                                track_index,
+                                                &title,
+                                                grand_staff,
+                                            )
+                                            .map_err(|error| format!("Cecilia: {error}"))
+                                        } else {
+                                            Ok(score::cecilia::track_pdf(&song, track, &title))
+                                        };
+                                        pdf.and_then(|pdf| {
+                                            std::fs::write(&path, pdf)
+                                                .map(|()| format!("wrote {path}"))
+                                                .map_err(|error| format!("{path}: {error}"))
+                                        })
                                     },
-                                    Err(error) => {
-                                        score_status = Some(format!("Cecilia: {error}"));
-                                    }
-                                }
+                                    |app, result: Result<String, String>| {
+                                        app.status = Some(result.unwrap_or_else(|error| error));
+                                    },
+                                );
                             }
                             let zoom = self.score.zoom;
                             let page = self.score.page;

@@ -22,6 +22,7 @@ mod devices;
 mod drums;
 mod files;
 mod jam;
+mod jobs;
 mod layout;
 mod live_mix;
 mod map;
@@ -266,6 +267,69 @@ fn resolve_playlist_path(base: &std::path::Path, path: &str) -> std::path::PathB
         base.parent()
             .map_or_else(|| path.to_path_buf(), |parent| parent.join(path))
     }
+}
+
+/// What a transcription turns audio into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Transcription {
+    Notes,
+    Drums,
+    Chords,
+}
+
+/// Decodes `path` and detects pitched notes or drum hits. Slow; runs off the
+/// UI thread.
+fn transcribe_notes(
+    path: &str,
+    bpm: f64,
+    kind: Transcription,
+) -> Result<Vec<project::Note>, String> {
+    let decoded = audio::decode::decode_mono(std::path::Path::new(path))
+        .map_err(|error| format!("{path}: {error}"))?;
+    if kind == Transcription::Drums {
+        let detected = audio::analysis::to_drums(&decoded.samples, decoded.sample_rate);
+        if detected.is_empty() {
+            return Err(String::from("no drum onsets found"));
+        }
+        let channel = music_core::Channel::new(9).map_err(|error| error.to_string())?;
+        return detected_to_notes(&detected, bpm, channel);
+    }
+    let detected = audio::analysis::to_midi(&decoded.samples, decoded.sample_rate);
+    if detected.is_empty() {
+        return Err(String::from("no stable monophonic pitch found"));
+    }
+    let notes = detected_to_notes(&detected, bpm, music_core::Channel::first())?;
+    if notes.is_empty() {
+        return Err(String::from("no notes after pitch conversion"));
+    }
+    Ok(notes)
+}
+
+/// Decodes `path` and finds its chords, one event per change, plus the
+/// number of chords recognised. Slow; runs off the UI thread.
+fn transcribe_chords(
+    path: &str,
+    bpm: f64,
+) -> Result<(Vec<project::song::ChordEvent>, usize), String> {
+    let decoded = audio::decode::decode_mono(std::path::Path::new(path))
+        .map_err(|error| format!("{path}: {error}"))?;
+    let found = audio::chords::recognize(&decoded.samples, decoded.sample_rate, 0.5);
+    if found.is_empty() {
+        return Err(String::from("no chords found"));
+    }
+    let mut chords = Vec::with_capacity(found.len());
+    let mut previous = None;
+    for event in &found {
+        if previous == Some(event.chord) {
+            continue;
+        }
+        previous = Some(event.chord);
+        chords.push(project::song::ChordEvent {
+            tick: audio::chords::to_ticks(event.start, bpm),
+            chord: event.chord,
+        });
+    }
+    Ok((chords, found.len()))
 }
 
 fn detected_to_notes(
@@ -725,6 +789,8 @@ pub struct ShellApp {
     fit_polyphony: usize,
     fit_drum_kit: bool,
     audition_player: Option<audio::player::Player>,
+    /// Slow work running off the UI thread.
+    jobs: jobs::Jobs,
     file_mode: Option<FileMode>,
     file_path_input: String,
     audio_recording: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
@@ -1078,6 +1144,7 @@ impl ShellApp {
             fit_polyphony: 16,
             fit_drum_kit: true,
             audition_player: None,
+            jobs: jobs::Jobs::default(),
             file_mode: None,
             file_path_input: String::new(),
             audio_recording: None,
@@ -2034,7 +2101,11 @@ impl ShellApp {
             self.style.section = return_index;
             self.audition_style_section();
         }
+        // While the next section renders, do not restart the old one.
         if self.style.file_loop
+            && !self
+                .jobs
+                .is_running(jobs::audition_label(jobs::AuditionSlot::Style))
             && !self.style.ending
             && self.style.fill_return.is_none()
             && self.style.queued_section.is_none()
@@ -2360,24 +2431,30 @@ impl ShellApp {
                 self.file_mode = None;
             }
         } else if mode == FileMode::ImportAudio {
-            let audio_path = if crate::video::is_video(&path) {
-                match crate::video::extract_audio(&path) {
-                    Ok(extracted) => extracted,
-                    Err(error) => {
-                        self.load_error = Some(error);
-                        return;
+            // Extracting a video's sound and measuring a long file can take
+            // a while; the track is added once that is done.
+            let start = self.position.max(0);
+            self.file_mode = None;
+            self.start_job(
+                "Importing audio",
+                move || {
+                    let audio_path = if crate::video::is_video(&path) {
+                        crate::video::extract_audio(&path)?
+                    } else {
+                        path
+                    };
+                    let seconds = crate::editor::audio_file_seconds(&audio_path)?;
+                    Ok::<_, String>((audio_path, seconds))
+                },
+                move |app, result| match result.and_then(|(audio_path, seconds)| {
+                    app.editor.import_audio_seconds(&audio_path, start, seconds)
+                }) {
+                    Ok(track) => {
+                        app.status = Some(format!("imported audio as track {}", track.get()));
                     }
-                }
-            } else {
-                path
-            };
-            match self.editor.import_audio(&audio_path, self.position.max(0)) {
-                Ok(track) => {
-                    self.status = Some(format!("imported audio as track {}", track.get()));
-                    self.file_mode = None;
-                }
-                Err(error) => self.load_error = Some(error),
-            }
+                    Err(error) => app.load_error = Some(error),
+                },
+            );
         } else if mode == FileMode::ExportMidi {
             let song = self.song().clone();
             let profile = self.settings.device_profile.as_ref().and_then(|id| {
@@ -2407,25 +2484,34 @@ impl ShellApp {
             }
         } else if mode == FileMode::ExportStems {
             let song = self.song().clone();
-            match export_stems_folder(&song, &path) {
-                Ok(stems) => {
-                    self.status = Some(format!("exported {stems} stem(s) to {}", path.display()));
-                    self.file_mode = None;
-                }
-                Err(error) => self.load_error = Some(error),
-            }
+            self.file_mode = None;
+            self.start_job(
+                "Exporting stems",
+                move || export_stems_folder(&song, &path).map(|stems| (stems, path)),
+                |app, result| match result {
+                    Ok((stems, path)) => {
+                        app.status =
+                            Some(format!("exported {stems} stem(s) to {}", path.display()));
+                    }
+                    Err(error) => app.load_error = Some(error),
+                },
+            );
         } else if mode == FileMode::ExportWav {
             let song = self.song().clone();
-            match export_wav_file(&song, &path) {
-                Ok((seconds, problems)) => {
-                    self.status = Some(format!(
-                        "exported {seconds:.2} s WAV to {} ({problems} audio problem(s))",
-                        path.display()
-                    ));
-                    self.file_mode = None;
-                }
-                Err(error) => self.load_error = Some(error),
-            }
+            self.file_mode = None;
+            self.start_job(
+                "Exporting WAV",
+                move || export_wav_file(&song, &path).map(|done| (done, path)),
+                |app, result| match result {
+                    Ok(((seconds, problems), path)) => {
+                        app.status = Some(format!(
+                            "exported {seconds:.2} s WAV to {} ({problems} audio problem(s))",
+                            path.display()
+                        ));
+                    }
+                    Err(error) => app.load_error = Some(error),
+                },
+            );
         } else if mode == FileMode::ExportMusicXml {
             let song = self.song().clone();
             let title = if song.name.is_empty() {
@@ -3188,83 +3274,7 @@ impl ShellApp {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
-        if self.score.all_tracks {
-            let selected: Vec<TrackId> = self
-                .song()
-                .tracks
-                .iter()
-                .filter(|track| !self.score.full_hidden.contains(&track.id))
-                .map(|track| track.id)
-                .collect();
-            let selected = if selected.is_empty() {
-                self.song().tracks.iter().map(|track| track.id).collect()
-            } else {
-                selected
-            };
-            let title = if self.song().name.is_empty() {
-                String::from("Lazy Arranger full score")
-            } else {
-                self.song().name.clone()
-            };
-            let pdf = score::pdf::to_full_pdf_with_frames(
-                self.song(),
-                score::Settings::default(),
-                &title,
-                &selected,
-                self.score.full_frames,
-            );
-            let path = std::env::temp_dir().join(format!(
-                "lazy-arranger-full-score-{}-{stamp}.pdf",
-                std::process::id()
-            ));
-            if let Err(error) = std::fs::write(&path, pdf) {
-                self.status = Some(format!("{}: {error}", path.display()));
-                return;
-            }
-            let pages = self.print_pages.trim();
-            if !pages.is_empty()
-                && !pages.chars().all(|character| {
-                    character.is_ascii_digit() || character == '-' || character == ','
-                })
-            {
-                self.status = Some(String::from("pages must look like 1-4, 7"));
-                return;
-            }
-            let arguments = print_arguments(
-                self.printer_choice.as_deref(),
-                self.print_copies,
-                pages,
-                &path,
-            );
-            match std::process::Command::new("lp").args(&arguments).output() {
-                Ok(output) if output.status.success() => {
-                    self.status = Some(format!(
-                        "sent {} to lp: {}",
-                        path.display(),
-                        String::from_utf8_lossy(&output.stdout).trim()
-                    ));
-                    self.print_dialog = false;
-                }
-                Ok(output) => {
-                    self.status = Some(format!(
-                        "lp failed: {}",
-                        String::from_utf8_lossy(&output.stderr).trim()
-                    ));
-                }
-                Err(error) => self.status = Some(format!("lp: {error}")),
-            }
-            return;
-        }
-        let Some(track) = self
-            .score
-            .track
-            .or(self.roll.selected)
-            .or_else(|| self.song().tracks.first().map(|track| track.id))
-        else {
-            self.status = Some(String::from("no track to print"));
-            return;
-        };
-        let pages = self.print_pages.trim();
+        let pages = self.print_pages.trim().to_string();
         if !pages.is_empty()
             && !pages
                 .chars()
@@ -3273,171 +3283,211 @@ impl ShellApp {
             self.status = Some(String::from("pages must look like 1-4, 7"));
             return;
         }
-        let title = if self.song().name.is_empty() {
-            String::from("Lazy Arranger score")
-        } else {
-            self.song().name.clone()
-        };
-        let pdf = if self.score.preview {
-            match self
-                .song()
+        let song = self.song().clone();
+        let printer = self.printer_choice.clone();
+        let copies = self.print_copies;
+        // What to engrave, decided now; the engraving and `lp` run in the
+        // background.
+        enum Engrave {
+            Full(Vec<TrackId>, bool),
+            Cecilia(usize, bool),
+            Track(TrackId),
+        }
+        let (engrave, title, name) = if self.score.all_tracks {
+            let selected: Vec<TrackId> = song
                 .tracks
                 .iter()
-                .position(|entry| entry.id == track)
-            {
-                Some(index) => {
-                    match score::cecilia::render_pdf(self.song(), index, &title, self.score.grand) {
-                        Ok(pdf) => pdf,
-                        Err(error) => {
-                            self.status = Some(format!("Cecilia: {error}"));
-                            return;
-                        }
+                .filter(|track| !self.score.full_hidden.contains(&track.id))
+                .map(|track| track.id)
+                .collect();
+            let selected = if selected.is_empty() {
+                song.tracks.iter().map(|track| track.id).collect()
+            } else {
+                selected
+            };
+            let title = if song.name.is_empty() {
+                String::from("Lazy Arranger full score")
+            } else {
+                song.name.clone()
+            };
+            (
+                Engrave::Full(selected, self.score.full_frames),
+                title,
+                "lazy-arranger-full-score",
+            )
+        } else {
+            let Some(track) = self
+                .score
+                .track
+                .or(self.roll.selected)
+                .or_else(|| song.tracks.first().map(|track| track.id))
+            else {
+                self.status = Some(String::from("no track to print"));
+                return;
+            };
+            let title = if song.name.is_empty() {
+                String::from("Lazy Arranger score")
+            } else {
+                song.name.clone()
+            };
+            let engrave = if self.score.preview {
+                match song.tracks.iter().position(|entry| entry.id == track) {
+                    Some(index) => Engrave::Cecilia(index, self.score.grand),
+                    None => {
+                        self.status = Some(String::from("track not found for print"));
+                        return;
                     }
                 }
-                None => {
-                    self.status = Some(String::from("track not found for print"));
-                    return;
-                }
-            }
-        } else {
-            score::cecilia::track_pdf(self.song(), track, &title)
+            } else {
+                Engrave::Track(track)
+            };
+            (engrave, title, "lazy-arranger-score")
         };
-        let path = std::env::temp_dir().join(format!(
-            "lazy-arranger-score-{}-{stamp}.pdf",
-            std::process::id()
-        ));
-        if let Err(error) = std::fs::write(&path, pdf) {
-            self.status = Some(format!("{}: {error}", path.display()));
-            return;
-        }
-        let arguments = print_arguments(
-            self.printer_choice.as_deref(),
-            self.print_copies,
-            pages,
-            &path,
+        let path = std::env::temp_dir().join(format!("{name}-{}-{stamp}.pdf", std::process::id()));
+        self.start_job(
+            "Printing score",
+            move || {
+                let pdf = match engrave {
+                    Engrave::Full(selected, frames) => score::pdf::to_full_pdf_with_frames(
+                        &song,
+                        score::Settings::default(),
+                        &title,
+                        &selected,
+                        frames,
+                    ),
+                    Engrave::Cecilia(index, grand) => {
+                        score::cecilia::render_pdf(&song, index, &title, grand)
+                            .map_err(|error| format!("Cecilia: {error}"))?
+                    }
+                    Engrave::Track(track) => score::cecilia::track_pdf(&song, track, &title),
+                };
+                std::fs::write(&path, pdf)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
+                let arguments = print_arguments(printer.as_deref(), copies, &pages, &path);
+                match std::process::Command::new("lp").args(&arguments).output() {
+                    Ok(output) if output.status.success() => Ok(format!(
+                        "sent {} to lp: {}",
+                        path.display(),
+                        String::from_utf8_lossy(&output.stdout).trim()
+                    )),
+                    Ok(output) => Err(format!(
+                        "lp failed: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    )),
+                    Err(error) => Err(format!("could not run lp: {error}")),
+                }
+            },
+            |app, result: Result<String, String>| match result {
+                Ok(message) => {
+                    app.status = Some(message);
+                    app.print_dialog = false;
+                }
+                Err(error) => app.status = Some(error),
+            },
         );
-        match std::process::Command::new("lp").args(&arguments).output() {
-            Ok(output) if output.status.success() => {
-                self.status = Some(format!(
-                    "sent {} to lp: {}",
-                    path.display(),
-                    String::from_utf8_lossy(&output.stdout).trim()
-                ));
-                self.print_dialog = false;
-            }
-            Ok(output) => {
-                self.status = Some(format!(
-                    "lp failed: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ));
-            }
-            Err(error) => self.status = Some(format!("could not run lp: {error}")),
-        }
     }
 
+    /// The audio file, tempo and name a transcription of `track_id` uses.
+    fn transcription_input(&self, track_id: TrackId) -> Result<(String, f64, String), String> {
+        let track = self.song().tracks.iter().find(|track| track.id == track_id);
+        let reference = track
+            .and_then(|track| track.audio.clone())
+            .ok_or_else(|| String::from("this track has no active audio reference"))?;
+        let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
+        let name = track
+            .map_or("Audio", |track| track.name.as_str())
+            .to_string();
+        Ok((reference.path, bpm, name))
+    }
+
+    /// The same work in the foreground, for tests.
+    #[cfg(test)]
     fn transcribe_audio_track(&mut self, track_id: TrackId) -> Result<(), String> {
-        let reference = self
-            .song()
-            .tracks
-            .iter()
-            .find(|track| track.id == track_id)
-            .and_then(|track| track.audio.clone())
-            .ok_or_else(|| String::from("this track has no active audio reference"))?;
-        let decoded = audio::decode::decode_mono(std::path::Path::new(&reference.path))
-            .map_err(|error| format!("{}: {error}", reference.path))?;
-        let detected = audio::analysis::to_midi(&decoded.samples, decoded.sample_rate);
-        if detected.is_empty() {
-            return Err(String::from("no stable monophonic pitch found"));
-        }
-        let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
-        let notes = detected_to_notes(&detected, bpm, music_core::Channel::first())?;
-        if notes.is_empty() {
-            return Err(String::from("no notes after pitch conversion"));
-        }
-        let name = format!(
-            "{} MIDI",
-            self.song()
-                .tracks
-                .iter()
-                .find(|track| track.id == track_id)
-                .map_or("Audio", |track| track.name.as_str())
-        );
-        let new_track = self.editor.insert_recorded(&name, &notes)?;
-        self.status = Some(format!(
-            "transcribed {} note(s) into track {}",
-            notes.len(),
-            new_track.get()
-        ));
-        Ok(())
+        let (path, bpm, name) = self.transcription_input(track_id)?;
+        let notes = transcribe_notes(&path, bpm, Transcription::Notes)?;
+        self.insert_transcribed(&name, &notes, Transcription::Notes)
     }
 
+    /// The same work in the foreground, for tests.
+    #[cfg(test)]
     fn transcribe_audio_chords(&mut self, track_id: TrackId) -> Result<usize, String> {
-        let reference = self
-            .song()
-            .tracks
-            .iter()
-            .find(|track| track.id == track_id)
-            .and_then(|track| track.audio.clone())
-            .ok_or_else(|| String::from("this track has no active audio reference"))?;
-        let decoded = audio::decode::decode_mono(std::path::Path::new(&reference.path))
-            .map_err(|error| format!("{}: {error}", reference.path))?;
-        let found = audio::chords::recognize(&decoded.samples, decoded.sample_rate, 0.5);
-        if found.is_empty() {
-            return Err(String::from("no chords found"));
-        }
-        let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
-        let mut chords = Vec::with_capacity(found.len());
-        let mut previous = None;
-        for event in &found {
-            if previous == Some(event.chord) {
-                continue;
-            }
-            previous = Some(event.chord);
-            chords.push(project::song::ChordEvent {
-                tick: audio::chords::to_ticks(event.start, bpm),
-                chord: event.chord,
-            });
-        }
+        let (path, bpm, _) = self.transcription_input(track_id)?;
+        let (chords, found) = transcribe_chords(&path, bpm)?;
         self.editor.set_chords(chords)?;
-        self.status = Some(format!("found {} chord(s)", found.len()));
-        Ok(found.len())
+        self.status = Some(format!("found {found} chord(s)"));
+        Ok(found)
     }
 
+    /// The same work in the foreground, for tests.
+    #[cfg(test)]
     fn transcribe_audio_drums(&mut self, track_id: TrackId) -> Result<(), String> {
-        let reference = self
-            .song()
-            .tracks
-            .iter()
-            .find(|track| track.id == track_id)
-            .and_then(|track| track.audio.clone())
-            .ok_or_else(|| String::from("this track has no active audio reference"))?;
-        let decoded = audio::decode::decode_mono(std::path::Path::new(&reference.path))
-            .map_err(|error| format!("{}: {error}", reference.path))?;
-        let detected = audio::analysis::to_drums(&decoded.samples, decoded.sample_rate);
-        if detected.is_empty() {
-            return Err(String::from("no drum onsets found"));
-        }
-        let bpm = self.song().tempo_map.bpm_at(0).max(1.0);
-        let notes = detected_to_notes(
-            &detected,
-            bpm,
-            music_core::Channel::new(9).map_err(|error| error.to_string())?,
-        )?;
-        let name = format!(
-            "{} Drums",
-            self.song()
-                .tracks
-                .iter()
-                .find(|track| track.id == track_id)
-                .map_or("Audio", |track| track.name.as_str())
-        );
-        let new_track = self.editor.insert_recorded(&name, &notes)?;
+        let (path, bpm, name) = self.transcription_input(track_id)?;
+        let notes = transcribe_notes(&path, bpm, Transcription::Drums)?;
+        self.insert_transcribed(&name, &notes, Transcription::Drums)
+    }
+
+    fn insert_transcribed(
+        &mut self,
+        name: &str,
+        notes: &[project::Note],
+        kind: Transcription,
+    ) -> Result<(), String> {
+        let (suffix, what) = match kind {
+            Transcription::Drums => ("Drums", "drum hit(s)"),
+            _ => ("MIDI", "note(s)"),
+        };
+        let new_track = self
+            .editor
+            .insert_recorded(&format!("{name} {suffix}"), notes)?;
         self.status = Some(format!(
-            "transcribed {} drum hit(s) into track {}",
+            "transcribed {} {what} into track {}",
             notes.len(),
             new_track.get()
         ));
         Ok(())
+    }
+
+    /// Decodes and analyses the track's audio off the UI thread, then adds
+    /// the result as one edit.
+    pub(super) fn transcribe_in_background(&mut self, track_id: TrackId, kind: Transcription) {
+        let (path, bpm, name) = match self.transcription_input(track_id) {
+            Ok(input) => input,
+            Err(error) => {
+                self.status = Some(error);
+                return;
+            }
+        };
+        let label = match kind {
+            Transcription::Notes => "Transcribing notes",
+            Transcription::Drums => "Transcribing drums",
+            Transcription::Chords => "Finding chords",
+        };
+        if kind == Transcription::Chords {
+            self.start_job(
+                label,
+                move || transcribe_chords(&path, bpm),
+                |app, result| {
+                    let outcome = result
+                        .and_then(|(chords, found)| app.editor.set_chords(chords).map(|()| found));
+                    app.status = Some(match outcome {
+                        Ok(found) => format!("found {found} chord(s)"),
+                        Err(error) => error,
+                    });
+                },
+            );
+        } else {
+            self.start_job(
+                label,
+                move || transcribe_notes(&path, bpm, kind),
+                move |app, result| {
+                    if let Err(error) =
+                        result.and_then(|notes| app.insert_transcribed(&name, &notes, kind))
+                    {
+                        app.status = Some(error);
+                    }
+                },
+            );
+        }
     }
 
     fn takes_window(&mut self, context: &Context) {
@@ -3621,30 +3671,40 @@ impl ShellApp {
             self.status = Some(error);
         }
         if let Some(path) = play_take {
-            let source = std::path::Path::new(&path);
-            let decoded = std::fs::read(source).ok().and_then(|bytes| {
-                if bytes.starts_with(b"RIFF") {
-                    audio::wav::decode_stereo(&bytes).ok()
-                } else {
-                    audio::decode::decode_stereo(source).ok()
-                }
-            });
-            match decoded.and_then(|audio| audio::player::Player::new(audio).ok()) {
-                Some(player) => {
-                    self.audition_player = Some(player);
-                    self.status = Some(format!("audition {path}"));
-                }
-                None => self.status = Some(format!("could not audition {path}")),
-            }
+            // Decoding a long take is slow; play it once it is ready.
+            self.start_job(
+                "Loading take",
+                move || {
+                    let source = std::path::Path::new(&path);
+                    let decoded = std::fs::read(source).ok().and_then(|bytes| {
+                        if bytes.starts_with(b"RIFF") {
+                            audio::wav::decode_stereo(&bytes).ok()
+                        } else {
+                            audio::decode::decode_stereo(source).ok()
+                        }
+                    });
+                    (path, decoded)
+                },
+                |app, (path, decoded)| match decoded
+                    .and_then(|audio| audio::player::Player::new(audio).ok())
+                {
+                    Some(player) => {
+                        player.play();
+                        app.audition_player = Some(player);
+                        app.status = Some(format!("audition {path}"));
+                    }
+                    None => app.status = Some(format!("could not audition {path}")),
+                },
+            );
         }
-        if to_midi && let Err(error) = self.transcribe_audio_track(track_id) {
-            self.status = Some(error);
+        if to_midi {
+            self.transcribe_in_background(track_id, Transcription::Notes);
         }
-        if to_drums && let Err(error) = self.transcribe_audio_drums(track_id) {
-            self.status = Some(error);
+        if to_drums {
+            self.transcribe_in_background(track_id, Transcription::Drums);
         }
-        if to_chords && let Err(error) = self.transcribe_audio_chords(track_id) {
-            self.status = Some(error);
+        if to_chords {
+            self.transcribe_in_background(track_id, Transcription::Chords);
         }
         if duplicate {
             match self.editor.duplicate_audio_track(track_id) {
@@ -4931,6 +4991,7 @@ impl eframe::App for ShellApp {
         self.handle_menu_keys(context);
         self.handle_keys(context);
         self.poll_background(context);
+        self.poll_jobs(context);
         self.draw_windows(context);
         self.central_panel(context);
         self.panel_handles(context);

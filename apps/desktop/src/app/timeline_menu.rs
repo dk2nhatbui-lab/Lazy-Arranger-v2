@@ -345,15 +345,19 @@ impl ShellApp {
                 .editor
                 .normalize_audio(track, 0.9)
                 .map(|_| Some(String::from("normalized the audio"))),
-            TimelineAction::AudioToMelody(track) => self
-                .transcribe_audio_track(track)
-                .map(|()| Some(String::from("converted the audio to a melody track"))),
-            TimelineAction::AudioToDrums(track) => self
-                .transcribe_audio_drums(track)
-                .map(|()| Some(String::from("converted the audio to a drum track"))),
-            TimelineAction::AudioChords(track) => self
-                .transcribe_audio_chords(track)
-                .map(|count| Some(format!("found {count} chord(s) in the audio"))),
+            // These decode and analyse audio, so they run in the background.
+            TimelineAction::AudioToMelody(track) => {
+                self.transcribe_in_background(track, super::Transcription::Notes);
+                Ok(None)
+            }
+            TimelineAction::AudioToDrums(track) => {
+                self.transcribe_in_background(track, super::Transcription::Drums);
+                Ok(None)
+            }
+            TimelineAction::AudioChords(track) => {
+                self.transcribe_in_background(track, super::Transcription::Chords);
+                Ok(None)
+            }
             TimelineAction::AudioTakes(track) => {
                 self.roll.selected = Some(track);
                 self.takes_open = true;
