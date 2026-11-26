@@ -86,10 +86,38 @@ impl LiveRender {
     /// Keeps the master settings for playback, which runs them on the sum
     /// of every part.
     pub fn apply_master(&mut self, settings: Master) {
+<<<<<<< HEAD
+=======
+        if settings.chorus > 0.0 || settings.reverb > 0.0 {
+            // The master effects run offline for now, so synth lanes become
+            // plain buffers first.
+            self.bake_synths();
+        }
+        master::apply_effects(&mut self.fixed, settings);
+        let rate = self.fixed.sample_rate;
+        for lane in &mut self.lanes {
+            let mut audio = RenderedAudio {
+                samples: std::mem::take(lane),
+                sample_rate: rate,
+            };
+            master::apply_effects(&mut audio, settings);
+            *lane = audio.samples;
+        }
+>>>>>>> 92b0496cb85b3db5315895ddecb4ace903f1c153
         self.master_gain = master::gain(settings.gain_db);
         self.limiter = settings.limiter;
         self.chorus = settings.chorus.clamp(0.0, 1.0);
         self.reverb = settings.reverb.clamp(0.0, 1.0);
+    }
+
+    /// Renders every synth lane into its lane buffer.
+    pub fn bake_synths(&mut self) {
+        let len = self.fixed.samples.len();
+        for (lane, synth) in self.lanes.iter_mut().zip(&mut self.synths) {
+            if let Some(synth) = synth.take() {
+                *lane = synth.render_all(len);
+            }
+        }
     }
 
     /// Renders every synth lane into its lane buffer.

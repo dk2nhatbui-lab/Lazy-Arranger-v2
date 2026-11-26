@@ -122,7 +122,11 @@ impl ShellApp {
             return;
         }
         if let Some(player) = &self.player {
+<<<<<<< HEAD
             player.apply_mix(self.song(), self.settings.master());
+=======
+            player.apply_mix(self.song(), self.settings.master_gain_db);
+>>>>>>> 92b0496cb85b3db5315895ddecb4ace903f1c153
             if let Some(state) = &mut self.synth_state {
                 state.swap_edited(self.editor.song(), player);
             }
