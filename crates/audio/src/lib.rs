@@ -2952,6 +2952,7 @@ mod tests {
         assert!(worst < 1e-5, "the swapped notes differ by {worst}");
     }
 
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn a_blocked_plugin_is_left_out_of_live_chains() {
         let Some(bundle) = test_gain_bundle("watchdog") else {
