@@ -4,6 +4,7 @@
 //! bound to it, a Global row, and the channel check and MIDI learn notes.
 
 use super::*;
+use crate::theme::ThemedMenu;
 use midi_devices::map::{Action, Control};
 
 /// Says whether an action belongs to a summary row.
@@ -159,7 +160,7 @@ impl ShellApp {
         }
         let mut clear = false;
         let mut learn = false;
-        response.context_menu(|ui| {
+        response.themed_context_menu(|ui| {
             learn = ui.button("Learn this cell").clicked();
             clear = ui
                 .add_enabled(bound.is_some(), egui::Button::new("Clear"))

@@ -1,6 +1,7 @@
 //! The mixer, effects buses and plugin windows of [`ShellApp`].
 
 use super::*;
+use crate::theme::ThemedMenu;
 use crate::widgets::{
     MIXER_KNOB_SIZE, mixer_panel_background, mixer_strip, name_tab, strip_button, strip_caption,
 };
@@ -239,11 +240,15 @@ impl ShellApp {
                                         },
                                         color,
                                     )
-                                    .context_menu(|ui| {
-                                        if let Some(action) = track_strip_menu(ui, track, &buses) {
-                                            mixer_action = Some(action);
-                                        }
-                                    });
+                                    .themed_context_menu(
+                                        |ui| {
+                                            if let Some(action) =
+                                                track_strip_menu(ui, track, &buses)
+                                            {
+                                                mixer_action = Some(action);
+                                            }
+                                        },
+                                    );
                                 });
                             });
                             if let Some((volume, pan, muted, soloed, send, armed)) = edit {
@@ -315,12 +320,15 @@ impl ShellApp {
                                             bus.id, bus_volume, bus_pan, bus_muted, bus_soloed,
                                         ));
                                     }
-                                    name_tab(ui, &bus.name, theme::accent()).context_menu(|ui| {
-                                        if let Some(action) = bus_strip_menu(ui, bus_index, bus.id)
-                                        {
-                                            mixer_action = Some(action);
-                                        }
-                                    });
+                                    name_tab(ui, &bus.name, theme::accent()).themed_context_menu(
+                                        |ui| {
+                                            if let Some(action) =
+                                                bus_strip_menu(ui, bus_index, bus.id)
+                                            {
+                                                mixer_action = Some(action);
+                                            }
+                                        },
+                                    );
                                 });
                             });
                         }
@@ -368,7 +376,7 @@ impl ShellApp {
                                         0.0,
                                         master_level,
                                     );
-                                    name_tab(ui, "Master", MASTER_TAB).context_menu(|ui| {
+                                    name_tab(ui, "Master", MASTER_TAB).themed_context_menu(|ui| {
                                         if ui.button("Master Effects…").clicked() {
                                             mixer_action = Some(MixerAction::MasterEffects);
                                             ui.close_menu();

@@ -4,6 +4,7 @@
 //! is long, with beat numbers under it.
 
 use super::*;
+use crate::theme::ThemedMenu;
 use arranging::drums;
 
 const HEADER: f32 = 52.0;
@@ -676,7 +677,7 @@ impl ShellApp {
         }
         let menu_row: Option<usize> = ui.data(|data| data.get_temp(menu_row_id));
         let mut action = None;
-        names_response.context_menu(|ui| {
+        names_response.themed_context_menu(|ui| {
             let Some(row) = menu_row.filter(|row| *row < rows.len()) else {
                 return;
             };

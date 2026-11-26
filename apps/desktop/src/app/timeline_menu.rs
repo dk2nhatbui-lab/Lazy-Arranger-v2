@@ -59,26 +59,16 @@ impl ShellApp {
         let Some(hit) = self.timeline_menu_hit else {
             return;
         };
-        let mut chosen = None;
-        let area = egui::Area::new(egui::Id::new("timeline-context-menu"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(hit.pos)
-            .constrain(true)
-            .show(context, |ui| {
-                egui::Frame::menu(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(200.0);
-                    // Rows look like menu rows, not buttons.
-                    ui.style_mut().visuals.button_frame = false;
-                    ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                        chosen = self.timeline_menu_items(ui, hit);
-                    });
-                });
-            });
-        let escape = context.input(|input| input.key_pressed(egui::Key::Escape));
-        if let Some(action) = chosen {
+        let (chosen, open) = super::popup_menu::show(
+            context,
+            egui::Id::new("timeline-context-menu"),
+            hit.pos,
+            |ui| self.timeline_menu_items(ui, hit),
+        );
+        if let Some(action) = chosen.flatten() {
             self.timeline_menu_hit = None;
             self.run_timeline_action(action);
-        } else if escape || area.response.clicked_elsewhere() {
+        } else if !open {
             self.timeline_menu_hit = None;
         }
     }
@@ -88,9 +78,19 @@ impl ShellApp {
         match target {
             ContextTarget::Clip(track, clip) => {
                 self.roll.selected = Some(track);
+                if !self.selected_clips.contains(&(track, clip)) {
+                    self.selected_clips.clear();
+                }
                 self.selected_clip = Some((track, clip));
+                self.selected_audio = None;
             }
-            ContextTarget::Audio(track) | ContextTarget::Lane(track) => {
+            ContextTarget::Audio(track) => {
+                self.roll.selected = Some(track);
+                self.selected_audio = Some(track);
+                self.selected_clip = None;
+                self.selected_clips.clear();
+            }
+            ContextTarget::Lane(track) => {
                 self.roll.selected = Some(track);
             }
             ContextTarget::Chords | ContextTarget::Ruler | ContextTarget::Empty => {}

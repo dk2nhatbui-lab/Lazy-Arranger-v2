@@ -1588,3 +1588,26 @@ fn plug_ins_outside_the_vst3_folders_wait_for_approval() {
     plugin_host::approve_vst3_bundle(&outside);
     assert!(super::plugin_trust::untrusted(&song).is_empty());
 }
+
+#[test]
+fn a_timeline_click_selects_audio_and_never_adds_a_note() {
+    let context = egui::Context::default();
+    let mut app = ShellApp::new(&context, demo_project(), None);
+    let track = app.song().tracks[0].id;
+    let notes = app.song().tracks[0].notes.len();
+    let click = |audio| piano_roll::RollClick {
+        tick: 0,
+        pitch: 60,
+        note: None,
+        clip: None,
+        shift: false,
+        audio,
+        select_only: true,
+    };
+    app.edit_click(click(Some(track)));
+    assert_eq!(app.selected_audio, Some(track));
+    assert_eq!(app.roll.selected, Some(track));
+    app.edit_click(click(None));
+    assert_eq!(app.selected_audio, None);
+    assert_eq!(app.song().tracks[0].notes.len(), notes);
+}

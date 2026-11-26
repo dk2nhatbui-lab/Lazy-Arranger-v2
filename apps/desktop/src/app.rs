@@ -31,6 +31,7 @@ mod mixer;
 mod native_menu;
 mod notes_menu;
 mod plugin_trust;
+mod popup_menu;
 mod style;
 mod timeline_menu;
 mod unsaved;
@@ -773,6 +774,8 @@ pub struct ShellApp {
     selected_chord: Option<Tick>,
     preview_player: Option<audio::player::Player>,
     selected_clip: Option<(TrackId, project::ClipId)>,
+    /// Track whose audio part is selected on the timeline.
+    selected_audio: Option<TrackId>,
     selected_clips: Vec<(TrackId, project::ClipId)>,
     clip_clipboard: Vec<(TrackId, project::song::Clip)>,
     /// How far the first copied note sits from the copied clip's start.
@@ -1144,6 +1147,7 @@ impl ShellApp {
             selected_chord: None,
             preview_player: None,
             selected_clip: None,
+            selected_audio: None,
             selected_clips: Vec::new(),
             clip_clipboard: Vec::new(),
             clip_note_offset: 0,
@@ -1513,6 +1517,15 @@ impl ShellApp {
 
     /// Applies a click from the piano roll: select a note, or insert one.
     fn edit_click(&mut self, click: piano_roll::RollClick) {
+        self.selected_audio = None;
+        if let Some(track) = click.audio {
+            self.roll.selected = Some(track);
+            self.selected_audio = Some(track);
+            self.selected_clip = None;
+            self.selected_clips.clear();
+            self.selected_note = None;
+            return;
+        }
         if let Some((track, clip)) = click.clip {
             self.roll.selected = Some(track);
             self.selected_clip =
@@ -1523,6 +1536,12 @@ impl ShellApp {
         if let Some((track, note)) = click.note {
             self.roll.selected = Some(track);
             self.selected_note = Some((track, note));
+            self.selected_clip = None;
+            self.selected_clips.clear();
+            return;
+        }
+        if click.select_only {
+            // A click on an empty part of the timeline clears the parts.
             self.selected_clip = None;
             self.selected_clips.clear();
             return;

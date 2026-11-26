@@ -492,14 +492,17 @@ impl ShellApp {
         let menus = self.menu_model(false);
         let mut chosen = None;
         egui::TopBottomPanel::top("menu-bar").show(context, |ui| {
-            egui::menu::bar(ui, |ui| {
-                for menu in &menus {
-                    ui.menu_button(menu.title, |ui| {
-                        if let Some(command) = draw_entries(ui, &menu.entries) {
-                            chosen = Some(command);
-                        }
-                    });
-                }
+            // The menus open with the menu look; the bar keeps its own.
+            crate::theme::with_menu_style(context, || {
+                egui::menu::bar(ui, |ui| {
+                    for menu in &menus {
+                        ui.menu_button(menu.title, |ui| {
+                            if let Some(command) = draw_entries(ui, &menu.entries) {
+                                chosen = Some(command);
+                            }
+                        });
+                    }
+                })
             });
         });
         if let Some(command) = chosen {

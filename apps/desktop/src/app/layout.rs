@@ -3,6 +3,7 @@
 
 use super::timeline_menu::TimelineAction;
 use super::*;
+use crate::theme::ThemedMenu;
 
 /// Track list width limits (MainComponent `kLeftPanelMin`, 520 pt).
 const TRACK_LIST_MIN: f32 = 140.0;
@@ -914,7 +915,7 @@ impl ShellApp {
         if !flags_clicked && response.clicked() {
             self.roll.selected = if selected { None } else { Some(row.id) };
         }
-        response.context_menu(|ui| {
+        response.themed_context_menu(|ui| {
             if ui.button("Add clip at playhead").clicked() {
                 self.pending_clip_add = Some((
                     row.id,
@@ -2361,7 +2362,7 @@ impl ShellApp {
                 let filled = clip.is_some();
                 let clip_length = clip.map(|clip| clip.length);
                 let can_paste = self.slot_clipboard.is_some();
-                response.context_menu(|ui| {
+                response.themed_context_menu(|ui| {
                     let track = track.id;
                     let pick = |ui: &mut egui::Ui, label: &str, enabled: bool| {
                         let clicked = ui.add_enabled(enabled, egui::Button::new(label)).clicked();
@@ -2514,7 +2515,7 @@ impl ShellApp {
                 self.launcher.launch_scene(&song, scene);
                 changed = true;
             }
-            response.context_menu(|ui| {
+            response.themed_context_menu(|ui| {
                 if ui.button("Start").clicked() {
                     self.launcher.launch_scene(&song, scene);
                     changed = true;
@@ -4172,12 +4173,19 @@ impl ShellApp {
                             }
                         }
                         let selected_clips = self.selected_clips.clone();
+                        let mut timeline_clips = selected_clips.clone();
+                        timeline_clips.extend(self.selected_clip);
+                        let timeline_selection = crate::timeline::Selection {
+                            track: roll.selected,
+                            clips: &timeline_clips,
+                            audio: self.selected_audio,
+                        };
                         let (outcome, timeline_track, clip_edit) = if timeline_mode {
                             crate::timeline::show(
                                 ui,
                                 &project.song,
                                 position,
-                                roll.selected,
+                                timeline_selection,
                                 &mut self.timeline_zoom,
                                 self.playing,
                                 &self.timeline_waveforms,
@@ -4198,7 +4206,7 @@ impl ShellApp {
                                         ui,
                                         &project.song,
                                         position,
-                                        roll.selected,
+                                        timeline_selection,
                                         &mut self.timeline_zoom,
                                         self.playing,
                                         &self.timeline_waveforms,
