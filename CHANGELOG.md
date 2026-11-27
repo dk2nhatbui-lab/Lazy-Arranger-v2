@@ -5,6 +5,17 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+- Mixer meters on MIDI tracks show real levels: a muted track (or one
+  silenced by a solo) shows nothing, the fader scales the meter, and a
+  chord no longer pins it to the top.
+- Turning the metronome on or off while the song plays takes effect right
+  away, not only after playing again from the start.
+- The "Save changes?" question when quitting or opening another project is
+  bigger, with clear text, a dimmed background and a highlighted Save
+  button. Settings has a new option to turn the question off; the autosave
+  is kept, so edits can still be recovered.
+
 ## [0.1.0-beta.6] - 2026-11-27
 
 ### Fixed
