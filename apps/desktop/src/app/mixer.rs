@@ -544,7 +544,7 @@ impl ShellApp {
             .or_else(|| plugins::load_catalog(&crate::settings::data_file(plugins::CATALOG_FILE)))
             .unwrap_or_default();
         let mut changed = false;
-        egui::Window::new("Bus effects")
+        crate::dialog::window("Bus effects")
             .open(&mut open)
             .resizable(false)
             .default_width(420.0)
@@ -674,7 +674,7 @@ impl ShellApp {
             .clone()
             .or_else(|| plugins::load_catalog(&crate::settings::data_file(plugins::CATALOG_FILE)))
             .unwrap_or_default();
-        egui::Window::new("Master effects")
+        crate::dialog::window("Master effects")
             .open(&mut open)
             .resizable(false)
             .default_width(420.0)
@@ -769,7 +769,7 @@ impl ShellApp {
                     egui::RichText::new(
                         "Master effects run after the bus sum and before the master limiter.",
                     )
-                    .size(9.0)
+                    .size(12.0)
                     .color(theme::text_dim()),
                 );
             });
@@ -821,7 +821,7 @@ impl ShellApp {
         }
         let mut open = self.plugins_open;
         let mut add = None;
-        egui::Window::new("My Plug-Ins")
+        crate::dialog::window("My Plug-Ins")
             .open(&mut open)
             .default_width(520.0)
             .default_height(420.0)
@@ -842,7 +842,7 @@ impl ShellApp {
                     if self.plugin_scanning {
                         ui.label(
                             egui::RichText::new("Scanning…")
-                                .size(10.0)
+                                .size(12.0)
                                 .color(theme::text_muted()),
                         );
                     }
@@ -852,7 +852,7 @@ impl ShellApp {
                     if !blocked.is_empty() {
                         ui.label(
                             egui::RichText::new(format!("{} blocked", blocked.len()))
-                                .size(10.0)
+                                .size(12.0)
                                 .color(theme::text_dim()),
                         );
                         if ui.small_button("Clear blocklist").clicked() {
@@ -883,7 +883,7 @@ impl ShellApp {
                     egui::RichText::new(
                         "Installed bundles are listed here. Hosting and editors are not implemented.",
                     )
-                    .size(10.0)
+                    .size(12.0)
                     .color(theme::text_dim()),
                 );
                 ui.separator();
@@ -894,7 +894,7 @@ impl ShellApp {
                         scan.len(),
                         plugins::CATALOG_FILE
                     ))
-                    .size(10.0)
+                    .size(12.0)
                     .color(theme::text_dim()),
                 );
                 if scan.is_empty() {
@@ -931,13 +931,13 @@ impl ShellApp {
                                         plugins::Role::Effect => "effect",
                                         plugins::Role::Unknown => "",
                                     })
-                                    .size(10.0)
+                                    .size(12.0)
                                     .color(theme::text_muted()),
                                 );
                                 if !plugin.vendor.is_empty() {
                                     ui.label(
                                         egui::RichText::new(&plugin.vendor)
-                                            .size(10.0)
+                                            .size(12.0)
                                             .color(theme::text_dim()),
                                     );
                                 }
@@ -1140,14 +1140,14 @@ impl ShellApp {
             return;
         }
         let mut open = self.vst3_params_open;
-        egui::Window::new("VST3 parameters")
+        crate::dialog::window("VST3 parameters")
             .open(&mut open)
             .resizable(false)
             .show(context, |ui| {
                 if let (Some(track), Some(slot)) = (self.vst3_params_track, self.vst3_params_slot) {
                     ui.label(
                         egui::RichText::new(format!("track {track} · slot {slot}"))
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 }
@@ -1249,14 +1249,14 @@ impl ShellApp {
 
     pub(super) fn au_parameters_window(&mut self, context: &Context) {
         let mut open = self.au_editor_open;
-        egui::Window::new("AU parameters")
+        crate::dialog::window("AU parameters")
             .open(&mut open)
             .resizable(false)
             .show(context, |ui| {
                 if let (Some(track), Some(slot)) = (self.au_editor_track, self.au_editor_slot) {
                     ui.label(
                         egui::RichText::new(format!("track {track} · slot {slot}"))
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 }
@@ -2095,7 +2095,7 @@ impl ShellApp {
 
     pub(super) fn patch_window(&mut self, context: &Context) {
         let mut open = self.patch_open;
-        egui::Window::new("Synth patch")
+        crate::dialog::window("Synth patch")
             .open(&mut open)
             .resizable(false)
             .show(context, |ui| {

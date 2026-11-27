@@ -32,6 +32,7 @@ mod native_menu;
 mod notes_menu;
 mod plugin_trust;
 mod popup_menu;
+mod settings_window;
 mod style;
 mod timeline_menu;
 mod unsaved;
@@ -884,6 +885,8 @@ pub struct ShellApp {
     audio_host: Option<(String, bool)>,
     settings: crate::settings::Settings,
     settings_open: bool,
+    /// The open Settings tab.
+    settings_tab: settings_window::SettingsTab,
     /// The menu bar: native on macOS, drawn in the window elsewhere.
     menu: MenuState,
     shortcuts_open: bool,
@@ -1265,6 +1268,7 @@ impl ShellApp {
                 .unwrap_or_default(),
             settings,
             settings_open: initial_window == "settings",
+            settings_tab: settings_window::SettingsTab::default(),
             menu: MenuState::default(),
             shortcuts_open: initial_window == "shortcuts",
             about_open: initial_window == "about",
@@ -2417,7 +2421,7 @@ impl ShellApp {
         let mut open = true;
         let mut action = false;
         let mut browse = false;
-        egui::Window::new(match mode {
+        crate::dialog::window(match mode {
             FileMode::Open => "Open project",
             FileMode::SaveAs => "Save as",
             FileMode::ImportAudio => "Import audio",
@@ -2744,7 +2748,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.chord_dialog;
-        egui::Window::new("Chords")
+        crate::dialog::window("Chords")
             .collapsible(false)
             .open(&mut open)
             .show(context, |ui| {
@@ -3014,7 +3018,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.library_open;
-        egui::Window::new("Library")
+        crate::dialog::window("Library")
             .open(&mut open)
             .default_width(520.0)
             .show(context, |ui| {
@@ -3126,7 +3130,7 @@ impl ShellApp {
                 } else {
                     ui.label(
                         egui::RichText::new("Load a book to browse it.")
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 }
@@ -3142,7 +3146,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.pads_open;
-        egui::Window::new("Drum pads")
+        crate::dialog::window("Drum pads")
             .open(&mut open)
             .default_width(380.0)
             .show(context, |ui| {
@@ -3174,7 +3178,7 @@ impl ShellApp {
                 } else {
                     ui.label(
                         egui::RichText::new("Load a loop to slice it into pads.")
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 }
@@ -3190,7 +3194,7 @@ impl ShellApp {
                             pads.end_ms(pad),
                             pads.millis(pad)
                         ))
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                     );
                     let mut change = None;
@@ -3296,7 +3300,7 @@ impl ShellApp {
         }
         let mut open = self.print_dialog;
         let mut print = false;
-        egui::Window::new("Print score")
+        crate::dialog::window("Print score")
             .open(&mut open)
             .default_width(320.0)
             .show(context, |ui| {
@@ -3324,7 +3328,7 @@ impl ShellApp {
                 }
                 ui.label(
                     egui::RichText::new("Example: 1-4, 7. Leave empty for all pages.")
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
                 ui.horizontal(|ui| {
@@ -3599,7 +3603,7 @@ impl ShellApp {
         let mut to_drums = false;
         let mut to_chords = false;
         let mut duplicate = false;
-        egui::Window::new("Audio takes")
+        crate::dialog::window("Audio takes")
             .open(&mut open)
             .default_width(400.0)
             .show(context, |ui| {
@@ -3637,7 +3641,7 @@ impl ShellApp {
                 if takes.is_empty() {
                     ui.label(
                         egui::RichText::new("No stored takes.")
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 }
@@ -3674,7 +3678,7 @@ impl ShellApp {
                 if comps.is_empty() {
                     ui.label(
                         egui::RichText::new("No comp spans; the active reference plays.")
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 }
@@ -3818,7 +3822,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.generate_open;
-        egui::Window::new("Generate part")
+        crate::dialog::window("Generate part")
             .open(&mut open)
             .resizable(false)
             .default_width(360.0)
@@ -3853,7 +3857,7 @@ impl ShellApp {
                     egui::RichText::new(
                         "Each button writes one undoable edit from the song's own chords and notes.",
                     )
-                    .size(9.0)
+                    .size(12.0)
                     .color(theme::text_dim()),
                 );
                 for (label, op) in [
@@ -3885,7 +3889,7 @@ impl ShellApp {
             self.analyze_audio_chords();
         }
         let mut open = self.audio_chords.open;
-        egui::Window::new("Chords from audio")
+        crate::dialog::window("Chords from audio")
             .open(&mut open)
             .resizable(false)
             .default_width(360.0)
@@ -3946,7 +3950,7 @@ impl ShellApp {
         let mut open = self.help_open;
         let language = crate::strings::Language::parse(&self.settings.language);
         let sections = crate::help::sections(language);
-        egui::Window::new("Help")
+        crate::dialog::window("Help")
             .open(&mut open)
             .default_width(460.0)
             .show(context, |ui| {
@@ -3972,7 +3976,7 @@ impl ShellApp {
         }
         let mut open = self.songs_open;
         let mut choice = None;
-        egui::Window::new("Songs & tutorial")
+        crate::dialog::window("Songs & tutorial")
             .open(&mut open)
             .default_width(380.0)
             .show(context, |ui| {
@@ -4009,7 +4013,7 @@ impl ShellApp {
                 }
                 ui.label(
                     egui::RichText::new("Loading a song replaces the current project.")
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
             });
@@ -4042,7 +4046,7 @@ impl ShellApp {
         let mut new_question = false;
         let mut reset_score = false;
         let mut answer = None;
-        egui::Window::new("Lessons")
+        crate::dialog::window("Lessons")
             .open(&mut open)
             .default_width(400.0)
             .show(context, |ui| {
@@ -4083,7 +4087,7 @@ impl ShellApp {
                 {
                     ui.label(
                         egui::RichText::new(pack.description)
-                            .size(9.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 }
@@ -4193,7 +4197,7 @@ impl ShellApp {
         }
         let lines = theory_summary(self.song());
         let mut open = self.theory_open;
-        egui::Window::new("Theory")
+        crate::dialog::window("Theory")
             .open(&mut open)
             .default_width(420.0)
             .show(context, |ui| {
@@ -4230,7 +4234,7 @@ impl ShellApp {
                         egui::RichText::new(
                             "Read-only analysis above; setting the key is one undo step.",
                         )
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                     );
                 });
@@ -4252,13 +4256,13 @@ impl ShellApp {
         let mut open = self.marks_open;
         let mut add = false;
         let mut remove = None;
-        egui::Window::new("Score marks")
+        crate::dialog::window("Score marks")
             .open(&mut open)
             .default_width(340.0)
             .show(context, |ui| {
                 ui.label(
                     egui::RichText::new(format!("playhead at tick {position}"))
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
                 let options = [
@@ -4337,13 +4341,13 @@ impl ShellApp {
         let mut remove = None;
         let mut save = false;
         let mut goto = None;
-        egui::Window::new("Markers")
+        crate::dialog::window("Markers")
             .open(&mut open)
             .default_width(300.0)
             .show(context, |ui| {
                 ui.label(
                     egui::RichText::new(format!("playhead at tick {position}"))
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
                 ui.horizontal(|ui| {
@@ -4418,13 +4422,13 @@ impl ShellApp {
         let mut remove = None;
         let mut save = false;
         let mut goto = None;
-        egui::Window::new("Lyrics")
+        crate::dialog::window("Lyrics")
             .open(&mut open)
             .default_width(320.0)
             .show(context, |ui| {
                 ui.label(
                     egui::RichText::new(format!("playhead at tick {position}"))
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
                 ui.horizontal(|ui| {
@@ -4488,7 +4492,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.about_open;
-        egui::Window::new("About Lazy Arranger Midi DAW")
+        crate::dialog::window("About Lazy Arranger Midi DAW")
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -4510,7 +4514,7 @@ impl ShellApp {
                     egui::RichText::new(
                         "A local arranger for Yamaha styles, MIDI and audio. No song data leaves this computer.",
                     )
-                    .size(10.0)
+                    .size(12.0)
                     .color(theme::text_dim()),
                 );
             });
@@ -4523,7 +4527,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.form_dialog;
-        egui::Window::new("Song Forms")
+        crate::dialog::window("Song Forms")
             .collapsible(false)
             .open(&mut open)
             .show(context, |ui| {
@@ -4534,7 +4538,7 @@ impl ShellApp {
                 ui.separator();
                 ui.label(
                     egui::RichText::new("Transition at playhead")
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
                 ui.horizontal(|ui| {
@@ -4615,7 +4619,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.doctor_dialog;
-        egui::Window::new("Arrangement Doctor")
+        crate::dialog::window("Arrangement Doctor")
             .collapsible(false)
             .open(&mut open)
             .show(context, |ui| {
@@ -4730,7 +4734,7 @@ impl ShellApp {
             return;
         };
         let mut open = self.reharmonize_dialog;
-        egui::Window::new("Reharmonize")
+        crate::dialog::window("Reharmonize")
             .collapsible(false)
             .open(&mut open)
             .show(context, |ui| {
@@ -4779,44 +4783,45 @@ impl ShellApp {
         let Some(autosave) = self.recovery.clone() else {
             return;
         };
-        let mut open = true;
-        egui::Window::new("Recovered edits found")
-            .collapsible(false)
-            .open(&mut open)
-            .show(context, |ui| {
-                ui.label(format!("{} is newer than the project.", autosave.display()));
-                ui.horizontal(|ui| {
-                    if ui.button("Restore").clicked() {
-                        match load_project(&autosave) {
-                            Ok(project) => match Editor::new(project) {
-                                Ok(mut editor) => {
-                                    // The edits exist only in the autosave:
-                                    // keep it until a save succeeds, and
-                                    // count them as unsaved.
-                                    editor.mark_dirty();
-                                    self.install_editor(editor);
-                                    let original = self
-                                        .project_path
-                                        .clone()
-                                        .unwrap_or_else(|| autosave.clone());
-                                    self.project_path = Some(original);
-                                    self.recovery = None;
-                                    self.status = Some(String::from(
-                                        "restored the autosave; save to keep it",
-                                    ));
-                                }
-                                Err(error) => self.load_error = Some(error.to_string()),
-                            },
+        let modal = crate::dialog::modal(context, "recovered-edits", 460.0, |ui| {
+            crate::dialog::title(ui, "Recovered edits found");
+            crate::dialog::body(
+                ui,
+                "An autosave is newer than the project. Restore the edits it holds?",
+            );
+            ui.add_space(4.0);
+            crate::dialog::note(ui, autosave.display().to_string());
+            crate::dialog::buttons(ui, |ui| {
+                if crate::dialog::primary(ui, "Restore").clicked() {
+                    match load_project(&autosave) {
+                        Ok(project) => match Editor::new(project) {
+                            Ok(mut editor) => {
+                                // The edits exist only in the autosave:
+                                // keep it until a save succeeds, and
+                                // count them as unsaved.
+                                editor.mark_dirty();
+                                self.install_editor(editor);
+                                let original = self
+                                    .project_path
+                                    .clone()
+                                    .unwrap_or_else(|| autosave.clone());
+                                self.project_path = Some(original);
+                                self.recovery = None;
+                                self.status =
+                                    Some(String::from("restored the autosave; save to keep it"));
+                            }
                             Err(error) => self.load_error = Some(error.to_string()),
-                        }
+                        },
+                        Err(error) => self.load_error = Some(error.to_string()),
                     }
-                    if ui.button("Discard").clicked() {
-                        let _ = std::fs::remove_file(&autosave);
-                        self.recovery = None;
-                    }
-                });
+                }
+                if crate::dialog::secondary(ui, "Discard").clicked() {
+                    let _ = std::fs::remove_file(&autosave);
+                    self.recovery = None;
+                }
             });
-        if !open {
+        });
+        if modal.should_close() {
             self.recovery = None;
         }
     }

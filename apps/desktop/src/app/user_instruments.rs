@@ -24,7 +24,7 @@ impl ShellApp {
         let ai_ready = (!self.settings.ai_url.trim().is_empty()
             && !self.settings.ai_model.trim().is_empty())
             || !self.settings.assistant_command.trim().is_empty();
-        egui::Window::new("Instrument editors")
+        crate::dialog::window("Instrument editors")
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .collapsible(false)
             .resizable(false)
@@ -33,7 +33,7 @@ impl ShellApp {
                 ui.label("Tick the instruments you own. Editors for the others stay hidden.");
                 ui.label(
                     egui::RichText::new("You can change this any time in Settings.")
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
                 ui.add_space(6.0);
@@ -45,7 +45,7 @@ impl ShellApp {
                         }
                         ui.label(
                             egui::RichText::new(instrument.adds())
-                                .size(10.0)
+                                .size(12.0)
                                 .color(theme::text_dim()),
                         );
                     });
@@ -88,7 +88,7 @@ impl ShellApp {
                 if !ai_ready {
                     ui.label(
                         egui::RichText::new("Set up an AI endpoint or command in Settings first.")
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 }

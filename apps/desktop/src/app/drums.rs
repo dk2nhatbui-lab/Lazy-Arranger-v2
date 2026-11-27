@@ -788,49 +788,49 @@ impl ShellApp {
             return;
         };
         let name = self.song().tracks[target.index].name.clone();
-        let mut open = true;
         let mut put = false;
         let mut cancel = false;
-        egui::Window::new("Put the pattern in bars")
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut open)
-            .show(ui.ctx(), |ui| {
-                ui.label(
-                    "The pattern repeats from the first bar to the last bar. What is there now \
-                     on that track is replaced.",
-                );
-                egui::Grid::new("drum-place-grid")
-                    .num_columns(2)
-                    .show(ui, |ui| {
-                        ui.label("From bar");
-                        ui.add(egui::TextEdit::singleline(&mut from).desired_width(80.0));
-                        ui.end_row();
-                        ui.label("To bar");
-                        ui.add(egui::TextEdit::singleline(&mut to).desired_width(80.0));
-                        ui.end_row();
-                        ui.label("Where");
-                        egui::ComboBox::from_id_salt("drum-place-where")
-                            .selected_text(if new_track {
-                                String::from("On a new drum track")
-                            } else {
-                                format!("On this track: {name}")
-                            })
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut new_track,
-                                    false,
-                                    format!("On this track: {name}"),
-                                );
-                                ui.selectable_value(&mut new_track, true, "On a new drum track");
-                            });
-                        ui.end_row();
-                    });
-                ui.horizontal(|ui| {
-                    put = ui.button("Put").clicked();
-                    cancel = ui.button("Cancel").clicked();
+        let modal = crate::dialog::modal(ui.ctx(), "drum-place", 440.0, |ui| {
+            crate::dialog::title(ui, "Put the pattern in bars");
+            crate::dialog::body(
+                ui,
+                "The pattern repeats from the first bar to the last bar. What is there now \
+                 on that track is replaced.",
+            );
+            ui.add_space(8.0);
+            egui::Grid::new("drum-place-grid")
+                .num_columns(2)
+                .spacing([12.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label("From bar");
+                    ui.add(egui::TextEdit::singleline(&mut from).desired_width(80.0));
+                    ui.end_row();
+                    ui.label("To bar");
+                    ui.add(egui::TextEdit::singleline(&mut to).desired_width(80.0));
+                    ui.end_row();
+                    ui.label("Where");
+                    egui::ComboBox::from_id_salt("drum-place-where")
+                        .selected_text(if new_track {
+                            String::from("On a new drum track")
+                        } else {
+                            format!("On this track: {name}")
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut new_track,
+                                false,
+                                format!("On this track: {name}"),
+                            );
+                            ui.selectable_value(&mut new_track, true, "On a new drum track");
+                        });
+                    ui.end_row();
                 });
+            crate::dialog::buttons(ui, |ui| {
+                put = crate::dialog::primary(ui, "Put").clicked();
+                cancel = crate::dialog::secondary(ui, "Cancel").clicked();
             });
+        });
+        let open = !modal.should_close();
         self.drums.place = (open && !cancel && !put).then(|| (from.clone(), to.clone(), new_track));
         if !put {
             return;

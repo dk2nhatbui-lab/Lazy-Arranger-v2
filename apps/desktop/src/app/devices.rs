@@ -762,7 +762,7 @@ impl ShellApp {
         let mut send_all = false;
         let mut reset = false;
         let mut sends: Vec<(usize, u8, u8)> = Vec::new();
-        egui::Window::new("XG part mixer")
+        crate::dialog::window("XG part mixer")
             .open(&mut open)
             .resizable(true)
             .default_width(520.0)
@@ -771,7 +771,7 @@ impl ShellApp {
                     egui::RichText::new(
                         "16 MIDI parts · volume / pan / reverb / chorus · uses the selected MIDI output",
                     )
-                    .size(9.0)
+                    .size(12.0)
                     .color(theme::text_dim()),
                 );
                 ui.horizontal(|ui| {
@@ -852,13 +852,13 @@ impl ShellApp {
             return;
         }
         let mut open = self.psr.open;
-        egui::Window::new("PSR-S970 remote")
+        crate::dialog::window("PSR-S970 remote")
             .open(&mut open)
             .resizable(false)
             .show(context, |ui| {
                 ui.label(
                     egui::RichText::new("Yamaha PSR-S970 · MIDI channel 1")
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
                 ui.horizontal(|ui| {
@@ -964,7 +964,7 @@ impl ShellApp {
                 }
                 ui.label(
                     egui::RichText::new("Choose an output in Windows > MIDI out.")
-                        .size(9.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
             });
@@ -1050,7 +1050,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.midi_monitor_open;
-        egui::Window::new("MIDI monitor")
+        crate::dialog::window("MIDI monitor")
             .open(&mut open)
             .resizable(true)
             .default_width(320.0)
@@ -1061,7 +1061,7 @@ impl ShellApp {
                 }
                 ui.label(
                     egui::RichText::new("Last two minutes of input messages")
-                        .size(9.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
                 egui::ScrollArea::vertical()
@@ -1083,7 +1083,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.midi_out.open;
-        egui::Window::new("MIDI out")
+        crate::dialog::window("MIDI out")
             .open(&mut open)
             .resizable(false)
             .show(context, |ui| {
@@ -1256,7 +1256,7 @@ impl ShellApp {
                 if self.midi_out.port.is_none() {
                     ui.label(
                         egui::RichText::new("No output selected. Use Settings to list ports.")
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 }
@@ -1377,7 +1377,7 @@ impl ShellApp {
         let mut reset = false;
         let mut transport = None;
         let mut identify = false;
-        egui::Window::new("L6max device mixer")
+        crate::dialog::window("L6max device mixer")
             .open(&mut open)
             .resizable(true)
             .default_width(1200.0)
@@ -1386,7 +1386,7 @@ impl ShellApp {
                     ui.label(egui::RichText::new("Zoom LiveTrak L6max").strong());
                     ui.label(
                         egui::RichText::new(port.as_deref().unwrap_or("not connected"))
-                            .size(9.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                     ui.label("channel");
@@ -1404,7 +1404,7 @@ impl ShellApp {
                     if !self.l6max.identity.is_empty() {
                         ui.label(
                             egui::RichText::new(&self.l6max.identity)
-                                .size(9.0)
+                                .size(12.0)
                                 .color(theme::text_dim()),
                         );
                     }
@@ -1424,7 +1424,7 @@ impl ShellApp {
                             for (row, label) in crate::l6max_device::PARAMETERS.iter().enumerate() {
                                 ui.label(
                                     egui::RichText::new(*label)
-                                        .size(9.0)
+                                        .size(12.0)
                                         .color(theme::text_muted()),
                                 );
                                 for (channel, values) in state.values.iter_mut().enumerate() {
@@ -1448,7 +1448,7 @@ impl ShellApp {
                             }
                             ui.label(
                                 egui::RichText::new("MUTE")
-                                    .size(9.0)
+                                    .size(12.0)
                                     .color(theme::text_muted()),
                             );
                             for (channel, muted) in state.mutes.iter_mut().enumerate() {
@@ -1462,7 +1462,7 @@ impl ShellApp {
                             ui.end_row();
                             ui.label(
                                 egui::RichText::new("MONO")
-                                    .size(9.0)
+                                    .size(12.0)
                                     .color(theme::text_muted()),
                             );
                             for (channel, on) in state.modes.iter_mut().enumerate() {
@@ -1480,7 +1480,7 @@ impl ShellApp {
                             ui.end_row();
                             ui.label(
                                 egui::RichText::new("USB")
-                                    .size(9.0)
+                                    .size(12.0)
                                     .color(theme::text_muted()),
                             );
                             for (channel, on) in state.modes.iter_mut().enumerate() {
@@ -1512,7 +1512,7 @@ impl ShellApp {
                     }
                     ui.label(
                         egui::RichText::new("MIDI I/O port")
-                            .size(9.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 });
@@ -1757,7 +1757,7 @@ impl ShellApp {
         let port_label = self
             .d05_port_name()
             .unwrap_or_else(|| String::from("not connected"));
-        egui::Window::new("Roland D-05 sound editor")
+        crate::dialog::window("Roland D-05 sound editor")
             .open(&mut open)
             .resizable(true)
             .default_width(560.0)
@@ -1766,7 +1766,7 @@ impl ShellApp {
                     ui.label(egui::RichText::new("Roland D-05").strong());
                     ui.label(
                         egui::RichText::new(&port_label)
-                            .size(9.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                     ui.label("Dev");
@@ -1779,7 +1779,7 @@ impl ShellApp {
                             midi_devices::d05::separate_lower_channel(self.d05.editor.channel);
                         ui.label(
                             egui::RichText::new(format!("Lower ch {lower_ch}"))
-                                .size(9.5)
+                                .size(12.0)
                                 .color(theme::accent()),
                         );
                     }
@@ -1845,7 +1845,7 @@ impl ShellApp {
                 if !self.d05.editor.note.is_empty() {
                     ui.label(
                         egui::RichText::new(&self.d05.editor.note)
-                            .size(9.5)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 }
@@ -2125,7 +2125,7 @@ impl ShellApp {
         let mut edits = Vec::new();
         let mut scene_save = None;
         let mut scene_recall = None;
-        egui::Window::new("L6max mixer")
+        crate::dialog::window("L6max mixer")
             .open(&mut open)
             .resizable(true)
             .default_width(520.0)
@@ -2201,13 +2201,13 @@ impl ShellApp {
                     egui::RichText::new(
                         "L6max EQ, MONO, USB routing, effects and compressor need device project data.",
                     )
-                    .size(9.0)
+                    .size(12.0)
                     .color(theme::text_dim()),
                 );
                 if compact {
                     ui.label(
                         egui::RichText::new("Compact rows use the same controls.")
-                            .size(9.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 }
@@ -2292,7 +2292,7 @@ impl ShellApp {
             midi_devices::map::Action::Pad(38),
         ];
         let mut open = self.controller_open;
-        egui::Window::new("Controllers")
+        crate::dialog::window("Controllers")
             .open(&mut open)
             .default_width(340.0)
             .show(context, |ui| {
@@ -2335,7 +2335,7 @@ impl ShellApp {
                 if self.midi_recent.is_empty() {
                     ui.label(
                         egui::RichText::new("no messages yet")
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                 }
@@ -2343,7 +2343,7 @@ impl ShellApp {
                     ui.label(
                         egui::RichText::new(line)
                             .monospace()
-                            .size(9.0)
+                            .size(12.0)
                             .color(theme::text_muted()),
                     );
                 }
@@ -2365,7 +2365,7 @@ impl ShellApp {
                         egui::RichText::new(
                             "no controller bindings — choose an action and press Learn",
                         )
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                     );
                 }
@@ -2414,7 +2414,7 @@ impl ShellApp {
         }
         let mut open = self.midi_map_open;
         let mut remove_control: Option<midi_devices::map::Control> = None;
-        egui::Window::new("MIDI map")
+        crate::dialog::window("MIDI map")
             .open(&mut open)
             .default_width(360.0)
             .show(context, |ui| {
@@ -2491,7 +2491,7 @@ impl ShellApp {
                 }
                 ui.label(
                     egui::RichText::new("Learn saves the map automatically.")
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
             });
@@ -2663,7 +2663,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.device_editor_open;
-        egui::Window::new("Device editor")
+        crate::dialog::window("Device editor")
             .open(&mut open)
             .resizable(false)
             .show(context, |ui| {

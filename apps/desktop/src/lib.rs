@@ -9,6 +9,7 @@ pub mod app;
 pub mod automation_view;
 pub mod d05_editor;
 pub mod device_files;
+pub mod dialog;
 pub mod dictate;
 pub mod editor;
 pub mod help;
