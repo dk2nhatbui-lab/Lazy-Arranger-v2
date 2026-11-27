@@ -5,6 +5,8 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
+## [0.1.0-beta.8] - 2026-11-27
+
 ### Changed
 - Settings is tidied into tabs (General, Audio, MIDI & recording,
   Assistant & voice, Updates). Each tab is a clean form with labels on the

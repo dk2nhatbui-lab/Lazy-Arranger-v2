@@ -1,6 +1,6 @@
 # Lazy Arranger Midi DAW — User Manual
 
-Version 0.1.0-beta.7
+Version 0.1.0-beta.8
 
 This manual tells you how to use Lazy Arranger Midi DAW. It is for musicians,
 not programmers. Each picture has red numbers. The list under the picture
@@ -389,21 +389,24 @@ Open Settings with **File > Settings…** or **Ctrl/Cmd+,**.
 
 ![Settings](images/settings.png)
 
-1. **Language.** English, Danish, French, Vietnamese, German, Spanish,
+1. **Tabs.** Settings has five tabs:
+   - **General:** language, theme, reduced motion, the save question and
+     Kids Mode.
+   - **Audio:** output device, buffer size, metronome with playback, input
+     device, input channel and input monitoring.
+   - **MIDI & recording:** MIDI input, device profile, instrument editors,
+     chord grade, quantise to 1/16 and find chords after recording.
+   - **Assistant & voice:** the address, model and key of an AI service, a
+     local AI command, and the speech presets (read aloud and dictate).
+   - **Updates:** your version and **Check for updates**.
+2. **Language.** English, Danish, French, Vietnamese, German, Spanish,
    Italian, Portuguese, or the language of your computer.
-2. **Instrument editors.** Choose the instruments that you own.
-3. **MIDI and audio.** Find MIDI inputs, audio inputs and audio outputs.
-   Choose the input channel and the audio buffer size.
-4. **Check for updates.** Tells you when a new version is on the Releases
-   page.
-5. **Options.** Metronome with playback, ask to save unsaved changes
-   before quitting, find chords after recording, monitor the input,
-   quantise to 1/16, reduced motion, **Kids Mode** and **Light theme**.
-   With the save question off, the app quits without asking; your edits
-   stay in the autosave.
-6. **AI.** The address, model and key of an AI service, a local AI command,
-   and the speech presets (read aloud and dictate).
-7. **Save settings.** Saves your changes.
+3. **Theme.** Dark or Light.
+4. **Ask to save unsaved changes.** With the question off, the app closes
+   a project without asking; your edits stay in the autosave.
+5. **Kids Mode.** Large text and a simpler header.
+6. **Save.** Changes apply at once. Save keeps them for next time.
+   **Close** shuts the window.
 
 The AI key is stored as plain text in the settings file on your computer.
 Leave the address empty to keep everything on your computer.
