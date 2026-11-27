@@ -53,7 +53,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.style.rules_open;
-        egui::Window::new("Style rules")
+        crate::dialog::window("Style rules")
             .open(&mut open)
             .resizable(true)
             .default_width(620.0)
@@ -66,7 +66,7 @@ impl ShellApp {
                     egui::RichText::new(
                         "Rules apply to the exported style; notes stay as recorded.",
                     )
-                    .size(10.0)
+                    .size(12.0)
                     .color(theme::text_dim()),
                 );
                 let roots = [
@@ -79,7 +79,7 @@ impl ShellApp {
                         ui.group(|ui| {
                             ui.label(
                                 egui::RichText::new(&part.name)
-                                    .size(11.0)
+                                    .size(12.5)
                                     .color(theme::text_muted()),
                             );
                             ui.horizontal(|ui| {
@@ -247,7 +247,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.audio_style.open;
-        egui::Window::new("Style from audio")
+        crate::dialog::window("Style from audio")
             .open(&mut open)
             .resizable(false)
             .show(context, |ui| {
@@ -445,7 +445,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.style.link_open;
-        egui::Window::new("Style from link")
+        crate::dialog::window("Style from link")
             .open(&mut open)
             .resizable(false)
             .default_width(380.0)
@@ -460,7 +460,7 @@ impl ShellApp {
                     egui::RichText::new(
                         "Downloads the best audio with yt-dlp and opens Style from audio. yt-dlp and FFmpeg must be installed.",
                     )
-                    .size(9.0)
+                    .size(12.0)
                     .color(theme::text_dim()),
                 );
                 if ui.button("Download audio").clicked() {
@@ -479,7 +479,7 @@ impl ShellApp {
                 if self.style.link_pending.is_some() {
                     ui.label(
                         egui::RichText::new("Downloading…")
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::accent()),
                     );
                 }
@@ -498,7 +498,7 @@ impl ShellApp {
         let mut open = self.style.file_open;
         let mut queue_choice = None;
         let mut chord_choice = None;
-        egui::Window::new("Style file player")
+        crate::dialog::window("Style file player")
             .open(&mut open)
             .resizable(false)
             .default_width(360.0)
@@ -516,7 +516,7 @@ impl ShellApp {
                 let Some(imported) = &self.style.import else {
                     ui.label(
                         egui::RichText::new("Load a Yamaha style to audition sections.")
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::text_dim()),
                     );
                     return;
@@ -574,7 +574,7 @@ impl ShellApp {
                     egui::RichText::new(
                         "Section and chord changes queue at the next bar; held MIDI notes are recognised; fills return to the main section and endings stop looping.",
                     )
-                    .size(9.0)
+                    .size(12.0)
                     .color(theme::text_dim()),
                 );
             });
@@ -601,7 +601,7 @@ impl ShellApp {
             return;
         }
         let mut open = self.style.clips_open;
-        egui::Window::new("Style from clips")
+        crate::dialog::window("Style from clips")
             .open(&mut open)
             .resizable(false)
             .show(context, |ui| {
@@ -738,7 +738,7 @@ impl ShellApp {
         let mut open = self.groove_open;
         let mut audition: Option<bool> = None;
         let mut stop_audition = false;
-        egui::Window::new("Groove library")
+        crate::dialog::window("Groove library")
             .open(&mut open)
             .resizable(false)
             .show(context, |ui| {
@@ -781,7 +781,7 @@ impl ShellApp {
                             groove.offsets.len(),
                             groove.grid
                         ))
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                     );
                 }
@@ -871,7 +871,7 @@ impl ShellApp {
         let mut open = self.beat_dialog;
         let bar = self.song().time_signature.bar_ticks().max(1);
         let mut nav = 0_i32;
-        egui::Window::new("Beat")
+        crate::dialog::window("Beat")
             .collapsible(false)
             .open(&mut open)
             .show(context, |ui| {
@@ -918,7 +918,7 @@ impl ShellApp {
                                     [44.0, 22.0],
                                     egui::Label::new(
                                         egui::RichText::new(*label)
-                                            .size(10.0)
+                                            .size(12.0)
                                             .color(theme::text_muted()),
                                     ),
                                 );
@@ -940,7 +940,7 @@ impl ShellApp {
                                     if ui
                                         .add_sized(
                                             [24.0, 22.0],
-                                            egui::Button::new(egui::RichText::new(text).size(9.5))
+                                            egui::Button::new(egui::RichText::new(text).size(12.0))
                                                 .fill(fill),
                                         )
                                         .clicked()

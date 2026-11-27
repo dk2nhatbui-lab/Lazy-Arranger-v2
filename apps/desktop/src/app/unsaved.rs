@@ -105,75 +105,29 @@ impl ShellApp {
             },
         );
         let mut choice = None;
-        let modal = egui::Modal::new(egui::Id::new("unsaved-changes"))
-            .backdrop_color(egui::Color32::from_black_alpha(170))
-            .frame(
-                egui::Frame::new()
-                    .fill(crate::theme::raised())
-                    .stroke(egui::Stroke::new(1.5_f32, crate::theme::accent()))
-                    .corner_radius(crate::theme::RADIUS)
-                    .inner_margin(egui::Margin::same(24))
-                    .shadow(egui::Shadow {
-                        offset: [0, 8],
-                        blur: 28,
-                        spread: 0,
-                        color: egui::Color32::from_black_alpha(160),
-                    }),
-            )
-            .show(context, |ui| {
-                ui.set_width(420.0);
-                ui.label(
-                    egui::RichText::new("Save changes?")
-                        .font(crate::theme::semibold(22.0))
-                        .color(crate::theme::text()),
-                );
-                ui.add_space(10.0);
-                ui.label(
-                    egui::RichText::new(format!(
-                        "\u{201c}{name}\u{201d} has unsaved changes. Save them before you continue?"
-                    ))
-                    .size(16.0)
-                    .color(crate::theme::text()),
-                );
-                ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new("You can turn this question off in Settings.")
-                        .size(13.0)
-                        .color(crate::theme::text_muted()),
-                );
-                ui.add_space(20.0);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let size = egui::vec2(104.0, 36.0);
-                    let save = ui.add_sized(
-                        size,
-                        egui::Button::new(
-                            egui::RichText::new("Save")
-                                .size(16.0)
-                                .strong()
-                                .color(crate::theme::accent_text()),
-                        )
-                        .fill(crate::theme::accent()),
-                    );
-                    if save.clicked() || ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                        choice = Some(Choice::Save);
-                    }
-                    let plain = |text: &str| {
-                        egui::Button::new(
-                            egui::RichText::new(text)
-                                .size(16.0)
-                                .color(crate::theme::text()),
-                        )
-                        .fill(crate::theme::line())
-                        .stroke(egui::Stroke::new(1.0_f32, crate::theme::line_strong()))
-                    };
-                    if ui.add_sized(size, plain("Cancel")).clicked() {
-                        choice = Some(Choice::Cancel);
-                    }
-                    if ui.add_sized(size, plain("Don\u{2019}t Save")).clicked() {
-                        choice = Some(Choice::Discard);
-                    }
-                });
+        let modal = crate::dialog::modal(context, "unsaved-changes", 420.0, |ui| {
+            crate::dialog::title(ui, "Save changes?");
+            crate::dialog::body(
+                ui,
+                format!(
+                    "\u{201c}{name}\u{201d} has unsaved changes. Save them before you continue?"
+                ),
+            );
+            ui.add_space(4.0);
+            crate::dialog::note(ui, "You can turn this question off in Settings.");
+            crate::dialog::buttons(ui, |ui| {
+                if crate::dialog::primary(ui, "Save").clicked() || crate::dialog::enter_pressed(ui)
+                {
+                    choice = Some(Choice::Save);
+                }
+                if crate::dialog::secondary(ui, "Cancel").clicked() {
+                    choice = Some(Choice::Cancel);
+                }
+                if crate::dialog::secondary(ui, "Don\u{2019}t Save").clicked() {
+                    choice = Some(Choice::Discard);
+                }
             });
+        });
         if modal.should_close() && choice.is_none() {
             // Escape or a click on the backdrop.
             choice = Some(Choice::Cancel);

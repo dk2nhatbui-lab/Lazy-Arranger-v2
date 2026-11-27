@@ -574,14 +574,16 @@ impl ShellApp {
             .show(context, |ui| self.track_list(ui));
         Seam::TrackList.place(context, panel.response.rect, most);
         if let Some(error) = self.load_error.clone() {
-            egui::Window::new("Could not open project")
-                .collapsible(false)
-                .show(context, |ui| {
-                    ui.label(error);
-                    if ui.button("Dismiss").clicked() {
-                        self.load_error = None;
-                    }
-                });
+            let modal = crate::dialog::modal(context, "load-error", 440.0, |ui| {
+                crate::dialog::title(ui, "Could not open project");
+                crate::dialog::body(ui, error);
+                crate::dialog::buttons(ui, |ui| {
+                    crate::dialog::primary(ui, "OK").clicked() || crate::dialog::enter_pressed(ui)
+                })
+            });
+            if modal.inner || modal.should_close() {
+                self.load_error = None;
+            }
         }
     }
 
@@ -2875,44 +2877,41 @@ impl ShellApp {
     /// The Loops view's dialogs: From Timeline, rename a scene or a clip.
     fn loops_dialogs(&mut self, ui: &mut egui::Ui) {
         if let Some(mut bars) = self.loops_fill {
-            let mut open = true;
             let mut fill = false;
             let mut cancel = false;
-            egui::Window::new("Put the Timeline in Loops")
-                .collapsible(false)
-                .resizable(false)
-                .open(&mut open)
-                .show(ui.ctx(), |ui| {
-                    ui.label(
-                        "Each part of the song becomes a scene. Clips already in those \
-                         scenes are replaced.",
-                    );
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        ui.label("Bars in each scene");
-                        egui::ComboBox::from_id_salt("loops-fill-bars")
-                            .selected_text(if bars == 1 {
-                                String::from("1 bar")
-                            } else {
-                                format!("{bars} bars")
-                            })
-                            .show_ui(ui, |ui| {
-                                for choice in arranging::loops::SCENE_BARS {
-                                    let label = if choice == 1 {
-                                        String::from("1 bar")
-                                    } else {
-                                        format!("{choice} bars")
-                                    };
-                                    ui.selectable_value(&mut bars, choice, label);
-                                }
-                            });
-                    });
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        fill = ui.button("Fill").clicked();
-                        cancel = ui.button("Cancel").clicked();
-                    });
+            let modal = crate::dialog::modal(ui.ctx(), "loops-fill", 420.0, |ui| {
+                crate::dialog::title(ui, "Put the Timeline in Loops");
+                crate::dialog::body(
+                    ui,
+                    "Each part of the song becomes a scene. Clips already in those \
+                     scenes are replaced.",
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label("Bars in each scene");
+                    egui::ComboBox::from_id_salt("loops-fill-bars")
+                        .selected_text(if bars == 1 {
+                            String::from("1 bar")
+                        } else {
+                            format!("{bars} bars")
+                        })
+                        .show_ui(ui, |ui| {
+                            for choice in arranging::loops::SCENE_BARS {
+                                let label = if choice == 1 {
+                                    String::from("1 bar")
+                                } else {
+                                    format!("{choice} bars")
+                                };
+                                ui.selectable_value(&mut bars, choice, label);
+                            }
+                        });
                 });
+                crate::dialog::buttons(ui, |ui| {
+                    fill = crate::dialog::primary(ui, "Fill").clicked();
+                    cancel = crate::dialog::secondary(ui, "Cancel").clicked();
+                });
+            });
+            let open = !modal.should_close();
             self.loops_fill = (open && !cancel).then_some(bars);
             if fill {
                 self.loops_fill = None;
@@ -2938,20 +2937,24 @@ impl ShellApp {
         if let Some((title, scene, slot)) = renaming {
             let mut open = true;
             let mut apply = false;
-            egui::Window::new(title)
-                .collapsible(false)
-                .resizable(false)
-                .open(&mut open)
-                .show(ui.ctx(), |ui| {
-                    let edit = ui.add(
-                        egui::TextEdit::singleline(&mut self.rename_scene_input)
-                            .desired_width(200.0),
-                    );
-                    edit.request_focus();
-                    apply = (edit.lost_focus()
-                        && ui.input(|input| input.key_pressed(egui::Key::Enter)))
-                        | ui.button("Apply").clicked();
+            let modal = crate::dialog::modal(ui.ctx(), "loops-rename", 340.0, |ui| {
+                crate::dialog::title(ui, title);
+                let edit = ui.add(
+                    egui::TextEdit::singleline(&mut self.rename_scene_input)
+                        .desired_width(f32::INFINITY),
+                );
+                edit.request_focus();
+                let enter = edit.lost_focus() && crate::dialog::enter_pressed(ui);
+                crate::dialog::buttons(ui, |ui| {
+                    apply = crate::dialog::primary(ui, "Rename").clicked() | enter;
+                    if crate::dialog::secondary(ui, "Cancel").clicked() {
+                        open = false;
+                    }
                 });
+            });
+            if modal.should_close() {
+                open = false;
+            }
             if apply {
                 let name = self.rename_scene_input.clone();
                 let result = match (scene, slot) {
@@ -2975,514 +2978,7 @@ impl ShellApp {
         self.about_window(context);
         self.groove_window(context);
         self.device_editor_window(context);
-        if self.settings_open {
-            let mut open = self.settings_open;
-            egui::Window::new("Settings")
-                .open(&mut open)
-                .collapsible(false)
-                .show(context, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("Language");
-                        egui::ComboBox::from_id_salt("settings-language")
-                            .selected_text(if self.settings.language == "system" {
-                                "System default"
-                            } else {
-                                &self.settings.language
-                            })
-                            .show_ui(ui, |ui| {
-                                for tag in [
-                                    "system", "en", "da", "fr", "vi", "de", "es", "it", "pt",
-                                ] {
-                                    ui.selectable_value(
-                                        &mut self.settings.language,
-                                        tag.to_string(),
-                                        if tag == "system" { "System default" } else { tag },
-                                    );
-                                }
-                            });
-                        ui.label(
-                            egui::RichText::new(
-                                "English, Danish, French, Vietnamese, German, Spanish, Italian, Portuguese or System default",
-                            )
-                            .size(9.0)
-                            .color(theme::text_dim()),
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Device profile");
-                        let selected = self
-                            .settings
-                            .device_profile
-                            .as_ref()
-                            .and_then(|id| {
-                                self.device_profiles
-                                    .iter()
-                                    .find(|profile| &profile.id == id)
-                            })
-                            .map(|profile| profile.name.clone())
-                            .unwrap_or_else(|| String::from("Built-in PSR-S970"));
-                        egui::ComboBox::from_id_salt("device-profile")
-                            .selected_text(selected)
-                            .show_ui(ui, |ui| {
-                                if ui
-                                    .selectable_label(
-                                        self.settings.device_profile.is_none(),
-                                        "Built-in PSR-S970",
-                                    )
-                                    .clicked()
-                                {
-                                    self.settings.device_profile = None;
-                                }
-                                for profile in &self.device_profiles {
-                                    if ui
-                                        .selectable_label(
-                                            self.settings.device_profile.as_ref()
-                                                == Some(&profile.id),
-                                            &profile.name,
-                                        )
-                                        .clicked()
-                                    {
-                                        self.settings.device_profile =
-                                            Some(profile.id.clone());
-                                    }
-                                }
-                            });
-                        if ui.button("Reload").clicked() {
-                            self.device_profiles = load_device_profiles();
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Instrument editors");
-                        if ui.button("Choose instruments…").clicked() {
-                            self.instruments_open = true;
-                        }
-                    });
-                    ui.add(egui::Slider::new(&mut self.settings.grade, 1..=9).text("chord grade"));
-                    let mut keyboard = self.settings.keyboard.clone().unwrap_or_default();
-                    if ui
-                        .add(egui::TextEdit::singleline(&mut keyboard).hint_text("MIDI keyboard"))
-                        .changed()
-                    {
-                        self.settings.keyboard = if keyboard.trim().is_empty() {
-                            None
-                        } else {
-                            Some(keyboard)
-                        };
-                    }
-                    ui.horizontal(|ui| {
-                        if ui.button("Find MIDI inputs").clicked() {
-                            match midi_devices::devices::list_ports() {
-                                Ok(names) => {
-                                    self.status = Some(crate::settings::ports_summary(
-                                        &names.inputs,
-                                        &names.outputs,
-                                    ));
-                                    self.midi_ports = Some((names.inputs, names.outputs));
-                                }
-                                Err(error) => self.status = Some(error.to_string()),
-                            }
-                        }
-                        if let Some((inputs, _)) = &self.midi_ports {
-                            for name in inputs {
-                                if ui
-                                    .selectable_label(
-                                        self.settings.keyboard.as_deref() == Some(name.as_str()),
-                                        name,
-                                    )
-                                    .clicked()
-                                {
-                                    self.settings.keyboard = Some(name.clone());
-                                    self.midi_input = None;
-                                    let _ = self.settings.save(&crate::settings::Settings::path());
-                                    self.status = Some(format!("MIDI input: {name}"));
-                                }
-                            }
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        if ui.button("Find audio inputs").clicked() {
-                            let inputs = audio::record::input_devices();
-                            self.status = Some(format!("{} audio input(s)", inputs.len()));
-                            self.audio_inputs = Some(inputs);
-                        }
-                        if ui
-                            .selectable_label(
-                                self.settings.audio_input.is_none(),
-                                "Default input",
-                            )
-                            .clicked()
-                        {
-                            self.settings.audio_input = None;
-                            let _ = self.settings.save(&crate::settings::Settings::path());
-                        }
-                        if let Some(inputs) = &self.audio_inputs {
-                            for name in inputs {
-                                if ui
-                                    .selectable_label(
-                                        self.settings.audio_input.as_deref() == Some(name.as_str()),
-                                        name,
-                                    )
-                                    .clicked()
-                                {
-                                    self.settings.audio_input = Some(name.clone());
-                                    let _ = self.settings.save(&crate::settings::Settings::path());
-                                    self.status = Some(format!("audio input: {name}"));
-                                }
-                            }
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        if ui.button("Find audio outputs").clicked() {
-                            let outputs = audio::player::output_devices();
-                            self.status = Some(format!("{} audio output(s)", outputs.len()));
-                            self.audio_outputs = Some(outputs);
-                        }
-                        if ui
-                            .selectable_label(
-                                self.settings.audio_output.is_none(),
-                                "Default output",
-                            )
-                            .clicked()
-                        {
-                            self.settings.audio_output = None;
-                            let _ = self.settings.save(&crate::settings::Settings::path());
-                        }
-                        if let Some(outputs) = &self.audio_outputs {
-                            egui::ComboBox::from_id_salt("audio-output")
-                                .selected_text(
-                                    self.settings
-                                        .audio_output
-                                        .as_deref()
-                                        .unwrap_or("Choose output"),
-                                )
-                                .show_ui(ui, |ui| {
-                                    for name in outputs {
-                                        if ui
-                                            .selectable_label(
-                                                self.settings.audio_output.as_deref()
-                                                    == Some(name.as_str()),
-                                                name,
-                                            )
-                                            .clicked()
-                                        {
-                                            self.settings.audio_output = Some(name.clone());
-                                            let _ = self.settings.save(
-                                                &crate::settings::Settings::path(),
-                                            );
-                                            self.status =
-                                                Some(format!("audio output: {name}"));
-                                        }
-                                    }
-                                });
-                        }
-                        ui.label("buffer");
-                        let mut frames = self.settings.audio_buffer_frames;
-                        egui::ComboBox::from_id_salt("audio-buffer")
-                            .selected_text(if frames == 0 {
-                                String::from("Default")
-                            } else {
-                                format!("{frames}")
-                            })
-                            .show_ui(ui, |ui| {
-                                for option in [0_u32, 128, 256, 512, 1024] {
-                                    let label = if option == 0 {
-                                        String::from("Default")
-                                    } else {
-                                        format!("{option}")
-                                    };
-                                    if ui
-                                        .selectable_label(frames == option, label)
-                                        .clicked()
-                                    {
-                                        frames = option;
-                                    }
-                                }
-                            });
-                        if frames != self.settings.audio_buffer_frames {
-                            self.settings.audio_buffer_frames = frames;
-                            let _ = self.settings.save(&crate::settings::Settings::path());
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Input channel");
-                        egui::ComboBox::from_id_salt("audio-input-channel")
-                            .selected_text(if self.settings.audio_input_channel == 0 {
-                                String::from("Mix")
-                            } else {
-                                format!("CH{}", self.settings.audio_input_channel)
-                            })
-                            .show_ui(ui, |ui| {
-                                if ui
-                                    .selectable_label(
-                                        self.settings.audio_input_channel == 0,
-                                        "Mix",
-                                    )
-                                    .clicked()
-                                {
-                                    self.settings.audio_input_channel = 0;
-                                }
-                                for channel in 1..=16 {
-                                    if ui
-                                        .selectable_label(
-                                            self.settings.audio_input_channel == channel,
-                                            format!("CH{channel}"),
-                                        )
-                                        .clicked()
-                                    {
-                                        self.settings.audio_input_channel = channel;
-                                    }
-                                }
-                            });
-                    });
-                    if ui.button("Check for updates").clicked() {
-                        match crate::update::fetch_release() {
-                            Ok(release) => {
-                                let current = env!("CARGO_PKG_VERSION");
-                                if crate::update::should_offer(
-                                    &release.tag,
-                                    current,
-                                    &self.settings.skipped_update,
-                                ) {
-                                    self.status = Some(crate::update::describe_release(
-                                        current,
-                                        &release.tag,
-                                        &release.url,
-                                    ));
-                                    self.available_update = Some(release);
-                                } else if release.tag == self.settings.skipped_update {
-                                    self.status = Some(format!(
-                                        "Update {} skipped in Settings",
-                                        release.tag
-                                    ));
-                                } else {
-                                    self.status = Some(crate::update::describe_release(
-                                        current,
-                                        &release.tag,
-                                        &release.url,
-                                    ));
-                                }
-                            }
-                            Err(error) => {
-                                self.status = Some(format!("Update check failed: {error}"));
-                            }
-                        }
-                    }
-                    if let Some(release) = self.available_update.clone() {
-                        ui.horizontal(|ui| {
-                            ui.label(format!("Release {}", release.tag));
-                            if ui.button("Open release page").clicked() {
-                                crate::update::open_url(&release.url);
-                            }
-                            if let Some(asset) = crate::update::preferred_asset(&release)
-                                && ui.button(format!("Download {}", asset.name)).clicked()
-                            {
-                                let asset = asset.clone();
-                                let directory = std::env::var_os("HOME")
-                                    .map(std::path::PathBuf::from)
-                                    .unwrap_or_else(std::env::temp_dir)
-                                    .join("Downloads");
-                                let (sender, receiver) = std::sync::mpsc::channel();
-                                self.update_download = Some(receiver);
-                                self.downloaded_update = None;
-                                self.status = Some(format!("downloading {}", asset.name));
-                                std::thread::spawn(move || {
-                                    let _ = sender.send(crate::update::download_asset(
-                                        &asset, &directory,
-                                    ));
-                                });
-                            }
-                            if let Some(path) = &self.downloaded_update
-                                && ui.button("Open download").clicked()
-                            {
-                                crate::update::open_path(path);
-                            }
-                            if ui.button("Skip this version").clicked() {
-                                self.settings.skipped_update = release.tag.clone();
-                                let _ = self.settings.save(&crate::settings::Settings::path());
-                                self.available_update = None;
-                                self.status = Some(format!("Update {} skipped", release.tag));
-                            }
-                        });
-                    }
-                    if ui.button("Show device profiles folder").clicked() {
-                        let folder = crate::settings::Settings::path()
-                            .parent()
-                            .map(|path| path.join("profiles"))
-                            .unwrap_or_else(|| std::path::PathBuf::from("profiles"));
-                        if let Err(error) = std::fs::create_dir_all(&folder) {
-                            self.status = Some(format!("{}: {error}", folder.display()));
-                        } else {
-                            self.status = Some(format!("device profiles: {}", folder.display()));
-                            #[cfg(target_os = "macos")]
-                            {
-                                let _ = std::process::Command::new("open")
-                                    .arg(&folder)
-                                    .spawn();
-                            }
-                        }
-                    }
-                    ui.checkbox(&mut self.settings.metronome, "metronome with playback");
-                    ui.checkbox(
-                        &mut self.settings.confirm_unsaved,
-                        "ask to save unsaved changes before quitting",
-                    );
-                    ui.checkbox(
-                        &mut self.settings.record_chords,
-                        "detect chords after MIDI recording",
-                    );
-                    ui.checkbox(
-                        &mut self.settings.monitor,
-                        "monitor input through output (feedback risk)",
-                    );
-                    ui.checkbox(
-                        &mut self.settings.record_quantise,
-                        "quantise recorded notes to 1/16",
-                    );
-                    ui.checkbox(&mut self.settings.reduced_motion, "reduced motion");
-                    if ui
-                        .checkbox(&mut self.settings.kids_mode, "Kids Mode")
-                        .changed()
-                    {
-                        self.view = if self.settings.kids_mode {
-                            View::Perform
-                        } else {
-                            View::Arrange
-                        };
-                    }
-                    if self.settings.kids_mode {
-                        ui.add(
-                            egui::Slider::new(&mut self.settings.kids_pause_seconds, 0.5..=5.0)
-                                .text("Kids pause (s)"),
-                        );
-                        ui.checkbox(
-                            &mut self.settings.kids_keys_play,
-                            "Keys also play their own notes",
-                        );
-                    }
-                    let mut light_theme = self.settings.light_theme;
-                    if ui.checkbox(&mut light_theme, "Light theme").changed() {
-                        self.settings.light_theme = light_theme;
-                        theme::set_light(light_theme);
-                        theme::refresh(ui.ctx());
-                    }
-                    ui.separator();
-                    ui.label(
-                        egui::RichText::new("AI endpoint (OpenAI-compatible)")
-                            .size(11.0)
-                            .color(theme::text_muted()),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.settings.ai_url)
-                            .hint_text("http://localhost:11434/v1/chat/completions")
-                            .desired_width(340.0),
-                    );
-                    ui.horizontal(|ui| {
-                        ui.label("model");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.settings.ai_model)
-                                .desired_width(180.0),
-                        );
-                        ui.label("key");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.settings.ai_api_key)
-                                .password(true)
-                                .desired_width(140.0),
-                        );
-                    });
-                    ui.label(
-                        egui::RichText::new(
-                            "The key is stored in plain text in the settings file. Leave the URL empty to stay local.",
-                        )
-                        .size(9.0)
-                        .color(theme::text_dim()),
-                    );
-                    ui.label(
-                        egui::RichText::new("Local assistant command (use {prompt})")
-                            .size(11.0)
-                            .color(theme::text_muted()),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.settings.assistant_command)
-                            .hint_text("codex exec {prompt}")
-                            .desired_width(340.0),
-                    );
-                    if cfg!(windows) {
-                        ui.label(
-                            egui::RichText::new(
-                                "Runs the program directly (no shell); {prompt} is one argument.",
-                            )
-                            .size(9.0)
-                            .color(theme::text_dim()),
-                        );
-                    }
-                    ui.label(
-                        egui::RichText::new("Speak preset or command (use {text})")
-                            .size(11.0)
-                            .color(theme::text_muted()),
-                    );
-                    ui.horizontal_wrapped(|ui| {
-                        for preset in [
-                            crate::speech::TtsPreset::Auto,
-                            crate::speech::TtsPreset::System,
-                            crate::speech::TtsPreset::Kokoro,
-                            crate::speech::TtsPreset::Kitten,
-                            crate::speech::TtsPreset::Piper,
-                        ] {
-                            if ui.small_button(preset.label()).clicked() {
-                                self.settings.speak_command =
-                                    String::from(preset.setting_value());
-                            }
-                        }
-                    });
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.settings.speak_command)
-                            .hint_text("auto | kokoro | kitten | piper | custom {text}")
-                            .desired_width(340.0),
-                    );
-                    ui.label(
-                        egui::RichText::new("Dictate STT preset or command (use {file})")
-                            .size(11.0)
-                            .color(theme::text_muted()),
-                    );
-                    ui.horizontal_wrapped(|ui| {
-                        let dir = crate::dictate::models_dir();
-                        for preset in [
-                            crate::dictate::SttPreset::Auto,
-                            crate::dictate::SttPreset::WhisperCpp,
-                            crate::dictate::SttPreset::SherpaMoonshine,
-                        ] {
-                            if ui.small_button(preset.label()).clicked() {
-                                self.settings.speech_command = preset.template(&dir);
-                            }
-                        }
-                    });
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.settings.speech_command)
-                            .hint_text("auto | whisper-cli -m model.bin -f {file} -nt")
-                            .desired_width(340.0),
-                    );
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "Offline models dir: {}",
-                            crate::dictate::models_dir().display()
-                        ))
-                        .size(9.5)
-                        .color(theme::text_dim()),
-                    );
-                    if ui.button("Save settings").clicked() {
-                        match self.settings.save(&crate::settings::Settings::path()) {
-                            Ok(()) => {
-                                self.status = Some(String::from("settings saved"));
-                                self.settings_open = false;
-                            }
-                            Err(error) => self.status = Some(error),
-                        }
-                    }
-                });
-            if !open {
-                self.settings_open = false;
-            }
-        }
+        self.settings_window(context);
         if self.shortcuts_open {
             let mut open = self.shortcuts_open;
             let mut undo_keys = self.settings.undo_keys.clone();
@@ -3492,7 +2988,7 @@ impl ShellApp {
             let mut open_keys = self.settings.open_keys.clone();
             let mut play_keys = self.settings.play_keys.clone();
             let mut save_bindings = false;
-            egui::Window::new("Shortcuts")
+            crate::dialog::window("Shortcuts")
                 .open(&mut open)
                 .collapsible(false)
                 .default_width(420.0)
@@ -3522,13 +3018,13 @@ impl ShellApp {
                     if conflicts.is_empty() {
                         ui.label(
                             egui::RichText::new("No duplicate bindings.")
-                                .size(10.0)
+                                .size(12.0)
                                 .color(theme::text_dim()),
                         );
                     } else {
                         ui.label(
                             egui::RichText::new(format!("Conflict: {}", conflicts.join(", ")))
-                                .size(10.0)
+                                .size(12.0)
                                 .color(theme::recording()),
                         );
                     }
@@ -3550,7 +3046,7 @@ impl ShellApp {
                         egui::RichText::new(
                             "Use cmd/ctrl/shift/alt plus a key, for example cmd+shift+z.",
                         )
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                     );
                     ui.separator();
@@ -3563,11 +3059,11 @@ impl ShellApp {
                             continue;
                         }
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(shortcut.keys).monospace().size(10.0));
+                            ui.label(egui::RichText::new(shortcut.keys).monospace().size(12.0));
                             ui.label(shortcut.action);
                             ui.label(
                                 egui::RichText::new(shortcut.context)
-                                    .size(9.0)
+                                    .size(12.0)
                                     .color(theme::text_dim()),
                             );
                         });
@@ -3683,7 +3179,7 @@ impl ShellApp {
         }
         let mut open = self.inspector_open;
         let mut rename = false;
-        egui::Window::new("Inspector")
+        crate::dialog::window("Inspector")
             .open(&mut open)
             .default_width(320.0)
             .show(context, |ui| {
@@ -3727,7 +3223,7 @@ impl ShellApp {
                 );
                 ui.label(
                     egui::RichText::new(counts)
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
                 let volume_changed = ui
@@ -3804,13 +3300,13 @@ impl ShellApp {
                 ui.separator();
                 ui.label(
                     egui::RichText::new("Tempo changes")
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_dim()),
                 );
                 for change in self.song().tempo_map.changes().iter().take(5) {
                     ui.label(
                         egui::RichText::new(format!("{} bpm at tick {}", change.bpm, change.tick))
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::text_muted()),
                     );
                 }
@@ -3940,7 +3436,7 @@ impl ShellApp {
                             "audio {} (fades {} / {})",
                             reference.path, reference.fade_in, reference.fade_out
                         ))
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_muted()),
                     );
                 }
@@ -3950,13 +3446,13 @@ impl ShellApp {
                             "soundfont {}:{} {}",
                             font.bank, font.program, font.path
                         ))
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_muted()),
                     );
                 }
                 ui.label(
                     egui::RichText::new(plural(plugins, "plug-in slot"))
-                        .size(10.0)
+                        .size(12.0)
                         .color(theme::text_muted()),
                 );
             });

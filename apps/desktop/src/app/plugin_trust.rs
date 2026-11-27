@@ -66,29 +66,30 @@ impl ShellApp {
         if self.untrusted_plugins.is_empty() {
             return;
         }
-        let mut open = true;
         let mut answer = None;
-        egui::Window::new("Allow plug-ins from this project?")
-            .collapsible(false)
-            .open(&mut open)
-            .show(context, |ui| {
-                ui.label(
-                    "This project uses plug-ins outside your VST3 folders. A plug-in \
-                     runs with this app's permissions, so allow only ones you trust.",
-                );
-                for bundle in &self.untrusted_plugins {
-                    ui.monospace(bundle.display().to_string());
+        let modal = crate::dialog::modal(context, "plugin-trust", 480.0, |ui| {
+            crate::dialog::title(ui, "Allow plug-ins from this project?");
+            crate::dialog::body(
+                ui,
+                "This project uses plug-ins outside your VST3 folders. A plug-in \
+                 runs with this app's permissions, so allow only ones you trust.",
+            );
+            ui.add_space(4.0);
+            for bundle in &self.untrusted_plugins {
+                ui.monospace(bundle.display().to_string());
+            }
+            ui.add_space(4.0);
+            crate::dialog::note(ui, "Until you allow them, these plug-ins stay silent.");
+            crate::dialog::buttons(ui, |ui| {
+                if crate::dialog::primary(ui, "Allow").clicked() {
+                    answer = Some(true);
                 }
-                ui.label("Until you allow them, these plug-ins stay silent.");
-                ui.horizontal(|ui| {
-                    if ui.button("Allow").clicked() {
-                        answer = Some(true);
-                    }
-                    if ui.button("Not now").clicked() {
-                        answer = Some(false);
-                    }
-                });
+                if crate::dialog::secondary(ui, "Not now").clicked() {
+                    answer = Some(false);
+                }
             });
+        });
+        let open = !modal.should_close();
         if answer == Some(true) {
             for bundle in &self.untrusted_plugins {
                 plugin_host::approve_vst3_bundle(bundle);

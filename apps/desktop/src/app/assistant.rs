@@ -166,7 +166,7 @@ impl ShellApp {
         let mut open = self.assistant.open;
         let mut apply_proposal = false;
         let mut cancel_proposal = false;
-        egui::Window::new("Assistant")
+        crate::dialog::window("Assistant")
             .open(&mut open)
             .default_width(420.0)
             .show(context, |ui| {
@@ -179,12 +179,12 @@ impl ShellApp {
                                 egui::RichText::new(
                                     "Ask for help, a song summary, undo, or run any tool:\ntool add_track {\"name\":\"Bass\"}",
                                 )
-                                .size(10.0)
+                                .size(12.0)
                                 .color(theme::text_dim()),
                             );
                         }
                         for line in &self.assistant.log {
-                            ui.label(egui::RichText::new(line).monospace().size(10.0));
+                            ui.label(egui::RichText::new(line).monospace().size(12.0));
                         }
                     });
                 ui.horizontal(|ui| {
@@ -224,13 +224,13 @@ impl ShellApp {
                     egui::Frame::group(ui.style()).show(ui, |ui| {
                         ui.label(
                             egui::RichText::new(format!("Proposed change: {}", proposal.label))
-                                .size(11.0)
+                                .size(12.5)
                                 .strong(),
                         );
                         ui.label(
                             egui::RichText::new(&proposal.command)
                                 .monospace()
-                                .size(9.0)
+                                .size(12.0)
                                 .color(theme::text_dim()),
                         );
                         ui.horizontal(|ui| {
@@ -246,14 +246,14 @@ impl ShellApp {
                 if self.ai_pending.is_some() {
                     ui.label(
                         egui::RichText::new("Waiting for the AI endpoint…")
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::accent()),
                     );
                 }
                 if self.dictation_pending.is_some() {
                     ui.label(
                         egui::RichText::new("Listening and transcribing…")
-                            .size(10.0)
+                            .size(12.0)
                             .color(theme::accent()),
                     );
                 }
@@ -269,7 +269,7 @@ impl ShellApp {
                          the same tools are used. Speech supports local System / Kokoro-82M / KittenTTS / Piper TTS and \
                          whisper.cpp / sherpa-onnx Moonshine 16 kHz STT (configure in Settings).",
                     )
-                    .size(9.0)
+                    .size(12.0)
                     .color(theme::text_dim()),
                 );
             });

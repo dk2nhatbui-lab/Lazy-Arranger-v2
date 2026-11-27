@@ -5,6 +5,16 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
+### Changed
+- Settings is tidied into tabs (General, Audio, MIDI & recording,
+  Assistant & voice, Updates). Each tab is a clean form with labels on the
+  left; audio and MIDI devices are picked from drop-down lists.
+- Every dialog and tool window shares the look of the "Save changes?"
+  question: larger, high-contrast text, an accent outline and shadow, and
+  roomier controls. Questions (could not open, recovered edits, plug-in
+  trust, Loops fill and rename, put the drum pattern in bars) dim the app
+  behind them and highlight the main button.
+
 ### Fixed
 - Clicking a key on the piano roll keyboard plays that note, and adding a
   note in the piano roll or score plays it, on the track's own instrument.
