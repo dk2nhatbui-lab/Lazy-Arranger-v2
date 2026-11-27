@@ -193,35 +193,18 @@ impl ShellApp {
 
     /// Plays one drum hit on the track's own sound.
     fn preview_drum(&mut self, index: usize, pitch: u8, velocity: u8) {
-        let Some(mut track) = self.song().tracks.get(index).cloned() else {
+        let Some(track) = self.song().tracks.get(index) else {
             return;
         };
-        let channel = track.notes.first().map_or_else(
-            || music_core::Channel::new(9).unwrap_or(music_core::Channel::first()),
-            |note| note.channel,
+        let drums = music_core::Channel::new(9).unwrap_or(music_core::Channel::first());
+        let song = super::preview::preview_song(
+            Some(track),
+            pitch,
+            velocity,
+            super::preview::DRUM_PREVIEW,
+            drums,
         );
-        track.notes.clear();
-        track.clips.clear();
-        track.slots.clear();
-        track.muted = false;
-        if let (Ok(pitch), Ok(velocity), Ok(id)) = (
-            music_core::Pitch::new(pitch),
-            music_core::Velocity::new(velocity.clamp(1, 127)),
-            NoteId::new(1),
-        ) {
-            track.notes.push(project::song::Note {
-                id,
-                start: 0,
-                duration: PPQ / 4,
-                pitch,
-                velocity,
-                channel,
-            });
-        }
-        let mut song = Song::new("Preview", 120.0);
-        song.tracks.push(track);
-        let rendered = audio::live::render(&song, audio::SAMPLE_RATE);
-        self.preview_player = audio::player::Player::new_live(rendered).ok();
+        self.play_preview(&song);
     }
 
     /// The Drums view.
