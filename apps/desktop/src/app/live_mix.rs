@@ -574,10 +574,28 @@ pub(super) fn mix_signature(song: &Song) -> u64 {
     hasher.finish()
 }
 
+/// Folds the metronome settings into a mix fingerprint. The accent only
+/// matters while the click is on.
+pub(super) fn with_metronome(signature: u64, on: bool, accent: f32) -> u64 {
+    if !on {
+        return signature;
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hasher.write_u64(signature);
+    hasher.write_u32(accent.to_bits());
+    hasher.finish()
+}
+
 impl ShellApp {
-    /// Fingerprint of the current song's mixer.
+    /// Fingerprint of the current song's mixer and the metronome, which
+    /// the render bakes in too: toggling it mid-song renders again and
+    /// swaps the new buffer in at the playing position.
     pub(super) fn current_mix_signature(&self) -> u64 {
-        mix_signature(self.song())
+        with_metronome(
+            mix_signature(self.song()),
+            self.settings.metronome,
+            self.settings.metronome_accent,
+        )
     }
 
     /// Renders again when the mix changed while playing, and swaps the
@@ -697,6 +715,18 @@ mod tests {
             "Piano",
         ));
         song
+    }
+
+    #[test]
+    fn metronome_toggle_changes_the_signature() {
+        let base = mix_signature(&song());
+        assert_eq!(with_metronome(base, false, 1.0), base);
+        assert_ne!(with_metronome(base, true, 1.0), base);
+        assert_ne!(
+            with_metronome(base, true, 1.0),
+            with_metronome(base, true, 0.0)
+        );
+        assert_eq!(with_metronome(base, false, 0.0), base);
     }
 
     #[test]

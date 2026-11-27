@@ -31,7 +31,7 @@ impl ShellApp {
 
     /// Closes the window, asking first when there are unsaved edits.
     pub(super) fn quit(&mut self, context: &egui::Context) {
-        if self.editor.dirty() && !self.quit_confirmed {
+        if self.asks_before_losing_edits() && !self.quit_confirmed {
             self.pending_swap = Some(PendingSwap::Quit);
         } else {
             self.quit_confirmed = true;
@@ -39,8 +39,15 @@ impl ShellApp {
         }
     }
 
+    /// True when there are unsaved edits and the user wants to be asked.
+    /// With the question turned off the autosave is kept, so the edits can
+    /// still be recovered.
+    fn asks_before_losing_edits(&self) -> bool {
+        self.editor.dirty() && self.settings.confirm_unsaved
+    }
+
     fn when_saved_or_discarded(&mut self, swap: PendingSwap) {
-        if self.editor.dirty() {
+        if self.asks_before_losing_edits() {
             self.pending_swap = Some(swap);
         } else {
             self.run_swap(swap);
@@ -66,7 +73,7 @@ impl ShellApp {
             return;
         }
         if context.input(|input| input.viewport().close_requested())
-            && self.editor.dirty()
+            && self.asks_before_losing_edits()
             && !self.quit_confirmed
         {
             context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -98,26 +105,77 @@ impl ShellApp {
             },
         );
         let mut choice = None;
-        let mut open = true;
-        egui::Window::new("Save changes?")
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut open)
+        let modal = egui::Modal::new(egui::Id::new("unsaved-changes"))
+            .backdrop_color(egui::Color32::from_black_alpha(170))
+            .frame(
+                egui::Frame::new()
+                    .fill(crate::theme::raised())
+                    .stroke(egui::Stroke::new(1.5_f32, crate::theme::accent()))
+                    .corner_radius(crate::theme::RADIUS)
+                    .inner_margin(egui::Margin::same(24))
+                    .shadow(egui::Shadow {
+                        offset: [0, 8],
+                        blur: 28,
+                        spread: 0,
+                        color: egui::Color32::from_black_alpha(160),
+                    }),
+            )
             .show(context, |ui| {
-                ui.label(format!("{name} has unsaved changes."));
-                ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                ui.set_width(420.0);
+                ui.label(
+                    egui::RichText::new("Save changes?")
+                        .font(crate::theme::semibold(22.0))
+                        .color(crate::theme::text()),
+                );
+                ui.add_space(10.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "\u{201c}{name}\u{201d} has unsaved changes. Save them before you continue?"
+                    ))
+                    .size(16.0)
+                    .color(crate::theme::text()),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("You can turn this question off in Settings.")
+                        .size(13.0)
+                        .color(crate::theme::text_muted()),
+                );
+                ui.add_space(20.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let size = egui::vec2(104.0, 36.0);
+                    let save = ui.add_sized(
+                        size,
+                        egui::Button::new(
+                            egui::RichText::new("Save")
+                                .size(16.0)
+                                .strong()
+                                .color(crate::theme::accent_text()),
+                        )
+                        .fill(crate::theme::accent()),
+                    );
+                    if save.clicked() || ui.input(|input| input.key_pressed(egui::Key::Enter)) {
                         choice = Some(Choice::Save);
                     }
-                    if ui.button("Discard").clicked() {
-                        choice = Some(Choice::Discard);
-                    }
-                    if ui.button("Cancel").clicked() {
+                    let plain = |text: &str| {
+                        egui::Button::new(
+                            egui::RichText::new(text)
+                                .size(16.0)
+                                .color(crate::theme::text()),
+                        )
+                        .fill(crate::theme::line())
+                        .stroke(egui::Stroke::new(1.0_f32, crate::theme::line_strong()))
+                    };
+                    if ui.add_sized(size, plain("Cancel")).clicked() {
                         choice = Some(Choice::Cancel);
+                    }
+                    if ui.add_sized(size, plain("Don\u{2019}t Save")).clicked() {
+                        choice = Some(Choice::Discard);
                     }
                 });
             });
-        if !open {
+        if modal.should_close() && choice.is_none() {
+            // Escape or a click on the backdrop.
             choice = Some(Choice::Cancel);
         }
         let Some(choice) = choice else { return };

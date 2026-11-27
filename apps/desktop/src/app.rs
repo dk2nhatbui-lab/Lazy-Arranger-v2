@@ -5104,14 +5104,17 @@ impl eframe::App for ShellApp {
     }
 }
 
+/// Level of the notes sounding at `tick`, before the fader: the loudest
+/// note's velocity on the synth's square-law curve, so a chord does not pin
+/// the meter.
 fn track_level(track: &project::song::Track, tick: Tick) -> f32 {
-    let level: f32 = track
+    let loudest = track
         .notes
         .iter()
         .filter(|note| note.start <= tick && tick < note.start.saturating_add(note.duration))
         .map(|note| f32::from(note.velocity.as_u8()) / 127.0)
-        .sum();
-    level.clamp(0.0, 1.0)
+        .fold(0.0_f32, f32::max);
+    (loudest * loudest).clamp(0.0, 1.0)
 }
 
 /// A decoded file's overview, shared between the timeline, meters and the
@@ -5120,7 +5123,19 @@ pub(crate) type Waveform = std::sync::Arc<audio::waveform::Overview>;
 
 pub(crate) type WaveformCache = std::collections::HashMap<project::TrackId, (String, Waveform)>;
 
-fn track_meter_level(track: &project::song::Track, tick: Tick, waveforms: &WaveformCache) -> f32 {
+/// What a track's meter shows at `tick`: silent when muted or soloed out,
+/// otherwise the notes or audio scaled by the track's fader, the same gain
+/// playback applies.
+fn track_meter_level(
+    song: &project::Song,
+    track: &project::song::Track,
+    tick: Tick,
+    waveforms: &WaveformCache,
+) -> f32 {
+    if !song.is_audible(track) {
+        return 0.0;
+    }
+    let gain = track.volume_at(tick).clamp(0.0, 127.0) / 100.0;
     let mut level = track_level(track, tick);
     if let Some(reference) = &track.audio
         && let Some((_, overview)) = waveforms.get(&track.id)
@@ -5132,10 +5147,9 @@ fn track_meter_level(track: &project::song::Track, tick: Tick, waveforms: &Wavef
         let fraction = (tick - reference.start) as f32 / reference.length.max(1) as f32;
         let index = (fraction * (peaks.len() - 1) as f32).round() as usize;
         let peak = peaks[index.min(peaks.len() - 1)];
-        let audio_level = peak.min.abs().max(peak.max.abs()) * track.volume_at(tick) / 100.0;
-        level = level.max(audio_level);
+        level = level.max(peak.min.abs().max(peak.max.abs()));
     }
-    level.clamp(0.0, 1.0)
+    (level * gain).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]

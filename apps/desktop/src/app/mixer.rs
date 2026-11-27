@@ -143,8 +143,12 @@ impl ShellApp {
                     .iter()
                     .filter(|track| track.bus == Some(bus.id) || track.send == Some(bus.id))
                     .map(|track| {
-                        let level =
-                            track_meter_level(track, self.position, &self.timeline_waveforms);
+                        let level = track_meter_level(
+                            self.song(),
+                            track,
+                            self.position,
+                            &self.timeline_waveforms,
+                        );
                         if track.bus == Some(bus.id) {
                             level
                         } else {
@@ -211,6 +215,7 @@ impl ShellApp {
                                     });
                                     let level = if self.playing {
                                         track_meter_level(
+                                            self.song(),
                                             track,
                                             self.position,
                                             &self.timeline_waveforms,
@@ -340,6 +345,7 @@ impl ShellApp {
                                         .iter()
                                         .map(|track| {
                                             track_meter_level(
+                                                self.song(),
                                                 track,
                                                 self.position,
                                                 &self.timeline_waveforms,
