@@ -212,11 +212,60 @@ fn track_meters_follow_active_notes() {
             }),
         ),
     );
-    assert!(track_meter_level(&audio_track, 0, &cache) > 0.4);
+    assert!(track_meter_level(&song, &audio_track, 0, &cache) > 0.4);
     assert_eq!(
-        track_meter_level(&audio_track, music_core::PPQ, &cache),
+        track_meter_level(&song, &audio_track, music_core::PPQ, &cache),
         0.0
     );
+}
+
+#[test]
+fn track_meters_follow_mute_solo_and_fader() {
+    let mut song = project::Song::new("Meter", 120.0);
+    for id in 1..=2 {
+        let mut track =
+            project::song::Track::new(project::TrackId::new(id).expect("track"), "Keys");
+        track.notes.push(project::song::Note {
+            id: project::NoteId::new(1).expect("note"),
+            start: 0,
+            duration: music_core::PPQ,
+            pitch: music_core::Pitch::from_name("C4").expect("pitch"),
+            velocity: music_core::Velocity::new(110).expect("velocity"),
+            channel: music_core::Channel::first(),
+        });
+        track.volume = 100;
+        song.tracks.push(track);
+    }
+    let cache = WaveformCache::new();
+    let level = |song: &project::Song, index: usize| {
+        track_meter_level(song, &song.tracks[index], 0, &cache)
+    };
+    let full = level(&song, 0);
+    assert!(full > 0.5 && full < 1.0, "{full}");
+
+    // A chord reads like its loudest note, not the sum.
+    let mut chord = song.clone();
+    let mut extra = chord.tracks[0].notes[0].clone();
+    extra.pitch = music_core::Pitch::from_name("E4").expect("pitch");
+    chord.tracks[0].notes.push(extra);
+    assert!((level(&chord, 0) - full).abs() < f32::EPSILON);
+
+    // The fader scales the meter.
+    let mut quiet = song.clone();
+    quiet.tracks[0].volume = 25;
+    assert!(level(&quiet, 0) < full * 0.3);
+
+    // Muted tracks are silent.
+    let mut muted = song.clone();
+    muted.tracks[0].muted = true;
+    assert_eq!(level(&muted, 0), 0.0);
+    assert!(level(&muted, 1) > 0.5);
+
+    // A solo elsewhere silences the rest.
+    let mut soloed = song.clone();
+    soloed.tracks[1].soloed = true;
+    assert_eq!(level(&soloed, 0), 0.0);
+    assert!(level(&soloed, 1) > 0.5);
 }
 
 #[test]

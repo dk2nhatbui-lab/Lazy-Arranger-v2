@@ -3323,6 +3323,10 @@ impl ShellApp {
                     }
                     ui.checkbox(&mut self.settings.metronome, "metronome with playback");
                     ui.checkbox(
+                        &mut self.settings.confirm_unsaved,
+                        "ask to save unsaved changes before quitting",
+                    );
+                    ui.checkbox(
                         &mut self.settings.record_chords,
                         "detect chords after MIDI recording",
                     );

@@ -309,6 +309,10 @@ pub struct Settings {
     pub metronome: bool,
     /// Downbeat accent, 0..=1.
     pub metronome_accent: f32,
+    /// Ask Save / Discard / Cancel before quitting or opening another
+    /// project with unsaved changes. When off, the action goes ahead and
+    /// the autosave is kept.
+    pub confirm_unsaved: bool,
     /// Avoid animation.
     pub reduced_motion: bool,
     /// Large text and a simpler header.
@@ -397,6 +401,7 @@ impl Default for Settings {
             device_profile: None,
             metronome: false,
             metronome_accent: 1.0,
+            confirm_unsaved: true,
             reduced_motion: false,
             kids_mode: false,
             kids_pause_seconds: 1.5,
@@ -686,6 +691,7 @@ impl Settings {
                 "metronome_accent" => {
                     settings.metronome_accent = value.parse::<f32>().unwrap_or(1.0).clamp(0.0, 1.0);
                 }
+                "confirm_unsaved" => settings.confirm_unsaved = value != "false",
                 "reduced_motion" => settings.reduced_motion = value == "true",
                 "kids_mode" => settings.kids_mode = value == "true",
                 "kids_keys_play" => settings.kids_keys_play = value == "true",
@@ -823,6 +829,7 @@ impl Settings {
             "metronome_accent = {:.3}\n",
             self.metronome_accent
         ));
+        text.push_str(&format!("confirm_unsaved = {}\n", self.confirm_unsaved));
         text.push_str(&format!("reduced_motion = {}\n", self.reduced_motion));
         text.push_str(&format!("kids_mode = {}\n", self.kids_mode));
         text.push_str(&format!(
