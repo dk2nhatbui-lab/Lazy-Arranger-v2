@@ -5,7 +5,19 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
+## [0.1.0-beta.6] - 2026-11-27
+
 ### Fixed
+- Right-clicking a part on the timeline opens its menu every time. Before,
+  the menu often blinked and closed, mostly with display scaling on.
+  Submenus (Gain, Fades, Convert to MIDI) open on hover.
+- Menus have a lighter background, a border and a shadow, so they stand
+  out from the timeline and panels.
+- A selected part is darker with its own outline; the box around the
+  whole lane is gone. Audio parts can be selected.
+- A click on an audio part or an empty lane no longer adds a note.
+- Scrolling the timeline up or down while the song plays no longer snaps
+  back.
 - A plug-in that can't keep up while the song plays is turned off for the
   session, and its track plays dry, instead of making the sound stutter.
   A plug-in that stops responding no longer freezes playback: after two
@@ -15,6 +27,13 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
   move, trim or fade and a note edit on a plug-in instrument are heard at
   once, with nothing rendered first. Audio Unit instruments are still
   rendered before play.
+
+### Changed
+- Solo is exclusive: soloing a track un-solos the others. Cmd-click (Mac)
+  or Ctrl-click (Windows, Linux) a solo button to add a track to the solo.
+- Alt/Option+wheel over the timeline zooms audio waveforms (up to 32×, display
+  only) to see quiet audio; audio parts also have a Waveform Zoom menu.
+  Track lanes can be up to 400 pt tall.
 
 ## [0.1.0-beta.5] - 2026-11-26
 

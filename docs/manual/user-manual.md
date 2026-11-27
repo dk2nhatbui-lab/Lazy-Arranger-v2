@@ -1,6 +1,6 @@
 # Lazy Arranger Midi DAW — User Manual
 
-Version 0.1.0-beta.5
+Version 0.1.0-beta.6
 
 This manual tells you how to use Lazy Arranger Midi DAW. It is for musicians,
 not programmers. Each picture has red numbers. The list under the picture
@@ -89,7 +89,9 @@ If your instrument is not in the list, see
 5. **Mixer button.** Shows or hides the mixer at the bottom.
 6. **Ask AI.** Opens the [AI assistant](#13-the-ai-assistant).
 7. **Track list.** One row for each track, with Mute (**M**), Solo (**S**)
-   and Record arm (**R**). Click **+** to add a track.
+   and Record arm (**R**). Solo plays only that track; Cmd-click (Mac) or
+   Ctrl-click (Windows, Linux) **S** to solo more than one. Click **+** to
+   add a track.
 8. **Chord lane.** The chords of the song. Double-click to type chords, for
    example `Am F C G` or `vi IV I V`.
 9. **Timeline.** The parts of each track, in bars. The ruler at the top shows
