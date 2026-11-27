@@ -1,6 +1,6 @@
 # Lazy Arranger Midi DAW — User Manual
 
-Version 0.1.0-beta.6
+Version 0.1.0-beta.7
 
 This manual tells you how to use Lazy Arranger Midi DAW. It is for musicians,
 not programmers. Each picture has red numbers. The list under the picture
@@ -396,9 +396,11 @@ Open Settings with **File > Settings…** or **Ctrl/Cmd+,**.
    Choose the input channel and the audio buffer size.
 4. **Check for updates.** Tells you when a new version is on the Releases
    page.
-5. **Options.** Metronome with playback, find chords after recording,
-   monitor the input, quantise to 1/16, reduced motion, **Kids Mode** and
-   **Light theme**.
+5. **Options.** Metronome with playback, ask to save unsaved changes
+   before quitting, find chords after recording, monitor the input,
+   quantise to 1/16, reduced motion, **Kids Mode** and **Light theme**.
+   With the save question off, the app quits without asking; your edits
+   stay in the autosave.
 6. **AI.** The address, model and key of an AI service, a local AI command,
    and the speech presets (read aloud and dictate).
 7. **Save settings.** Saves your changes.

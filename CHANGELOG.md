@@ -5,6 +5,8 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
 
 ## [Unreleased]
 
+## [0.1.0-beta.7] - 2026-11-27
+
 ### Fixed
 - Mixer meters on MIDI tracks show real levels: a muted track (or one
   silenced by a solo) shows nothing, the fader scales the meter, and a
