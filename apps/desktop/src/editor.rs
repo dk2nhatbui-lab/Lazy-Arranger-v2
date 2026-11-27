@@ -724,6 +724,55 @@ impl Editor {
         Ok(())
     }
 
+    /// Turns a track's solo on or off. Solo is exclusive: turning it on
+    /// un-solos every other track, unless `add` is set (Cmd/Ctrl-click),
+    /// which adds the track to the tracks already soloed. One undo step.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the track is unknown or the command is
+    /// rejected.
+    pub fn solo_track(&mut self, track: TrackId, on: bool, add: bool) -> Result<(), String> {
+        let song = self.session.song();
+        let target = song
+            .tracks
+            .iter()
+            .find(|entry| entry.id == track)
+            .ok_or_else(|| format!("track {track} not found"))?;
+        let mut commands = vec![Command::SetTrackFlags {
+            track,
+            muted: target.muted,
+            soloed: on,
+            armed: target.armed,
+        }];
+        if on && !add {
+            commands.extend(
+                song.tracks
+                    .iter()
+                    .filter(|entry| entry.id != track && entry.soloed)
+                    .map(|entry| Command::SetTrackFlags {
+                        track: entry.id,
+                        muted: entry.muted,
+                        soloed: false,
+                        armed: entry.armed,
+                    }),
+            );
+        }
+        let command = if commands.len() == 1 {
+            commands.remove(0)
+        } else {
+            Command::Batch {
+                label: String::from("solo track"),
+                commands,
+            }
+        };
+        self.session
+            .apply(command)
+            .map_err(|error| error.to_string())?;
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Reads the drum pattern of one bar from a track.
     #[must_use]
     pub fn beat_pattern(
@@ -2719,6 +2768,36 @@ mod tests {
             chord: Chord::parse("C").expect("valid"),
         });
         Editor::new(ProjectFile::new(song)).expect("valid")
+    }
+
+    #[test]
+    fn solo_is_exclusive_unless_added_and_undoes_in_one_step() {
+        let mut song = Song::new("Solo", 120.0);
+        for id in 1..=3 {
+            song.tracks
+                .push(Track::new(TrackId::new(id).expect("valid"), "Track"));
+        }
+        let mut editor = Editor::new(ProjectFile::new(song)).expect("valid");
+        let ids: Vec<TrackId> = editor.song().tracks.iter().map(|track| track.id).collect();
+        assert!(ids.len() >= 3);
+        let soloed = |editor: &Editor| -> Vec<TrackId> {
+            editor
+                .song()
+                .tracks
+                .iter()
+                .filter(|track| track.soloed)
+                .map(|track| track.id)
+                .collect()
+        };
+        editor.solo_track(ids[0], true, false).expect("solo");
+        editor.solo_track(ids[1], true, true).expect("add");
+        assert_eq!(soloed(&editor), vec![ids[0], ids[1]]);
+        editor.solo_track(ids[2], true, false).expect("exclusive");
+        assert_eq!(soloed(&editor), vec![ids[2]]);
+        assert!(editor.undo());
+        assert_eq!(soloed(&editor), vec![ids[0], ids[1]]);
+        editor.solo_track(ids[0], false, false).expect("unsolo");
+        assert_eq!(soloed(&editor), vec![ids[1]]);
     }
 
     #[test]

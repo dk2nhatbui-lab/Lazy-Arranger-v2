@@ -1072,6 +1072,7 @@ impl ShellApp {
         let initial_timeline_zoom = crate::timeline::Zoom {
             time: settings.timeline_zoom,
             lane: settings.timeline_lane_height,
+            wave: settings.timeline_wave_zoom,
         }
         .clamped();
         let initial_waveform_zoom = settings.waveform_zoom;
@@ -5091,6 +5092,7 @@ impl eframe::App for ShellApp {
             self.settings.window_height = self.window_size.y;
             self.settings.timeline_zoom = self.timeline_zoom.time;
             self.settings.timeline_lane_height = self.timeline_zoom.lane;
+            self.settings.timeline_wave_zoom = self.timeline_zoom.wave;
             self.settings.waveform_zoom = self.waveform_zoom;
             self.settings.score_zoom = self.score.zoom;
             if let Some(position) = self.window_pos {

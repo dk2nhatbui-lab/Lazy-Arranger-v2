@@ -859,9 +859,11 @@ impl ShellApp {
                     "R" => self
                         .editor
                         .set_track_flags(row.id, row.muted, row.soloed, !row.armed),
-                    "S" => self
-                        .editor
-                        .set_track_flags(row.id, row.muted, !row.soloed, false),
+                    "S" => self.editor.solo_track(
+                        row.id,
+                        !row.soloed,
+                        super::mixer::solo_adds(ui.ctx()),
+                    ),
                     _ => self
                         .editor
                         .set_track_flags(row.id, !row.muted, row.soloed, false),
@@ -3744,13 +3746,20 @@ impl ShellApp {
                     self.status = Some(error);
                 }
                 ui.horizontal(|ui| {
+                    let was_soloed = soloed;
                     let changed = ui.checkbox(&mut muted, "Mute").changed()
                         | ui.checkbox(&mut soloed, "Solo").changed()
                         | ui.checkbox(&mut armed, "Arm").changed();
-                    if changed
-                        && let Err(error) =
-                            self.editor.set_track_flags(track_id, muted, soloed, armed)
-                    {
+                    if !changed {
+                        return;
+                    }
+                    let result = if soloed == was_soloed {
+                        self.editor.set_track_flags(track_id, muted, soloed, armed)
+                    } else {
+                        self.editor
+                            .solo_track(track_id, soloed, super::mixer::solo_adds(ui.ctx()))
+                    };
+                    if let Err(error) = result {
                         self.status = Some(error);
                     }
                 });
