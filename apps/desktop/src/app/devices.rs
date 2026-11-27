@@ -463,7 +463,7 @@ impl ShellApp {
             self.score.cursor += length;
         }
         for pitch in preview_keys {
-            self.preview_pitch(pitch);
+            self.preview_note_on(None, pitch);
         }
         if let Some(name) = detected_chord {
             self.style.last_chord = name.clone();
@@ -530,6 +530,7 @@ impl ShellApp {
                 };
                 match audio::player::Player::new(pads.audio(pad)) {
                     Ok(player) => {
+                        player.play();
                         self.pad_player = Some(player);
                         self.status = Some(format!("pad {note}"));
                     }

@@ -2856,7 +2856,7 @@ impl ShellApp {
             dirty = true;
         }
         if let Some(pitch) = outcome.preview {
-            self.preview_pitch(pitch);
+            self.preview_note_on(None, pitch);
         }
         if let Some(selected) = self.slot_note
             && !ui.ctx().wants_keyboard_input()
@@ -4606,7 +4606,7 @@ impl ShellApp {
             self.edit_click(click);
         }
         if let Some(pitch) = preview_note {
-            self.preview_pitch(pitch);
+            self.preview_note_on(None, pitch);
         }
         if let Some((track, note, velocity)) = velocity_edit
             && let Err(error) = self.editor.set_velocity(track, note, velocity)
@@ -4665,6 +4665,7 @@ impl ShellApp {
             let rendered = audio::live::render(&song, audio::SAMPLE_RATE);
             match audio::player::Player::new_live(rendered) {
                 Ok(player) => {
+                    player.play();
                     self.perform_player = Some(player);
                     self.status = Some(chord.format(music_core::Spelling::Sharp));
                 }

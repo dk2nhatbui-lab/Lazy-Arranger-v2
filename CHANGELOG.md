@@ -15,6 +15,11 @@ All notable changes to Lazy Arranger (Rust) are listed here. Versions follow
   trust, Loops fill and rename, put the drum pattern in bars) dim the app
   behind them and highlight the main button.
 
+### Fixed
+- Clicking a key on the piano roll keyboard plays that note, and adding a
+  note in the piano roll or score plays it, on the track's own instrument.
+  Drum grid clicks, drum pads and Perform chords make sound again too.
+
 ## [0.1.0-beta.7] - 2026-11-27
 
 ### Fixed

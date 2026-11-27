@@ -32,6 +32,7 @@ mod native_menu;
 mod notes_menu;
 mod plugin_trust;
 mod popup_menu;
+mod preview;
 mod settings_window;
 mod style;
 mod timeline_menu;
@@ -773,7 +774,8 @@ pub struct ShellApp {
     selected_note: Option<(TrackId, NoteId)>,
     selected_notes: Vec<(TrackId, NoteId)>,
     selected_chord: Option<Tick>,
-    preview_player: Option<audio::player::Player>,
+    /// Open preview stream and the output device it is on.
+    preview_player: Option<(audio::player::Player, Option<String>)>,
     selected_clip: Option<(TrackId, project::ClipId)>,
     /// Track whose audio part is selected on the timeline.
     selected_audio: Option<TrackId>,
@@ -1567,7 +1569,9 @@ impl ShellApp {
         } else {
             click.tick.max(0)
         };
-        let _ = self.editor.insert(track, start, pitch);
+        if self.editor.insert(track, start, pitch).is_ok() {
+            self.preview_note_on(Some(track), pitch.as_u8());
+        }
         self.selected_note = None;
         self.selected_clip = None;
         self.selected_clips.clear();
@@ -3171,7 +3175,10 @@ impl ShellApp {
                     if let Some(pad) = crate::pads::show(ui, pads) {
                         self.pad_selected = Some(pad.note);
                         match audio::player::Player::new(pads.audio(pad)) {
-                            Ok(player) => self.pad_player = Some(player),
+                            Ok(player) => {
+                                player.play();
+                                self.pad_player = Some(player);
+                            }
                             Err(error) => self.status = Some(error),
                         }
                     }
@@ -3218,7 +3225,10 @@ impl ShellApp {
                             pads.kit.pads.iter().find(|pad| pad.note == note).copied()
                     {
                         match audio::player::Player::new(pads.audio(pad)) {
-                            Ok(player) => self.pad_player = Some(player),
+                            Ok(player) => {
+                                player.play();
+                                self.pad_player = Some(player);
+                            }
                             Err(error) => self.status = Some(error),
                         }
                     }
@@ -3227,24 +3237,6 @@ impl ShellApp {
         if !open {
             self.pads_open = false;
         }
-    }
-
-    fn preview_pitch(&mut self, pitch: u8) {
-        let mut song = Song::new("Preview", 120.0);
-        let mut track = project::song::Track::new(TrackId::new(1).expect("valid"), "Preview");
-        if let (Ok(pitch), Ok(id)) = (music_core::Pitch::new(pitch), NoteId::new(1)) {
-            track.notes.push(project::song::Note {
-                id,
-                start: 0,
-                duration: music_core::PPQ / 2,
-                pitch,
-                velocity: music_core::Velocity::new(100).expect("valid"),
-                channel: music_core::Channel::first(),
-            });
-        }
-        song.tracks.push(track);
-        let rendered = audio::live::render(&song, audio::SAMPLE_RATE);
-        self.preview_player = audio::player::Player::new_live(rendered).ok();
     }
 
     /// Settings and shortcut windows.
